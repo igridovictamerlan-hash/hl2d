@@ -107,10 +107,15 @@ export class Game {
     this.camera.snapTo(this.player.x, this.player.y);
     this.bus.emit('map:loaded', { seed: map.seed, stats: map.stats, source });
     if (source === 'generated') {
-      const url = new URL(location.href);
-      url.searchParams.set('seed', String(map.seed));
-      url.searchParams.delete('map');
-      history.replaceState(null, '', url);
+      // В песочнице (например, опубликованная страница) адрес менять нельзя — это не ошибка.
+      try {
+        const url = new URL(location.href);
+        url.searchParams.set('seed', String(map.seed));
+        url.searchParams.delete('map');
+        history.replaceState(null, '', url);
+      } catch {
+        /* нет доступа к адресу */
+      }
     }
   }
 
