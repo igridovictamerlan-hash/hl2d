@@ -70,11 +70,14 @@ describe('генератор переулочного города', () => {
       test('все обязательные районы и точки', () => {
         const map = get(seed);
         const kinds = new Set(map.zones.map((z) => z.kind));
-        for (const k of ['residential', 'avenue', 'plaza', 'nexus', 'cells', 'industrial', 'restricted'] as ZoneKind[]) {
+        for (const k of ['residential', 'avenue', 'plaza', 'nexus', 'cells', 'industrial', 'restricted', 'checkpoint', 'outlands'] as ZoneKind[]) {
           expect(kinds.has(k)).toBe(true);
         }
         expect(map.poisOf('cell').length).toBeGreaterThanOrEqual(4);
         expect(map.poisOf('ration_window').length).toBe(1);
+        expect(map.poisOf('checkpoint_post').length).toBe(4);
+        expect(map.poisOf('outlands_exit').length).toBe(2);
+        expect(map.zones.filter((z) => z.kind === 'checkpoint')).toHaveLength(2);
       });
 
       test('открытые пространства ≤ 300×300 px: площадь и двор Нексуса', () => {
@@ -102,7 +105,7 @@ describe('генератор переулочного города', () => {
         expect(doors).toBeGreaterThan(10);
       });
 
-      test('магистраль шириной 100–140 px пересекает город', () => {
+      test('магистраль шириной 100–140 px пересекает город (концы — коридоры КПП)', () => {
         const map = get(seed);
         // Ищем столбец, где подряд идут 7–8 тайлов асфальта.
         let widest = 0;
@@ -117,7 +120,10 @@ describe('генератор переулочного города', () => {
         let streetCols = 0;
         for (let x = 0; x < map.width; x++) {
           let has = false;
-          for (let y = 0; y < map.height && !has; y++) has = map.tiles[y * map.width + x] === T.STREET;
+          for (let y = 0; y < map.height && !has; y++) {
+            const t = map.tiles[y * map.width + x];
+            has = t === T.STREET || t === T.BUNKER || t === T.WASTE || t === T.GATE;
+          }
           if (has) streetCols++;
         }
         expect(streetCols).toBeGreaterThan(map.width - 2 * GENERATOR.border - 2);

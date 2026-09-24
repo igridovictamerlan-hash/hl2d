@@ -25,6 +25,9 @@ const PREVIEW_COLORS: Record<number, [number, number, number]> = {
   [T.DOOR]: [190, 120, 60],
   [T.GATE]: [220, 180, 60],
   [T.COURTYARD]: [96, 118, 80],
+  [T.BUNKER]: [130, 136, 140],
+  [T.WASTE]: [120, 100, 60],
+  [T.BARRIER]: [60, 60, 60],
 };
 
 /**

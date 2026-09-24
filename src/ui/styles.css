@@ -11,6 +11,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -151,7 +152,10 @@ html, body {
   right: 16px;
   bottom: 16px;
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100vw - 300px);
+  gap: 4px 12px;
   padding: 6px 10px;
   font-size: 12px;
   color: var(--muted);
@@ -169,3 +173,83 @@ kbd {
   .dev { width: calc(100vw - 32px); }
   .help { display: none; }
 }
+
+.hud-law { margin-top: 6px; padding: 4px 6px; border-radius: 4px; background: rgba(255, 91, 74, 0.16); color: #ffb3a8; font-size: 13px; }
+
+/* Журнал событий */
+.event-log {
+  position: absolute;
+  left: 16px;
+  bottom: 200px;
+  width: min(460px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  pointer-events: none;
+}
+.log-line { padding: 2px 8px; background: rgba(8, 10, 12, 0.6); border-radius: 3px; transition: opacity 1.5s; text-shadow: 0 1px 2px #000; }
+.log-line.old { opacity: 0.35; }
+.log-law { color: var(--hud); }
+.log-radio { color: #8fc3f5; }
+.log-world { color: var(--text); }
+.log-system { color: var(--muted); }
+
+/* Меню ролей */
+.role-menu {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(3, 5, 8, 0.72);
+  pointer-events: auto;
+}
+.role-box {
+  width: min(980px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.role-head { display: flex; justify-content: space-between; align-items: center; color: var(--hud); letter-spacing: 0.14em; margin-bottom: 10px; }
+.role-close { font: 20px var(--font); color: var(--text); background: none; border: none; cursor: pointer; }
+.role-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.role-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--panel-border); border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
+.role-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; flex: 1; }
+.role-top { display: flex; align-items: center; gap: 8px; }
+.role-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid; flex: none; }
+.role-rank { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.role-card select, .role-card button, .check-actions button {
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.role-card select { flex: 1; }
+.role-card button, .check-actions button { cursor: pointer; }
+.role-card button:hover, .check-actions button:hover { background: rgba(255, 211, 107, 0.16); color: var(--hud); }
+.role-card button:focus-visible, .check-actions button:focus-visible { outline: 2px solid var(--hud); }
+.role-foot { margin-top: 10px; font-size: 12px; color: var(--muted); }
+
+/* Проверка CID */
+.check-panel {
+  left: 50%;
+  bottom: 70px;
+  transform: translateX(-50%);
+  width: min(380px, calc(100vw - 32px));
+  padding: 10px 12px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.check-head { color: var(--hud); letter-spacing: 0.14em; font-size: 12px; }
+.check-name { font-size: 15px; }
+.check-panel .bad { color: var(--danger); }
+.check-actions { display: flex; gap: 6px; margin-top: 6px; }
+.check-actions button { flex: 1; }

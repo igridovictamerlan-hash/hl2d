@@ -5,6 +5,8 @@ import type { EntityManager } from '../entities/EntityManager';
 import type { Character } from '../entities/Character';
 import type { Rng } from '../core/rng';
 import type { AnchorBfs } from './yieldSearch';
+import type { LawSystem } from '../systems/LawSystem';
+import type { DoorSystem } from '../systems/DoorSystem';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -18,4 +20,6 @@ export interface AiContext {
   player: Character | null;
   /** Время игры, с. */
   time: number;
+  law: LawSystem;
+  doors: DoorSystem;
 }

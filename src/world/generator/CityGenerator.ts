@@ -10,8 +10,8 @@ import { buildingRatio, longestAlleyRun, type MapStats } from '../mapStats';
 import { GenGrid } from './GenGrid';
 import { planLayout, avenueOffsetAt, avenueRects } from './layout';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
-import { stampPlaza, stampTemplate, stampRestricted, carveConnectorChecked } from './stamps';
-import { NEXUS_TEMPLATE, rotateTemplate } from './templates';
+import { stampPlaza, stampTemplate, stampRestricted, carveConnector, carveConnectorChecked } from './stamps';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, rotateTemplate, mirrorTemplate } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 
 /**
@@ -65,6 +65,7 @@ export function validateMap(map: GameMap): string[] {
   if (s.buildingRatio < lo || s.buildingRatio > hi) out.push(`доля зданий ${(s.buildingRatio * 100).toFixed(1)}%`);
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 4], ['restricted_gate', 1],
+    ['checkpoint_post', 4], ['outlands_exit', 2],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -100,7 +101,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   assignRegions(lat, {
     restricted: layout.restricted,
     restrictedInner,
-    voids: [layout.nexus],
+    voids: [layout.nexus, ...layout.checkpoints.map((c) => c.rect)],
     industrial: layout.industrial,
   });
   const starts: number[] = [];
@@ -148,6 +149,8 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const zCells = addZone('cells', ZONE_NAMES.cells, 'K');
   const zInd = addZone('industrial', ZONE_NAMES.industrial, 'I');
   const zRes = addZone('restricted', ZONE_NAMES.restricted, 'R');
+  const zCheckpoints = layout.checkpoints.map((_, k) => addZone('checkpoint', ZONE_NAMES.checkpoints[k], k === 0 ? 'W' : 'E'));
+  const zOut = addZone('outlands', ZONE_NAMES.outlands, 'O');
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -201,6 +204,20 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   pois.push({ type: 'nexus_yard', x: layout.nexus.x + ((yx0 + yx1) >> 1), y: layout.nexus.y + ((yy0 + yy1) >> 1) });
 
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);
+
+  // Пограничные КПП. Выход только один — в сторону города (к проспекту).
+  layout.checkpoints.forEach((cp, k) => {
+    const rows = cp.mirror ? mirrorTemplate(CHECKPOINT_TEMPLATE) : [...CHECKPOINT_TEMPLATE];
+    const res = stampTemplate(g, rows, cp.rect.x, cp.rect.y, (ch) => (ch === 'o' ? zOut : zCheckpoints[k]), pois);
+    const cityDx = cp.mirror ? -1 : 1;
+    for (const exit of res.exits) {
+      if (exit.dx !== cityDx) continue;
+      if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
+    }
+    let sx = 0, sy = 0, n = 0;
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[0].length; x++) if (rows[y][x] === 'o') { sx += x; sy += y; n++; }
+    pois.push({ type: 'outlands_exit', x: cp.rect.x + Math.round(sx / n), y: cp.rect.y + Math.round(sy / n) });
+  });
 
   // 5. Детали застройки.
   const zoneKindAt = (x: number, y: number) => zones[g.zones[y * W + x]]?.kind;

@@ -1,11 +1,17 @@
 import type { MapStats } from '../world/mapStats';
 import type { Zone } from '../world/GameMap';
+import type { Character } from '../entities/Character';
+import type { Verdict } from '../systems/LawSystem';
 
 /** Все события игры и их данные. Новые события добавлять сюда. */
 export interface GameEvents {
   'map:loaded': { seed: number; stats: MapStats | null; source: 'generated' | 'file' };
   'zone:enter': { entityId: number; zone: Zone };
-  log: { text: string; kind: 'system' | 'world' };
+  log: { text: string; kind: 'system' | 'world' | 'radio' | 'law' };
+  /** Игрок-ГО закончил проверку документов — показать решение. */
+  'law:checkResult': { target: Character; verdict: Verdict };
+  /** Панель проверки закрыта (решение принято или задержанный ушёл). */
+  'law:checkClosed': { target: Character };
 }
 
 type Handler<T> = (payload: T) => void;

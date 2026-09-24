@@ -1,7 +1,7 @@
 import type { Rng } from '../../core/rng';
 import { clamp, rectsOverlap, type Rect, type Vec2 } from '../../core/math';
 import { GENERATOR } from '../../config/generator';
-import { NEXUS_TEMPLATE } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE } from './templates';
 
 /**
  * Макро-план города: магистрали, линии решётки, прямоугольники районов и штампов.
@@ -49,6 +49,8 @@ export interface CityLayout {
   plazaSide: 'N' | 'S';
   nexus: Rect;
   nexusRot: 0 | 180;
+  /** Пограничные КПП на концах главного проспекта; mirror — город с запада (восточный конец). */
+  checkpoints: { rect: Rect; mirror: boolean }[];
   quarterSeeds: Vec2[];
 }
 
@@ -262,10 +264,26 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   const py = plazaSide === 'N' ? longSeg.offset - plazaSize : longSeg.offset + hWidth;
   const plaza: Rect = { x: px, y: py, w: plazaSize, h: plazaSize };
 
+  // Пограничные КПП: коридор КПП продолжает главный проспект у западной и восточной стены.
+  const cw = CHECKPOINT_TEMPLATE[0].length;
+  const ch = CHECKPOINT_TEMPLATE.length;
+  const checkpoints = [false, true].map((mirror) => {
+    const x = mirror ? W - border - cw : border;
+    const apronX = mirror ? x : x + cw - 1;
+    const mid = avenueOffsetAt(hAvenue, apronX) + Math.floor(hWidth / 2);
+    // Ряды коридора в шаблоне — 8..11: центр коридора совпадает с серединой проспекта.
+    return { rect: { x, y: mid - 10, w: cw, h: ch }, mirror };
+  });
+  for (const c of checkpoints) {
+    if (rectsOverlap(c.rect, restricted, 3) || rectsOverlap(c.rect, plaza, 3)) {
+      throw new Error('layout: КПП пересекается с районом');
+    }
+  }
+
   // Нексус: рядом с площадью или напротив неё, воротами к магистрали.
   const nw = NEXUS_TEMPLATE[0].length;
   const nh = NEXUS_TEMPLATE.length;
-  const blocked: Rect[] = [restricted, plaza];
+  const blocked: Rect[] = [restricted, plaza, ...checkpoints.map((c) => c.rect)];
   if (vAvenue) blocked.push(vAvenue.band);
   const candidates: { rect: Rect; rot: 0 | 180 }[] = [];
   const nexusOnSide = (side: 'N' | 'S', x: number) => {
@@ -321,6 +339,7 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
     plazaSide,
     nexus: pick.rect,
     nexusRot: pick.rot,
+    checkpoints,
     quarterSeeds,
   };
 }

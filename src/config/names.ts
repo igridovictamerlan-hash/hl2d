@@ -36,4 +36,6 @@ export const ZONE_NAMES = {
   cells: 'КПЗ Нексуса',
   industrial: 'Промзона',
   restricted: 'Запретная зона',
+  checkpoints: ['Пограничный КПП «Запад»', 'Пограничный КПП «Восток»'],
+  outlands: 'Пустоши (за городской стеной)',
 } as const;

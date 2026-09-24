@@ -13,6 +13,9 @@ export const T = {
   GATE: 7,
   COURTYARD: 8,
   METAL: 9,
+  BUNKER: 10,
+  WASTE: 11,
+  BARRIER: 12,
 } as const;
 
 export type TileId = (typeof T)[keyof typeof T];
@@ -37,6 +40,10 @@ export const TILE_DEFS: readonly TileDef[] = [
   { id: T.GATE, key: 'gate', char: 'g', name: 'Ворота / КПП', solid: false, opaque: false },
   { id: T.COURTYARD, key: 'courtyard', char: 'y', name: 'Двор-колодец', solid: false, opaque: false },
   { id: T.METAL, key: 'metal', char: 'M', name: 'Стена Альянса', solid: true, opaque: true },
+  { id: T.BUNKER, key: 'bunker', char: 'k', name: 'Бетонный пол КПП', solid: false, opaque: false },
+  { id: T.WASTE, key: 'waste', char: 'o', name: 'Пустошь за городом', solid: false, opaque: false },
+  // Низкое укрытие: не пройти, но видно поверх (для перестрелок в коридоре КПП).
+  { id: T.BARRIER, key: 'barrier', char: 'B', name: 'Бетонный блок (укрытие)', solid: true, opaque: false },
 ];
 
 /** Быстрые таблицы: SOLID[tileId] === 1 — непроходим. */

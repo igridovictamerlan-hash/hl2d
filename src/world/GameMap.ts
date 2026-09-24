@@ -1,7 +1,16 @@
 import { SOLID, OPAQUE, T } from './tiles';
 import type { MapStats } from './mapStats';
 
-export type ZoneKind = 'residential' | 'avenue' | 'plaza' | 'nexus' | 'cells' | 'industrial' | 'restricted';
+export type ZoneKind =
+  | 'residential'
+  | 'avenue'
+  | 'plaza'
+  | 'nexus'
+  | 'cells'
+  | 'industrial'
+  | 'restricted'
+  | 'checkpoint'
+  | 'outlands';
 
 export interface Zone {
   id: number;
@@ -19,7 +28,10 @@ export type PoiType =
   | 'nexus_yard'
   | 'cell'
   | 'restricted_gate'
-  | 'industrial_yard';
+  | 'industrial_yard'
+  | 'checkpoint_post'
+  | 'outlands_exit'
+  | 'recruit_terminal';
 
 /** Точка интереса в координатах тайлов. */
 export interface Poi {
@@ -32,6 +44,10 @@ export interface Poi {
 export class GameMap {
   readonly worldWidth: number;
   readonly worldHeight: number;
+  /** Динамика дверей (не сохраняется в JSON): 1 — дверь закрыта и перекрывает обзор. */
+  readonly doorClosed: Uint8Array;
+  /** 1 — дверь заперта и непроходима (камеры КПЗ). */
+  readonly doorLocked: Uint8Array;
 
   constructor(
     readonly width: number,
@@ -47,6 +63,9 @@ export class GameMap {
   ) {
     this.worldWidth = width * tileSize;
     this.worldHeight = height * tileSize;
+    this.doorClosed = new Uint8Array(width * height);
+    this.doorLocked = new Uint8Array(width * height);
+    for (let i = 0; i < tiles.length; i++) if (tiles[i] === T.DOOR) this.doorClosed[i] = 1;
   }
 
   inBounds(tx: number, ty: number): boolean {
@@ -57,13 +76,18 @@ export class GameMap {
     return this.inBounds(tx, ty) ? this.tiles[ty * this.width + tx] : T.WALL;
   }
 
-  /** За пределами карты — стена. */
+  /** За пределами карты — стена. Запертая дверь — тоже стена. */
   isSolid(tx: number, ty: number): boolean {
-    return !this.inBounds(tx, ty) || SOLID[this.tiles[ty * this.width + tx]] === 1;
+    if (!this.inBounds(tx, ty)) return true;
+    const i = ty * this.width + tx;
+    return SOLID[this.tiles[i]] === 1 || this.doorLocked[i] === 1;
   }
 
+  /** Перекрывает ли тайл обзор (стены и закрытые двери). */
   isOpaque(tx: number, ty: number): boolean {
-    return !this.inBounds(tx, ty) || OPAQUE[this.tiles[ty * this.width + tx]] === 1;
+    if (!this.inBounds(tx, ty)) return true;
+    const i = ty * this.width + tx;
+    return OPAQUE[this.tiles[i]] === 1 || this.doorClosed[i] === 1;
   }
 
   zoneAtTile(tx: number, ty: number): Zone | null {

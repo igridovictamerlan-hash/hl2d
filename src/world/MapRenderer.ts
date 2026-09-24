@@ -79,6 +79,9 @@ export class MapRenderer {
           case T.ARCH: this.color[i] = tone(P.arch); break;
           case T.DOOR: this.color[i] = P.doorFrame; break;
           case T.GATE: this.color[i] = P.gate; break;
+          case T.BUNKER: this.color[i] = tone(P.bunker); break;
+          case T.WASTE: this.color[i] = tone(P.waste); break;
+          case T.BARRIER: this.color[i] = P.barrier; break;
           default: this.color[i] = '#f0f';
         }
       }
@@ -181,7 +184,23 @@ export class MapRenderer {
             if (e & 8) ctx.fillRect(x0, y0, line * 2, ch);
             if (e & 2) ctx.fillRect(x1 - line * 2, y0, line * 2, ch);
             continue;
+          case T.BARRIER: {
+            const b = px(1.5);
+            ctx.fillStyle = P.barrierEdge;
+            ctx.fillRect(x0, y1 - b, cw, b);
+            ctx.fillRect(x1 - b, y0, b, ch);
+            ctx.fillStyle = P.barrierTop;
+            ctx.fillRect(x0, y0, cw, b);
+            ctx.fillRect(x0, y0, b, ch);
+            continue;
+          }
+          case T.BUNKER:
+            ctx.fillStyle = P.bunkerLine;
+            if ((tx & 1) === 0) ctx.fillRect(x0, y0, line, ch);
+            if ((ty & 1) === 0) ctx.fillRect(x0, y0, cw, line);
+            break;
           case T.FLOOR:
+          case T.WASTE:
           case T.COURTYARD:
             ctx.fillStyle = P.speckle;
             ctx.fillRect(x0 + px((hv & 15) * 0.8), y0 + px(((hv >> 4) & 15) * 0.8), px(2), px(2));
@@ -208,9 +227,19 @@ export class MapRenderer {
             ctx.fillRect(x0, y0, cw, ch);
             break;
           case T.DOOR: {
+            // Закрытая — полотно двери, открытая — проём, запертая — с красной полосой.
             const inset = px(2);
-            ctx.fillStyle = P.door;
-            ctx.fillRect(x0 + inset, y0 + inset, cw - inset * 2, ch - inset * 2);
+            if (map.doorClosed[i]) {
+              ctx.fillStyle = P.door;
+              ctx.fillRect(x0 + inset, y0 + inset, cw - inset * 2, ch - inset * 2);
+              if (map.doorLocked[i]) {
+                ctx.fillStyle = P.doorLocked;
+                ctx.fillRect(x0 + inset, y0 + (ch >> 1) - inset, cw - inset * 2, inset * 2);
+              }
+            } else {
+              ctx.fillStyle = P.doorOpen;
+              ctx.fillRect(x0 + inset, y0 + inset, cw - inset * 2, ch - inset * 2);
+            }
             break;
           }
           case T.GATE:

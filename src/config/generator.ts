@@ -79,6 +79,6 @@ export const GENERATOR = {
 
   validation: {
     buildingRatio: [0.64, 0.78] as const,
-    attempts: 10,
+    attempts: 16,
   },
 } as const;

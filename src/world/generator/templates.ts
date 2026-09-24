@@ -4,6 +4,8 @@
  *   M — стена Альянса      # — внутренняя стена    , — пол внутри здания
  *   c — пол камеры КПЗ     D — дверь камеры         d — дверь
  *   : — двор (плитка)      g — ворота               F — стойка дежурного (пол + точка интереса)
+ *   k — бетонный пол КПП   B — бетонный блок-укрытие  P — пост ГО (бетон + точка интереса)
+ *   o — пустошь за городом
  * Проходимые клетки на краю шаблона — выходы: генератор прокапывает от них проход наружу.
  */
 export const NEXUS_TEMPLATE: readonly string[] = [
@@ -38,4 +40,37 @@ export const NEXUS_TEMPLATE: readonly string[] = [
 export function rotateTemplate(rows: readonly string[], rot: 0 | 180): string[] {
   if (rot === 0) return [...rows];
   return [...rows].reverse().map((r) => [...r].reverse().join(''));
+}
+
+/**
+ * Пограничный КПП (каноническая ориентация: пустошь на западе, город на востоке).
+ * Длинный коридор 4 тайла с шахматными укрытиями — место «коридорной рубки»;
+ * ворота с обеих сторон, бункеры ГО сверху и снизу с дверями в коридор.
+ */
+export const CHECKPOINT_TEMPLATE: readonly string[] = [
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM####dd#########dd####MMMMMMM',
+  'ooooooggkkkBkkkkkkkBkkkkkPkkggkkkkkk',
+  'ooooooggkkkBkkkkkkkBkkkkkkkkggkkkkkk',
+  'ooooooggkkkkkkkBkkkkkkkBkkkkggkkkkkk',
+  'ooooooggkkkkkkkBkkkkkkkBkPkkggkkkkkk',
+  'ooooooMM###dd###########dd##MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+];
+
+/** Зеркало по горизонтали (КПП на восточном конце проспекта). */
+export function mirrorTemplate(rows: readonly string[]): string[] {
+  return rows.map((r) => [...r].reverse().join(''));
 }

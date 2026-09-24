@@ -1,6 +1,8 @@
 /** Параметры ИИ NPC. Время — в секундах, расстояния — в px, если не сказано иное. */
 export const AI = {
+  /** Население при старте. citizens меняется параметром ?npcs=. */
   citizens: 20,
+  population: { cwu: 3, cpPatrol: 6, cpPerCheckpoint: 2, rebels: 3, admin: 1 },
 
   /** Сколько запросов A* обрабатывается за один тик (распределение нагрузки). */
   pathBudgetPerTick: 4,

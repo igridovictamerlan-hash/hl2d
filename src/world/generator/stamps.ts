@@ -23,6 +23,10 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   ':': T.PLAZA,
   g: T.GATE,
   F: T.INTERIOR,
+  k: T.BUNKER,
+  o: T.WASTE,
+  B: T.BARRIER,
+  P: T.BUNKER,
 };
 
 export interface StampResult {
@@ -51,6 +55,7 @@ export function stampTemplate(
       g.set(x0 + x, y0 + y, t, true);
       g.zones[(y0 + y) * g.w + x0 + x] = zoneOf(ch);
       if (ch === 'F') pois.push({ type: 'nexus_desk', x: x0 + x, y: y0 + y });
+      if (ch === 'P') pois.push({ type: 'checkpoint_post', x: x0 + x, y: y0 + y });
     }
   }
   g.lockRect({ x: x0, y: y0, w, h });
@@ -165,6 +170,8 @@ export function stampPlaza(g: GenGrid, plaza: Rect, side: 'N' | 'S', zone: numbe
   const wy = side === 'N' ? by + bh : by - 1;
   pois.push({ type: 'ration_window', x: cx, y: wy });
   pois.push({ type: 'plaza_center', x: cx, y: plaza.y + Math.floor(plaza.h / 2) });
+  // Терминал найма — в углу площади у будки.
+  pois.push({ type: 'recruit_terminal', x: plaza.x + 1, y: side === 'N' ? plaza.y + 1 : plaza.y + plaza.h - 2 });
 }
 
 /** Прямоугольник, который займёт проход от выхода длиной len. */

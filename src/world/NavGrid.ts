@@ -43,6 +43,18 @@ export class NavGrid {
     }
   }
 
+  /** Пересчёт проходимости якорей в прямоугольнике тайлов (после запирания/отпирания двери). */
+  refresh(tx0: number, ty0: number, tx1: number, ty1: number): void {
+    const map = this.map;
+    for (let ay = Math.max(0, ty0 - 1); ay <= Math.min(this.h - 1, ty1); ay++) {
+      for (let ax = Math.max(0, tx0 - 1); ax <= Math.min(this.w - 1, tx1); ax++) {
+        const free =
+          !map.isSolid(ax, ay) && !map.isSolid(ax + 1, ay) && !map.isSolid(ax, ay + 1) && !map.isSolid(ax + 1, ay + 1);
+        this.walk[ay * this.w + ax] = free ? 1 : 0;
+      }
+    }
+  }
+
   isWalkable(ax: number, ay: number): boolean {
     return ax >= 0 && ay >= 0 && ax < this.w && ay < this.h && this.walk[ay * this.w + ax] === 1;
   }
