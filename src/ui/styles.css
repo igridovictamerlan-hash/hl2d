@@ -1,0 +1,171 @@
+/* Интерфейс в духе HUD Half-Life 2: янтарный текст на полупрозрачной тёмной подложке. */
+:root {
+  --hud: #ffd36b;
+  --hud-dim: rgba(255, 211, 107, 0.6);
+  --panel: rgba(12, 14, 16, 0.72);
+  --panel-border: rgba(255, 211, 107, 0.18);
+  --text: #e6e3da;
+  --muted: #9a978f;
+  --danger: #ff5b4a;
+  --font: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #07090b;
+  color: var(--text);
+  font-family: var(--font);
+}
+
+#game {
+  display: block;
+  position: fixed;
+  inset: 0;
+  cursor: none;
+  outline: none;
+}
+
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+#ui .panel {
+  position: absolute;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+#loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--hud);
+  font-size: 18px;
+  letter-spacing: 0.1em;
+  background: #07090b;
+}
+
+/* HUD */
+.hud {
+  left: 16px;
+  bottom: 16px;
+  width: 230px;
+  padding: 10px 12px;
+  color: var(--hud);
+  pointer-events: none !important;
+}
+.hud-row { display: flex; justify-content: space-between; align-items: baseline; }
+.hud-label { font-size: 11px; letter-spacing: 0.14em; color: var(--hud-dim); }
+.hud-value { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hp-bar { height: 5px; margin: 2px 0 8px; background: rgba(255, 211, 107, 0.15); border-radius: 3px; overflow: hidden; }
+.hp-fill { height: 100%; background: var(--hud); transition: width 0.2s; }
+.hp-fill.low { background: var(--danger); }
+.hud-id { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--panel-border); }
+.hud-name { font-size: 14px; color: var(--text); }
+.hud-role { font-size: 12px; margin-top: 2px; }
+
+/* Название зоны */
+.zone-banner {
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 18px;
+  font-size: 22px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--hud);
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.9), 0 2px 4px #000;
+  opacity: 0;
+  white-space: nowrap;
+}
+.zone-banner.visible { animation: zone-fade 2.6s ease forwards; }
+@keyframes zone-fade {
+  0% { opacity: 0; transform: translate(-50%, -6px); }
+  12% { opacity: 1; transform: translate(-50%, 0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Панель карты */
+.dev {
+  top: 16px;
+  right: 16px;
+  width: 280px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  font-size: 12px;
+}
+.dev-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  color: var(--hud);
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  user-select: none;
+}
+.dev-key { color: var(--muted); letter-spacing: 0; }
+.dev-body { padding: 0 12px 10px; }
+.dev-body.hidden { display: none; }
+.dev-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.dev-row > * { flex: 1; min-width: 0; }
+.dev input, .dev button {
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 5px 6px;
+}
+.dev button { cursor: pointer; }
+.dev button:hover { background: rgba(255, 211, 107, 0.16); color: var(--hud); }
+.dev-preview { position: relative; width: 100%; aspect-ratio: 1; margin: 4px 0 6px; }
+.dev-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  border-radius: 3px;
+}
+.dev-pos { color: var(--hud-dim); margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.dev-stats > div { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+.dev-stats span { color: var(--muted); }
+.dev-stats b { font-weight: 500; text-align: right; }
+.dev-info { margin-top: 6px; color: var(--hud-dim); min-height: 1em; }
+.dev-info.error { color: var(--danger); }
+
+/* Подсказка */
+.help {
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 12px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none !important;
+}
+kbd {
+  font: 11px var(--font);
+  color: var(--hud);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+@media (max-width: 700px) {
+  .dev { width: calc(100vw - 32px); }
+  .help { display: none; }
+}

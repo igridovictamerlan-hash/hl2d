@@ -1,0 +1,43 @@
+/** Палитра отрисовки мира. Тёмная, холодная гамма Сити-17. */
+export const RENDER = {
+  background: '#07090b',
+  tiles: {
+    /** Крыши: hue/sat/light — у каждого дома свой оттенок в этих пределах. */
+    roof: { hues: [210, 25, 200, 215, 35] as readonly number[], sat: [5, 11] as const, light: [8, 13] as const },
+    roofEdge: 'rgba(170,180,190,0.22)',
+    roofSeam: 'rgba(0,0,0,0.45)',
+    metal: '#1a2735',
+    metalLine: 'rgba(90,150,210,0.22)',
+    floor: { h: 38, s: 6, l: 28, noise: 2.4 },
+    street: { h: 210, s: 5, l: 23, noise: 1.2 },
+    streetMark: 'rgba(200,190,140,0.18)',
+    plaza: { h: 40, s: 8, l: 33, noise: 1.5 },
+    plazaLine: 'rgba(0,0,0,0.22)',
+    interior: { h: 28, s: 18, l: 25, noise: 1.5 },
+    interiorLine: 'rgba(0,0,0,0.25)',
+    courtyard: { h: 75, s: 12, l: 24, noise: 2.5 },
+    arch: { h: 35, s: 6, l: 24, noise: 1.5 },
+    archRoof: 'rgba(0,0,0,0.35)',
+    door: '#5b3d20',
+    doorFrame: '#2a1b0e',
+    gate: '#2c3a47',
+    gateStripe: 'rgba(230,190,60,0.35)',
+    speckle: 'rgba(0,0,0,0.18)',
+    /** Тень от зданий на пол (свет с северо-запада). */
+    shadow: 'rgba(0,0,0,0.38)',
+    shadowSize: 5,
+  },
+  entity: {
+    nameFont: '600 11px "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    roleFont: '500 9px "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    nameColor: '#e8e8e2',
+    playerNameColor: '#ffd36b',
+    labelShadow: 'rgba(0,0,0,0.85)',
+    playerRing: 'rgba(255,211,107,0.85)',
+  },
+  crosshair: 'rgba(255,211,107,0.9)',
+  /** Предел пикселей холста: на 4K/HiDPI рендерим в меньшем разрешении ради FPS. */
+  maxCanvasPixels: 2560 * 1440,
+  maxDpr: 2,
+  vignette: 0.5,
+} as const;

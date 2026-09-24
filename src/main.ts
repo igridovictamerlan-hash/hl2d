@@ -1,0 +1,39 @@
+import './ui/styles.css';
+import { Game } from './core/Game';
+import { AI } from './config/ai';
+import { fetchMap } from './world/mapIO';
+
+/**
+ * Точка входа. Параметры адреса:
+ *   ?seed=123   — сгенерировать карту по seed (записывается автоматически)
+ *   ?map=city1  — загрузить public/maps/city1.json
+ *   ?npcs=40    — число NPC-граждан
+ *   ?debug=1    — сразу включить отладку ИИ
+ */
+const params = new URLSearchParams(location.search);
+const canvas = document.getElementById('game') as HTMLCanvasElement;
+const uiRoot = document.getElementById('ui')!;
+const loading = document.getElementById('loading');
+
+const npcs = params.has('npcs') ? Math.max(0, Math.min(200, Number(params.get('npcs')) || 0)) : AI.citizens;
+const game = new Game(canvas, uiRoot, { npcs });
+// Для отладки из консоли браузера.
+(window as unknown as { game: Game }).game = game;
+
+async function boot(): Promise<void> {
+  const mapName = params.get('map');
+  try {
+    if (mapName) game.loadMap(await fetchMap(`${import.meta.env.BASE_URL}maps/${mapName}.json`));
+    else game.regenerate(params.has('seed') ? Math.abs(Math.floor(Number(params.get('seed')))) || 0 : undefined);
+  } catch (e) {
+    console.error(e);
+    game.regenerate();
+    game.ui.dev.message(`Не удалось загрузить карту: ${(e as Error).message}`, true);
+  }
+  if (params.has('debug')) game.debug.enabled = true;
+  loading?.remove();
+  canvas.focus();
+  game.loop.start();
+}
+
+void boot();
