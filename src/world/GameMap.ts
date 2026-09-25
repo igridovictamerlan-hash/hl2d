@@ -11,7 +11,16 @@ export type ZoneKind =
   | 'restricted'
   | 'checkpoint'
   | 'outlands'
-  | 'shop';
+  | 'shop'
+  | 'sewer'
+  | 'rebel_base'
+  | 'black_market';
+
+/** Уровень: город или канализация под ним. */
+export type Level = 'city' | 'sewer';
+
+/** Зоны канализации (по ним определяется её прямоугольник на сетке). */
+export const UNDERGROUND_KINDS: readonly ZoneKind[] = ['sewer', 'rebel_base', 'black_market'];
 
 export interface Zone {
   id: number;
@@ -33,13 +42,38 @@ export type PoiType =
   | 'checkpoint_post'
   | 'outlands_exit'
   | 'recruit_terminal'
-  | 'shop_counter';
+  | 'shop_counter'
+  | 'hatch'
+  | 'sewer_hatch'
+  | 'rebel_base'
+  | 'rebel_cache'
+  | 'black_market'
+  | 'trader';
 
-/** Точка интереса в координатах тайлов. */
+/**
+ * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)
+ * задают якорь 2×2 (x, y — его левый верхний тайл, центр — на стыке четырёх тайлов) и связаны
+ * попарно одинаковым id.
+ */
 export interface Poi {
   type: PoiType;
   x: number;
   y: number;
+  id?: number;
+}
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Пара люков: центры в px мира. */
+export interface HatchPair {
+  id: number;
+  city: { x: number; y: number };
+  sewer: { x: number; y: number };
 }
 
 /** Карта города: сетка тайлов, сетка зон, точки интереса. Только данные и запросы. */
@@ -50,6 +84,9 @@ export class GameMap {
   readonly doorClosed: Uint8Array;
   /** 1 — дверь заперта и непроходима (камеры КПЗ). */
   readonly doorLocked: Uint8Array;
+  /** Прямоугольник канализации в тайлах (null — карта без неё). */
+  readonly underground: Rect | null;
+  readonly hatches: HatchPair[];
 
   constructor(
     readonly width: number,
@@ -68,6 +105,47 @@ export class GameMap {
     this.doorClosed = new Uint8Array(width * height);
     this.doorLocked = new Uint8Array(width * height);
     for (let i = 0; i < tiles.length; i++) if (tiles[i] === T.DOOR) this.doorClosed[i] = 1;
+    // Канализация — описывающий прямоугольник её зон.
+    const ug = new Set(zones.filter((z) => UNDERGROUND_KINDS.includes(z.kind)).map((z) => z.id));
+    let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+    if (ug.size) {
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (!ug.has(zoneGrid[y * width + x])) continue;
+          if (x < x0) x0 = x;
+          if (y < y0) y0 = y;
+          if (x > x1) x1 = x;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+    this.underground = x1 >= 0 ? { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 } : null;
+    this.hatches = [];
+    const cityH = pois.filter((p) => p.type === 'hatch');
+    for (const p of cityH) {
+      const q = pois.find((o) => o.type === 'sewer_hatch' && o.id === p.id);
+      if (q && p.id !== undefined) {
+        this.hatches.push({ id: p.id, city: { x: (p.x + 1) * tileSize, y: (p.y + 1) * tileSize }, sewer: { x: (q.x + 1) * tileSize, y: (q.y + 1) * tileSize } });
+      }
+    }
+  }
+
+  /** Уровень точки мира: в прямоугольнике канализации — 'sewer'. */
+  levelAt(x: number, y: number): Level {
+    const u = this.underground;
+    if (!u) return 'city';
+    const tx = x / this.tileSize;
+    const ty = y / this.tileSize;
+    return tx >= u.x && ty >= u.y && tx < u.x + u.w && ty < u.y + u.h ? 'sewer' : 'city';
+  }
+
+  /** Границы уровня в px мира (для камеры): город — всё левее канализации. */
+  levelBounds(level: Level): Rect {
+    const ts = this.tileSize;
+    const u = this.underground;
+    if (!u) return { x: 0, y: 0, w: this.worldWidth, h: this.worldHeight };
+    if (level === 'sewer') return { x: u.x * ts, y: u.y * ts, w: u.w * ts, h: u.h * ts };
+    return { x: 0, y: 0, w: u.x * ts, h: this.worldHeight };
   }
 
   inBounds(tx: number, ty: number): boolean {

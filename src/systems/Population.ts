@@ -125,6 +125,8 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
       }
     }
   }
+  // Убежище сопротивления в канализации: гарнизон и торговец чёрного рынка.
+  ctx.insurgency?.populate();
   if (P.admin > 0) {
     const desk = poiWorld(ctx, 'nexus_desk');
     if (desk) {
@@ -142,6 +144,9 @@ export function roleSpawn(ctx: AiContext, faction: FactionId): { x: number; y: n
   if (faction === 'cp') {
     const desk = poiWorld(ctx, 'nexus_desk');
     if (desk) spot = freeSpot(ctx, desk, 1, 4, none, 30);
+  } else if (faction === 'rebel' && ctx.insurgency?.base) {
+    // Повстанец начинает в убежище в канализации.
+    spot = freeSpot(ctx, ctx.insurgency.base, 0, 6, none, 30);
   } else if (faction === 'rebel') {
     // Подальше от Нексуса, в жилых кварталах.
     const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue']);

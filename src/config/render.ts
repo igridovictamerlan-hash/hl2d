@@ -30,6 +30,14 @@ export const RENDER = {
     barrier: '#6d6f6c',
     barrierTop: 'rgba(255,255,255,0.18)',
     barrierEdge: 'rgba(0,0,0,0.55)',
+    /** Канализация: мокрый бетон, сток, кирпичная кладка. */
+    sewer: { h: 90, s: 7, l: 17, noise: 1.6 },
+    sewerLine: 'rgba(0,0,0,0.3)',
+    sewerWater: { h: 150, s: 28, l: 13, noise: 1.2 },
+    sewerFlow: 'rgba(140,200,160,0.12)',
+    sewerWall: { h: 20, s: 12, l: 9, noise: 1.5 },
+    sewerBrick: 'rgba(0,0,0,0.35)',
+    sewerWallEdge: 'rgba(160,150,120,0.16)',
     speckle: 'rgba(0,0,0,0.18)',
     /** Тень от зданий на пол (свет с северо-запада). */
     shadow: 'rgba(0,0,0,0.38)',
@@ -51,6 +59,17 @@ export const RENDER = {
     stun: 'rgba(150,210,255,0.9)',
   },
   effects: {
+    /** Люк в городе (крышка) и в канализации (лестница, свет сверху). */
+    hatchCover: '#2b2e30',
+    hatchRim: 'rgba(170,175,180,0.55)',
+    hatchLadder: 'rgba(190,170,120,0.8)',
+    hatchLight: 'rgba(255,240,190,0.10)',
+    /** Узел Альянса (терминал): цел — голубой огонёк, саботирован — искры. */
+    node: '#1c2733',
+    nodeLight: 'rgba(110,190,255,0.95)',
+    nodeDead: 'rgba(60,60,60,0.95)',
+    nodeSpark: 'rgba(255,170,60,0.95)',
+    cache: '#3d4a2c',
     queueMark: 'rgba(255,211,107,0.35)',
     fusebox: '#4a5058',
     brokenA: '#ff6a3a',

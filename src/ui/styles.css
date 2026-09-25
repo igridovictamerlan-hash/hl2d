@@ -310,6 +310,7 @@ kbd {
   background: rgba(170, 16, 16, 0.82);
   animation: alert-blink 1.6s ease-in-out infinite;
 }
+.alert-bar.yellow { color: #1a1406; background: rgba(230, 180, 40, 0.85); animation: none; }
 @keyframes alert-blink { 50% { background: rgba(110, 8, 8, 0.82); } }
 @media (prefers-reduced-motion: reduce) { .alert-bar { animation: none; } }
 
@@ -318,3 +319,8 @@ kbd {
 .death-title { font-size: 34px; letter-spacing: 0.2em; color: #ff8a7a; text-shadow: 0 2px 8px #000; }
 .death-timer { margin-top: 8px; color: var(--text); }
 .role-div-desc { font-size: 12px !important; }
+
+/* Чёрный рынок */
+.shop.black .inv-head span { color: #d9a441; }
+.inv-sub { font-size: 11px; letter-spacing: 0.14em; color: var(--hud-dim); margin: 8px 0 2px; }
+.shop-sell { margin-top: 6px; border-top: 1px solid var(--panel-border); }

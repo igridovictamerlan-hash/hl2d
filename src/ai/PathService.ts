@@ -70,7 +70,9 @@ export class PathService {
   private solve(req: PathRequest): void {
     const nav = this.nav;
     const start = nav.nearestWalkable(req.fromX, req.fromY);
-    const anchors = start >= 0 ? this.astar.find(start, req.goal, req.opts) : null;
+    // Между городом и канализацией пути нет (только люки) — не перебираем всю карту зря.
+    const sameLevel = start >= 0 && req.goal >= 0 && nav.level[start] === nav.level[req.goal];
+    const anchors = sameLevel ? this.astar.find(start, req.goal, req.opts) : null;
     if (!anchors) {
       req.status = 'failed';
       return;

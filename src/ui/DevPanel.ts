@@ -1,7 +1,7 @@
 import type { GameMap } from '../world/GameMap';
 import type { Character } from '../entities/Character';
 import { T } from '../world/tiles';
-import { analyzeMap } from '../world/mapStats';
+import { analyzeMap, hatchLinks } from '../world/mapStats';
 import { downloadMap, pickMapFile } from '../world/mapIO';
 
 /** Что панель карты умеет делать с игрой. */
@@ -28,6 +28,9 @@ const PREVIEW_COLORS: Record<number, [number, number, number]> = {
   [T.BUNKER]: [130, 136, 140],
   [T.WASTE]: [120, 100, 60],
   [T.BARRIER]: [60, 60, 60],
+  [T.SEWER]: [70, 78, 60],
+  [T.SEWER_WATER]: [40, 90, 70],
+  [T.SEWER_WALL]: [16, 14, 12],
 };
 
 /**
@@ -118,7 +121,7 @@ export class DevPanel {
   setMap(map: GameMap, genMsg?: string): void {
     this.seedInput.value = String(map.seed);
     const s = map.stats;
-    const check = analyzeMap(map.tiles, map.width, map.height);
+    const check = analyzeMap(map.tiles, map.width, map.height, hatchLinks(map));
     const ts = map.tileSize;
     const rows: [string, string][] = [
       ['Карта', map.name],

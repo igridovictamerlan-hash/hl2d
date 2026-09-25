@@ -16,6 +16,7 @@ export type ItemId =
   | 'ammo_357'
   | 'ammo_buckshot'
   | 'ammo_bolt'
+  | 'fake_cid'
   | WeaponId;
 
 export type ItemKind = 'food' | 'medical' | 'weapon' | 'ammo' | 'tool' | 'misc';
@@ -161,6 +162,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   medkit: { id: 'medkit', name: 'Аптечка', desc: 'Лечение +40.', kind: 'medical', stack: 3, heal: 40, price: 28 },
   bandage: { id: 'bandage', name: 'Бинт', desc: 'Лечение +15.', kind: 'medical', stack: 5, heal: 15, price: 9 },
   cigarettes: { id: 'cigarettes', name: 'Сигареты', desc: 'Ходовая валюта «чёрного рынка».', kind: 'misc', stack: 10, price: 5 },
+  fake_cid: { id: 'fake_cid', name: 'Поддельная CID', desc: 'С чёрного рынка: «чистая» карта — снимает розыск (повстанца в лицо всё равно узнают).', kind: 'misc', stack: 1 },
   toolkit: { id: 'toolkit', name: 'Набор инструментов', desc: 'Для ремонта (ГСР).', kind: 'tool', stack: 1, price: 20 },
   ammo_pistol: { id: 'ammo_pistol', name: 'Патроны 9 мм', desc: 'Для пистолетов.', kind: 'ammo', stack: 120, ammo: 'pistol' },
   ammo_smg: { id: 'ammo_smg', name: 'Патроны 4.6 мм', desc: 'Для MP7.', kind: 'ammo', stack: 180, ammo: 'smg' },

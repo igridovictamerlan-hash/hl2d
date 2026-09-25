@@ -11,6 +11,8 @@ import type { EconomySystem } from '../systems/EconomySystem';
 import type { CombatSystem } from '../systems/CombatSystem';
 import type { WarSystem } from '../systems/WarSystem';
 import type { EventBus } from '../core/EventBus';
+import type { UndergroundSystem } from '../systems/UndergroundSystem';
+import type { InsurgencySystem } from '../systems/InsurgencySystem';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -29,6 +31,9 @@ export interface AiContext {
   bus: EventBus;
   economy: EconomySystem;
   combat: CombatSystem;
-  /** Создаётся после контекста (ей нужен контекст для спавна). */
+  /** Канализация и люки. */
+  underground: UndergroundSystem;
+  /** Создаются после контекста (им нужен контекст для спавна). */
   war: WarSystem;
+  insurgency: InsurgencySystem;
 }

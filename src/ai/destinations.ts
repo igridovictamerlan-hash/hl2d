@@ -16,7 +16,8 @@ export function randomAnchorInZone(ctx: AiContext, kind: ZoneKind): number {
 }
 
 /**
- * Цель прогулки: случайная точка на расстоянии [min, max] якорей, не в избегаемых зонах.
+ * Цель прогулки: случайная точка на расстоянии [min, max] якорей, не в избегаемых зонах
+ * и на том же уровне (город / канализация), что и from.
  */
 export function randomAnchorAround(
   from: Vec2,
@@ -28,6 +29,7 @@ export function randomAnchorAround(
   const nav = ctx.nav;
   const cx = Math.round(from.x / nav.ts) - 1;
   const cy = Math.round(from.y / nav.ts) - 1;
+  const level = nav.levelAt(from.x, from.y);
   for (let tries = 0; tries < 60; tries++) {
     const ang = ctx.rng.range(0, Math.PI * 2);
     const r = ctx.rng.range(minDist, maxDist);
@@ -35,7 +37,7 @@ export function randomAnchorAround(
     const ay = Math.round(cy + Math.sin(ang) * r);
     if (!nav.isWalkable(ax, ay)) continue;
     const i = ay * nav.w + ax;
-    if (avoid.has(nav.zone[i])) continue;
+    if (avoid.has(nav.zone[i]) || nav.level[i] !== level) continue;
     return i;
   }
   return -1;

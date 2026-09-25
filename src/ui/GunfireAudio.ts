@@ -65,7 +65,7 @@ export class GunfireAudio {
   }
 
   /** Проиграть выстрелы, случившиеся после прошлого вызова. */
-  update(shots: readonly Shot[], listener: Character, now: number): void {
+  update(shots: readonly Shot[], listener: Character, now: number, sameLevel: (x: number, y: number) => boolean = () => true): void {
     if (now - this.budgetT >= 1) {
       this.budgetT = now;
       this.budget = AUDIO.maxPerSecond;
@@ -79,6 +79,8 @@ export class GunfireAudio {
     fresh.sort((a, b) => Math.hypot(a.x - listener.x, a.y - listener.y) - Math.hypot(b.x - listener.x, b.y - listener.y));
     for (const s of fresh) {
       if (this.budget <= 0) break;
+      // Город и канализация друг друга не слышат (они на одной сетке, но далеко не соседи).
+      if (!sameLevel(s.x, s.y)) continue;
       const d = Math.hypot(s.x - listener.x, s.y - listener.y);
       if (d > AUDIO.maxDistance) continue;
       this.budget--;

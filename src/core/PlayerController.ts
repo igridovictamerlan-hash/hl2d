@@ -7,8 +7,10 @@ import type { CheckChoice } from '../ui/CheckPanel';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
 import { FACTIONS } from '../config/factions';
-import { poiWorld, equipKit, cpKit } from '../systems/Population';
-import { WEAPONS } from '../config/items';
+import { poiWorld, cpKit } from '../systems/Population';
+import { WEAPONS, KITS, ITEMS } from '../config/items';
+import { UNDERGROUND, INSURGENCY } from '../config/underground';
+import { ECONOMY } from '../config/economy';
 import { COMBAT } from '../config/combat';
 import type { RepairSpot } from '../systems/EconomySystem';
 
@@ -27,6 +29,10 @@ export class PlayerController {
   private check: { target: Character; until: number } | null = null;
   /** Чинит ли игрок (ГСР) поломку. */
   private repairing: RepairSpot | null = null;
+  /** Лезет по люку: сколько осталось и куда. */
+  private climbing: { left: number; to: { x: number; y: number }; down: boolean } | null = null;
+  /** Саботирует узел Альянса (повстанец). */
+  private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   private healCooldown = 0;
 
   constructor(
@@ -36,7 +42,7 @@ export class PlayerController {
     private readonly hooks: {
       openRoleMenu(): void;
       menuOpen(): boolean;
-      openShop(): void;
+      openShop(kind: 'cwu' | 'black'): void;
       toggleInventory(): void;
       placeBarrier(): string | null;
       checkPanelTarget(): Character | null;
@@ -47,6 +53,16 @@ export class PlayerController {
   reset(): void {
     this.check = null;
     this.repairing = null;
+    this.climbing = null;
+    this.sabotaging = null;
+  }
+
+  /** Прогресс текущего действия (люк, саботаж, ремонт) 0..1 — полоска над игроком; null — нет. */
+  get progress(): number | null {
+    if (this.climbing) return 1 - this.climbing.left / UNDERGROUND.climbTime;
+    if (this.sabotaging) return this.sabotaging.progress / INSURGENCY.sabotageTime;
+    if (this.repairing) return this.repairing.progress / ECONOMY.repairs.time;
+    return null;
   }
 
   private say(text: string, kind: 'system' | 'world' | 'law' = 'system'): void {
@@ -59,6 +75,18 @@ export class PlayerController {
     this.healCooldown -= dt;
     if (!p.alive) {
       p.wantX = p.wantY = 0;
+      return;
+    }
+    // Люк: стоит на месте, по истечении — у парного люка на другом уровне.
+    if (this.climbing) {
+      p.wantX = p.wantY = 0;
+      this.climbing.left -= dt;
+      if (this.climbing.left > 0) return;
+      const { to, down } = this.climbing;
+      this.climbing = null;
+      ctx.underground.climb(p, to);
+      const zone = ctx.map.zoneAtWorld(p.x, p.y)?.name ?? '';
+      this.say(down ? 'Вы спустились в канализацию. E у лестницы — наверх.' : `Вы вылезли из люка — ${zone}.`, 'world');
       return;
     }
     const locked = !!p.brain || law.phase === 'checking' || this.hooks.menuOpen();
@@ -105,6 +133,18 @@ export class PlayerController {
     if (i.wasPressed('interact')) this.interact(p, ctx);
     if (i.wasPressed('roleAction')) this.roleAction(p, ctx);
     if (i.wasPressed('special')) this.special(p, ctx);
+    if (this.sabotaging) {
+      const sb = this.sabotaging;
+      if (Math.hypot(sb.spot.x - p.x, sb.spot.y - p.y) > 36 || sb.spot.broken) {
+        this.sabotaging = null;
+        if (!sb.spot.broken) this.say('Саботаж прерван — отошли слишком далеко.');
+      } else if ((sb.progress += dt) >= INSURGENCY.sabotageTime) {
+        this.sabotaging = null;
+        ctx.economy.sabotage(sb.spot, p);
+        p.money += INSURGENCY.sabotageReward;
+        this.say(`Узел Альянса выведен из строя. Сопротивление платит: +${INSURGENCY.sabotageReward} токенов. Уходите!`, 'world');
+      }
+    }
     if (this.repairing) {
       const r = this.repairing;
       if (Math.hypot(r.x - p.x, r.y - p.y) > 36) {
@@ -142,11 +182,31 @@ export class PlayerController {
     const d = (q: { x: number; y: number } | null) => (q ? Math.hypot(q.x - p.x, q.y - p.y) : Infinity);
     const terminal = poiWorld(ctx, 'recruit_terminal');
     if (d(terminal) < REACH) return this.hooks.openRoleMenu();
-    if (d(eco.shopCounter) < REACH + 8) return this.hooks.openShop();
+    if (d(eco.shopCounter) < REACH + 8) return this.hooks.openShop('cwu');
+    if (d(ctx.insurgency.market) < REACH + 8) return this.hooks.openShop('black');
+    // Люк: спуститься / подняться.
+    const hatch = ctx.underground.hatchNear(p.x, p.y);
+    if (hatch) {
+      const down = ctx.map.levelAt(p.x, p.y) === 'city';
+      this.climbing = { left: UNDERGROUND.climbTime, to: hatch.to, down };
+      return this.say(down ? 'Спускаетесь в люк…' : 'Поднимаетесь по лестнице…');
+    }
+    // Тайник сопротивления: патроны к своим стволам.
+    if (d(ctx.insurgency.cache) < REACH + 8) {
+      if (p.faction !== 'rebel') return this.say('Ящики сопротивления. Вам тут ничего не положено.');
+      const n = eco.refillAmmo(p, INSURGENCY.cacheMags);
+      return this.say(n > 0 ? `Тайник: +${n} патронов.` : 'Тайник: патронов вам хватает.', 'world');
+    }
     const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
     if (corpse) {
       const n = ctx.combat.loot(p, corpse);
       return this.say(n > 0 ? `Обыскали тело: ${corpse.name}.` : 'Инвентарь полон.');
+    }
+    // Повстанец: саботаж узла Альянса.
+    const node = eco.nodes.find((r) => !r.broken && d(r) < REACH);
+    if (node && p.faction === 'rebel') {
+      this.sabotaging = { spot: node, progress: 0 };
+      return this.say(`Саботаж узла… не отходите ${INSURGENCY.sabotageTime} с. ГО рядом быть не должно.`, 'world');
     }
     // ГСР: встать на выдачу / выдать следующему.
     if (p.faction === 'cwu' && eco.open && d(eco.dispenserSpot) < REACH) {
@@ -174,12 +234,15 @@ export class PlayerController {
     // ГО: пополнить боекомплект у стойки дежурного.
     const desk = poiWorld(ctx, 'nexus_desk');
     if (p.faction === 'cp' && d(desk) < REACH * 1.5) {
-      const weapon = p.weapon;
-      equipKit(p, cpKit(p.division), ctx);
-      if (weapon) ctx.combat.equip(p, weapon);
+      // Выдать недостающее из табельного набора и пополнить патроны; свои вещи не трогаем.
+      for (const [id, qty] of KITS[cpKit(p.division)] ?? []) {
+        if (ITEMS[id].kind === 'weapon' && !p.inventory.has(id)) p.inventory.add(id, 1);
+        else if (ITEMS[id].kind === 'medical' && p.inventory.count(id) < qty) p.inventory.add(id, qty - p.inventory.count(id));
+      }
+      eco.refillAmmo(p, 3);
       return this.say('Боекомплект пополнен.', 'world');
     }
-    this.say('Рядом нечего использовать. E работает у терминала найма, прилавка ГСР, окна раздачи, поломок и тел.');
+    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, поломок, узлов Альянса и тел.');
   }
 
   /** G: умение специализации ГО. */

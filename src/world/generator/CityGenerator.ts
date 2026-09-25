@@ -13,6 +13,7 @@ import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked } from './stamps';
 import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, rotateTemplate, mirrorTemplate } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
+import { addSewers } from './sewers';
 
 /**
  * Генератор переулочного города. Порядок шагов:
@@ -22,12 +23,18 @@ import { addFeatures, removeWallSpikes } from './features';
  *  4. Зоны, штампы (площадь, Нексус, кольцо запретной зоны), выходы из штампов.
  *  5. Дворы-колодцы, подъезды/арки, тупики, заводские дворы.
  *  6. Связность (flood fill по якорям 2×2 + тоннели), метрики, проверка.
+ *  7. Канализация справа от города (sewers.ts), связанная с ним люками.
  * Результат детерминирован по seed.
  */
 /** Печать причин неудачных попыток (для тестов): globalThis.__HL2D_DEBUG_GEN = true. */
 const DEBUG_GEN = (globalThis as { __HL2D_DEBUG_GEN?: boolean }).__HL2D_DEBUG_GEN === true;
 
 export function generateCity(seed: number): GameMap {
+  return addSewers(generateSurface(seed), seed);
+}
+
+/** Город без канализации (несколько попыток, лучшая по требованиям). */
+function generateSurface(seed: number): GameMap {
   const attempts = GENERATOR.validation.attempts;
   const maxRun = GENERATOR.alley.maxStraight;
   let best: GameMap | null = null;

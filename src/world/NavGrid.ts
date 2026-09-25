@@ -19,6 +19,8 @@ export class NavGrid {
   /** Проходимые якоря по зонам — для выбора целей прогулки. */
   readonly anchorsByZone = new Map<number, number[]>();
   readonly walkable: number[] = [];
+  /** Уровень якоря: 0 — город, 1 — канализация. Пути между уровнями — только через люки. */
+  readonly level: Uint8Array;
 
   constructor(readonly map: GameMap) {
     this.w = map.width - 1;
@@ -27,10 +29,12 @@ export class NavGrid {
     this.walk = buildAnchorWalk(map.tiles, map.width, map.height);
     this.cost = new Float32Array(this.w * this.h).fill(1);
     this.zone = new Uint8Array(this.w * this.h);
+    this.level = new Uint8Array(this.w * this.h);
     for (let ay = 0; ay < this.h; ay++) {
       for (let ax = 0; ax < this.w; ax++) {
         const i = ay * this.w + ax;
         this.zone[i] = map.zoneGrid[(ay + 1) * map.width + ax + 1];
+        this.level[i] = map.levelAt((ax + 1) * this.ts, (ay + 1) * this.ts) === 'sewer' ? 1 : 0;
         if (!this.walk[i]) continue;
         this.walkable.push(i);
         let list = this.anchorsByZone.get(this.zone[i]);
@@ -53,6 +57,11 @@ export class NavGrid {
         this.walk[ay * this.w + ax] = free ? 1 : 0;
       }
     }
+  }
+
+  /** Уровень точки мира (0 — город, 1 — канализация). */
+  levelAt(x: number, y: number): number {
+    return this.map.levelAt(x, y) === 'sewer' ? 1 : 0;
   }
 
   isWalkable(ax: number, ay: number): boolean {

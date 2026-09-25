@@ -11,7 +11,7 @@ export interface GameEvents {
   /** Крупное объявление по центру экрана. */
   announce: { text: string };
   /** Смена кода тревоги. */
-  alert: { code: 'green' | 'red' };
+  alert: { code: 'green' | 'yellow' | 'red' };
   /** Игрок-ГО закончил проверку документов — показать решение. */
   'law:checkResult': { target: Character; verdict: Verdict };
   /** Панель проверки закрыта (решение принято или задержанный ушёл). */

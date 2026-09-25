@@ -389,7 +389,11 @@ export class CombatSystem {
       if (attacker.isPlayer) this.bus.emit('log', { text: 'Вы напали на Альянс — ГО будет стрелять без предупреждения.', kind: 'law' });
     }
     if (target.health <= 0) this.kill(target, attacker);
+    this.onDamage(target, attacker, !target.alive);
   }
+
+  /** Задаёт WarSystem: ранение/гибель (тревога при нападении на ГО в городе). */
+  onDamage: (target: Character, attacker: Character | null, killed: boolean) => void = () => {};
 
   kill(c: Character, killer: Character | null): void {
     c.alive = false;

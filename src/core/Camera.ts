@@ -54,7 +54,7 @@ export class Camera {
   }
 
   /** Шаг слежения. mouseWorld — курсор в мире (для сдвига к прицелу); aiming — зажата ПКМ. */
-  follow(tx: number, ty: number, mouseWX: number, mouseWY: number, dt: number, worldW: number, worldH: number, aiming = false): void {
+  follow(tx: number, ty: number, mouseWX: number, mouseWY: number, dt: number, bounds: { x: number; y: number; w: number; h: number }, aiming = false): void {
     this.prevX = this.x;
     this.prevY = this.y;
     this.aimK = damp(this.aimK, aiming ? 1 : 0, CAMERA.aimRate, dt);
@@ -70,12 +70,13 @@ export class Camera {
     }
     this.x = damp(this.x, tx + ox, CAMERA.followRate, dt);
     this.y = damp(this.y, ty + oy, CAMERA.followRate, dt);
-    this.x = this.clampAxis(this.x, this.viewWidth, worldW);
-    this.y = this.clampAxis(this.y, this.viewHeight, worldH);
+    // Камера не выходит за границы уровня (город / канализация не видны друг из друга).
+    this.x = this.clampAxis(this.x, this.viewWidth, bounds.x, bounds.w);
+    this.y = this.clampAxis(this.y, this.viewHeight, bounds.y, bounds.h);
   }
 
-  private clampAxis(c: number, view: number, world: number): number {
-    return view >= world ? world / 2 : clamp(c, view / 2, world - view / 2);
+  private clampAxis(c: number, view: number, from: number, size: number): number {
+    return view >= size ? from + size / 2 : clamp(c, from + view / 2, from + size - view / 2);
   }
 
   /** Вид для отрисовки с интерполяцией между тиками логики. */

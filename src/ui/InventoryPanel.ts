@@ -50,7 +50,7 @@ export class InventoryPanel {
       .map((s) => {
         const def = ITEMS[s.id];
         let action = '';
-        if (def.food || def.heal) action = `<button data-id="${s.id}" data-act="use">${def.food ? 'Съесть' : 'Применить'}</button>`;
+        if (def.food || def.heal || s.id === 'fake_cid') action = `<button data-id="${s.id}" data-act="use">${def.food ? 'Съесть' : 'Применить'}</button>`;
         else if (def.kind === 'weapon') {
           action = p.weapon === s.id
             ? `<button data-id="${s.id}" data-act="holster">Убрать</button>`

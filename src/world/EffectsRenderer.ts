@@ -3,6 +3,7 @@ import type { CombatSystem } from '../systems/CombatSystem';
 import type { EconomySystem } from '../systems/EconomySystem';
 import type { Character } from '../entities/Character';
 import type { WarSystem } from '../systems/WarSystem';
+import type { GameMap } from './GameMap';
 import { colorsOf } from '../config/factions';
 import { RENDER } from '../config/render';
 import { COMBAT } from '../config/combat';
@@ -12,9 +13,61 @@ import { COMBAT } from '../config/combat';
  * попадания, красная тревога и «ранен» по краям экрана.
  */
 export class EffectsRenderer {
-  drawGround(ctx: CanvasRenderingContext2D, v: View, combat: CombatSystem, economy: EconomySystem, now: number): void {
+  drawGround(ctx: CanvasRenderingContext2D, v: View, combat: CombatSystem, economy: EconomySystem, now: number, map?: GameMap, cache?: { x: number; y: number } | null): void {
     const s = v.scale;
     const E = RENDER.effects;
+    const onScreen = (x: number, y: number, m: number) => x > -m && y > -m && x < v.width + m && y < v.height + m;
+    // Люки: в городе — крышка, в канализации — лестница и свет сверху.
+    if (map) {
+      for (const h of map.hatches) {
+        const cx = (h.city.x - v.left) * s;
+        const cy = (h.city.y - v.top) * s;
+        if (onScreen(cx, cy, 20)) {
+          ctx.fillStyle = E.hatchCover;
+          ctx.beginPath();
+          ctx.arc(cx, cy, 9 * s, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = E.hatchRim;
+          ctx.lineWidth = Math.max(1, 1.2 * s);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(cx - 5 * s, cy - 3 * s); ctx.lineTo(cx + 5 * s, cy - 3 * s);
+          ctx.moveTo(cx - 6 * s, cy); ctx.lineTo(cx + 6 * s, cy);
+          ctx.moveTo(cx - 5 * s, cy + 3 * s); ctx.lineTo(cx + 5 * s, cy + 3 * s);
+          ctx.stroke();
+        }
+        const sx = (h.sewer.x - v.left) * s;
+        const sy = (h.sewer.y - v.top) * s;
+        if (onScreen(sx, sy, 40)) {
+          const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, 34 * s);
+          g.addColorStop(0, E.hatchLight);
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(sx - 34 * s, sy - 34 * s, 68 * s, 68 * s);
+          ctx.strokeStyle = E.hatchLadder;
+          ctx.lineWidth = Math.max(1, 1.5 * s);
+          ctx.beginPath();
+          ctx.moveTo(sx - 5 * s, sy - 9 * s); ctx.lineTo(sx - 5 * s, sy + 9 * s);
+          ctx.moveTo(sx + 5 * s, sy - 9 * s); ctx.lineTo(sx + 5 * s, sy + 9 * s);
+          for (let k = -6; k <= 6; k += 4) {
+            ctx.moveTo(sx - 5 * s, sy + k * s);
+            ctx.lineTo(sx + 5 * s, sy + k * s);
+          }
+          ctx.stroke();
+        }
+      }
+    }
+    // Тайник сопротивления.
+    if (cache) {
+      const x = (cache.x - v.left) * s;
+      const y = (cache.y - v.top) * s;
+      if (onScreen(x, y, 20)) {
+        ctx.fillStyle = E.cache;
+        ctx.fillRect(x - 7 * s, y - 5 * s, 14 * s, 10 * s);
+        ctx.fillStyle = E.loot;
+        ctx.fillRect(x - 1 * s, y - 5 * s, 2 * s, 10 * s);
+      }
+    }
     // Места очереди — пока открыта раздача.
     if (economy.open) {
       ctx.fillStyle = E.queueMark;
@@ -23,11 +76,27 @@ export class EffectsRenderer {
         ctx.fillRect((q.x - v.left) * s - 5 * s, (q.y - v.top) * s - 1 * s, 10 * s, 2 * s);
       }
     }
-    // Щитки: целый — серый, сломанный — мигает.
+    // Щитки: целый — серый, сломанный — мигает. Узлы Альянса — панель с огоньком / искрами.
     for (const r of economy.repairs) {
       const x = (r.x - v.left) * s;
       const y = (r.y - v.top) * s;
       if (x < -20 || y < -20 || x > v.width + 20 || y > v.height + 20) continue;
+      if (r.kind === 'node') {
+        ctx.fillStyle = E.node;
+        ctx.fillRect(x - 6 * s, y - 6 * s, 12 * s, 12 * s);
+        ctx.fillStyle = r.broken ? E.nodeDead : E.nodeLight;
+        ctx.fillRect(x - 3 * s, y - 3 * s, 6 * s, 6 * s);
+        if (r.broken && Math.floor(now * 7 + r.index) % 3 === 0) {
+          ctx.fillStyle = E.nodeSpark;
+          ctx.fillRect(x + (((now * 37) % 8) - 4) * s, y - 8 * s, 2 * s, 2 * s);
+          ctx.fillRect(x - (((now * 23) % 8) - 4) * s, y + 6 * s, 2 * s, 2 * s);
+        }
+        if (r.worker && r.broken) {
+          ctx.fillStyle = E.progress;
+          ctx.fillRect(x - 8 * s, y - 10 * s, 16 * s * Math.min(1, r.progress / 5), 2 * s);
+        }
+        continue;
+      }
       ctx.fillStyle = r.broken ? (Math.floor(now * 4) % 2 ? E.brokenA : E.brokenB) : E.fusebox;
       ctx.fillRect(x - 4 * s, y - 4 * s, 8 * s, 8 * s);
       if (r.worker && r.broken) {
@@ -143,9 +212,30 @@ export class EffectsRenderer {
     ctx.textBaseline = 'alphabetic';
   }
 
+  /** Полоска прогресса действия над игроком (люк, саботаж, ремонт). */
+  drawProgress(ctx: CanvasRenderingContext2D, v: View, p: Character, t: number | null): void {
+    if (t === null) return;
+    const s = v.scale;
+    const x = (p.x - v.left) * s;
+    const y = (p.y - v.top) * s - (p.radius + 8) * s;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(x - 15 * s, y - 2 * s, 30 * s, 4 * s);
+    ctx.fillStyle = RENDER.effects.progress;
+    ctx.fillRect(x - 14 * s, y - 1 * s, 28 * s * Math.max(0, Math.min(1, t)), 2 * s);
+  }
+
   /** Красный код — пульсирующая кромка; ранен — красная виньетка. */
-  drawAlert(ctx: CanvasRenderingContext2D, v: View, red: boolean, now: number, player: Character): void {
+  drawAlert(ctx: CanvasRenderingContext2D, v: View, code: 'green' | 'yellow' | 'red', now: number, player: Character): void {
     const hurt = player.alive ? 1 - player.health / player.maxHealth : 1;
+    const red = code === 'red';
+    // Жёлтый код — едва заметная янтарная кромка.
+    if (code === 'yellow') {
+      const g = ctx.createRadialGradient(v.width / 2, v.height / 2, Math.min(v.width, v.height) * 0.4, v.width / 2, v.height / 2, Math.hypot(v.width, v.height) / 2);
+      g.addColorStop(0, 'rgba(230,170,30,0)');
+      g.addColorStop(1, `rgba(230,170,30,${(0.1 + 0.04 * Math.sin(now * 3)).toFixed(3)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, v.width, v.height);
+    }
     const pulse = red ? 0.12 + 0.1 * Math.sin(now * 4) : 0;
     const a = Math.max(pulse, hurt > 0.5 ? (hurt - 0.5) * 0.9 : 0);
     if (a <= 0.01) return;

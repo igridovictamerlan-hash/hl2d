@@ -10,7 +10,7 @@ export class FogRenderer {
   private readonly canvas = document.createElement('canvas');
   private readonly ctx = this.canvas.getContext('2d')!;
 
-  draw(target: CanvasRenderingContext2D, v: View, poly: VisibilityPolygon, cx: number, cy: number): void {
+  draw(target: CanvasRenderingContext2D, v: View, poly: VisibilityPolygon, cx: number, cy: number, radius: number = VISION.radius, color: string = VISION.fogColor): void {
     if (this.canvas.width !== v.width || this.canvas.height !== v.height) {
       this.canvas.width = v.width;
       this.canvas.height = v.height;
@@ -19,12 +19,12 @@ export class FogRenderer {
     const s = v.scale;
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, v.width, v.height);
-    ctx.fillStyle = VISION.fogColor;
+    ctx.fillStyle = color;
     ctx.fillRect(0, 0, v.width, v.height);
     ctx.globalCompositeOperation = 'destination-out';
     const sx = (cx - v.left) * s;
     const sy = (cy - v.top) * s;
-    const r = VISION.radius * s;
+    const r = radius * s;
     const g = ctx.createRadialGradient(sx, sy, r * VISION.fadeStart, sx, sy, r);
     g.addColorStop(0, 'rgba(0,0,0,1)');
     g.addColorStop(1, 'rgba(0,0,0,0)');

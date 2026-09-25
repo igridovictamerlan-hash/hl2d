@@ -95,6 +95,9 @@ export class MapRenderer {
       case T.BUNKER: this.color[i] = tone(P.bunker); break;
       case T.WASTE: this.color[i] = tone(P.waste); break;
       case T.BARRIER: this.color[i] = P.barrier; break;
+      case T.SEWER: this.color[i] = tone(P.sewer); break;
+      case T.SEWER_WATER: this.color[i] = tone(P.sewerWater); break;
+      case T.SEWER_WALL: this.color[i] = tone(P.sewerWall); break;
       default: this.color[i] = '#f0f';
     }
   }
@@ -205,6 +208,31 @@ export class MapRenderer {
             ctx.fillRect(x0, y0, b, ch);
             continue;
           }
+          case T.SEWER_WALL:
+            // Кирпичная кладка со смещением рядов; кромка у прохода.
+            ctx.fillStyle = P.sewerBrick;
+            ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+            ctx.fillRect(x0 + ((ty & 1) ? cw >> 1 : 0), y0, line, ch >> 1);
+            ctx.fillRect(x0 + ((ty & 1) ? 0 : cw >> 1), y0 + (ch >> 1), line, ch >> 1);
+            if (e) {
+              ctx.fillStyle = P.sewerWallEdge;
+              if (e & 1) ctx.fillRect(x0, y0, cw, line * 2);
+              if (e & 4) ctx.fillRect(x0, y1 - line * 2, cw, line * 2);
+              if (e & 8) ctx.fillRect(x0, y0, line * 2, ch);
+              if (e & 2) ctx.fillRect(x1 - line * 2, y0, line * 2, ch);
+            }
+            continue;
+          case T.SEWER:
+            ctx.fillStyle = P.sewerLine;
+            if ((tx % 3) === 0) ctx.fillRect(x0, y0, line, ch);
+            if ((ty % 3) === 0) ctx.fillRect(x0, y0, cw, line);
+            break;
+          case T.SEWER_WATER:
+            // Струи стока вдоль тоннеля.
+            ctx.fillStyle = P.sewerFlow;
+            ctx.fillRect(x0 + px((hv & 7) * 1.5), y0 + px(((hv >> 3) & 7) * 1.5), px(5), px(1));
+            ctx.fillRect(x0 + px(((hv >> 6) & 7) * 1.5), y0 + px(((hv >> 9) & 7) * 1.5), px(1), px(4));
+            break;
           case T.BUNKER:
             ctx.fillStyle = P.bunkerLine;
             if ((tx & 1) === 0) ctx.fillRect(x0, y0, line, ch);

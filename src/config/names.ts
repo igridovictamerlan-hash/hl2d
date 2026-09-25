@@ -39,4 +39,7 @@ export const ZONE_NAMES = {
   checkpoints: ['Пограничный КПП «Запад»', 'Пограничный КПП «Восток»'],
   outlands: 'Пустоши (за городской стеной)',
   shop: 'Магазин ГСР',
+  sewer: 'Канализация',
+  rebelBase: 'Убежище сопротивления',
+  blackMarket: 'Чёрный рынок',
 } as const;

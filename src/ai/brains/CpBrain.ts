@@ -13,6 +13,7 @@ import { VISION } from '../../config/vision';
 import { dist, type Vec2 } from '../../core/math';
 import { Gunner } from '../Gunner';
 import { COMBAT } from '../../config/combat';
+import { ALARM } from '../../config/underground';
 import { FACTIONS } from '../../config/factions';
 
 const near: Character[] = [];
@@ -83,11 +84,23 @@ export class CpBrain implements Brain {
     return `${div}${this.fsm.current}${t}`;
   }
 
+  /**
+   * Прочёсывать: красный код — все патрульные; жёлтый — патрульные в радиусе ALARM.respondRadius
+   * от тревоги (или от известного нападавшего).
+   */
+  shouldHunt(): boolean {
+    const war = this.ctx.war;
+    if (this.guardPost || this.medicStation || war.code === 'green') return false;
+    if (war.code === 'red') return true;
+    const p = war.nearestKnown(this.self.x, this.self.y);
+    return !!p && Math.hypot(p.x - this.self.x, p.y - this.self.y) < ALARM.respondRadius;
+  }
+
   /** Куда возвращаться после разбирательства. */
   get idleState(): string {
     if (this.medicStation) return 'medic';
     if (this.guardPost) return 'guard';
-    return this.ctx.war?.code === 'red' ? 'hunt' : 'patrol';
+    return this.ctx.war && this.shouldHunt() ? 'hunt' : 'patrol';
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
@@ -108,7 +121,7 @@ export class CpBrain implements Brain {
     }
     cur = this.fsm.current;
     // Красный код: патрульные — на прочёсывание.
-    if ((cur === 'patrol' || cur === 'post' || cur === 'patrol-again') && !this.guardPost && !this.medicStation && ctx.war.code === 'red') {
+    if ((cur === 'patrol' || cur === 'post' || cur === 'patrol-again') && !this.guardPost && !this.medicStation && this.shouldHunt()) {
       this.fsm.change('hunt');
     }
     cur = this.fsm.current;
@@ -157,7 +170,8 @@ export class CpBrain implements Brain {
     for (const o of near) {
       if (o === self || !law.checkable(o)) continue;
       const inCheckpoint = ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint';
-      const chance = atCheckpoint && inCheckpoint ? LAW.checkpointCheckChance : LAW.randomCheckChance;
+      // Код жёлтый — проверки чаще.
+      const chance = atCheckpoint && inCheckpoint ? LAW.checkpointCheckChance : LAW.randomCheckChance * (ctx.war.code === 'yellow' ? LAW.alarmCheckMul : 1);
       if (ctx.rng.chance(chance) && law.canSee(self, o)) {
         this.engage(o, 'routine');
         return;
@@ -503,7 +517,7 @@ const HUNT: State<CpBrain> = {
     b.repath = 0;
   },
   update(b, dt) {
-    if (b.ctx.war.code !== 'red') {
+    if (!b.shouldHunt()) {
       b.mover.speed = LAW.cpWalkSpeed;
       return 'patrol';
     }

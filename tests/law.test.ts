@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { INSURGENCY } from '../src/config/underground';
 import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
 import { CpBrain } from '../src/ai/brains/CpBrain';
@@ -140,12 +141,14 @@ describe('живой город со всеми фракциями', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     const count = (f: string) => sim.entities.list.filter((c) => c.faction === f).length;
-    expect(count('citizen')).toBe(20);
+    // 20 граждан + торговец чёрного рынка в канализации.
+    expect(count('citizen')).toBe(21);
     // 6 патрульных + на каждом из двух КПП 3 часовых GRID и медик HELIX.
     expect(count('cp')).toBe(14);
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['union', 'grid', 'helix', 'jury']) expect(divisions.has(d as never)).toBe(true);
-    expect(count('rebel')).toBe(3);
+    // 3 подпольщика в городе + гарнизон убежища в канализации.
+    expect(count('rebel')).toBe(3 + INSURGENCY.garrison);
     expect(count('admin')).toBe(1);
     // «Застрял»: одна и та же фаза процедуры (приказ, проверка, конвой, заведение) дольше 60 с.
     const stuckSince = new Map<Character, [number, string]>();

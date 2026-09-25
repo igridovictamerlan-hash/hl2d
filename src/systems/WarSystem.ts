@@ -2,6 +2,7 @@ import type { Character } from '../entities/Character';
 import type { AiContext } from '../ai/AiContext';
 import type { Vec2 } from '../core/math';
 import { WAR } from '../config/war';
+import { ALARM } from '../config/underground';
 import { FACTIONS } from '../config/factions';
 import { T } from '../world/tiles';
 import { createCharacter } from '../entities/factory';
@@ -11,7 +12,8 @@ import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 
-export type AlertCode = 'green' | 'red';
+/** Код тревоги: зелёный — спокойно, жёлтый — нападение/саботаж в городе, красный — прорыв периметра. */
+export type AlertCode = 'green' | 'yellow' | 'red';
 
 /** Как радио называет особых бойцов отряда. */
 const KIT_ROLE: Record<string, string> = { rebel_commander: 'командир', rebel_marksman: 'арбалетчик', rebel_shotgunner: 'дробовик', rebel_rifleman: 'AR2' };
@@ -56,6 +58,13 @@ export class WarSystem {
   curfew = false;
   readonly fronts: Front[] = [];
   readonly infiltrators = new Set<Character>();
+  /** Нападавшие в городе (повстанцы с операций из канализации, напавший на ГО игрок). */
+  readonly operatives = new Set<Character>();
+  /** Точка тревоги: куда стягиваются патрули, пока нападавших не видно. */
+  alarm: { x: number; y: number; until: number } | null = null;
+  private yellowSince = 0;
+  private alarmKills = 0;
+  private lastAlarmRaise = -1e9;
   /** Последние известные позиции прорвавшихся (для охоты). */
   readonly lastKnown = new Map<Character, Vec2>();
   /** Укрытия на время комендантского часа: подъезды, дворы, магазин. */
@@ -72,6 +81,8 @@ export class WarSystem {
   constructor(private readonly ctx: AiContext) {
     this.buildFronts();
     ctx.economy.paused = () => this.curfew;
+    ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Альянса');
+    ctx.combat.onDamage = (target, attacker, killed) => this.onDamage(target, attacker, killed);
     const nav = ctx.nav;
     for (const a of nav.walkable) {
       const t = ctx.map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1);
@@ -175,7 +186,7 @@ export class WarSystem {
 
   /** Сообщить: сотрудник Альянса видит прорвавшегося. */
   sighted(c: Character): void {
-    if (this.infiltrators.has(c)) this.lastKnown.set(c, { x: c.x, y: c.y });
+    if (this.infiltrators.has(c) || this.operatives.has(c)) this.lastKnown.set(c, { x: c.x, y: c.y });
   }
 
   /** Ближайшая известная позиция прорвавшегося. */
@@ -183,13 +194,15 @@ export class WarSystem {
     let best: Vec2 | null = null;
     let bestD = Infinity;
     for (const [c, p] of this.lastKnown) {
-      if (!c.alive || !this.infiltrators.has(c)) continue;
+      if (!c.alive || (!this.infiltrators.has(c) && !this.operatives.has(c))) continue;
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < bestD) {
         bestD = d;
         best = p;
       }
     }
+    // Никого не видели — точка тревоги (пока не истекла).
+    if (!best && this.alarm && this.time < this.alarm.until) best = { x: this.alarm.x, y: this.alarm.y };
     return best;
   }
 
@@ -281,13 +294,55 @@ export class WarSystem {
     this.ctx.law.log(`${f.name}: подкрепление в пути — ${c.name} (${medic ? 'HELIX' : 'GRID'}).`, 'radio');
   }
 
-  private declareRed(where: string): void {
+  /** В городе ли точка (не КПП, не пустошь, не канализация) — там нападение поднимает тревогу. */
+  private inCity(x: number, y: number): boolean {
+    if (this.ctx.map.levelAt(x, y) !== 'city') return false;
+    const kind = this.ctx.map.zoneAtWorld(x, y)?.kind;
+    return kind !== 'checkpoint' && kind !== 'outlands';
+  }
+
+  /** Ранение сотрудника Альянса в городе — тревога; погибшие за тревогу — эскалация до красного. */
+  private onDamage(target: Character, attacker: Character | null, killed: boolean): void {
+    if (!attacker || !FACTIONS[target.faction].authority || FACTIONS[attacker.faction].authority) return;
+    if (!this.inCity(target.x, target.y)) return;
+    this.operatives.add(attacker);
+    this.lastKnown.set(attacker, { x: attacker.x, y: attacker.y });
+    if (this.time - this.lastAlarmRaise > 10) this.raiseAlarm(target.x, target.y, `нападение на сотрудника ${FACTIONS[target.faction].role}`);
+    else if (this.alarm) this.alarm.until = this.time + ALARM.pointTime;
+    if (killed && this.code === 'yellow' && ++this.alarmKills >= ALARM.escalateKills) {
+      this.declareRed(this.ctx.map.zoneAtWorld(target.x, target.y)?.name ?? 'город', 'Потери среди сотрудников Альянса');
+    }
+  }
+
+  /**
+   * Тревога Администратора (код жёлтый): нападение или саботаж в городе. Патрули рядом стягиваются
+   * к точке тревоги, проверки CID чаще. При красном коде — только обновляет точку.
+   */
+  raiseAlarm(x: number, y: number, what: string): void {
+    this.lastAlarmRaise = this.time;
+    this.alarm = { x, y, until: this.time + ALARM.pointTime };
+    const zone = this.ctx.map.zoneAtWorld(x, y)?.name ?? 'город';
+    if (this.code !== 'green') {
+      this.ctx.law.log(`Надзор: ${what} — ${zone}. Всем патрулям в квартале — усилить поиск.`, 'radio');
+      return;
+    }
+    this.code = 'yellow';
+    this.yellowSince = this.time;
+    this.alarmKills = 0;
+    this.calm = 0;
+    this.ctx.law.log(`Администрация: Код ЖЁЛТЫЙ! ${what[0].toUpperCase()}${what.slice(1)} — ${zone}. Граждане, сохраняйте спокойствие и предъявляйте CID по первому требованию.`, 'world');
+    this.ctx.bus.emit('alert', { code: 'yellow' });
+    this.ctx.bus.emit('announce', { text: `Код жёлтый · ${what}` });
+    for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код жёлтый!', this.ctx.law.now, 4);
+  }
+
+  private declareRed(where: string, why = 'Прорыв периметра'): void {
     this.code = 'red';
     this.curfew = true;
     this.redSince = this.time;
     this.curfewSince = this.time;
     this.calm = 0;
-    this.ctx.law.log(`Администрация: Код КРАСНЫЙ! Прорыв периметра — ${where}. Объявлен комендантский час. Граждане, немедленно пройдите в жилые блоки.`, 'world');
+    this.ctx.law.log(`Администрация: Код КРАСНЫЙ! ${why} — ${where}. Объявлен комендантский час. Граждане, немедленно пройдите в жилые блоки.`, 'world');
     this.ctx.bus.emit('alert', { code: 'red' });
     this.ctx.economy.forceClose();
     this.ctx.bus.emit('announce', { text: 'Код красный · комендантский час' });
@@ -318,10 +373,15 @@ export class WarSystem {
   }
 
   private declareGreen(): void {
+    const wasCurfew = this.curfew;
     this.code = 'green';
     this.curfew = false;
     this.shelterClaims.clear();
-    this.ctx.law.log('Администрация: Код зелёный. Комендантский час отменён. Благодарим за сотрудничество.', 'world');
+    this.alarm = null;
+    this.ctx.law.log(
+      wasCurfew ? 'Администрация: Код зелёный. Комендантский час отменён. Благодарим за сотрудничество.' : 'Администрация: Код зелёный. Отбой тревоги. Благодарим за бдительность.',
+      'world',
+    );
     this.ctx.bus.emit('alert', { code: 'green' });
     this.ctx.bus.emit('announce', { text: 'Код зелёный' });
     for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
@@ -367,7 +427,7 @@ export class WarSystem {
           this.infiltrators.add(r);
           this.lastKnown.set(r, { x: r.x, y: r.y });
           if (b instanceof RebelBrain) b.infiltrate();
-          if (this.code === 'green') this.declareRed(f.name);
+          if (this.code !== 'red') this.declareRed(f.name);
           return false;
         }
         return true;
@@ -427,6 +487,18 @@ export class WarSystem {
         this.infiltrators.delete(r);
         this.lastKnown.delete(r);
       }
+    }
+    // Нападавшие: пока живы, на свободе и в городе (ушёл в канализацию — след потерян).
+    for (const r of this.operatives) {
+      const gone = !r.alive || r.law.phase === 'cuffed' || r.law.phase === 'entering' || r.law.phase === 'jailed';
+      if (gone || !this.inCity(r.x, r.y)) {
+        this.operatives.delete(r);
+        this.lastKnown.delete(r);
+      }
+    }
+    if (this.code === 'yellow') {
+      this.calm = this.operatives.size === 0 ? this.calm + dt : 0;
+      if (this.calm >= ALARM.calmToGreen && this.time - this.yellowSince >= ALARM.minTime) this.declareGreen();
     }
     // «Надзор» периодически засекает прорвавшихся.
     this.scanTimer -= dt;

@@ -16,6 +16,9 @@ export const T = {
   BUNKER: 10,
   WASTE: 11,
   BARRIER: 12,
+  SEWER: 13,
+  SEWER_WATER: 14,
+  SEWER_WALL: 15,
 } as const;
 
 export type TileId = (typeof T)[keyof typeof T];
@@ -44,6 +47,10 @@ export const TILE_DEFS: readonly TileDef[] = [
   { id: T.WASTE, key: 'waste', char: 'o', name: 'Пустошь за городом', solid: false, opaque: false },
   // Низкое укрытие: не пройти, но видно поверх (для перестрелок в коридоре КПП).
   { id: T.BARRIER, key: 'barrier', char: 'B', name: 'Бетонный блок (укрытие)', solid: true, opaque: false },
+  // Канализация: отдельная область той же сетки, связанная с городом люками.
+  { id: T.SEWER, key: 'sewer', char: 's', name: 'Пол канализации', solid: false, opaque: false },
+  { id: T.SEWER_WATER, key: 'sewer_water', char: '~', name: 'Сток (вода по щиколотку)', solid: false, opaque: false },
+  { id: T.SEWER_WALL, key: 'sewer_wall', char: 'w', name: 'Кладка канализации', solid: true, opaque: true },
 ];
 
 /** Быстрые таблицы: SOLID[tileId] === 1 — непроходим. */

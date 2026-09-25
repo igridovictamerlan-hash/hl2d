@@ -4,13 +4,17 @@ import type { GameMap } from '../world/GameMap';
 import type { EventBus } from '../core/EventBus';
 import type { Rng } from '../core/rng';
 import { ECONOMY } from '../config/economy';
-import { ITEMS, type ItemId } from '../config/items';
+import { ITEMS, WEAPONS, AMMO_ITEM, type ItemId, type WeaponId } from '../config/items';
 import { T } from '../world/tiles';
 import type { Vec2 } from '../core/math';
 
-/** Точка поломки (щиток, фонарь, трубы) — чинит ГСР. */
+/**
+ * Точка поломки — чинит ГСР. fuse — щиток в переулке (ломается сам), node — узел Альянса
+ * на проспекте или площади (выходит из строя только от саботажа, ремонт дороже).
+ */
 export interface RepairSpot {
   index: number;
+  kind: 'fuse' | 'node';
   x: number;
   y: number;
   broken: boolean;
@@ -98,8 +102,43 @@ export class EconomySystem {
       const wx = (x + 0.5) * ts;
       const wy = (y + 0.5) * ts;
       if (this.repairs.some((r) => Math.hypot(r.x - wx, r.y - wy) < 14 * ts)) continue;
-      this.repairs.push({ index: this.repairs.length, x: wx, y: wy, broken: false, worker: null, progress: 0 });
+      this.repairs.push({ index: this.repairs.length, kind: 'fuse', x: wx, y: wy, broken: false, worker: null, progress: 0 });
     }
+    // Узлы Альянса: у стены на проспекте или площади, разнесённые по городу.
+    const N = ECONOMY.nodes;
+    let nodes = 0;
+    for (let tries = 0; tries < 6000 && nodes < N.count; tries++) {
+      const x = this.rng.int(3, map.width - 4);
+      const y = this.rng.int(3, map.height - 4);
+      const t = map.tileAt(x, y);
+      if (t !== T.STREET && t !== T.PLAZA) continue;
+      const kind = map.zoneAtTile(x, y)?.kind;
+      if (kind !== 'avenue' && kind !== 'plaza') continue;
+      const wall = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => map.isOpaque(x + dx, y + dy));
+      if (!wall) continue;
+      const wx = (x + 0.5) * ts;
+      const wy = (y + 0.5) * ts;
+      if (this.repairs.some((r) => r.kind === 'node' && Math.hypot(r.x - wx, r.y - wy) < N.spacing * ts)) continue;
+      this.repairs.push({ index: this.repairs.length, kind: 'node', x: wx, y: wy, broken: false, worker: null, progress: 0 });
+      nodes++;
+    }
+  }
+
+  get nodes(): RepairSpot[] {
+    return this.repairs.filter((r) => r.kind === 'node');
+  }
+
+  /** Задаёт WarSystem: саботаж — тревога Администратора. */
+  onSabotage: (spot: RepairSpot, by: Character) => void = () => {};
+
+  /** Саботаж узла Альянса. */
+  sabotage(spot: RepairSpot, by: Character): void {
+    if (spot.kind !== 'node' || spot.broken) return;
+    spot.broken = true;
+    spot.progress = 0;
+    const zone = this.map.zoneAtWorld(spot.x, spot.y)?.name ?? 'город';
+    this.bus.emit('log', { text: `Надзор: узел Альянса выведен из строя — ${zone}. Саботаж!`, kind: 'radio' });
+    this.onSabotage(spot, by);
   }
 
   /** Позиция места в очереди (0 — у окна). */
@@ -177,6 +216,13 @@ export class EconomySystem {
   /** Съесть/использовать предмет. */
   use(c: Character, id: ItemId): boolean {
     const def = ITEMS[id];
+    // Поддельная CID: «чистая» карта, розыск снят.
+    if (id === 'fake_cid') {
+      if (!c.inventory.remove(id, 1)) return false;
+      c.law.hasCid = true;
+      c.law.wanted = false;
+      return true;
+    }
     if (!def.food && !def.heal) return false;
     if (!c.inventory.remove(id, 1)) return false;
     if (def.food) c.hunger = Math.min(ECONOMY.hunger.max, c.hunger + def.food);
@@ -204,6 +250,46 @@ export class EconomySystem {
     return null;
   }
 
+  /** Чёрный рынок: купить позицию k из ECONOMY.blackMarket.stock. */
+  buyBlack(c: Character, k: number): string | null {
+    const s = ECONOMY.blackMarket.stock[k];
+    if (!s) return 'Нет такого товара.';
+    if (c.money < s.price) return `Не хватает токенов: нужно ${s.price}.`;
+    const got = c.inventory.add(s.id, s.qty);
+    if (got < s.qty) {
+      if (got > 0) c.inventory.remove(s.id, got);
+      return 'Инвентарь полон.';
+    }
+    c.money -= s.price;
+    return null;
+  }
+
+  /** Чёрный рынок: продать одну штуку. */
+  sellBlack(c: Character, id: ItemId): string | null {
+    const price = ECONOMY.blackMarket.sell[id];
+    if (price === undefined) return 'Это здесь не берут.';
+    if (!c.inventory.remove(id, 1)) return 'Нечего продавать.';
+    if (c.weapon === id && !c.inventory.has(id)) c.equip(null);
+    c.money += price;
+    return null;
+  }
+
+  /**
+   * Пополнить боекомплект: для каждого ствола в инвентаре — запас до mags магазинов
+   * (тайник повстанцев, стойка дежурного в Нексусе). Остальные вещи не трогает.
+   */
+  refillAmmo(c: Character, mags: number): number {
+    let added = 0;
+    for (const s of [...c.inventory.slots]) {
+      const w = WEAPONS[s.id as WeaponId];
+      if (!w?.ammo) continue;
+      const item = AMMO_ITEM[w.ammo];
+      const need = w.magazine * mags - c.inventory.count(item);
+      if (need > 0) added += c.inventory.add(item, need);
+    }
+    return added;
+  }
+
   /** Ремонт: вызывать каждый тик, пока работник у поломки. true — закончил. */
   repairStep(worker: Character, spot: RepairSpot, dt: number): boolean {
     if (!spot.broken) return true;
@@ -214,8 +300,10 @@ export class EconomySystem {
     spot.broken = false;
     spot.worker = null;
     spot.progress = 0;
-    worker.money += ECONOMY.cwuPay.repair;
-    this.bus.emit('log', { text: `${worker.isPlayer ? 'Вы починили' : `${worker.name} (ГСР) починил`} неисправность. +${ECONOMY.cwuPay.repair} токенов`, kind: 'world' });
+    const pay = spot.kind === 'node' ? ECONOMY.cwuPay.node : ECONOMY.cwuPay.repair;
+    worker.money += pay;
+    const what = spot.kind === 'node' ? 'узел Альянса' : 'неисправность';
+    this.bus.emit('log', { text: `${worker.isPlayer ? 'Вы починили' : `${worker.name} (ГСР) починил`} ${what}. +${pay} токенов`, kind: 'world' });
     return true;
   }
 
@@ -303,8 +391,8 @@ export class EconomySystem {
     this.breakTimer -= dt;
     if (this.breakTimer <= 0) {
       this.breakTimer = this.rng.range(ECONOMY.repairs.breakEvery[0], ECONOMY.repairs.breakEvery[1]);
-      const intact = this.repairs.filter((r) => !r.broken);
-      if (intact.length > 0 && this.brokenSpots().length < ECONOMY.repairs.maxBroken) {
+      const intact = this.repairs.filter((r) => !r.broken && r.kind === 'fuse');
+      if (intact.length > 0 && this.brokenSpots().filter((r) => r.kind === 'fuse').length < ECONOMY.repairs.maxBroken) {
         const r = this.rng.pick(intact);
         r.broken = true;
         r.progress = 0;

@@ -29,6 +29,10 @@ export interface UIHost extends DevPanelHost {
   useItem(id: ItemId): void;
   equipItem(id: WeaponId | null): void;
   buyItem(id: ItemId): string | null;
+  buyBlack(k: number): string | null;
+  sellItem(id: ItemId): string | null;
+  /** Прилавок чёрного рынка (px) — магазин закрывается, если отойти. */
+  readonly blackMarketCounter: { x: number; y: number } | null;
 }
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -56,7 +60,7 @@ export class UI {
     this.log = new EventLog(root, bus);
     this.check = new CheckPanel(root, bus, (t, c) => host.resolveCheck(t, c));
     this.inventory = new InventoryPanel(root, host);
-    this.shop = new ShopPanel(root, (id) => host.buyItem(id));
+    this.shop = new ShopPanel(root, { buy: (id) => host.buyItem(id), buyBlack: (k) => host.buyBlack(k), sell: (id) => host.sellItem(id) });
     this.alert = new AlertBar(root, bus);
     this.death = new DeathScreen(root);
     new HelpBar(root);
@@ -71,7 +75,9 @@ export class UI {
   }
 
   update(player: Character, now: number, dt: number): void {
-    this.audio.update(this.host.combat.shots, player, this.host.combat.now);
+    const map = this.host.map;
+    const level = map.levelAt(player.x, player.y);
+    this.audio.update(this.host.combat.shots, player, this.host.combat.now, (x, y) => map.levelAt(x, y) === level);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
@@ -100,7 +106,7 @@ export class UI {
       this.log.el.style.bottom = `${h + 28}px`;
     }
     this.inventory.update(player);
-    this.shop.update(player, economy.shopCounter);
+    this.shop.update(player, this.shop.kind === 'black' ? this.host.blackMarketCounter : economy.shopCounter);
     this.death.update(player, combat.now);
     this.dev.update();
   }

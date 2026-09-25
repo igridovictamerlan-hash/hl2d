@@ -8,7 +8,7 @@ import { RENDER } from '../config/render';
 import { VISION } from '../config/vision';
 import { CHARACTER } from '../config/entities';
 import { FACTIONS, rankOf, type FactionId } from '../config/factions';
-import type { GameMap } from '../world/GameMap';
+import type { GameMap, Level } from '../world/GameMap';
 import { NavGrid } from '../world/NavGrid';
 import { MapRenderer } from '../world/MapRenderer';
 import { FogRenderer } from '../world/FogRenderer';
@@ -31,6 +31,8 @@ import { spawnPopulation, roleSpawn, poiWorld, equipKit, cpKit } from '../system
 import { EconomySystem } from '../systems/EconomySystem';
 import { CombatSystem } from '../systems/CombatSystem';
 import { WarSystem } from '../systems/WarSystem';
+import { UndergroundSystem } from '../systems/UndergroundSystem';
+import { InsurgencySystem } from '../systems/InsurgencySystem';
 import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
@@ -65,6 +67,7 @@ export class Game {
   economy!: EconomySystem;
   combat!: CombatSystem;
   war!: WarSystem;
+  insurgency!: InsurgencySystem;
   private ai!: AiContext;
   private mapRenderer!: MapRenderer;
   private readonly ctx: CanvasRenderingContext2D;
@@ -84,6 +87,8 @@ export class Game {
   /** Гражданское имя игрока (для ролей без позывного). */
   private civilName = '';
   time = 0;
+  /** Уровень, на котором игрок (для камеры и тумана). */
+  private level: Level = 'city';
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -97,7 +102,7 @@ export class Game {
     this.playerCtl = new PlayerController(this.input, this.camera, this.bus, {
       openRoleMenu: () => this.ui.roles.open(false),
       menuOpen: () => this.ui.roles.isOpen,
-      openShop: () => this.ui.shop.open(),
+      openShop: (kind) => this.ui.shop.open(kind),
       toggleInventory: () => this.ui.inventory.toggle(),
       placeBarrier: () => this.placeBarrier(),
       checkPanelTarget: () => this.ui.check.target,
@@ -152,10 +157,14 @@ export class Game {
       bus: this.bus,
       economy: this.economy,
       combat: this.combat,
+      underground: new UndergroundSystem(map, this.nav, this.entities),
       war: null as unknown as WarSystem,
+      insurgency: null as unknown as InsurgencySystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
+    this.insurgency = new InsurgencySystem(this.ai);
+    this.ai.insurgency = this.insurgency;
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
     this.law.panicking = (c) => c.panicUntil > this.law.now;
     this.entities.clear();
@@ -214,8 +223,8 @@ export class Game {
     p.hostile = false;
     p.panicUntil = 0;
     equipKit(p, faction === 'cp' ? cpKit(p.division) : faction === 'rebel' && rank >= REBEL_OFFICER_RANK ? 'rebel_officer' : faction, this.ai);
-    // Жителям оружие на виду ни к чему: у повстанца пистолет спрятан до первого выстрела.
-    if (faction !== 'cp') this.combat.equip(p, null);
+    // Жителям оружие на виду ни к чему; повстанец начинает в убежище — с оружием в руках (Q/H — убрать).
+    if (faction !== 'cp' && faction !== 'rebel') this.combat.equip(p, null);
     p.name = faction === 'cp' ? nameFor(this.rng, 'cp') : this.civilName || randomName(this.rng);
     p.money = CHARACTER.roleMoney[faction] ?? CHARACTER.startMoney;
     p.brain = null;
@@ -245,6 +254,18 @@ export class Game {
   equipItem(id: WeaponId | null): void {
     if (!this.player.alive) return;
     this.combat.equip(this.player, id);
+  }
+
+  buyBlack(k: number): string | null {
+    return this.economy.buyBlack(this.player, k);
+  }
+
+  sellItem(id: ItemId): string | null {
+    return this.economy.sellBlack(this.player, id);
+  }
+
+  get blackMarketCounter(): { x: number; y: number } | null {
+    return this.insurgency?.market ?? null;
   }
 
   buyItem(id: ItemId): string | null {
@@ -302,10 +323,16 @@ export class Game {
   }
 
   /** Кого видит игрок: прямая видимость до кружка в пределах дальности обзора. */
+  /** Радиус обзора игрока: в канализации темно — видно меньше. */
+  private get sightRadius(): number {
+    return this.map.levelAt(this.player.x, this.player.y) === 'sewer' ? VISION.sewerRadius : VISION.radius;
+  }
+
   private updateVisibility(): void {
     const p = this.player;
-    this.sight.compute(this.map, p.x, p.y, VISION.radius, VISION.wallBleed);
-    const r2 = (VISION.radius + 20) ** 2;
+    const radius = this.sightRadius;
+    this.sight.compute(this.map, p.x, p.y, radius, VISION.wallBleed);
+    const r2 = (radius + 20) ** 2;
     for (const c of this.entities.list) {
       if (c === p) {
         c.visible = true;
@@ -345,12 +372,19 @@ export class Game {
     this.economy.update(dt);
     this.combat.update(dt);
     this.war.update(dt);
+    this.insurgency.update(dt);
     if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside
       ? this.camera.screenToWorld(this.input.mouseX, this.input.mouseY)
       : { x: this.player.x, y: this.player.y };
-    this.camera.follow(this.player.x, this.player.y, m.x, m.y, dt, this.map.worldWidth, this.map.worldHeight, this.player.aiming);
+    // Сменил уровень (люк) — камера сразу на месте, без «полёта» через всю карту.
+    const level = this.map.levelAt(this.player.x, this.player.y);
+    if (level !== this.level) {
+      this.level = level;
+      this.camera.snapTo(this.player.x, this.player.y);
+    }
+    this.camera.follow(this.player.x, this.player.y, m.x, m.y, dt, this.map.levelBounds(level), this.player.aiming);
     this.zones.update(this.map, this.player, dt);
     if (this.input.wasPressed('debug')) this.debug.enabled = !this.debug.enabled;
     if (this.input.wasPressed('devPanel')) this.ui.dev.toggle();
@@ -372,21 +406,23 @@ export class Game {
     ctx.fillRect(0, 0, v.width, v.height);
     this.mapRenderer.draw(ctx, v);
     this.drawTerminal(v);
-    this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now);
+    this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     this.effects.drawShots(ctx, v, this.combat);
     this.aim.drawSwings(ctx, v, this.combat);
-    this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y);
+    const sewer = this.level === 'sewer';
+    this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);
     this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);
+    this.effects.drawProgress(ctx, v, this.player, this.playerCtl.progress);
     this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll);
     this.debug.draw(ctx, v, this.entities.list, this.nav, this.player, alpha, dpr);
     if (this.vignette) {
       ctx.fillStyle = this.vignette;
       ctx.fillRect(0, 0, v.width, v.height);
     }
-    this.effects.drawAlert(ctx, v, this.war.code === 'red', this.law.now, this.player);
-    this.effects.drawFrontMarkers(ctx, v, this.war, this.player, dpr, this.law.now);
+    this.effects.drawAlert(ctx, v, this.war.code, this.law.now, this.player);
+    if (!sewer) this.effects.drawFrontMarkers(ctx, v, this.war, this.player, dpr, this.law.now);
     if (this.input.mouseInside) this.drawCrosshair(this.input.mouseX * dpr, this.input.mouseY * dpr, dpr);
   }
 

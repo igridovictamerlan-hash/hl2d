@@ -14,6 +14,8 @@ import type { GameMap } from '../src/world/GameMap';
 import { EconomySystem } from '../src/systems/EconomySystem';
 import { CombatSystem } from '../src/systems/CombatSystem';
 import { WarSystem } from '../src/systems/WarSystem';
+import { UndergroundSystem } from '../src/systems/UndergroundSystem';
+import { InsurgencySystem } from '../src/systems/InsurgencySystem';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
 export function makeSim(seedOrMap: number | GameMap) {
@@ -42,10 +44,14 @@ export function makeSim(seedOrMap: number | GameMap) {
     bus,
     economy,
     combat,
+    underground: new UndergroundSystem(map, nav, entities),
     war: null as unknown as WarSystem,
+    insurgency: null as unknown as InsurgencySystem,
   };
   const war = new WarSystem(ctx);
   ctx.war = war;
+  const insurgency = new InsurgencySystem(ctx);
+  ctx.insurgency = insurgency;
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;
   const step = (dt = 1 / 60) => {
@@ -57,6 +63,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     economy.update(dt);
     combat.update(dt);
     war.update(dt);
+    insurgency.update(dt);
   };
-  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war };
+  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency };
 }

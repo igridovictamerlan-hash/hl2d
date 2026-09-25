@@ -10,13 +10,15 @@ import { CHARACTER } from '../src/config/entities';
 const map = generateCity(12345);
 const nav = new NavGrid(map);
 const rng = new Rng(1);
+/** Якоря города (канализация — отдельная область, пути туда только через люки). */
+const city = nav.walkable.filter((i) => nav.level[i] === 0);
 
 describe('A* по якорям 2×2', () => {
   test('находит путь между случайными точками, шаги — соседние проходимые якоря', () => {
     const astar = new AStar(nav);
     for (let k = 0; k < 40; k++) {
-      const a = rng.pick(nav.walkable);
-      const b = rng.pick(nav.walkable);
+      const a = rng.pick(city);
+      const b = rng.pick(city);
       const path = astar.find(a, b)!;
       expect(path).not.toBeNull();
       expect(path[0]).toBe(a);
@@ -32,8 +34,8 @@ describe('A* по якорям 2×2', () => {
   test('сглаженный путь проходим кружком радиуса 12 px', () => {
     const paths = new PathService(map, nav);
     for (let k = 0; k < 30; k++) {
-      const a = rng.pick(nav.walkable);
-      const b = rng.pick(nav.walkable);
+      const a = rng.pick(city);
+      const b = rng.pick(city);
       const pts = paths.findNow(nav.worldX(a), nav.worldY(a), b)!;
       expect(pts.length).toBeGreaterThanOrEqual(2);
       for (let i = 1; i < pts.length; i++) {
@@ -45,7 +47,7 @@ describe('A* по якорям 2×2', () => {
   test('избегает запретных зон, если есть обход', () => {
     const astar = new AStar(nav);
     const restricted = new Set(map.zones.filter((z) => z.kind === 'restricted').map((z) => z.id));
-    const outside = nav.walkable.filter((i) => !restricted.has(nav.zone[i]));
+    const outside = city.filter((i) => !restricted.has(nav.zone[i]));
     let through = 0;
     for (let k = 0; k < 30; k++) {
       const path = astar.find(rng.pick(outside), rng.pick(outside), { avoidZones: restricted })!;

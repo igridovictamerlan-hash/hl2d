@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { generateCity, validateMap } from '../src/world/generator/CityGenerator';
-import { analyzeMap } from '../src/world/mapStats';
+import { analyzeMap, hatchLinks } from '../src/world/mapStats';
 import { NEXUS_TEMPLATE, rotateTemplate } from '../src/world/generator/templates';
 import { GENERATOR } from '../src/config/generator';
 import { T, SOLID } from '../src/world/tiles';
@@ -42,10 +42,16 @@ describe('генератор переулочного города', () => {
 
   for (const seed of SEEDS) {
     describe(`seed ${seed}`, () => {
-      test('размер ~3000×3000 px, городская стена по краю', () => {
+      test('город ~3000×3000 px, справа — канализация; стена по краю', () => {
         const map = get(seed);
-        expect(map.worldWidth).toBeGreaterThanOrEqual(2900);
-        expect(map.worldWidth).toBeLessThanOrEqual(3100);
+        const city = map.levelBounds('city');
+        expect(city.w).toBeGreaterThanOrEqual(2900);
+        expect(city.w).toBeLessThanOrEqual(3100);
+        expect(map.worldHeight).toBeGreaterThanOrEqual(2900);
+        expect(map.worldHeight).toBeLessThanOrEqual(3100);
+        const u = map.underground!;
+        expect(u.x * map.tileSize).toBeGreaterThanOrEqual(city.w);
+        expect(u.w).toBeGreaterThan(60);
         for (let x = 0; x < map.width; x++) {
           expect(map.isSolid(x, 0)).toBe(true);
           expect(map.isSolid(x, map.height - 1)).toBe(true);
@@ -53,7 +59,8 @@ describe('генератор переулочного города', () => {
       });
 
       test('связность: одна компонента, нет недостижимых мест', () => {
-        const check = analyzeMap(get(seed).tiles, get(seed).width, get(seed).height);
+        // Город и канализация — разные области сетки, связанные люками: вместе — одна компонента.
+        const check = analyzeMap(get(seed).tiles, get(seed).width, get(seed).height, hatchLinks(get(seed)));
         expect(check.components).toBe(1);
         expect(check.unreachableTiles).toBe(0);
       });
@@ -118,7 +125,8 @@ describe('генератор переулочного города', () => {
         }
         expect(widest * map.tileSize).toBeGreaterThanOrEqual(100);
         let streetCols = 0;
-        for (let x = 0; x < map.width; x++) {
+        const cityW = map.underground!.x - 4;
+        for (let x = 0; x < cityW; x++) {
           let has = false;
           for (let y = 0; y < map.height && !has; y++) {
             const t = map.tiles[y * map.width + x];
@@ -126,7 +134,7 @@ describe('генератор переулочного города', () => {
           }
           if (has) streetCols++;
         }
-        expect(streetCols).toBeGreaterThan(map.width - 2 * GENERATOR.border - 2);
+        expect(streetCols).toBeGreaterThan(cityW - 2 * GENERATOR.border - 2);
         expect(SOLID[T.STREET]).toBe(0);
       });
     });
