@@ -11,14 +11,16 @@ import { WAR } from '../../config/war';
 import { CHARACTER } from '../../config/entities';
 import { T } from '../../world/tiles';
 
-type Mode = 'raid' | 'assault' | 'infiltrate' | 'retreat';
+type Mode = 'raid' | 'assault' | 'infiltrate' | 'retreat' | 'capture' | 'hold';
 
 /**
  * Боец сопротивления из пустошей.
  *  raid — занимает позицию на пустоши с видом на ворота КПП и перестреливается с часовыми;
  *  assault — идёт на прорыв через коридор КПП в город (стреляет по пути);
  *  infiltrate — прорвался: прячется в кварталах, отстреливается, если нашли;
- *  retreat — ранен или без патронов: уходит вглубь пустоши (исчезает).
+ *  retreat — ранен или без патронов: уходит вглубь пустоши (исчезает);
+ *  capture — идёт капт КПП: занимает позиции в передней части коридора и у внешних ворот;
+ *  hold — КПП захвачен: держит пост часового.
  */
 export class RebelBrain implements Brain {
   readonly mover: Mover;
@@ -32,6 +34,7 @@ export class RebelBrain implements Brain {
   private suppressLeft = 0;
   private suppressAt: { x: number; y: number } | null = null;
   private repath = 0;
+  private holdPost: { x: number; y: number } | null = null;
 
   constructor(
     private self: Character,
@@ -50,6 +53,29 @@ export class RebelBrain implements Brain {
 
   orderAssault(): void {
     if (this.mode === 'raid') this.assaultAt = 0;
+  }
+
+  /** Капт начался: вперёд, в переднюю часть коридора. */
+  orderCapture(): void {
+    if (this.mode !== 'raid' && this.mode !== 'assault') return;
+    this.mode = 'capture';
+    this.goal = -1;
+  }
+
+  /** КПП захвачен: держать пост. */
+  orderHold(post: { x: number; y: number }): void {
+    if (this.mode === 'retreat' || this.mode === 'infiltrate') return;
+    this.mode = 'hold';
+    this.holdPost = post;
+    this.goal = -1;
+  }
+
+  /** Капт закончился / КПП отбит — обратно на пустошь. */
+  orderRaid(): void {
+    if (this.mode !== 'capture' && this.mode !== 'hold') return;
+    this.mode = 'raid';
+    this.goal = -1;
+    this.assaultAt = Infinity;
   }
 
   infiltrate(): void {
@@ -136,7 +162,9 @@ export class RebelBrain implements Brain {
     this.ctx = ctx;
     const f = ctx.war.fronts[this.front];
     const outOfAmmo = ctx.combat.maxRange(self) <= 0;
-    if (this.mode !== 'infiltrate' && this.mode !== 'retreat' && (self.health < self.maxHealth * COMBAT.woundedFraction || outOfAmmo)) {
+    // В капте раненые не уходят — дерутся до конца (без патронов — уходят).
+    const stays = this.mode === 'capture' && !outOfAmmo;
+    if (this.mode !== 'infiltrate' && this.mode !== 'retreat' && !stays && (self.health < self.maxHealth * COMBAT.woundedFraction || outOfAmmo)) {
       this.mode = 'retreat';
       this.goal = -1;
     }
@@ -173,6 +201,28 @@ export class RebelBrain implements Brain {
         }
         // Прорыв: перебежками — стреляет, но не останавливается надолго.
         this.mover.speed = fighting ? 55 : CHARACTER.runSpeed * 0.75;
+        break;
+      }
+      case 'capture': {
+        if (!f) break;
+        // Позиция в передней половине коридора или у внешних ворот; меняет её время от времени.
+        if (this.goal < 0 || this.relocate <= 0 || this.mover.status === 'failed') {
+          this.relocate = ctx.rng.range(WAR.relocateEvery[0], WAR.relocateEvery[1]) * 0.6;
+          const near = f.corridor.slice(0, Math.max(4, Math.floor(f.corridor.length / 2)));
+          const pick = near.length ? ctx.rng.pick(near) : ctx.nav.nearestWalkable(f.outerGate.x, f.outerGate.y, 6);
+          this.go(pick);
+        }
+        this.mover.speed = CHARACTER.runSpeed * 0.7;
+        if (fighting && this.gunner.target) this.mover.stop();
+        else if (this.mover.status === 'idle' && this.goal >= 0) this.go(this.goal);
+        break;
+      }
+      case 'hold': {
+        const p = this.holdPost;
+        if (!p) break;
+        if (this.goal < 0 || this.mover.status === 'failed') this.go(ctx.nav.nearestWalkable(p.x, p.y, 3));
+        if (fighting && this.gunner.target) this.mover.stop();
+        else if (this.mover.status === 'idle' && Math.hypot(p.x - self.x, p.y - self.y) > 20) this.go(this.goal);
         break;
       }
       case 'infiltrate': {

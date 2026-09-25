@@ -16,6 +16,8 @@ import { ShopPanel } from './ShopPanel';
 import { AlertBar } from './AlertBar';
 import { DeathScreen } from './DeathScreen';
 import { GunfireAudio } from './GunfireAudio';
+import { CaptureBar } from './CaptureBar';
+import type { WarSystem } from '../systems/WarSystem';
 import { GAME } from '../config/game';
 import { WEAPONS, type FireMode } from '../config/items';
 
@@ -24,6 +26,7 @@ const FIRE_MODE: Record<FireMode, string> = { semi: 'одиночный', auto: 
 export interface UIHost extends DevPanelHost {
   readonly economy: EconomySystem;
   readonly combat: CombatSystem;
+  readonly war: WarSystem;
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null): void;
   resolveCheck(target: Character, choice: CheckChoice): void;
   useItem(id: ItemId): void;
@@ -50,6 +53,7 @@ export class UI {
   readonly alert: AlertBar;
   readonly death: DeathScreen;
   readonly audio = new GunfireAudio();
+  readonly capture: CaptureBar;
   private hudHeight = 0;
   private acc = 0;
 
@@ -60,6 +64,7 @@ export class UI {
     this.log = new EventLog(root, bus);
     this.check = new CheckPanel(root, bus, (t, c) => host.resolveCheck(t, c));
     this.inventory = new InventoryPanel(root, host);
+    this.capture = new CaptureBar(root);
     this.shop = new ShopPanel(root, { buy: (id) => host.buyItem(id), buyBlack: (k) => host.buyBlack(k), sell: (id) => host.sellItem(id) });
     this.alert = new AlertBar(root, bus);
     this.death = new DeathScreen(root);
@@ -70,6 +75,7 @@ export class UI {
     bus.on('map:loaded', ({ source }) => {
       this.alert.reset();
       this.shop.close();
+      this.capture.reset();
       this.dev.setMap(host.map, source === 'file' ? 'Карта загружена из файла' : undefined);
     });
   }
@@ -106,6 +112,7 @@ export class UI {
       this.log.el.style.bottom = `${h + 28}px`;
     }
     this.inventory.update(player);
+    this.capture.update(this.host.war);
     this.shop.update(player, this.shop.kind === 'black' ? this.host.blackMarketCounter : economy.shopCounter);
     this.death.update(player, combat.now);
     this.dev.update();

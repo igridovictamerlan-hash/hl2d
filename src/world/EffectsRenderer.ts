@@ -198,7 +198,8 @@ export class EffectsRenderer {
       ctx.closePath();
       ctx.fill();
       const meters = Math.round((Math.hypot(f.innerGate.x - player.x, f.innerGate.y - player.y) / 16) * M.metersPerTile);
-      const label = `${f.name.replace('Пограничный ', '')} · ${meters} м${fight ? ' · бой' : ''}`;
+      const state = f.capture ? ` · капт ${f.capture.rebelKills}:${f.capture.cpKills}` : f.owner === 'rebels' ? ' · захвачен' : fight ? ' · бой' : '';
+      const label = `${f.name.replace('Пограничный ', '')} · ${meters} м${state}`;
       const w = ctx.measureText(label).width;
       // Подпись — внутрь экрана от стрелки.
       const tx = Math.max(6 * dpr + w / 2, Math.min(v.width - 6 * dpr - w / 2, x - Math.cos(ang) * (w / 2 + 16 * dpr)));

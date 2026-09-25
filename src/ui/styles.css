@@ -324,3 +324,9 @@ kbd {
 .shop.black .inv-head span { color: #d9a441; }
 .inv-sub { font-size: 11px; letter-spacing: 0.14em; color: var(--hud-dim); margin: 8px 0 2px; }
 .shop-sell { margin-top: 6px; border-top: 1px solid var(--panel-border); }
+
+/* Капт КПП */
+.capture-bar { top: 40px; left: 50%; transform: translateX(-50%); padding: 6px 14px; font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
+.cap-row + .cap-row { margin-top: 3px; }
+.cap-rebel { color: #ff9a4a; font-weight: 600; }
+.cap-cp { color: #8cc8ff; font-weight: 600; }

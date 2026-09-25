@@ -139,6 +139,8 @@ describe('сопротивление в городе', () => {
 
   test('тревога: жёлтый код, отбой без нападавших через calmToGreen', () => {
     const sim = makeSim(12345);
+    // Без отрядов у КПП (гарнизона в тесте нет — иначе будет прорыв и красный код).
+    for (const f of sim.war.fronts) f.nextSquadAt = f.nextWaveAt = Infinity;
     const p = poiWorld(sim.ctx, 'plaza_center')!;
     sim.war.raiseAlarm(p.x, p.y, 'проверка');
     expect(sim.war.code).toBe('yellow');
