@@ -12,6 +12,11 @@ import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 
+/** Мозг бойца отряда — если он сейчас «свой» (задержанный ведёт себя как PrisonerBrain). */
+function rebelBrain(r: Character): RebelBrain | null {
+  return r.brain instanceof RebelBrain ? r.brain : null;
+}
+
 /** Код тревоги: зелёный — спокойно, жёлтый — нападение/саботаж в городе, красный — прорыв периметра. */
 export type AlertCode = 'green' | 'yellow' | 'red';
 
@@ -234,7 +239,7 @@ export class WarSystem {
     const f = this.fronts[front];
     if (!f) return;
     if (f.squad.length === 0) this.spawnSquad(f, true);
-    for (const r of f.squad) (r.brain as RebelBrain | null)?.orderAssault();
+    for (const r of f.squad) rebelBrain(r)?.orderAssault();
   }
 
   private spawnSquad(f: Front, assault: boolean): void {
@@ -365,7 +370,7 @@ export class WarSystem {
     f.capture = { since: this.time, until: this.time + WAR.capture.duration, rebelKills: 0, cpKills: 0 };
     this.ctx.law.log(`${f.name}: КАПТ! Повстанцы начали захват КПП. Всем постам — держать оборону!`, 'radio');
     this.ctx.bus.emit('announce', { text: `Капт · ${f.name}` });
-    for (const r of f.squad) (r.brain as RebelBrain | null)?.orderCapture();
+    for (const r of f.squad) rebelBrain(r)?.orderCapture();
   }
 
   private endCapture(f: Front, won: boolean): void {
@@ -377,7 +382,7 @@ export class WarSystem {
     if (!won) {
       this.ctx.law.log(`${f.name}: капт отбит (${score}). КПП удержан.`, 'radio');
       this.ctx.bus.emit('announce', { text: `КПП удержан · ${score}` });
-      for (const r of f.squad) (r.brain as RebelBrain | null)?.orderRaid();
+      for (const r of f.squad) rebelBrain(r)?.orderRaid();
       return;
     }
     f.owner = 'rebels';
@@ -389,8 +394,7 @@ export class WarSystem {
     this.ctx.bus.emit('announce', { text: `КПП захвачен · ${score}` });
     // Повстанцы занимают посты часовых; остальные остаются в коридоре.
     f.squad.forEach((r, k) => {
-      const b = r.brain as RebelBrain | null;
-      if (k < f.posts.length) b?.orderHold(f.posts[k]);
+      if (k < f.posts.length) rebelBrain(r)?.orderHold(f.posts[k]);
     });
     if (this.code !== 'red') this.declareRed(f.name, 'КПП захвачен повстанцами');
   }
@@ -419,7 +423,7 @@ export class WarSystem {
       f.owner = 'combine';
       this.ctx.law.log(`${f.name}: КПП отбит. Гарнизон восстанавливается.`, 'radio');
       this.ctx.bus.emit('announce', { text: `КПП отбит · ${f.name}` });
-      for (const r of f.squad) (r.brain as RebelBrain | null)?.orderRaid();
+      for (const r of f.squad) rebelBrain(r)?.orderRaid();
     }
   }
 
@@ -579,11 +583,11 @@ export class WarSystem {
       f.unguarded = onPost === 0 && f.squad.length > 0 && !f.capture && f.owner === 'combine' ? f.unguarded + dt : 0;
       if (f.unguarded > WAR.pushWhenUnguarded) {
         f.unguarded = 0;
-        for (const r of f.squad) (r.brain as RebelBrain | null)?.orderAssault();
+        for (const r of f.squad) rebelBrain(r)?.orderAssault();
         this.ctx.law.log(`${f.name}: пост оголён — повстанцы идут в коридор!`, 'radio');
         f.assaultAnnounced = true;
       }
-      if (!f.assaultAnnounced && f.squad.some((r) => (r.brain as RebelBrain | null)?.mode === 'assault')) {
+      if (!f.assaultAnnounced && f.squad.some((r) => rebelBrain(r)?.mode === 'assault')) {
         f.assaultAnnounced = true;
         this.ctx.law.log(`${f.name}: повстанцы идут на прорыв!`, 'radio');
       }

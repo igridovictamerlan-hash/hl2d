@@ -6,7 +6,8 @@ import type { WarSystem } from '../systems/WarSystem';
 import type { GameMap } from './GameMap';
 import { colorsOf } from '../config/factions';
 import { RENDER } from '../config/render';
-import { COMBAT } from '../config/combat';
+import { COMBAT, GRENADE } from '../config/combat';
+import { FACTIONS } from '../config/factions';
 
 /**
  * Эффекты мира: тела погибших, поломки (щитки), места в очереди за рационом, трассеры и
@@ -104,6 +105,44 @@ export class EffectsRenderer {
         ctx.fillRect(x - 8 * s, y - 9 * s, 16 * s * Math.min(1, r.progress / 5), 2 * s);
       }
     }
+    // Следы: копоть, кровь, выбоины, гильзы (исчезают к концу жизни).
+    for (const d of combat.decals) {
+      const x = (d.x - v.left) * s;
+      const y = (d.y - v.top) * s;
+      if (!onScreen(x, y, 40)) continue;
+      const left = d.until - now;
+      const a = Math.min(1, left / 8);
+      if (d.kind === 'casing') {
+        ctx.globalAlpha = a;
+        ctx.fillStyle = E.casing;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(d.ang);
+        ctx.fillRect(-1.5 * s, -0.7 * s, 3 * s, 1.4 * s);
+        ctx.restore();
+      } else if (d.kind === 'blood') {
+        ctx.fillStyle = `rgba(${E.bloodDecal},${0.55 * a})`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, 5 * d.size * s, 3 * d.size * s, d.ang, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(d.ang) * 6 * s, y + Math.sin(d.ang) * 6 * s, 1.4 * s, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (d.kind === 'scorch') {
+        const r = GRENADE.radius * 0.38 * s;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${E.scorch},${0.75 * a})`);
+        g.addColorStop(0.6, `rgba(${E.scorch},${0.35 * a})`);
+        g.addColorStop(1, `rgba(${E.scorch},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      } else {
+        ctx.globalAlpha = a;
+        ctx.fillStyle = E.chip;
+        ctx.fillRect(x - 1 * d.size * s, y - 1 * d.size * s, 2 * d.size * s, 2 * d.size * s);
+      }
+      ctx.globalAlpha = 1;
+    }
     // Тела.
     for (const c of combat.corpses) {
       const x = (c.x - v.left) * s;
@@ -153,6 +192,53 @@ export class EffectsRenderer {
       ctx.beginPath();
       ctx.arc((t.x0 - v.left) * s, (t.y0 - v.top) * s, 3 * s, 0, Math.PI * 2);
       ctx.fill();
+    }
+    // Гранаты: в полёте — крупнее (дуга) с тенью; на земле мигает огонёк.
+    const now = combat.now;
+    for (const g of combat.grenades) {
+      const x = (g.x - v.left) * s;
+      const y = (g.y - v.top) * s;
+      const lift = g.flight < 1 ? Math.sin(Math.PI * g.flight) : 0;
+      if (lift > 0) {
+        ctx.fillStyle = E.grenadeShadow;
+        ctx.beginPath();
+        ctx.arc(x, y, 3 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const gy = y - lift * 14 * s;
+      ctx.fillStyle = E.grenade;
+      ctx.beginPath();
+      ctx.arc(x, gy, (3.5 + lift * 1.5) * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Чем ближе взрыв — тем чаще мигает.
+      const left = g.at - now;
+      if (Math.floor(now * (left < 0.8 ? 12 : 4)) % 2 === 0) {
+        ctx.fillStyle = FACTIONS[g.thrower.faction].authority ? E.grenadeLightCombine : E.grenadeLightRebel;
+        ctx.beginPath();
+        ctx.arc(x, gy, 1.6 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // Взрывы: огненный шар расширяется и гаснет, по краю — дым.
+    for (const b of combat.blasts) {
+      const k = 1 - b.t / COMBAT.blastTime;
+      const x = (b.x - v.left) * s;
+      const y = (b.y - v.top) * s;
+      const R = GRENADE.radius * s;
+      ctx.fillStyle = `rgba(${E.blastSmoke},${0.45 * (1 - k)})`;
+      ctx.beginPath();
+      ctx.arc(x, y, R * (0.55 + 0.5 * k), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(${E.blastFire},${0.85 * (1 - k) ** 1.5})`;
+      ctx.beginPath();
+      ctx.arc(x, y, R * (0.25 + 0.55 * Math.sqrt(k)), 0, Math.PI * 2);
+      ctx.fill();
+      if (k < 0.35) {
+        ctx.fillStyle = `rgba(${E.blastCore},${1 - k / 0.35})`;
+        ctx.beginPath();
+        ctx.arc(x, y, R * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     for (const im of combat.impacts) {
       ctx.globalAlpha = Math.min(1, im.t / COMBAT.impactTime);

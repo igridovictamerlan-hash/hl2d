@@ -31,7 +31,21 @@ export const COMBAT = {
   regenPerSec: 0.5,
   /** Регенерация только до этой доли здоровья. */
   regenCap: 0.6,
-  /** Сколько видны трассеры и вспышки. */
+  /** Сколько видны трассеры и вспышки; вспышка взрыва. */
+  blastTime: 0.6,
+  /**
+   * Следы на земле: гильзы у стрелка, кровь за раненым (с шансом), выбоины у стен (с шансом),
+   * копоть от взрыва; время жизни, с; всего не больше max (старые уходят).
+   */
+  decals: {
+    max: 700,
+    casingTime: 25,
+    bloodTime: 70,
+    bloodChance: 0.6,
+    chipTime: 30,
+    chipChance: 0.3,
+    scorchTime: 120,
+  },
   tracerTime: 0.09,
   impactTime: 0.35,
   swingTime: 0.18,
@@ -67,4 +81,33 @@ export const COMBAT = {
     alertTime: 4,
     allyAimPoint: 220,
   },
+} as const;
+
+/**
+ * Граната (предмет grenade; игрок — T, NPC — Gunner): летит к точке броска (стену не перелетает,
+ * бетонный блок — перелетает), взрывается через fuse с от броска. Урон по кругу radius — от damage в
+ * центре до damage × edge на краю; стена закрывает целиком, бетонный блок ослабляет (× barrierMul).
+ */
+export const GRENADE = {
+  speed: 280,
+  minThrow: 40,
+  maxThrow: 250,
+  fuse: 2.3,
+  radius: 88,
+  damage: 115,
+  edge: 0.2,
+  barrierMul: 0.35,
+  /** Слышимость взрыва (px) и тряска экрана игрока ближе shakeRange. */
+  noise: 2000,
+  shakeRange: 420,
+  /** Между бросками одного персонажа не меньше… */
+  cooldown: 1.2,
+  /**
+   * ИИ: бросает, если цель в minDist..maxDist и прячется за укрытием (блок/угол — не видно или
+   * блок на линии) или цели кучкуются (≥ 2 врага в радиусе взрыва); не чаще cooldown с,
+   * шанс chance на каждую проверку (раз в check с); своих в радиусе взрыва у точки — не бросает.
+   */
+  ai: { minDist: 90, maxDist: 240, cooldown: [9, 16] as const, check: 1, chance: 0.35 },
+  /** NPC, заметивший гранату ближе radius + fleeMargin, убегает от неё. */
+  fleeMargin: 36,
 } as const;

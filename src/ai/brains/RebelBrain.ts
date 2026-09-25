@@ -1,4 +1,5 @@
 import type { Brain } from '../Brain';
+import { bark } from '../../systems/Barks';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
 import { Mover } from '../Mover';
@@ -255,6 +256,7 @@ export class RebelBrain implements Brain {
           if (this.phaseLeft <= 0) {
             this.shooting = !this.shooting;
             this.phaseLeft = this.shooting ? ctx.rng.range(C.shootStop[0], C.shootStop[1]) : ctx.rng.range(C.dash[0], C.dash[1]);
+            if (!this.shooting) bark(self, 'advance', ctx.combat.now, ctx.rng);
           }
         } else this.shooting = false;
         this.mover.speed = CHARACTER.runSpeed * 0.8;

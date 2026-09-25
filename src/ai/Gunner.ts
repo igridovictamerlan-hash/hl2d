@@ -3,12 +3,15 @@ import type { AiContext } from './AiContext';
 import type { Rng } from '../core/rng';
 import { canSeeCircle } from '../world/visibility';
 import { faceTowards } from './facing';
-import { COMBAT } from '../config/combat';
+import { COMBAT, GRENADE } from '../config/combat';
+import { T } from '../world/tiles';
+import { castRay, castRayWith } from '../world/visibility';
 import { VISION } from '../config/vision';
 import { WEAPONS } from '../config/items';
 import { pointSegmentDist2 } from '../core/math';
 import { FACTIONS } from '../config/factions';
 import { angleDiff } from '../systems/CombatSystem';
+import { bark } from '../systems/Barks';
 
 const near: Character[] = [];
 const DEG = Math.PI / 180;
@@ -39,6 +42,10 @@ export class Gunner {
   private alert: { x: number; y: number; at: number; until: number } | null = null;
   private seenHurt = -1e9;
   private heardUntil = -1e9;
+  /** Где последний раз видели цель; когда можно снова думать о гранате. */
+  private lastSeen = { x: 0, y: 0, t: -1e9 };
+  private nadeCheck = 0;
+  private nextNade = 0;
 
   constructor(private readonly rng: Rng) {}
 
@@ -101,6 +108,7 @@ export class Gunner {
     const now = combat.now;
     if (self.lastHurt > this.seenHurt) {
       this.seenHurt = self.lastHurt;
+      bark(self, 'hurt', now, this.rng);
       const a = self.lastAttacker;
       if (a && a.alive && a !== this.target) this.raise(self, a.x, a.y, now, COMBAT.ai.hurtReaction);
     }
@@ -153,6 +161,7 @@ export class Gunner {
       this.sense(self, ctx);
       const t = this.acquire(self, ctx);
       if (t && t !== this.target) {
+        if (!this.target) bark(self, 'contact', combat.now, this.rng);
         this.target = t;
         this.alert = null;
         this.reaction = this.rng.range(COMBAT.ai.reaction[0], COMBAT.ai.reaction[1]);
@@ -172,6 +181,11 @@ export class Gunner {
       const best = combat.bestWeapon(self, d);
       if (best && best !== self.weapon) combat.equip(self, best);
     }
+    this.nadeCheck -= dt;
+    if (this.nadeCheck <= 0) {
+      this.nadeCheck = GRENADE.ai.check;
+      if (this.tryGrenade(self, t, ctx)) return true;
+    }
     const w = combat.weaponOf(self);
     if (!w || w.mode === 'melee') {
       self.aiming = false;
@@ -185,6 +199,9 @@ export class Gunner {
       return this.target !== null;
     }
     this.lostFor = 0;
+    this.lastSeen.x = t.x;
+    this.lastSeen.y = t.y;
+    this.lastSeen.t = combat.now;
     self.aiming = true;
     faceTowards(self, t.x, t.y, dt);
     if (this.reaction > 0) {
@@ -192,7 +209,7 @@ export class Gunner {
       return true;
     }
     if (self.mag <= 0) {
-      combat.reload(self);
+      if (combat.reload(self)) bark(self, 'reload', combat.now, this.rng);
       return true;
     }
     if (this.pause > 0) {
@@ -210,6 +227,47 @@ export class Gunner {
       this.burst--;
       if (this.burst <= 0) this.pause = this.rng.range(COMBAT.ai.burstPause[0], COMBAT.ai.burstPause[1]);
     }
+    return true;
+  }
+
+  /**
+   * Граната: цель за укрытием (не видно после недавнего контакта или бетонный блок на линии) либо
+   * врагов кучка; в своей дальности броска, своих у точки взрыва нет, сам вне радиуса.
+   */
+  private tryGrenade(self: Character, t: Character, ctx: AiContext): boolean {
+    const combat = ctx.combat;
+    const G = GRENADE;
+    const now = combat.now;
+    if (this.holdFire || now < this.nextNade || !combat.canThrow(self)) return false;
+    const visible = canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius);
+    if (!visible && now - this.lastSeen.t > 4) return false;
+    const px = visible ? t.x : this.lastSeen.x;
+    const py = visible ? t.y : this.lastSeen.y;
+    const d = Math.hypot(px - self.x, py - self.y);
+    if (d < G.ai.minDist || d > G.ai.maxDist) return false;
+    const dx = (px - self.x) / d;
+    const dy = (py - self.y) / d;
+    let behindBlock = false;
+    castRayWith(ctx.map, self.x, self.y, dx, dy, d, (x, y, tt) => {
+      if (ctx.map.isOpaque(x, y)) return true;
+      if (tt > COMBAT.ownCoverDistance && ctx.map.tileAt(x, y) === T.BARRIER) behindBlock = true;
+      return behindBlock;
+    });
+    let crowd = 0;
+    for (const o of ctx.entities.near(px, py, G.radius, near)) {
+      if (o === self || !o.alive) continue;
+      if (combat.isHostile(self, o)) crowd++;
+      // Свои (и мирные) у точки взрыва — не бросаем.
+      else return false;
+    }
+    if (visible && !behindBlock && crowd < 2) return false;
+    // Куда граната реально упадёт (стена ближе — упадёт перед ней): не себе под ноги.
+    const land = Math.min(d, castRay(ctx.map, self.x, self.y, dx, dy, d) - 8);
+    if (land < G.radius + 12) return false;
+    if (!this.rng.chance(G.ai.chance)) return false;
+    if (!combat.throwGrenade(self, px, py)) return false;
+    this.nextNade = now + this.rng.range(G.ai.cooldown[0], G.ai.cooldown[1]);
+    self.say(FACTIONS[self.faction].authority ? 'Граната! Ложись!' : 'Лови подарок!', now, 1.5);
     return true;
   }
 

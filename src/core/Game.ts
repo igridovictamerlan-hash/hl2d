@@ -1,5 +1,6 @@
 import { EventBus } from './EventBus';
-import { Camera } from './Camera';
+import { Camera, type View } from './Camera';
+import { COMBAT, GRENADE } from '../config/combat';
 import { Input } from './Input';
 import { GameLoop } from './GameLoop';
 import { Rng, randomSeed } from './rng';
@@ -547,9 +548,24 @@ export class Game {
     this.input.endTick();
   }
 
+  /** Тряска экрана от близких взрывов (сдвиг вида, не камеры). */
+  private shake(v: View): void {
+    let amp = 0;
+    for (const b of this.combat.blasts) {
+      const d = Math.hypot(b.x - this.player.x, b.y - this.player.y);
+      if (d < GRENADE.shakeRange) amp += (b.t / COMBAT.blastTime) * (1 - d / GRENADE.shakeRange);
+    }
+    if (amp <= 0) return;
+    const t = this.combat.now * 60;
+    const a = Math.min(1.5, amp) * RENDER.effects.shake;
+    v.left += Math.sin(t * 1.7) * a;
+    v.top += Math.cos(t * 2.3) * a;
+  }
+
   private render(alpha: number): void {
     const ctx = this.ctx;
     const v = this.camera.view(alpha);
+    this.shake(v);
     const dpr = this.camera.dpr;
     const showAll = this.debug.enabled;
     ctx.setTransform(1, 0, 0, 1, 0, 0);

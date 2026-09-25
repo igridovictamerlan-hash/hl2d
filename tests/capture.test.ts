@@ -4,6 +4,7 @@ import { createCharacter } from '../src/entities/factory';
 import { equipKit } from '../src/systems/Population';
 import { RebelBrain } from '../src/ai/brains/RebelBrain';
 import { WAR } from '../src/config/war';
+import { PrisonerBrain } from '../src/ai/brains/PrisonerBrain';
 
 type Sim = ReturnType<typeof makeSim>;
 
@@ -69,5 +70,20 @@ describe('капт КПП', () => {
     expect(f.capture).toBeNull();
     expect(f.owner).toBe('combine');
     expect(f.nextCaptureAt).toBeGreaterThan(sim.war.now + WAR.capture.cooldown - 5);
+  });
+
+  test('задержанный боец отряда (мозг конвоя) не ломает захват КПП', () => {
+    const sim = makeSim(12345);
+    const f = sim.war.fronts[0];
+    f.nextSquadAt = f.nextWaveAt = Infinity;
+    const a = f.outlands[0];
+    const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
+    r.brain = new PrisonerBrain(r);
+    f.squad.push(r);
+    expect(() => {
+      sim.war.startCapture(f);
+      for (let k = 0; k < WAR.capture.killsToWin; k++) killInCorridor(sim, f, 'rebel');
+    }).not.toThrow();
+    expect(f.owner).toBe('rebels');
   });
 });

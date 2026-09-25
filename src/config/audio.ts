@@ -27,4 +27,6 @@ export const AUDIO = {
     shotgun: { freq: 900, q: 0.6, dur: 0.32, gain: 1.2, thump: 70, zap: 0 },
     crossbow: { freq: 4200, q: 2, dur: 0.07, gain: 0.35, thump: 0, zap: 0 },
   } satisfies Record<WeaponClass, { freq: number; q: number; dur: number; gain: number; thump: number; zap: number }>,
+  /** Взрыв гранаты: глухой длинный «бум». */
+  explosion: { freq: 380, q: 0.5, dur: 0.9, gain: 1.6, thump: 55, zap: 0 },
 } as const;

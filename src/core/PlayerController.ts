@@ -129,6 +129,13 @@ export class PlayerController {
         if (!ctx.combat.reload(p) && i.mousePressed) this.say('Нет патронов.');
       } else ctx.combat.fire(p, m.x, m.y);
     }
+    if (i.wasPressed('grenade')) {
+      if (!p.inventory.has('grenade')) this.say('Гранат нет.');
+      else if (i.mouseInside) {
+        const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
+        ctx.combat.throwGrenade(p, m.x, m.y);
+      }
+    }
     if (i.wasPressed('reload') && w?.ammo && !ctx.combat.reload(p) && ctx.combat.reserveAmmo(p) <= 0 && p.mag < w.magazine) this.say('Нет запасных патронов.');
     if (i.wasPressed('interact')) this.interact(p, ctx);
     if (i.wasPressed('roleAction')) this.roleAction(p, ctx);

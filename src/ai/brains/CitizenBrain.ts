@@ -1,4 +1,6 @@
 import type { Brain } from '../Brain';
+import { BARKS } from '../../config/barks';
+import { streetBark } from '../streetBark';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
 import type { ZoneKind } from '../../world/GameMap';
@@ -104,6 +106,7 @@ export class CitizenBrain implements Brain {
       }
     }
     if (this.profile.avoidCp && (cur === 'walk' || cur === 'idle')) this.watchForCp(dt);
+    if ((cur === 'walk' || cur === 'idle' || cur === 'queue') && ctx.rng.chance(BARKS.ambientPerSec * dt)) streetBark(self, ctx);
     this.fsm.update(dt);
     this.mover.update(self, ctx, dt);
     if (this.fsm.current !== 'stopped') faceMovement(self, ctx, dt);

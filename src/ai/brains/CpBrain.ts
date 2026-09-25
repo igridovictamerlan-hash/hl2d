@@ -1,4 +1,6 @@
 import type { Brain } from '../Brain';
+import { BARKS } from '../../config/barks';
+import { streetBark } from '../streetBark';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
 import type { Cell } from '../../systems/LawSystem';
@@ -111,6 +113,7 @@ export class CpBrain implements Brain {
     let cur = this.fsm.current;
     // Бой: гарнизон отстреливается из любого состояния (даже на конвое).
     const engaged = this.gunner.update(self, ctx, dt);
+    if (!engaged && (cur === 'patrol' || cur === 'post' || cur === 'guard') && ctx.rng.chance(BARKS.ambientPerSec * dt)) streetBark(self, ctx);
     if (engaged && this.gunner.target) ctx.war.sighted(this.gunner.target);
     const wounded = self.health < self.maxHealth * COMBAT.woundedFraction;
     if (wounded && cur !== 'retreat' && cur !== 'escort') this.fsm.change('retreat');

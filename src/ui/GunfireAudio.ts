@@ -89,7 +89,7 @@ export class GunfireAudio {
   }
 
   private play(ctx: AudioContext, s: Shot, d: number, pan: number): void {
-    const v = AUDIO.voices[WEAPONS[s.weapon].class];
+    const v = s.weapon === 'grenade' ? AUDIO.explosion : AUDIO.voices[WEAPONS[s.weapon].class];
     const k = d / AUDIO.maxDistance;
     const loud = v.gain * (1 - k) * (1 - k);
     if (loud < 0.01) return;

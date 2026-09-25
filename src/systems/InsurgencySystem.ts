@@ -83,7 +83,7 @@ export class InsurgencySystem {
   }
 
   private idle(): Character[] {
-    return this.garrison.filter((c) => c.alive && (c.brain as UndergroundBrain | null)?.available && this.ctx.map.levelAt(c.x, c.y) === 'sewer');
+    return this.garrison.filter((c) => c.alive && c.brain instanceof UndergroundBrain && c.brain.available && this.ctx.map.levelAt(c.x, c.y) === 'sewer');
   }
 
   /** Начать операцию (или принудительно — для тестов и отладки). */
@@ -169,13 +169,14 @@ export class InsurgencySystem {
     }
     // Бойцы операции в городе — «нападавшие» для тревоги.
     for (const c of this.garrison) {
-      const b = c.brain as UndergroundBrain | null;
-      if (!b || b.mode === 'base') continue;
+      const b = c.brain;
+      if (!(b instanceof UndergroundBrain) || b.mode === 'base') continue;
       if (ctx.map.levelAt(c.x, c.y) === 'city' && ctx.war.code !== 'green') ctx.war.operatives.add(c);
     }
     // Операция закончилась: все вернулись или погибли.
     if (this.op) {
-      const active = this.op.team.filter((c) => c.alive && (c.brain as UndergroundBrain | null)?.mode !== 'base');
+      // Задержанный (мозг PrisonerBrain) из операции выбыл.
+      const active = this.op.team.filter((c) => c.alive && c.brain instanceof UndergroundBrain && c.brain.mode !== 'base');
       if (active.length === 0) {
         const alive = this.op.team.filter((c) => c.alive).length;
         this.say(`группа вернулась (${alive} из ${this.op.team.length}).`);
