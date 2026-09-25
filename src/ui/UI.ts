@@ -19,13 +19,14 @@ import { GunfireAudio } from './GunfireAudio';
 import { CaptureBar } from './CaptureBar';
 import { ChatBox } from './ChatBox';
 import { MapView, type MapViewHost } from './MapView';
+import { GameMenu, type GameMenuHost } from './GameMenu';
 import type { WarSystem } from '../systems/WarSystem';
 import { GAME } from '../config/game';
 import { WEAPONS, type FireMode } from '../config/items';
 
 const FIRE_MODE: Record<FireMode, string> = { semi: 'одиночный', auto: 'авто', pump: 'помпа', melee: 'удар' };
 
-export interface UIHost extends DevPanelHost, MapViewHost {
+export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly economy: EconomySystem;
   readonly combat: CombatSystem;
   readonly war: WarSystem;
@@ -39,8 +40,7 @@ export interface UIHost extends DevPanelHost, MapViewHost {
   sellItem(id: ItemId): string | null;
   /** Сообщение или команда чата от игрока. */
   say(text: string): void;
-  /** Стереть сохранение и начать заново. */
-  newGame(): void;
+
   /** Вернуть фокус игре (после чата). */
   focusGame(): void;
   /** Прилавок чёрного рынка (px) — магазин закрывается, если отойти. */
@@ -65,6 +65,7 @@ export class UI {
   readonly capture: CaptureBar;
   readonly chat: ChatBox;
   readonly mapView: MapView;
+  readonly menu: GameMenu;
   private readonly pauseEl: HTMLElement;
   private hudHeight = 0;
   private acc = 0;
@@ -78,6 +79,7 @@ export class UI {
     this.inventory = new InventoryPanel(root, host);
     this.capture = new CaptureBar(root);
     this.mapView = new MapView(root);
+    this.menu = new GameMenu(root, host);
     this.pauseEl = document.createElement('div');
     this.pauseEl.className = 'pause-overlay';
     this.pauseEl.hidden = true;

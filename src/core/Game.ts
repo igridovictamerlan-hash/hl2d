@@ -122,6 +122,8 @@ export class Game {
       (a) => this.render(a),
     );
     window.addEventListener('resize', () => this.resize());
+    // Esc: закрыть открытую панель или открыть меню паузы (перехват до остальных обработчиков).
+    window.addEventListener('keydown', (e) => this.onEscape(e), true);
     // Сохранить при закрытии/сворачивании вкладки.
     window.addEventListener('beforeunload', () => this.save());
     document.addEventListener('visibilitychange', () => document.hidden && this.save());
@@ -262,6 +264,44 @@ export class Game {
       const div = p.division ? ` · ${p.division.toUpperCase()}` : '';
       this.bus.emit('log', { text: `Вы теперь: ${FACTIONS[faction].role}${r ? ` (${r.name})` : ''}${div} — ${p.name}`, kind: 'system' });
     }
+  }
+
+  private onEscape(e: KeyboardEvent): void {
+    if (e.code !== 'Escape') return;
+    const ui = this.ui;
+    if (ui.chat.isOpen) return;
+    if (ui.menu.isOpen) {
+      ui.menu.back();
+      return;
+    }
+    // Свои обработчики Esc у меню роли и большой карты.
+    if (ui.roles.isOpen || ui.mapView.bigOpen || ui.check.target) return;
+    if (ui.shop.isOpen) return ui.shop.close();
+    if (ui.inventory.isOpen) return ui.inventory.toggle();
+    this.input.releaseAll();
+    ui.menu.open('pause');
+  }
+
+  /** Меню: идёт ли игра (есть роль), продолжить, сменить роль, звук. */
+  canContinue(): boolean {
+    return this.role !== null;
+  }
+
+  continueGame(): void {
+    if (!this.role) this.ui.roles.open(true);
+    this.canvas.focus();
+  }
+
+  changeRole(): void {
+    this.ui.roles.open(!this.role);
+  }
+
+  toggleSound(): boolean {
+    return this.ui.audio.toggle();
+  }
+
+  get soundMuted(): boolean {
+    return this.ui.audio.muted;
   }
 
   /** Прочитать сохранение из браузера (null — нет или повреждено). */
@@ -456,7 +496,8 @@ export class Game {
       this.paused = !this.paused;
       this.ui.setPaused(this.paused);
     }
-    if (this.paused) {
+    // Пауза клавишей P или открытое меню — мир стоит.
+    if (this.paused || this.ui.menu.isOpen) {
       this.input.endTick();
       return;
     }

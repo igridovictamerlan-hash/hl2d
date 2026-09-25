@@ -351,3 +351,18 @@ kbd {
 .pause-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); color: var(--hud); letter-spacing: 0.3em; font-size: 34px; z-index: 7; pointer-events: none; }
 .pause-overlay small { font-size: 12px; letter-spacing: 0.1em; color: var(--muted); margin-top: 8px; }
 .role-new { margin-left: 12px; }
+
+/* Меню игры (главное и пауза) */
+.game-menu { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(3,5,8,0.7); z-index: 9; pointer-events: auto; }
+.game-menu.main { background: radial-gradient(circle at 50% 40%, #0d1218, #030407 75%); }
+.game-menu-box { position: relative; min-width: min(340px, calc(100vw - 32px)); padding: 26px 30px 18px; text-align: center; }
+.gm-title { font-size: 40px; letter-spacing: 0.35em; color: var(--hud); padding-left: 0.35em; }
+.gm-sub { color: var(--muted); font-size: 12px; letter-spacing: 0.18em; margin: 6px 0 20px; text-transform: uppercase; }
+.gm-buttons { display: flex; flex-direction: column; gap: 8px; }
+.game-menu button { font: inherit; font-size: 15px; letter-spacing: 0.06em; padding: 9px 16px; color: var(--text); background: rgba(255,255,255,0.04); border: 1px solid var(--panel-border); border-radius: 5px; cursor: pointer; }
+.game-menu button:hover { border-color: var(--hud); color: var(--hud); }
+.game-menu button.primary { border-color: var(--hud); color: var(--hud); }
+.gm-note { min-height: 18px; margin-top: 10px; font-size: 12px; color: #9fd7a0; }
+.gm-foot { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.gm-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 18px; text-align: left; font-size: 13px; margin-bottom: 14px; }
+.gm-controls kbd { display: inline-block; min-width: 46px; margin-right: 8px; color: var(--hud); }

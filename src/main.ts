@@ -37,6 +37,8 @@ async function boot(): Promise<void> {
     game.ui.dev.message(`Не удалось загрузить карту: ${(e as Error).message}`, true);
   }
   if (params.has('debug')) game.debug.enabled = true;
+  // Главное меню поверх уже созданного города (он живёт за ним, пока меню открыто — на паузе).
+  game.ui.menu.open('main');
   loading?.remove();
   canvas.focus();
   game.loop.start();
