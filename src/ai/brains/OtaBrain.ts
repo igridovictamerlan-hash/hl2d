@@ -3,7 +3,7 @@ import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
 import { Mover } from '../Mover';
 import { Gunner } from '../Gunner';
-import { faceMovement, faceTowards } from '../facing';
+import { faceMovement } from '../facing';
 import { randomAnchorAround } from '../destinations';
 import { poiWorld } from '../../systems/Population';
 
@@ -52,7 +52,6 @@ export class OtaBrain implements Brain {
       if (a >= 0) this.mover.goTo(self, ctx, a);
     }
     this.mover.update(self, ctx, dt);
-    if (this.gunner.target?.alive) faceTowards(self, this.gunner.target.x, this.gunner.target.y, dt);
-    else faceMovement(self, ctx, dt);
+    if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
   }
 }

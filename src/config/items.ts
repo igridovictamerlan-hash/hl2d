@@ -174,7 +174,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   spas12: { id: 'spas12', name: 'SPAS-12', desc: 'Дробовик: страшен вблизи, бесполезен вдали.', kind: 'weapon', stack: 1 },
   crossbow: { id: 'crossbow', name: 'Арбалет', desc: 'Тихий и точный, но долго целиться и заряжать.', kind: 'weapon', stack: 1 },
   mp7: { id: 'mp7', name: 'MP7', desc: 'Пистолет-пулемёт ГО.', kind: 'weapon', stack: 1 },
-  ar2: { id: 'ar2', name: 'AR2', desc: 'Импульсная винтовка OTA: пробивает укрытия.', kind: 'weapon', stack: 1 },
+  ar2: { id: 'ar2', name: 'AR2', desc: 'Импульсная винтовка Альянса (у повстанцев — трофейная): пробивает укрытия.', kind: 'weapon', stack: 1 },
   rebel_pistol: { id: 'rebel_pistol', name: 'Самодельный пистолет', desc: 'Оружие сопротивления.', kind: 'weapon', stack: 1 },
   rebel_smg: { id: 'rebel_smg', name: 'Трофейный MP7', desc: 'Отбит у ГО.', kind: 'weapon', stack: 1 },
 };
@@ -187,20 +187,22 @@ export const AMMO_ITEM: Record<AmmoType, ItemId> = {
 export const KITS: Record<string, [ItemId, number][]> = {
   citizen: [['water', 1]],
   cwu: [['toolkit', 1], ['bread', 1]],
-  rebel: [['rebel_pistol', 1], ['ammo_pistol', 36], ['bandage', 1]],
-  /** Повстанец-командир (ранг ≥ REBEL_OFFICER_RANK): револьвер. */
-  rebel_officer: [['revolver', 1], ['ammo_357', 24], ['rebel_pistol', 1], ['ammo_pistol', 24], ['bandage', 1]],
+  /** Повстанец-игрок: трофейный MP7 и пистолет про запас. */
+  rebel: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['bandage', 1]],
+  /** Повстанец-командир (ранг ≥ REBEL_OFFICER_RANK): трофейный AR2 и револьвер. */
+  rebel_officer: [['ar2', 1], ['ammo_ar2', 90], ['revolver', 1], ['ammo_357', 18], ['bandage', 1]],
   cp: [['stunstick', 1], ['usp', 1], ['ammo_pistol', 54]],
   cp_grid: [['mp7', 1], ['ammo_smg', 135], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 1]],
   cp_helix: [['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 2]],
   ota: [['ar2', 1], ['ammo_ar2', 120]],
   ota_shotgun: [['spas12', 1], ['ammo_buckshot', 36], ['usp', 1], ['ammo_pistol', 36]],
   admin: [['canned', 2]],
-  rebel_raider: [['rebel_pistol', 1], ['ammo_pistol', 48]],
-  rebel_raider_smg: [['rebel_smg', 1], ['ammo_smg', 135]],
-  rebel_shotgunner: [['spas12', 1], ['ammo_buckshot', 30], ['rebel_pistol', 1], ['ammo_pistol', 24]],
-  rebel_marksman: [['crossbow', 1], ['ammo_bolt', 12], ['rebel_pistol', 1], ['ammo_pistol', 24]],
-  rebel_commander: [['revolver', 1], ['ammo_357', 30], ['rebel_smg', 1], ['ammo_smg', 90]],
+  /** Бойцы отрядов с пустошей: у всех автоматы (трофейные MP7 и AR2), пистолет — запасной. */
+  rebel_raider: [['rebel_smg', 1], ['ammo_smg', 135], ['rebel_pistol', 1], ['ammo_pistol', 24]],
+  rebel_rifleman: [['ar2', 1], ['ammo_ar2', 90], ['rebel_pistol', 1], ['ammo_pistol', 24]],
+  rebel_shotgunner: [['spas12', 1], ['ammo_buckshot', 30], ['rebel_smg', 1], ['ammo_smg', 90]],
+  rebel_marksman: [['crossbow', 1], ['ammo_bolt', 12], ['rebel_smg', 1], ['ammo_smg', 90]],
+  rebel_commander: [['ar2', 1], ['ammo_ar2', 90], ['revolver', 1], ['ammo_357', 18]],
 };
 
 /** С какого ранга повстанец-игрок получает револьвер. */

@@ -211,7 +211,9 @@ export class CombatSystem {
       const reach = d <= Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul) ? 1 : 0.05;
       // Грубая оценка попадания: полуширина прицельного конуса у цели против радиуса кружка.
       const hit = Math.min(1, CHARACTER.radius / (d * Math.tan(w.spreadAim * DEG) + 1));
-      const score = weaponDps(w) * falloffMul(w, d) * hit * reach * (id === c.weapon ? 1.15 : 1);
+      // Урон в секунду × «вес залпа» (дробь и магнум валят быстрее, чем видно по DPS).
+      const alpha = 1 + (w.damage * w.pellets) / 100;
+      const score = weaponDps(w) * alpha * falloffMul(w, d) * hit * reach * (id === c.weapon ? 1.15 : 1);
       if (score > bestScore) {
         bestScore = score;
         best = id;

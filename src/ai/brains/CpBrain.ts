@@ -122,8 +122,9 @@ export class CpBrain implements Brain {
     this.fsm.update(dt);
     this.mover.update(self, ctx, dt);
     const now = this.fsm.current;
-    if (this.gunner.target?.alive && now === 'fight') faceTowards(self, this.gunner.target.x, this.gunner.target.y, dt);
-    else if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic') faceMovement(self, ctx, dt);
+    // Цель или тревога (ранили, стреляют рядом) перебивают дежурный взгляд.
+    if (this.gunner.look(self, ctx, dt)) return;
+    if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic') faceMovement(self, ctx, dt);
   }
 
   /** Осмотреться: раненые свои (HELIX), нарушения, иногда — проверка «для порядка». */

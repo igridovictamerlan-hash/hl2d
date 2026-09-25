@@ -14,7 +14,7 @@ import { CitizenBrain } from '../ai/brains/CitizenBrain';
 export type AlertCode = 'green' | 'red';
 
 /** Как радио называет особых бойцов отряда. */
-const KIT_ROLE: Record<string, string> = { rebel_commander: 'командир', rebel_marksman: 'арбалетчик', rebel_shotgunner: 'дробовик' };
+const KIT_ROLE: Record<string, string> = { rebel_commander: 'командир', rebel_marksman: 'арбалетчик', rebel_shotgunner: 'дробовик', rebel_rifleman: 'AR2' };
 
 /** Фронт — пограничный КПП: пустошь с отрядами повстанцев по ту сторону ворот. */
 export interface Front {
@@ -201,7 +201,7 @@ export class WarSystem {
     const roles: string[] = [];
     for (let k = 0; k < n; k++) {
       const a = rng.pick(far);
-      let kit = rng.chance(WAR.smgChance) ? 'rebel_raider_smg' : 'rebel_raider';
+      let kit = rng.chance(WAR.rifleChance) ? 'rebel_rifleman' : 'rebel_raider';
       let rank = Math.min(rng.int(0, 3), rng.int(0, 3));
       if (k === 0 && rng.chance(WAR.commanderChance)) {
         kit = 'rebel_commander';

@@ -5,6 +5,7 @@ import { equipKit, spawnPopulation, poiWorld } from '../src/systems/Population';
 import { angleDiff, falloffMul } from '../src/systems/CombatSystem';
 import { WEAPONS } from '../src/config/items';
 import { COMBAT } from '../src/config/combat';
+import { CpBrain } from '../src/ai/brains/CpBrain';
 
 type Sim = ReturnType<typeof makeSim>;
 
@@ -146,10 +147,10 @@ describe('ИИ и оружие', () => {
     // Дробовик вблизи сильнее пистолета, вдали — нет.
     const r = shooterOnPlaza(sim, 'rebel_shotgunner', 'spas12');
     expect(sim.combat.bestWeapon(r, 40)).toBe('spas12');
-    expect(sim.combat.bestWeapon(r, 350)).toBe('rebel_pistol');
+    expect(sim.combat.bestWeapon(r, 350)).toBe('rebel_smg');
     r.mag = 0;
     r.inventory.remove('ammo_buckshot', r.inventory.count('ammo_buckshot'));
-    expect(sim.combat.bestWeapon(r, 40)).toBe('rebel_pistol');
+    expect(sim.combat.bestWeapon(r, 40)).toBe('rebel_smg');
   });
 });
 
@@ -167,5 +168,37 @@ describe('граница', () => {
     const share = active.map((a) => a / (secs - warm));
     console.log(`бой идёт: ${share.map((x) => `${Math.round(x * 100)}%`).join(' / ')} времени`);
     for (const x of share) expect(x).toBeGreaterThan(0.75);
+  });
+});
+
+describe('глаз на спине нет', () => {
+  test('ГО не видит стрелка за спиной, пока тот не выстрелит; после попадания поворачивается и отвечает', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    const p = poiWorld(sim.ctx, 'plaza_center')!;
+    const cp = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x, p.y);
+    equipKit(cp, 'cp_grid', sim.ctx);
+    cp.brain = new CpBrain(cp, sim.ctx, { post: { x: p.x, y: p.y }, facing: 0 });
+    cp.facing = 0;
+    // Повстанец с автоматом — строго за спиной (на западе), в прямой видимости.
+    const a = sim.nav.nearestWalkable(p.x - 110, p.y, 3);
+    const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
+    equipKit(r, 'rebel_raider', sim.ctx);
+    sim.entities.rebuildHash();
+    for (let t = 0; t < 90; t++) {
+      sim.combat.update(1 / 60);
+      (cp.brain as CpBrain).update(cp, sim.ctx, 1 / 60);
+    }
+    expect((cp.brain as CpBrain).gunner.target).toBeNull();
+    // Выстрел в спину: ГО не знает сразу, где стрелок, — через реакцию поворачивается и находит цель.
+    sim.combat.damage(cp, 10, r);
+    let found = -1;
+    for (let t = 0; t < 180 && found < 0; t++) {
+      sim.combat.update(1 / 60);
+      (cp.brain as CpBrain).update(cp, sim.ctx, 1 / 60);
+      if ((cp.brain as CpBrain).gunner.target === r) found = t / 60;
+    }
+    console.log(`ГО нашёл стрелка через ${found.toFixed(2)} с`);
+    expect(found).toBeGreaterThan(0.3);
+    expect(found).toBeLessThan(3);
   });
 });

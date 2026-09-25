@@ -4,14 +4,23 @@ import type { Rng } from '../core/rng';
 import { canSeeCircle } from '../world/visibility';
 import { faceTowards } from './facing';
 import { COMBAT } from '../config/combat';
+import { VISION } from '../config/vision';
 import { WEAPONS } from '../config/items';
 import { pointSegmentDist2 } from '../core/math';
+import { FACTIONS } from '../config/factions';
+import { angleDiff } from '../systems/CombatSystem';
 
 const near: Character[] = [];
 const DEG = Math.PI / 180;
 
+/** Свой-чужой по стороне (Альянс / остальные): выстрел «своего» подсказывает, куда смотреть. */
+function differentSides(a: Character, b: Character): boolean {
+  return FACTIONS[a.faction].authority !== FACTIONS[b.faction].authority;
+}
+
 /**
- * Стрелок для ИИ: выбирает ближайшего видимого врага в дальности своего огнестрела, берёт в руки
+ * Стрелок для ИИ: выбирает ближайшего врага в угле обзора (глаз на спине нет) в дальности своего
+ * огнестрела; раненый или услышавший выстрел сначала поворачивается в примерную сторону. Берёт в руки
  * лучший ствол под дистанцию, реагирует с задержкой, целится (конус сужается, пока стоит) и
  * стреляет, когда конус у цели достаточно узкий; очередями с паузами (отдача успевает спасть),
  * перезаряжается, не стреляет, если на линии огня свой. ГО после боя снова берёт дубинку.
@@ -24,8 +33,19 @@ export class Gunner {
   private scan = 0;
   private lostFor = 0;
   private calm = 0;
+  /** Тревога: куда (примерно) смотреть, с какого момента и до какого. */
+  private alert: { x: number; y: number; at: number; until: number } | null = null;
+  private seenHurt = -1e9;
+  private heardUntil = -1e9;
 
   constructor(private readonly rng: Rng) {}
+
+  /** Видит ли self точку: вплотную — во все стороны, дальше — только в угле обзора. */
+  static inView(self: Character, x: number, y: number): boolean {
+    const d = Math.hypot(x - self.x, y - self.y);
+    if (d <= VISION.npcCloseAwareness) return true;
+    return Math.abs(angleDiff(Math.atan2(y - self.y, x - self.x), self.facing)) <= (VISION.npcFovDeg * DEG) / 2;
+  }
 
   acquire(self: Character, ctx: AiContext): Character | null {
     const range = ctx.combat.maxRange(self);
@@ -35,7 +55,7 @@ export class Gunner {
     for (const o of ctx.entities.near(self.x, self.y, range, near)) {
       if (!ctx.combat.threat(self, o)) continue;
       const d = Math.hypot(o.x - self.x, o.y - self.y);
-      if (d < bestD && canSeeCircle(ctx.map, self.x, self.y, o.x, o.y, o.radius)) {
+      if (d < bestD && Gunner.inView(self, o.x, o.y) && canSeeCircle(ctx.map, self.x, self.y, o.x, o.y, o.radius)) {
         bestD = d;
         best = o;
       }
@@ -66,15 +86,73 @@ export class Gunner {
     ctx.combat.equip(self, 'stunstick');
   }
 
+  /** Поднять тревогу: смотреть в сторону (x, y) с ошибкой, после задержки реакции. */
+  private raise(self: Character, x: number, y: number, now: number, reaction: readonly [number, number]): void {
+    const err = Math.hypot(x - self.x, y - self.y) * COMBAT.ai.alertError;
+    const at = now + this.rng.range(reaction[0], reaction[1]);
+    this.alert = { x: x + this.rng.range(-err, err), y: y + this.rng.range(-err, err), at, until: at + COMBAT.ai.alertTime };
+  }
+
+  /** Боль и звуки: ранили — в сторону стрелка; выстрел врага рядом — туда же; выстрел своего — куда он целится. */
+  private sense(self: Character, ctx: AiContext): void {
+    const combat = ctx.combat;
+    const now = combat.now;
+    if (self.lastHurt > this.seenHurt) {
+      this.seenHurt = self.lastHurt;
+      const a = self.lastAttacker;
+      if (a && a.alive && a !== this.target) this.raise(self, a.x, a.y, now, COMBAT.ai.hurtReaction);
+    }
+    if (this.target || now < this.heardUntil) return;
+    const shots = combat.shots;
+    for (let i = shots.length - 1; i >= 0 && now - shots[i].t < 0.35; i--) {
+      const s = shots[i];
+      if (s.shooter === self || !s.shooter.alive) continue;
+      if (Math.hypot(s.x - self.x, s.y - self.y) > Math.min(COMBAT.hearing, s.noise)) continue;
+      if (combat.isHostile(self, s.shooter)) this.raise(self, s.x, s.y, now, COMBAT.ai.hearReaction);
+      else if (!differentSides(self, s.shooter)) {
+        const f = s.shooter.facing;
+        this.raise(self, s.x + Math.cos(f) * COMBAT.ai.allyAimPoint, s.y + Math.sin(f) * COMBAT.ai.allyAimPoint, now, COMBAT.ai.hearReaction);
+      } else continue;
+      this.heardUntil = now + COMBAT.ai.alertTime * 0.5;
+      return;
+    }
+  }
+
+  /**
+   * Куда смотреть: на цель, иначе — в сторону тревоги (после реакции). false — решает мозг.
+   * Мозги зовут это последним, чтобы бой и тревога перебивали «дежурный» взгляд.
+   */
+  look(self: Character, ctx: AiContext, dt: number): boolean {
+    if (this.target?.alive) {
+      faceTowards(self, this.target.x, this.target.y, dt);
+      return true;
+    }
+    const a = this.alert;
+    const now = ctx.combat.now;
+    if (a && now >= a.at && now < a.until) {
+      faceTowards(self, a.x, a.y, dt);
+      return true;
+    }
+    return false;
+  }
+
+  /** Встревожен (ищет стрелка глазами). */
+  get alerted(): boolean {
+    return this.alert !== null;
+  }
+
   /** Ведёт бой: true, если есть цель (даже если сейчас пауза/перезарядка). */
   update(self: Character, ctx: AiContext, dt: number): boolean {
     const combat = ctx.combat;
+    if (this.alert && combat.now >= this.alert.until) this.alert = null;
     this.scan -= dt;
     if (this.scan <= 0) {
       this.scan = 0.3;
+      this.sense(self, ctx);
       const t = this.acquire(self, ctx);
       if (t && t !== this.target) {
         this.target = t;
+        this.alert = null;
         this.reaction = this.rng.range(COMBAT.ai.reaction[0], COMBAT.ai.reaction[1]);
       }
     }

@@ -213,8 +213,12 @@ export class RebelBrain implements Brain {
       }
     }
     this.mover.update(self, ctx, dt);
-    if (this.gunner.target && this.gunner.target.alive) faceTowards(self, this.gunner.target.x, this.gunner.target.y, dt);
-    else faceMovement(self, ctx, dt);
+    if (this.gunner.look(self, ctx, dt)) return;
+    // На позиции смотрит на КПП (глаз на спине нет — иначе часовых не заметить).
+    if (this.mode === 'raid' && f && self.moveSpeed < 8) {
+      const post = f.posts[0] ?? f.outerGate;
+      faceTowards(self, (post.x + f.outerGate.x) / 2, (post.y + f.outerGate.y) / 2, dt);
+    } else faceMovement(self, ctx, dt);
   }
 }
 

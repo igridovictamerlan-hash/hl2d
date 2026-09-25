@@ -55,5 +55,16 @@ export const COMBAT = {
     fireWidth: 2.5,
     maxRangeMul: 2.6,
     holsterAfter: 12,
+    /**
+     * Глаз на спине нет: цель замечают только в угле обзора (VISION.npcFovDeg) или вплотную.
+     * Ранили или услышал выстрел — через реакцию (hurtReaction/hearReaction, с) поворачивается
+     * в примерную сторону стрелка (ошибка — alertError × расстояние) и смотрит туда alertTime с.
+     * Выстрел своего — смотрит туда же, куда он стреляет (на allyAimPoint px вперёд).
+     */
+    hurtReaction: [0.4, 0.9] as const,
+    hearReaction: [0.5, 1.2] as const,
+    alertError: 0.3,
+    alertTime: 4,
+    allyAimPoint: 220,
   },
 } as const;
