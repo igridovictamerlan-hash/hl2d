@@ -557,14 +557,15 @@ export class WarSystem {
       // Подход отрядов: минимум бойцов держится всегда, сверх него — волнами до maxRebels.
       const rng = this.ctx.rng;
       const holding = f.squad.length;
-      const low = holding < WAR.minRebels && this.time >= f.nextSquadAt;
+      const low = holding < (f.capture ? WAR.capture.minAttackers : WAR.minRebels) && this.time >= f.nextSquadAt;
       const wave = this.time >= f.nextWaveAt && holding + WAR.squadSize[1] <= WAR.maxRebels;
       if (low || wave) {
         const { guards } = this.guardsOf(f);
         // Никого на посту — отряд идёт на штурм сразу.
         const assault = guards.length === 0 || rng.chance(WAR.assaultChance);
         this.spawnSquad(f, assault);
-        f.nextSquadAt = this.time + rng.range(WAR.squadGap[0], WAR.squadGap[1]);
+        // Во время капта подкрепления повстанцев подходят вдвое быстрее.
+        f.nextSquadAt = this.time + rng.range(WAR.squadGap[0], WAR.squadGap[1]) * (f.capture ? 0.5 : 1);
         f.nextWaveAt = this.time + rng.range(WAR.waveEvery[0], WAR.waveEvery[1]);
       } else if (holding >= WAR.minRebels) {
         // Пока бойцов хватает, таймер подхода не «копится».

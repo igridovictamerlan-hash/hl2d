@@ -35,6 +35,11 @@ export class RebelBrain implements Brain {
   private suppressAt: { x: number; y: number } | null = null;
   private repath = 0;
   private holdPost: { x: number; y: number } | null = null;
+  /** Капт: доля пути по коридору, сколько ещё держаться в укрытии, фаза перебежки. */
+  private advance = 0;
+  private coverLeft = 0;
+  private shooting = false;
+  private phaseLeft = 0;
 
   constructor(
     private self: Character,
@@ -55,11 +60,36 @@ export class RebelBrain implements Brain {
     if (this.mode === 'raid') this.assaultAt = 0;
   }
 
-  /** Капт начался: вперёд, в переднюю часть коридора. */
+  /** Капт начался: вперёд по коридору перебежками от укрытия к укрытию. */
   orderCapture(): void {
     if (this.mode !== 'raid' && this.mode !== 'assault') return;
     this.mode = 'capture';
     this.goal = -1;
+    this.advance = this.ctx.rng.range(0, WAR.capture.advanceStep);
+    this.coverLeft = this.ctx.rng.range(WAR.capture.coverWait[0], WAR.capture.coverWait[1]);
+    this.shooting = false;
+    this.phaseLeft = 0;
+  }
+
+  /** Якорь коридора на доле пути t (0 — внешние ворота, 1 — посты), по возможности — за блоком. */
+  private coverAt(f: NonNullable<AiContext['war']['fronts'][number]>, t: number): number {
+    const { ctx } = this;
+    const n = f.corridor.length;
+    if (n === 0) return ctx.nav.nearestWalkable(f.outerGate.x, f.outerGate.y, 6);
+    const k = Math.min(n - 1, Math.floor(t * (n - 1)));
+    const lo = Math.max(0, k - 4);
+    const hi = Math.min(n - 1, k + 4);
+    const covered: number[] = [];
+    for (let i = lo; i <= hi; i++) {
+      const a = f.corridor[i];
+      const ax = ctx.nav.ax(a);
+      const ay = ctx.nav.ay(a);
+      // Блок рядом со стороны города (откуда стреляют) — укрытие.
+      let cover = false;
+      for (let dy = -1; dy <= 2 && !cover; dy++) for (let dx = -1; dx <= 2; dx++) if (ctx.map.tileAt(ax + dx, ay + dy) === T.BARRIER) cover = true;
+      if (cover) covered.push(a);
+    }
+    return covered.length ? ctx.rng.pick(covered) : f.corridor[lo + Math.floor(ctx.rng.next() * (hi - lo + 1))];
   }
 
   /** КПП захвачен: держать пост. */
@@ -205,16 +235,31 @@ export class RebelBrain implements Brain {
       }
       case 'capture': {
         if (!f) break;
-        // Позиция в передней половине коридора или у внешних ворот; меняет её время от времени.
-        if (this.goal < 0 || this.relocate <= 0 || this.mover.status === 'failed') {
-          this.relocate = ctx.rng.range(WAR.relocateEvery[0], WAR.relocateEvery[1]) * 0.6;
-          const near = f.corridor.slice(0, Math.max(4, Math.floor(f.corridor.length / 2)));
-          const pick = near.length ? ctx.rng.pick(near) : ctx.nav.nearestWalkable(f.outerGate.x, f.outerGate.y, 6);
-          this.go(pick);
+        const C = WAR.capture;
+        // Цель — укрытие в коридоре на доле пути this.advance; дошли и продержались — дальше.
+        if (this.goal < 0 || this.mover.status === 'failed') this.go(this.coverAt(f, this.advance));
+        const arrived = this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) < 14;
+        if (arrived) {
+          this.mover.stop();
+          this.coverLeft -= dt;
+          if (this.coverLeft <= 0 && this.advance < 1) {
+            this.advance = Math.min(1, this.advance + C.advanceStep);
+            this.coverLeft = ctx.rng.range(C.coverWait[0], C.coverWait[1]);
+            this.go(this.coverAt(f, this.advance));
+          }
+          break;
         }
-        this.mover.speed = CHARACTER.runSpeed * 0.7;
-        if (fighting && this.gunner.target) this.mover.stop();
-        else if (this.mover.status === 'idle' && this.goal >= 0) this.go(this.goal);
+        // Перебежки: под огнём — короткая остановка на очередь, потом рывок к укрытию.
+        this.phaseLeft -= dt;
+        if (fighting && this.gunner.target) {
+          if (this.phaseLeft <= 0) {
+            this.shooting = !this.shooting;
+            this.phaseLeft = this.shooting ? ctx.rng.range(C.shootStop[0], C.shootStop[1]) : ctx.rng.range(C.dash[0], C.dash[1]);
+          }
+        } else this.shooting = false;
+        this.mover.speed = CHARACTER.runSpeed * 0.8;
+        if (this.shooting) this.mover.stop();
+        else if (this.mover.status === 'idle') this.go(this.goal);
         break;
       }
       case 'hold': {

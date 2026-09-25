@@ -72,11 +72,20 @@ export const WAR = {
     holdTime: 60,
     retakeCalm: 10,
     /** Во время капта подкрепления обороне — во столько раз быстрее, и до стольких часовых сверх штата. */
-    defenseReinforceMul: 0.4,
-    defenseExtra: 2,
+    defenseReinforceMul: 0.7,
+    defenseExtra: 1,
     /** Контрудар по захваченному КПП: отряд GRID из стольких бойцов раз в retakeEvery с. */
     retakeSquad: 4,
     retakeEvery: 35,
+    /**
+     * Продвижение в капте перебежками: цель — укрытие в коридоре на доле пути advance (0 — внешние
+     * ворота, 1 — посты); дошёл — держится coverWait с и продвигается на advanceStep. Под огнём —
+     * стреляет shootStop с, потом бежит dash с, не залипая на месте.
+     */
+    advanceStep: 0.2,
+    coverWait: [3, 6] as const,
+    shootStop: [1.2, 2] as const,
+    dash: [1, 1.8] as const,
   },
   /** Бой у КПП «идёт», если там стреляли за последние… секунд (маркеры на экране, звук). */
   activeWindow: 3,
