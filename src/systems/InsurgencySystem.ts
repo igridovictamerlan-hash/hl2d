@@ -7,7 +7,7 @@ import { equipKit, poiWorld } from './Population';
 import { UndergroundBrain } from '../ai/brains/UndergroundBrain';
 import { PostBrain } from '../ai/brains/PostBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
-import { randomAnchorInZone, zoneIds } from '../ai/destinations';
+import { randomAnchorInZone, randomAnchorAround, zoneIds } from '../ai/destinations';
 
 /** Текущая операция сопротивления в городе. */
 export interface Operation {
@@ -33,6 +33,9 @@ export class InsurgencySystem {
   private time = 0;
   private nextOp: number;
   private nextRecruit: number = INSURGENCY.recruitEvery;
+  private nextOuting = 5;
+  /** Сколько вылазок было (для тестов и отладки). */
+  outings = 0;
 
   constructor(private readonly ctx: AiContext) {
     this.base = poiWorld(ctx, 'rebel_base');
@@ -119,6 +122,36 @@ export class InsurgencySystem {
     return this.op;
   }
 
+  /** Одиночная или парная вылазка из убежища. */
+  startOuting(kind?: 'tunnels' | 'market' | 'scout'): boolean {
+    const { ctx } = this;
+    const free = this.idle();
+    if (free.length <= INSURGENCY.minAtBase || !ctx.map.hatches.length) return false;
+    const K = INSURGENCY.outingKinds;
+    const roll = ctx.rng.next();
+    const type = kind ?? (roll < K.tunnels ? 'tunnels' : roll < K.tunnels + K.market ? 'market' : 'scout');
+    const h = ctx.rng.pick(ctx.map.hatches);
+    const n = type === 'scout' && free.length > INSURGENCY.minAtBase + 1 && ctx.rng.chance(0.5) ? 2 : 1;
+    let to: { x: number; y: number } | null = null;
+    let what = '';
+    if (type === 'tunnels') {
+      to = h.sewer;
+      what = 'обход';
+    } else if (type === 'market' && this.market) {
+      to = this.market;
+      what = 'рынок';
+    } else {
+      // Разведка: точка в городе недалеко от люка.
+      const a = randomAnchorAround(h.city, ctx, INSURGENCY.scoutRadius[0], INSURGENCY.scoutRadius[1], zoneIds(ctx, INSURGENCY.ambushAvoidZones));
+      to = a >= 0 ? { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) } : h.city;
+      what = 'разведка';
+    }
+    if (!to) return false;
+    for (const c of ctx.rng.shuffle([...free]).slice(0, n)) (c.brain as UndergroundBrain).startOuting(c, ctx, to, what);
+    this.outings++;
+    return true;
+  }
+
   update(dt: number): void {
     this.time += dt;
     const { ctx } = this;
@@ -128,6 +161,11 @@ export class InsurgencySystem {
     if (this.garrison.length < INSURGENCY.garrison && this.time >= this.nextRecruit) {
       this.nextRecruit = this.time + INSURGENCY.recruitEvery;
       this.recruit();
+    }
+    // Вылазки: убежище живёт — ходят по тоннелям, на рынок, наверх через люки.
+    if (this.time >= this.nextOuting) {
+      this.nextOuting = this.time + ctx.rng.range(INSURGENCY.outingEvery[0], INSURGENCY.outingEvery[1]);
+      this.startOuting();
     }
     // Бойцы операции в городе — «нападавшие» для тревоги.
     for (const c of this.garrison) {

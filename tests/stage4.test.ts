@@ -150,6 +150,29 @@ describe('сопротивление в городе', () => {
   });
 });
 
+describe('жизнь убежища', () => {
+  test('бойцы ходят на вылазки: по тоннелям, на рынок, через люки в город — и возвращаются', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    sim.insurgency.populate();
+    for (const f of sim.war.fronts) f.nextSquadAt = f.nextWaveAt = Infinity;
+    let climbs = 0;
+    const level = new Map<number, string>();
+    for (let t = 0; t < 180 * 60; t++) {
+      sim.step();
+      for (const c of sim.insurgency.garrison) {
+        const l = sim.map.levelAt(c.x, c.y);
+        if (level.has(c.id) && level.get(c.id) !== l) climbs++;
+        level.set(c.id, l);
+      }
+    }
+    console.log(`вылазок: ${sim.insurgency.outings}, спусков и подъёмов по люкам: ${climbs}`);
+    expect(sim.insurgency.outings).toBeGreaterThan(10);
+    expect(climbs).toBeGreaterThan(6);
+    // В убежище всегда кто-то остаётся.
+    expect(sim.insurgency.garrison.some((c) => sim.map.zoneAtWorld(c.x, c.y)?.kind === 'rebel_base' || sim.map.levelAt(c.x, c.y) === 'sewer')).toBe(true);
+  });
+});
+
 describe('чёрный рынок', () => {
   test('покупка оружия, скупка рационов, поддельная CID снимает розыск', () => {
     const sim = makeSim(12345);

@@ -27,6 +27,8 @@ function differentSides(a: Character, b: Character): boolean {
  */
 export class Gunner {
   target: Character | null = null;
+  /** Не стрелять (скрытная вылазка): цель ведёт и смотрит на неё, но огня не открывает. */
+  holdFire = false;
   private reaction = 0;
   private burst = 0;
   private pause = 0;
@@ -203,7 +205,7 @@ export class Gunner {
     const width = d * Math.tan(combat.spreadOf(self, w) * DEG);
     const steady = width <= t.radius * COMBAT.ai.fireWidth || self.aim >= 0.95;
     const inReach = d <= Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul);
-    if (steady && inReach && combat.canFire(self) && !this.friendInLine(self, t, ctx)) {
+    if (!this.holdFire && steady && inReach && combat.canFire(self) && !this.friendInLine(self, t, ctx)) {
       combat.fire(self, t.x + t.vx * 0.1, t.y + t.vy * 0.1);
       this.burst--;
       if (this.burst <= 0) this.pause = this.rng.range(COMBAT.ai.burstPause[0], COMBAT.ai.burstPause[1]);

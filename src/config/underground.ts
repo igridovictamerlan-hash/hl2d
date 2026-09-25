@@ -13,8 +13,21 @@ export const INSURGENCY = {
   garrison: 6,
   recruitEvery: 50,
   /** Операции из убежища: первая через…, потом раз в… */
-  firstOp: [35, 60] as const,
-  opEvery: [70, 130] as const,
+  firstOp: [20, 40] as const,
+  opEvery: [45, 90] as const,
+  /**
+   * Вылазки поодиночке и парами, пока нет операции и в убежище остаётся ≥ minAtBase бойцов:
+   * раз в outingEvery с — обход тоннелей до случайного люка, поход на рынок или разведка в город
+   * через люк (outingKinds — доли); на месте — outingWait с, потом назад. Разведчик в городе
+   * отходит не дальше scoutRadius тайлов от люка.
+   */
+  outingEvery: [6, 12] as const,
+  minAtBase: 2,
+  outingKinds: { tunnels: 0.5, market: 0.2, scout: 0.3 },
+  /** Разведчик не стреляет первым: заметил ГО — уходит к люку; отвечает, если ранили за … с. */
+  returnFireFor: 5,
+  outingWait: [3, 8] as const,
+  scoutRadius: [6, 16] as const,
   /** Доля саботажей (остальное — засады на ГО). */
   sabotageChance: 0.55,
   /** Размер группы: саботаж, засада. */

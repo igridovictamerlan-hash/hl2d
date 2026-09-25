@@ -12,7 +12,7 @@ import { COMBAT } from '../../config/combat';
 import { CHARACTER } from '../../config/entities';
 import { INSURGENCY } from '../../config/underground';
 
-export type OpMode = 'base' | 'sabotage' | 'ambush' | 'return';
+export type OpMode = 'base' | 'sabotage' | 'ambush' | 'return' | 'outing';
 
 /**
  * Боец убежища сопротивления в канализации.
@@ -33,6 +33,9 @@ export class UndergroundBrain implements Brain {
   private fightUntil = 0;
   private idle = 0;
   private repath = 0;
+  private outingWait = 0;
+  private fromOuting = false;
+  outingWhat = '';
   private homeAt = -1e9;
 
   constructor(self: Character, ctx: AiContext) {
@@ -42,7 +45,7 @@ export class UndergroundBrain implements Brain {
 
   get stateName(): string {
     const t = this.travel.climbing ? ' · люк' : '';
-    return `${this.mode}${this.gunner.target ? ' · бой' : ''}${t}`;
+    return `${this.mode === 'outing' ? this.outingWhat : this.mode}${this.gunner.target ? ' · бой' : ''}${t}`;
   }
 
   /** Свободен ли для операции. */
@@ -58,6 +61,18 @@ export class UndergroundBrain implements Brain {
     this.travel.start(self, ctx, this.mover, { x: node.x, y: node.y });
   }
 
+  /**
+   * Вылазка: дойти до точки (обход тоннелей, рынок или разведка в городе через люк),
+   * постоять там, осматриваясь, и вернуться в убежище.
+   */
+  startOuting(self: Character, ctx: AiContext, to: Vec2, what: string): void {
+    this.mode = 'outing';
+    this.outingWhat = what;
+    this.outingWait = ctx.rng.range(INSURGENCY.outingWait[0], INSURGENCY.outingWait[1]);
+    this.mover.speed = CHARACTER.walkSpeed * 0.95;
+    this.travel.start(self, ctx, this.mover, to);
+  }
+
   startAmbush(self: Character, ctx: AiContext, prey: Character): void {
     this.mode = 'ambush';
     this.prey = prey;
@@ -70,6 +85,7 @@ export class UndergroundBrain implements Brain {
     // Не перезапускать путь каждый тик, если он не находится.
     if (this.mode === 'return' && ctx.combat.now - this.homeAt < 2) return;
     this.homeAt = ctx.combat.now;
+    this.fromOuting = this.mode === 'outing';
     this.mode = 'return';
     this.node = null;
     this.prey = null;
@@ -79,6 +95,7 @@ export class UndergroundBrain implements Brain {
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
+    if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
     const now = ctx.combat.now;
     this.repath -= dt;
@@ -141,8 +158,30 @@ export class UndergroundBrain implements Brain {
         if (this.fightUntil > 0 && (now > this.fightUntil || (!fighting && !prey?.alive))) this.goHome(self, ctx);
         break;
       }
+      case 'outing': {
+        // Вылазка скрытная: заметил ГО и по нему не стреляли — не выдаёт себя, уходит вниз.
+        const hurt = now - self.lastHurt < INSURGENCY.returnFireFor;
+        this.gunner.holdFire = !hurt;
+        if (fighting && this.gunner.target && !hurt) {
+          this.gunner.holdFire = false;
+          this.goHome(self, ctx);
+          break;
+        }
+        if (fighting && this.gunner.target) {
+          if (!this.travel.climbing) this.mover.stop();
+          break;
+        }
+        const st = this.travel.update(self, ctx, this.mover, dt);
+        if (st === 'failed') this.goHome(self, ctx);
+        else if (st === 'arrived') {
+          this.outingWait -= dt;
+          if (this.outingWait <= 0) this.goHome(self, ctx);
+        }
+        break;
+      }
       case 'return': {
-        // Уходит, отстреливаясь на ходу.
+        // Уходит; разведчик с вылазки стреляет, только если по нему попали, остальные — на ходу.
+        this.gunner.holdFire = this.fromOuting && now - self.lastHurt >= INSURGENCY.returnFireFor;
         const st = this.travel.update(self, ctx, this.mover, dt);
         if (st === 'arrived' || (st === 'failed' && ctx.map.levelAt(self.x, self.y) === 'sewer')) {
           this.travel.stop(this.mover);
