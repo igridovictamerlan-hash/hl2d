@@ -65,7 +65,7 @@ export function validateMap(map: GameMap): string[] {
   if (s.buildingRatio < lo || s.buildingRatio > hi) out.push(`доля зданий ${(s.buildingRatio * 100).toFixed(1)}%`);
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 4], ['restricted_gate', 1],
-    ['checkpoint_post', 4], ['outlands_exit', 2], ['shop_counter', 1],
+    ['checkpoint_post', 6], ['outlands_exit', 2], ['shop_counter', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;

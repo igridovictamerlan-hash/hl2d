@@ -279,6 +279,7 @@ kbd {
 .inv-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--panel-border); border-radius: 5px; }
 .inv-row.active { border-color: var(--hud); }
 .inv-desc { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.inv-stats { color: var(--hud-dim); font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .inv-empty { color: var(--muted); }
 .inv-row button {
   flex: none;

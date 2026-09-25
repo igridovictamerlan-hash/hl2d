@@ -15,8 +15,11 @@ import { InventoryPanel } from './InventoryPanel';
 import { ShopPanel } from './ShopPanel';
 import { AlertBar } from './AlertBar';
 import { DeathScreen } from './DeathScreen';
+import { GunfireAudio } from './GunfireAudio';
 import { GAME } from '../config/game';
-import { WEAPONS } from '../config/items';
+import { WEAPONS, type FireMode } from '../config/items';
+
+const FIRE_MODE: Record<FireMode, string> = { semi: 'одиночный', auto: 'авто', pump: 'помпа', melee: 'удар' };
 
 export interface UIHost extends DevPanelHost {
   readonly economy: EconomySystem;
@@ -42,6 +45,8 @@ export class UI {
   readonly shop: ShopPanel;
   readonly alert: AlertBar;
   readonly death: DeathScreen;
+  readonly audio = new GunfireAudio();
+  private hudHeight = 0;
   private acc = 0;
 
   constructor(root: HTMLElement, bus: EventBus, private readonly host: UIHost) {
@@ -66,6 +71,7 @@ export class UI {
   }
 
   update(player: Character, now: number, dt: number): void {
+    this.audio.update(this.host.combat.shots, player, this.host.combat.now);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
@@ -73,7 +79,12 @@ export class UI {
     let weapon = '';
     if (player.weapon) {
       const w = WEAPONS[player.weapon];
-      weapon = combat.reloading(player) ? `${w.name}: перезарядка…` : `${w.name}: ${player.mag} / ${combat.reserveAmmo(player)}`;
+      if (w.mode === 'melee') weapon = `${w.name} · удар ЛКМ, оглушает`;
+      else {
+        const ammo = combat.reloading(player) ? 'перезарядка…' : `${player.mag} / ${combat.reserveAmmo(player)}`;
+        const aim = player.aiming ? ` · прицел ${Math.round(player.aim * 100)}%` : '';
+        weapon = `${w.name} [${FIRE_MODE[w.mode]}]: ${ammo} · ±${combat.spreadOf(player, w).toFixed(1)}°${aim}`;
+      }
     }
     let ration: string;
     if (economy.open) {
@@ -82,6 +93,12 @@ export class UI {
       ration = `Раздача рационов открыта (${mmss(economy.timer)}) · ${where}`;
     } else ration = `Раздача рационов через ${mmss(economy.timer)}`;
     this.hud.update(player, now, weapon, ration);
+    // Журнал событий — над HUD, какой бы высоты тот ни был.
+    const h = this.hud.el.offsetHeight;
+    if (h !== this.hudHeight) {
+      this.hudHeight = h;
+      this.log.el.style.bottom = `${h + 28}px`;
+    }
     this.inventory.update(player);
     this.shop.update(player, economy.shopCounter);
     this.death.update(player, combat.now);

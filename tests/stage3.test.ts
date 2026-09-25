@@ -98,6 +98,9 @@ describe('бой', () => {
     const [a, b] = pairInSight(sim, 96);
     const shooter = createCharacter(sim.entities, sim.ctx.rng, 'cp', sim.nav.worldX(a), sim.nav.worldY(a));
     equipKit(shooter, 'cp', sim.ctx);
+    // Патрульный ГО ходит с дубинкой — достаём пистолет.
+    expect(shooter.weapon).toBe('stunstick');
+    sim.combat.equip(shooter, 'usp');
     const target = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(b), sim.nav.worldY(b));
     equipKit(target, 'rebel_raider', sim.ctx);
     sim.entities.rebuildHash();
@@ -128,6 +131,7 @@ describe('бой', () => {
     const [a, b] = pair!;
     const shooter = createCharacter(sim.entities, ctx.rng, 'cp', nav.worldX(a), nav.worldY(a));
     equipKit(shooter, 'cp', ctx);
+    sim.combat.equip(shooter, 'usp');
     const target = createCharacter(sim.entities, ctx.rng, 'rebel', nav.worldX(b), nav.worldY(b));
     sim.entities.rebuildHash();
     for (let k = 0; k < 30; k++) {
@@ -176,7 +180,7 @@ describe('война на границе', () => {
     console.log(`выстрелов: ${sim.combat.shotsFired}, попаданий: ${sim.combat.hits}, убитых: ${sim.combat.kills}`);
     expect(sim.combat.shotsFired).toBeGreaterThan(200);
     expect(sim.combat.hits).toBeGreaterThan(20);
-    for (const f of sim.war.fronts) expect(f.posts.length).toBe(2);
+    for (const f of sim.war.fronts) expect(f.posts.length).toBe(3);
   });
 
   test('прорыв в город → красный код, комендантский час, OTA; зачистка → зелёный', { timeout: 120_000 }, () => {

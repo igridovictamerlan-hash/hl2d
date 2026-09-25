@@ -44,30 +44,32 @@ export function rotateTemplate(rows: readonly string[], rot: 0 | 180): string[] 
 
 /**
  * Пограничный КПП (каноническая ориентация: пустошь на западе, город на востоке).
- * Длинный коридор 4 тайла с шахматными укрытиями — место «коридорной рубки»;
+ * Пустошь 14 тайлов в глубину с завалами-укрытиями (B) — «ничейная земля», где держатся
+ * отряды повстанцев. Длинный коридор 4 тайла с шахматными укрытиями — место «коридорной рубки»;
  * ворота с обеих сторон, бункеры ГО сверху и снизу с дверями в коридор.
+ * Посты часовых (P): передний — за вторым блоком коридора, два задних — у внутренних ворот.
  */
 export const CHECKPOINT_TEMPLATE: readonly string[] = [
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooBoooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooBoooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM####dd#########dd####MMMMMMM',
-  'ooBoooggkkkBkkkkkkkBkkkkkPkkggkkkkkk',
-  'ooBoooggkkkBkkkkkkkBkkkkkkkkggkkkkkk',
-  'ooooooggkkkkkkkBkkkkkkkBkkkkggkkkkkk',
-  'ooooooggkkkkkkkBkkkkkkkBkPkkggkkkkkk',
-  'ooooooMM###dd###########dd##MMMMMMMM',
-  'oooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'oooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'ooooooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooBBooooooBoooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'oooooooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooBoooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooBoooooooMM####dd#########dd####MMMMMMM',
+  'ooBoooooooooBoggkkkBkkkkkkkBPkkkkPkkggkkkkkk',
+  'ooBoooooooooBoggkkkBkkkkkkkBkkkkkkkkggkkkkkk',
+  'ooooooooBoooooggkkkkkkkBkkkkkkkBkkkkggkkkkkk',
+  'ooooooooBoooooggkkkkkkkBkkkkkkkBkPkkggkkkkkk',
+  'ooooBoooooooooMM###dd###########dd##MMMMMMMM',
+  'ooooBooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'oooooooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooBBooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooooooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
 ];
 
 /** Зеркало по горизонтали (КПП на восточном конце проспекта). */

@@ -9,6 +9,7 @@ import { canSeeCircle } from '../../world/visibility';
 import { COMBAT } from '../../config/combat';
 import { WAR } from '../../config/war';
 import { CHARACTER } from '../../config/entities';
+import { T } from '../../world/tiles';
 
 type Mode = 'raid' | 'assault' | 'infiltrate' | 'retreat';
 
@@ -27,6 +28,9 @@ export class RebelBrain implements Brain {
   departed = false;
   private relocate = 0;
   private goal = -1;
+  private suppressIn = 0;
+  private suppressLeft = 0;
+  private suppressAt: { x: number; y: number } | null = null;
   private repath = 0;
 
   constructor(
@@ -54,6 +58,73 @@ export class RebelBrain implements Brain {
     this.mover.speed = CHARACTER.runSpeed * 0.8;
   }
 
+  /**
+   * Огневая позиция на пустоши: видно пост часового (иначе — хотя бы ворота), пост в пределах
+   * дальности своего оружия (арбалетчик держится подальше), завал на линии огня рядом (укрытие),
+   * не вплотную к своим.
+   */
+  private pickPosition(f: NonNullable<AiContext['war']['fronts'][number]>): number {
+    const { ctx, self } = this;
+    const reach = ctx.combat.reach(self);
+    const sniper = self.inventory.has('crossbow');
+    let best = -1;
+    let bestScore = -Infinity;
+    for (let k = 0; k < 40; k++) {
+      const a = ctx.rng.pick(f.outlands);
+      const x = ctx.nav.worldX(a);
+      const y = ctx.nav.worldY(a);
+      let score = ctx.rng.range(0, 2);
+      let post: { x: number; y: number } | null = null;
+      for (const p of f.posts) {
+        if (canSeeCircle(ctx.map, x, y, p.x, p.y, 8) && (!post || Math.hypot(p.x - x, p.y - y) < Math.hypot(post.x - x, post.y - y))) post = p;
+      }
+      if (post) {
+        const d = Math.hypot(post.x - x, post.y - y);
+        score += 10;
+        if (d <= reach * 0.95) score += 6;
+        if (sniper) score += Math.min(6, d / 80);
+        if (coverOnLine(ctx, x, y, post.x, post.y)) score += 4;
+      } else if (canSeeCircle(ctx.map, x, y, f.outerGate.x, f.outerGate.y, 4)) score += 3;
+      for (const o of f.squad) {
+        if (o !== self && Math.hypot(o.x - x, o.y - y) < 40) score -= 3;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = a;
+      }
+    }
+    return best;
+  }
+
+  /** Очередь по видимому посту, где стоит часовой (за укрытием — не видно, но известно). */
+  private suppress(f: NonNullable<AiContext['war']['fronts'][number]>, dt: number): void {
+    const { ctx, self } = this;
+    this.suppressIn -= dt;
+    if (this.suppressIn > 0) {
+      if (this.suppressLeft > 0 && this.suppressAt && ctx.combat.canFire(self)) {
+        ctx.combat.fire(self, this.suppressAt.x + ctx.rng.range(-10, 10), this.suppressAt.y + ctx.rng.range(-10, 10));
+        this.suppressLeft--;
+      }
+      return;
+    }
+    this.suppressIn = ctx.rng.range(WAR.suppressEvery[0], WAR.suppressEvery[1]);
+    this.suppressAt = null;
+    const reach = ctx.combat.reach(self);
+    const manned = ctx.war.guardPosts(f);
+    for (const p of manned) {
+      if (Math.hypot(p.x - self.x, p.y - self.y) <= reach && canSeeCircle(ctx.map, self.x, self.y, p.x, p.y, 6)) {
+        this.suppressAt = p;
+        break;
+      }
+    }
+    if (!this.suppressAt) return;
+    const best = ctx.combat.bestWeapon(self, Math.hypot(this.suppressAt.x - self.x, this.suppressAt.y - self.y));
+    if (best && best !== self.weapon) ctx.combat.equip(self, best);
+    self.aiming = true;
+    faceTowards(self, this.suppressAt.x, this.suppressAt.y, 1);
+    this.suppressLeft = ctx.rng.int(WAR.suppressBurst[0], WAR.suppressBurst[1]);
+  }
+
   private go(anchor: number): void {
     if (anchor < 0) return;
     this.goal = anchor;
@@ -64,8 +135,7 @@ export class RebelBrain implements Brain {
     this.self = self;
     this.ctx = ctx;
     const f = ctx.war.fronts[this.front];
-    const w = ctx.combat.weaponOf(self);
-    const outOfAmmo = !w || (self.mag <= 0 && ctx.combat.reserveAmmo(self) <= 0);
+    const outOfAmmo = ctx.combat.maxRange(self) <= 0;
     if (this.mode !== 'infiltrate' && this.mode !== 'retreat' && (self.health < self.maxHealth * COMBAT.woundedFraction || outOfAmmo)) {
       this.mode = 'retreat';
       this.goal = -1;
@@ -84,18 +154,11 @@ export class RebelBrain implements Brain {
         // Позиция: пустошь, с видом на внешние ворота.
         if (this.goal < 0 || this.relocate <= 0 || this.mover.status === 'failed') {
           this.relocate = ctx.rng.range(WAR.relocateEvery[0], WAR.relocateEvery[1]);
-          // Позиция с видом вдоль коридора на посты часовых (иначе — хотя бы на ворота).
-          let pick = -1;
-          for (let k = 0; k < 40 && pick < 0; k++) {
-            const a = ctx.rng.pick(f.outlands);
-            const x = ctx.nav.worldX(a);
-            const y = ctx.nav.worldY(a);
-            const seesPost = f.posts.some((p) => canSeeCircle(ctx.map, x, y, p.x, p.y, 8));
-            const seesGate = canSeeCircle(ctx.map, x, y, f.outerGate.x, f.outerGate.y, 4);
-            if (seesPost || (k > 30 && seesGate)) pick = a;
-          }
+          const pick = this.pickPosition(f);
           if (pick >= 0) this.go(pick);
         }
+        // Часовых не видно — огонь на подавление по постам (перестрелка не затихает).
+        if (!this.gunner.target && this.mover.status !== 'moving') this.suppress(f, dt);
         // Стреляя — стоит на месте.
         if (fighting && this.gunner.target) this.mover.stop();
         else if (this.mover.status === 'idle' && this.goal >= 0) this.go(this.goal);
@@ -153,4 +216,16 @@ export class RebelBrain implements Brain {
     if (this.gunner.target && this.gunner.target.alive) faceTowards(self, this.gunner.target.x, this.gunner.target.y, dt);
     else faceMovement(self, ctx, dt);
   }
+}
+
+/** Есть ли бетонный завал на линии огня в пределах WAR.coverReach от стрелка. */
+function coverOnLine(ctx: AiContext, x: number, y: number, tx: number, ty: number): boolean {
+  const d = Math.hypot(tx - x, ty - y) || 1;
+  const ts = ctx.map.tileSize;
+  for (let t = 14; t <= WAR.coverReach; t += 4) {
+    const px = x + ((tx - x) / d) * t;
+    const py = y + ((ty - y) / d) * t;
+    if (ctx.map.tileAt(Math.floor(px / ts), Math.floor(py / ts)) === T.BARRIER) return true;
+  }
+  return false;
 }

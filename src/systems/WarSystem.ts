@@ -13,6 +13,9 @@ import { CitizenBrain } from '../ai/brains/CitizenBrain';
 
 export type AlertCode = 'green' | 'red';
 
+/** Как радио называет особых бойцов отряда. */
+const KIT_ROLE: Record<string, string> = { rebel_commander: 'командир', rebel_marksman: 'арбалетчик', rebel_shotgunner: 'дробовик' };
+
 /** Фронт — пограничный КПП: пустошь с отрядами повстанцев по ту сторону ворот. */
 export interface Front {
   index: number;
@@ -27,8 +30,13 @@ export interface Front {
   /** Якоря пустоши у этого КПП и укрытия бункера. */
   outlands: number[];
   bunker: number[];
+  /** Все бойцы повстанцев на этом фронте (из всех подошедших отрядов). */
   squad: Character[];
   nextSquadAt: number;
+  /** Когда подойдёт следующая волна (сверх минимума). */
+  nextWaveAt: number;
+  /** Когда здесь последний раз стреляли (для маркеров на экране). */
+  lastShot: number;
   /** Сколько секунд на КПП нет ни одного часового на посту. */
   unguarded: number;
   /** О штурме текущего отряда уже сообщили. */
@@ -109,7 +117,8 @@ export class WarSystem {
       }
       this.fronts.push({
         index, name: zone?.name ?? `КПП ${index + 1}`, exit, outerGate, innerGate, apron, posts: myPosts, outlands, bunker,
-        squad: [], nextSquadAt: rng.range(WAR.firstSquad[0], WAR.firstSquad[1]), reinforceAt: 0, medicAt: 0, unguarded: 0, assaultAnnounced: false,
+        squad: [], nextSquadAt: rng.range(WAR.firstSquad[0], WAR.firstSquad[1]), nextWaveAt: rng.range(WAR.waveEvery[0], WAR.waveEvery[1]),
+        lastShot: -1e9, reinforceAt: 0, medicAt: 0, unguarded: 0, assaultAnnounced: false,
       });
     });
   }
@@ -188,15 +197,40 @@ export class WarSystem {
     ).slice(0, Math.max(6, Math.floor(f.outlands.length / 3)));
     const n = rng.int(WAR.squadSize[0], WAR.squadSize[1]);
     const assaultAt = assault ? this.time + rng.range(WAR.assaultAfter[0], WAR.assaultAfter[1]) : Infinity;
-    f.assaultAnnounced = false;
+    if (assault) f.assaultAnnounced = false;
+    const roles: string[] = [];
     for (let k = 0; k < n; k++) {
       const a = rng.pick(far);
-      const c = createCharacter(this.ctx.entities, rng, 'rebel', nav.worldX(a) + rng.range(-4, 4), nav.worldY(a) + rng.range(-4, 4), false, Math.min(rng.int(0, 4), rng.int(0, 4)));
-      equipKit(c, rng.chance(WAR.smgChance) ? 'rebel_raider_smg' : 'rebel_raider', this.ctx);
+      let kit = rng.chance(WAR.smgChance) ? 'rebel_raider_smg' : 'rebel_raider';
+      let rank = Math.min(rng.int(0, 3), rng.int(0, 3));
+      if (k === 0 && rng.chance(WAR.commanderChance)) {
+        kit = 'rebel_commander';
+        rank = 4;
+      } else if (k === 1 && !assault && rng.chance(WAR.marksmanChance)) {
+        kit = 'rebel_marksman';
+        rank = Math.max(rank, 2);
+      } else if (rng.chance(assault ? WAR.shotgunChance * 2 : WAR.shotgunChance)) kit = 'rebel_shotgunner';
+      const c = createCharacter(this.ctx.entities, rng, 'rebel', nav.worldX(a) + rng.range(-4, 4), nav.worldY(a) + rng.range(-4, 4), false, rank);
+      equipKit(c, kit, this.ctx);
       c.brain = new RebelBrain(c, this.ctx, f.index, assaultAt);
       f.squad.push(c);
+      roles.push(KIT_ROLE[kit] ?? '');
     }
-    this.ctx.law.log(`${f.name}: контакт! Отряд повстанцев у ворот (${n})${assault ? ', готовится штурм' : ''}.`, 'radio');
+    const extra = roles.filter(Boolean);
+    this.ctx.law.log(
+      `${f.name}: контакт! Отряд повстанцев у ворот (${n}${extra.length ? `: ${extra.join(', ')}` : ''})${assault ? ', готовится штурм' : ''}.`,
+      'radio',
+    );
+  }
+
+  /** Посты, где сейчас стоят часовые (для огня на подавление). */
+  guardPosts(f: Front): Vec2[] {
+    const out: Vec2[] = [];
+    for (const g of this.guardsOf(f).guards) {
+      const b = g.brain as CpBrain;
+      if (b.guardPost && b.fsm.current !== 'retreat') out.push(b.guardPost);
+    }
+    return out;
   }
 
   private guardsOf(f: Front): { guards: Character[]; medics: Character[] } {
@@ -212,9 +246,8 @@ export class WarSystem {
 
   private reinforce(f: Front, medic: boolean): void {
     const { rng, nav } = this.ctx;
-    const gate = poiWorld(this.ctx, 'nexus_gate');
-    if (!gate) return;
-    const a = nav.nearestWalkable(gate.x, gate.y, 6);
+    // Подкрепление подвозят к внутренним воротам КПП (с городской стороны).
+    const a = nav.nearestWalkable(f.apron.x + rng.range(-16, 16), f.apron.y + rng.range(-16, 16), 6);
     if (a < 0) return;
     const c = createCharacter(this.ctx.entities, rng, 'cp', nav.worldX(a), nav.worldY(a), false, rng.int(0, 4));
     if (medic) {
@@ -251,7 +284,7 @@ export class WarSystem {
       const a = nav.nearestWalkable(gate.x + rng.range(-24, 24), gate.y + rng.range(-24, 24), 6);
       if (a < 0) continue;
       const c = createCharacter(this.ctx.entities, rng, 'ota', nav.worldX(a), nav.worldY(a), false);
-      equipKit(c, 'ota', this.ctx);
+      equipKit(c, rng.chance(WAR.otaShotgunChance) ? 'ota_shotgun' : 'ota', this.ctx);
       c.brain = new OtaBrain(c, this.ctx);
       this.ota.push(c);
     }
@@ -278,9 +311,31 @@ export class WarSystem {
     for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
   }
 
+  /** Идёт ли сейчас бой у КПП (стреляли недавно). */
+  active(f: Front): boolean {
+    return this.time - f.lastShot < WAR.activeWindow;
+  }
+
   update(dt: number): void {
     this.time += dt;
     const { entities, map } = this.ctx;
+    // Где стреляли: выстрел в зоне КПП или пустоши относится к ближайшему фронту.
+    const shots = this.ctx.combat.shots;
+    for (let i = shots.length - 1; i >= 0 && this.ctx.combat.now - shots[i].t < dt + 1e-6; i--) {
+      const sh = shots[i];
+      const kind = map.zoneAtWorld(sh.x, sh.y)?.kind;
+      if (kind !== 'checkpoint' && kind !== 'outlands') continue;
+      let best: Front | null = null;
+      let bestD = Infinity;
+      for (const f of this.fronts) {
+        const d = Math.hypot(f.innerGate.x - sh.x, f.innerGate.y - sh.y);
+        if (d < bestD) {
+          bestD = d;
+          best = f;
+        }
+      }
+      if (best) best.lastShot = this.time;
+    }
     for (const f of this.fronts) {
       // Отряд: живые, не ушедшие, не прорвавшиеся.
       f.squad = f.squad.filter((r) => {
@@ -301,14 +356,21 @@ export class WarSystem {
         }
         return true;
       });
-      if (f.squad.length === 0 && this.time >= f.nextSquadAt) {
+      // Подход отрядов: минимум бойцов держится всегда, сверх него — волнами до maxRebels.
+      const rng = this.ctx.rng;
+      const holding = f.squad.length;
+      const low = holding < WAR.minRebels && this.time >= f.nextSquadAt;
+      const wave = this.time >= f.nextWaveAt && holding + WAR.squadSize[1] <= WAR.maxRebels;
+      if (low || wave) {
         const { guards } = this.guardsOf(f);
         // Никого на посту — отряд идёт на штурм сразу.
-        const assault = guards.length === 0 || this.ctx.rng.chance(WAR.assaultChance);
+        const assault = guards.length === 0 || rng.chance(WAR.assaultChance);
         this.spawnSquad(f, assault);
-        f.nextSquadAt = this.time + this.ctx.rng.range(WAR.squadRespawn[0], WAR.squadRespawn[1]);
-      } else if (f.squad.length > 0) {
-        f.nextSquadAt = Math.max(f.nextSquadAt, this.time + this.ctx.rng.range(WAR.squadRespawn[0], WAR.squadRespawn[1]));
+        f.nextSquadAt = this.time + rng.range(WAR.squadGap[0], WAR.squadGap[1]);
+        f.nextWaveAt = this.time + rng.range(WAR.waveEvery[0], WAR.waveEvery[1]);
+      } else if (holding >= WAR.minRebels) {
+        // Пока бойцов хватает, таймер подхода не «копится».
+        f.nextSquadAt = Math.max(f.nextSquadAt, this.time + WAR.squadGap[0]);
       }
       // Подкрепления ГО.
       const { guards, medics } = this.guardsOf(f);
@@ -325,7 +387,9 @@ export class WarSystem {
         f.assaultAnnounced = true;
         this.ctx.law.log(`${f.name}: повстанцы идут на прорыв!`, 'radio');
       }
-      if (guards.length < WAR.guardsPerFront) {
+      // Нехватка часовых: погибли — или двое+ отошли раненными (тогда — один сверх штата).
+      const short = guards.length < WAR.guardsPerFront || (onPost < WAR.guardsPerFront - 1 && guards.length < WAR.guardsPerFront + 1);
+      if (short) {
         if (f.reinforceAt === 0) f.reinforceAt = this.time + WAR.reinforceDelay;
         else if (this.time >= f.reinforceAt) {
           f.reinforceAt = 0;

@@ -4,7 +4,7 @@ const KIND_PREFIX: Record<string, string> = { radio: '[Рация] ', law: '', w
 
 /** Журнал событий мира (задержания, штрафы, рация ГО). Полноценный чат с командами — этап 5. */
 export class EventLog {
-  private readonly el: HTMLElement;
+  readonly el: HTMLElement;
   private readonly max = 7;
 
   constructor(parent: HTMLElement, bus: EventBus) {

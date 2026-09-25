@@ -1,5 +1,5 @@
 import type { Character } from '../entities/Character';
-import { ITEMS, WEAPONS, type ItemId, type WeaponId } from '../config/items';
+import { ITEMS, WEAPONS, type ItemId, type WeaponId, type WeaponDef } from '../config/items';
 
 export interface InventoryHost {
   useItem(id: ItemId): void;
@@ -56,9 +56,25 @@ export class InventoryPanel {
             ? `<button data-id="${s.id}" data-act="holster">Убрать</button>`
             : `<button data-id="${s.id}" data-act="equip">В руки</button>`;
         }
-        const extra = def.kind === 'weapon' ? ` · урон ${WEAPONS[s.id as WeaponId].damage}` : '';
+        const extra = def.kind === 'weapon' ? `<div class="inv-stats">${weaponStats(WEAPONS[s.id as WeaponId], p.weapon === s.id ? p.mag : p.mags[s.id as WeaponId])}</div>` : '';
         return `<div class="inv-row${p.weapon === s.id ? ' active' : ''}"><div><b>${def.name}</b>${s.qty > 1 ? ` ×${s.qty}` : ''}<div class="inv-desc">${def.desc}${extra}</div></div>${action}</div>`;
       })
       .join('');
   }
+}
+
+/** Характеристики оружия одной строкой для инвентаря. */
+function weaponStats(w: WeaponDef, mag: number | undefined): string {
+  if (w.mode === 'melee') return `урон ${w.damage} · оглушение ${w.stun} с · ${w.fireRate} уд/с`;
+  const dmg = w.pellets > 1 ? `${w.damage}×${w.pellets}` : `${w.damage}`;
+  const parts = [
+    `урон ${dmg}`,
+    `${w.fireRate} выстр/с`,
+    `дальность ${w.effectiveRange}/${w.range}`,
+    `разброс ±${w.spreadHip}°→±${w.spreadAim}° за ${w.aimTime} с`,
+    `магазин ${mag ?? '—'}/${w.magazine}`,
+    `перезарядка ${w.reload} с${w.perRound ? ' на патрон' : ''}`,
+  ];
+  if (w.penetration > 0) parts.push(`пробитие ${Math.round(w.penetration * 100)}%`);
+  return parts.join(' · ');
 }

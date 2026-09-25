@@ -23,6 +23,10 @@ export class Camera {
   prevY = 0;
   /** CSS-пикселей на пиксель мира. */
   zoom = 1;
+  /** Масштаб без прицеливания. */
+  private baseZoom = 1;
+  /** Доля «прицельного» режима 0..1 (плавно). */
+  private aimK = 0;
   dpr = 1;
   cssWidth = 1;
   cssHeight = 1;
@@ -31,7 +35,8 @@ export class Camera {
     this.cssWidth = Math.max(1, cssWidth);
     this.cssHeight = Math.max(1, cssHeight);
     this.dpr = dpr;
-    this.zoom = Math.min(this.cssWidth / CAMERA.viewWidth, this.cssHeight / CAMERA.viewHeight);
+    this.baseZoom = Math.min(this.cssWidth / CAMERA.viewWidth, this.cssHeight / CAMERA.viewHeight);
+    this.zoom = this.baseZoom * lerp(1, CAMERA.aimZoom, this.aimK);
   }
 
   /** Ширина/высота видимой области мира. */
@@ -48,16 +53,20 @@ export class Camera {
     this.y = this.prevY = y;
   }
 
-  /** Шаг слежения. mouseWorld — курсор в мире (для сдвига к прицелу). */
-  follow(tx: number, ty: number, mouseWX: number, mouseWY: number, dt: number, worldW: number, worldH: number): void {
+  /** Шаг слежения. mouseWorld — курсор в мире (для сдвига к прицелу); aiming — зажата ПКМ. */
+  follow(tx: number, ty: number, mouseWX: number, mouseWY: number, dt: number, worldW: number, worldH: number, aiming = false): void {
     this.prevX = this.x;
     this.prevY = this.y;
-    let ox = (mouseWX - tx) * CAMERA.lookAheadFactor;
-    let oy = (mouseWY - ty) * CAMERA.lookAheadFactor;
+    this.aimK = damp(this.aimK, aiming ? 1 : 0, CAMERA.aimRate, dt);
+    this.zoom = this.baseZoom * lerp(1, CAMERA.aimZoom, this.aimK);
+    const factor = lerp(CAMERA.lookAheadFactor, CAMERA.aimLookAheadFactor, this.aimK);
+    const max = lerp(CAMERA.lookAheadMax, CAMERA.aimLookAheadMax, this.aimK);
+    let ox = (mouseWX - tx) * factor;
+    let oy = (mouseWY - ty) * factor;
     const len = Math.hypot(ox, oy);
-    if (len > CAMERA.lookAheadMax) {
-      ox *= CAMERA.lookAheadMax / len;
-      oy *= CAMERA.lookAheadMax / len;
+    if (len > max) {
+      ox *= max / len;
+      oy *= max / len;
     }
     this.x = damp(this.x, tx + ox, CAMERA.followRate, dt);
     this.y = damp(this.y, ty + oy, CAMERA.followRate, dt);

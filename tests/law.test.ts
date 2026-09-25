@@ -141,8 +141,8 @@ describe('живой город со всеми фракциями', () => {
     spawnPopulation(sim.ctx, 20);
     const count = (f: string) => sim.entities.list.filter((c) => c.faction === f).length;
     expect(count('citizen')).toBe(20);
-    // 6 патрульных + на каждом из двух КПП 2 часовых GRID и медик HELIX.
-    expect(count('cp')).toBe(12);
+    // 6 патрульных + на каждом из двух КПП 3 часовых GRID и медик HELIX.
+    expect(count('cp')).toBe(14);
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['union', 'grid', 'helix', 'jury']) expect(divisions.has(d as never)).toBe(true);
     expect(count('rebel')).toBe(3);

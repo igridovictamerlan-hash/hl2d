@@ -64,6 +64,7 @@ export class PlayerController {
     const locked = !!p.brain || law.phase === 'checking' || this.hooks.menuOpen();
     if (locked) {
       if (!p.brain) p.wantX = p.wantY = 0;
+      p.aiming = false;
     } else {
       let mx = (i.isDown('right') ? 1 : 0) - (i.isDown('left') ? 1 : 0);
       let my = (i.isDown('down') ? 1 : 0) - (i.isDown('up') ? 1 : 0);
@@ -72,7 +73,10 @@ export class PlayerController {
         mx /= len;
         my /= len;
       }
-      const speed = i.isDown('run') ? CHARACTER.runSpeed : CHARACTER.walkSpeed;
+      // Прицеливание (ПКМ): медленный шаг, бег невозможен; конус сужается.
+      const aw = p.weapon ? WEAPONS[p.weapon] : null;
+      p.aiming = i.aimDown && !!aw && aw.mode !== 'melee';
+      const speed = p.aiming ? CHARACTER.walkSpeed * aw!.aimMove : i.isDown('run') ? CHARACTER.runSpeed : CHARACTER.walkSpeed;
       p.wantX = mx * speed;
       p.wantY = my * speed;
       if (i.mouseInside) {
@@ -83,15 +87,21 @@ export class PlayerController {
     if (i.wasPressed('inventory')) this.hooks.toggleInventory();
     if (this.hooks.menuOpen() || p.brain) return;
 
-    // Стрельба: автомат — пока зажата кнопка, пистолет — по клику.
+    // Смена оружия: Q — следующее (после последнего — убрать), H — убрать.
+    if (i.wasPressed('nextWeapon')) this.cycleWeapon(p, ctx);
+    if (i.wasPressed('holster') && p.weapon) {
+      ctx.combat.equip(p, null);
+      this.say('Оружие убрано.');
+    }
+    // Стрельба: автомат — пока зажата кнопка, остальное — по клику; дубинка — удар.
     const w = p.weapon ? WEAPONS[p.weapon] : null;
-    if (w && i.mouseInside && (w.auto ? i.mouseDown : i.mousePressed)) {
+    if (w && i.mouseInside && (w.mode === 'auto' ? i.mouseDown : i.mousePressed)) {
       const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
-      if (p.mag <= 0 && !ctx.combat.reloading(p)) {
+      if (w.ammo && p.mag <= 0 && !ctx.combat.reloading(p)) {
         if (!ctx.combat.reload(p) && i.mousePressed) this.say('Нет патронов.');
       } else ctx.combat.fire(p, m.x, m.y);
     }
-    if (i.wasPressed('reload') && w && !ctx.combat.reload(p) && ctx.combat.reserveAmmo(p) <= 0) this.say('Нет запасных патронов.');
+    if (i.wasPressed('reload') && w?.ammo && !ctx.combat.reload(p) && ctx.combat.reserveAmmo(p) <= 0 && p.mag < w.magazine) this.say('Нет запасных патронов.');
     if (i.wasPressed('interact')) this.interact(p, ctx);
     if (i.wasPressed('roleAction')) this.roleAction(p, ctx);
     if (i.wasPressed('special')) this.special(p, ctx);
@@ -114,6 +124,16 @@ export class PlayerController {
         if (o !== p && o.law.handler === p && o.law.phase === 'fleeing') ctx.law.arrest(p, o, 'resisting');
       }
     }
+  }
+
+  /** Q: следующее оружие из инвентаря; после последнего — убрать. */
+  private cycleWeapon(p: Character, ctx: AiContext): void {
+    const list = ctx.combat.weaponsOf(p);
+    if (list.length === 0) return this.say('Оружия нет.');
+    const k = p.weapon ? list.indexOf(p.weapon) : -1;
+    const next = k + 1 < list.length ? list[k + 1] : null;
+    ctx.combat.equip(p, next);
+    this.say(next ? `В руках: ${WEAPONS[next].name}.` : 'Оружие убрано.');
   }
 
   /** E: взаимодействие с ближайшим — терминал, магазин, тело, раздача, ремонт, оружейная. */

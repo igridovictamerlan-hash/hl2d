@@ -3,6 +3,7 @@ import type { View } from '../core/Camera';
 import { FACTIONS, colorsOf, rankOf } from '../config/factions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
+import { WEAPONS } from '../config/items';
 
 /** Подпись роли: ГО и повстанцы — с рангом, жители — с номером CID. */
 export function roleLabel(c: Character): string {
@@ -22,7 +23,7 @@ export function roleLabel(c: Character): string {
  * Невидимых игроку (c.visible = false) не рисуем, кроме режима отладки.
  */
 export class EntityRenderer {
-  drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean): void {
+  drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
     const s = v.scale;
     for (const c of list) {
       if (!c.alive || (!c.visible && !showAll)) continue;
@@ -43,20 +44,41 @@ export class EntityRenderer {
       ctx.lineWidth = Math.max(1, s * 1.5);
       ctx.strokeStyle = col.outline;
       ctx.stroke();
-      // Оружие в руках — ствол по направлению взгляда (видно, кто вооружён).
-      if (c.weapon) {
-        ctx.strokeStyle = RENDER.entity.gun;
-        ctx.lineWidth = Math.max(2, s * 3);
-        ctx.beginPath();
-        ctx.moveTo(x + Math.cos(c.facing) * r * 0.5, y + Math.sin(c.facing) * r * 0.5);
-        ctx.lineTo(x + Math.cos(c.facing) * r * 1.55, y + Math.sin(c.facing) * r * 1.55);
-        ctx.stroke();
-      }
-      // Направление взгляда.
+      // Нос-треугольник: куда смотрит.
+      const cf = Math.cos(c.facing);
+      const sf = Math.sin(c.facing);
       ctx.fillStyle = col.outline;
       ctx.beginPath();
-      ctx.arc(x + Math.cos(c.facing) * r * 0.62, y + Math.sin(c.facing) * r * 0.62, r * 0.24, 0, Math.PI * 2);
+      ctx.moveTo(x + cf * r * 1.32, y + sf * r * 1.32);
+      ctx.lineTo(x + cf * r * 0.72 - sf * r * 0.42, y + sf * r * 0.72 + cf * r * 0.42);
+      ctx.lineTo(x + cf * r * 0.72 + sf * r * 0.42, y + sf * r * 0.72 - cf * r * 0.42);
+      ctx.closePath();
       ctx.fill();
+      // Оружие в правой руке: силуэт по классу (длина и толщина), видно, кто чем вооружён.
+      if (c.weapon) {
+        const w = WEAPONS[c.weapon];
+        const g = RENDER.weapons[w.class];
+        const hx = x - sf * r * 0.42;
+        const hy = y + cf * r * 0.42;
+        ctx.strokeStyle = w.class === 'melee' ? RENDER.entity.stunstick : RENDER.entity.gun;
+        ctx.lineWidth = Math.max(2, s * g.width);
+        ctx.beginPath();
+        ctx.moveTo(hx + cf * r * 0.2, hy + sf * r * 0.2);
+        ctx.lineTo(hx + cf * r * g.len, hy + sf * r * g.len);
+        ctx.stroke();
+      }
+      // Оглушён дубинкой — голубые искры.
+      if (c.stunUntil > now) {
+        ctx.strokeStyle = RENDER.entity.stun;
+        ctx.lineWidth = Math.max(1, s * 1.2);
+        ctx.beginPath();
+        for (let k = 0; k < 3; k++) {
+          const a = now * 9 + (k * Math.PI * 2) / 3;
+          ctx.moveTo(x + Math.cos(a) * r * 1.1, y + Math.sin(a) * r * 1.1);
+          ctx.lineTo(x + Math.cos(a + 0.5) * r * 1.35, y + Math.sin(a + 0.5) * r * 1.35);
+        }
+        ctx.stroke();
+      }
       // Наручники.
       if (c.law.phase === 'cuffed' || c.law.phase === 'entering') {
         ctx.strokeStyle = 'rgba(230,230,230,0.9)';

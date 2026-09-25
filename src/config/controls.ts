@@ -19,6 +19,11 @@ export const CONTROLS = {
   choice3: ['Digit3', 'Numpad3'],
   reload: ['KeyR'],
   special: ['KeyG'],
+  /** Следующее оружие / убрать (Q), убрать оружие (H). */
+  nextWeapon: ['KeyQ'],
+  holster: ['KeyH'],
+  /** Звук выстрелов вкл/выкл. */
+  mute: ['KeyN'],
 } as const;
 
 export type Action = keyof typeof CONTROLS;

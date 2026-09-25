@@ -47,6 +47,8 @@ export const RENDER = {
     speechText: '#f1eee4',
     terminal: '#ffd36b',
     gun: '#15171a',
+    stunstick: '#3a4a5c',
+    stun: 'rgba(150,210,255,0.9)',
   },
   effects: {
     queueMark: 'rgba(255,211,107,0.35)',
@@ -62,6 +64,58 @@ export const RENDER = {
     flash: 'rgba(255,240,180,0.9)',
     bloodHit: 'rgba(190,20,20,0.95)',
     spark: 'rgba(255,230,160,0.9)',
+  },
+  /**
+   * Конус прицела (как в Foxhole): треугольник разброса с дугой на предельной дальности.
+   * Цвета — «r,g,b» (прозрачность задаётся отдельно). Заливка обрезается стенами (лучи DDA).
+   */
+  aim: {
+    player: '255,211,107',
+    combine: '120,190,255',
+    rebel: '255,150,70',
+    neutral: '225,225,225',
+    /** Прозрачность заливки: от бедра, прицельно, у NPC. */
+    fillHip: 0.05,
+    fillAim: 0.15,
+    fillNpc: 0.07,
+    edgeHip: 0.22,
+    edgeAim: 0.55,
+    edgeNpc: 0.22,
+    arc: 0.9,
+    arcNpc: 0.45,
+    /** Шаг лучей обрезки по углу, градусы, и предел лучей на конус. */
+    rayStepDeg: 1.2,
+    maxRays: 48,
+    /** Цвет дуги при полном прицеливании и при перезарядке. */
+    steady: '255,255,255',
+    reload: '160,160,160',
+  },
+  /** Силуэт оружия в руках: длина от центра (в радиусах кружка) и толщина (px мира). */
+  weapons: {
+    melee: { len: 1.4, width: 2.2 },
+    pistol: { len: 1.3, width: 3 },
+    magnum: { len: 1.45, width: 3.4 },
+    smg: { len: 1.55, width: 3.4 },
+    rifle: { len: 1.9, width: 3.6 },
+    shotgun: { len: 1.75, width: 4.2 },
+    crossbow: { len: 1.6, width: 3 },
+  },
+  /** Трассеры: толщина по классу оружия (px мира), особые цвета AR2 и арбалета. */
+  tracers: {
+    width: { melee: 1, pistol: 1.2, magnum: 2, smg: 1.1, rifle: 1.8, shotgun: 0.9, crossbow: 1.6 },
+    pulse: 'rgba(150,235,255,0.95)',
+    bolt: 'rgba(255,120,60,0.95)',
+    swing: 'rgba(170,210,255,0.55)',
+    swingHit: 'rgba(200,230,255,0.9)',
+  },
+  /** Указатели на пограничные КПП у края экрана: в бою — оранжевые, мигают. */
+  frontMarker: {
+    font: '600 11px "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    calm: 'rgba(200,196,180,0.55)',
+    fight: '255,140,60',
+    inset: 30,
+    /** Метров в тайле (для подписи расстояния). */
+    metersPerTile: 1,
   },
   crosshair: 'rgba(255,211,107,0.9)',
   /** Предел пикселей холста: на 4K/HiDPI рендерим в меньшем разрешении ради FPS. */

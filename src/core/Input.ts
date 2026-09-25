@@ -11,6 +11,8 @@ export class Input {
   mouseY = 0;
   mouseDown = false;
   mousePressed = false;
+  /** Зажата правая кнопка (прицеливание). */
+  aimDown = false;
   /** Мышь над холстом (для курсора-прицела). */
   mouseInside = false;
 
@@ -22,11 +24,18 @@ export class Input {
     }
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
-    window.addEventListener('blur', () => this.down.clear());
+    window.addEventListener('blur', () => {
+      this.down.clear();
+      this.mouseDown = this.aimDown = false;
+    });
     canvas.addEventListener('mousemove', this.onMouseMove);
     canvas.addEventListener('mouseenter', () => (this.mouseInside = true));
     canvas.addEventListener('mouseleave', () => (this.mouseInside = false));
     canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 2) {
+        this.aimDown = true;
+        return;
+      }
       if (e.button !== 0) return;
       this.mouseDown = true;
       this.mousePressed = true;
@@ -34,6 +43,7 @@ export class Input {
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.mouseDown = false;
+      if (e.button === 2) this.aimDown = false;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }

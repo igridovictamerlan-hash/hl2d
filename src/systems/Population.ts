@@ -17,6 +17,8 @@ export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat
   c.inventory.clear();
   c.weapon = null;
   c.mag = 0;
+  c.mags = {};
+  c.reloadUntil = 0;
   let weapon: WeaponId | null = null;
   for (const [id, qty] of KITS[kit] ?? []) {
     c.inventory.add(id, qty);

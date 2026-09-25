@@ -7,4 +7,12 @@ export const CAMERA = {
   /** Сдвиг камеры в сторону курсора: доля расстояния и максимум в px. */
   lookAheadFactor: 0.18,
   lookAheadMax: 44,
+  /**
+   * Прицеливание (ПКМ): камера сильнее уходит к курсору и чуть отдаляется, чтобы была видна
+   * дуга дальности конуса. aimRate — скорость перехода (1/с).
+   */
+  aimLookAheadFactor: 0.6,
+  aimLookAheadMax: 230,
+  aimZoom: 0.8,
+  aimRate: 5,
 } as const;

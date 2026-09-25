@@ -438,7 +438,14 @@ const RETREAT: State<CpBrain> = {
   },
   update(b, dt) {
     if (b.retreatTo && dist(b.self.x, b.self.y, b.retreatTo.x, b.retreatTo.y) > 20) b.goToPoint(b.retreatTo, dt);
-    else b.mover.stop();
+    else {
+      b.mover.stop();
+      // В укрытии — перевязаться своим (аптечка, бинт), если давно не попадали.
+      if (b.ctx.combat.now - b.self.lastHurt > COMBAT.selfHealCalm) {
+        const kit = b.self.inventory.has('medkit') ? 'medkit' : b.self.inventory.has('bandage') ? 'bandage' : null;
+        if (kit && b.ctx.economy.use(b.self, kit)) b.self.say('Перевязываюсь.', b.ctx.law.now, 1.5);
+      }
+    }
     // Регенерация поднимает до COMBAT.regenCap — возвращаемся чуть ниже, не дожидаясь медика.
     if (b.self.health >= b.self.maxHealth * (COMBAT.regenCap - 0.05)) {
       b.mover.speed = LAW.cpWalkSpeed;

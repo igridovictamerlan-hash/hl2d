@@ -5,11 +5,14 @@ import type { GameMap } from '../world/GameMap';
 import type { EventBus } from '../core/EventBus';
 import type { Rng } from '../core/rng';
 import type { LawSystem } from './LawSystem';
-import { castRayWith } from '../world/visibility';
+import { castRayWith, lineOfSight } from '../world/visibility';
 import { T } from '../world/tiles';
 import { COMBAT } from '../config/combat';
-import { WEAPONS, AMMO_ITEM, type WeaponDef } from '../config/items';
+import { CHARACTER } from '../config/entities';
+import { WEAPONS, AMMO_ITEM, weaponDps, type WeaponDef, type WeaponId, type WeaponClass } from '../config/items';
 import { FACTIONS, type FactionId } from '../config/factions';
+
+const DEG = Math.PI / 180;
 
 export interface Tracer {
   x0: number;
@@ -18,6 +21,18 @@ export interface Tracer {
   y1: number;
   t: number;
   combine: boolean;
+  kind: WeaponClass;
+}
+
+/** Взмах дубинкой — сектор удара (для отрисовки). */
+export interface Swing {
+  x: number;
+  y: number;
+  ang: number;
+  half: number;
+  reach: number;
+  t: number;
+  hit: boolean;
 }
 
 export interface Impact {
@@ -43,17 +58,31 @@ export interface Shot {
   y: number;
   t: number;
   shooter: Character;
+  weapon: WeaponId;
+  /** Слышимость, px. */
+  noise: number;
+}
+
+/** Угол a − b, приведённый к (−π, π]. */
+export function angleDiff(a: number, b: number): number {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d <= -Math.PI) d += Math.PI * 2;
+  return d;
 }
 
 const near: Character[] = [];
 
 /**
- * Бой: выстрелы лучом с разбросом, стены и закрытые двери останавливают пули, бетонный блок —
- * с вероятностью COMBAT.barrierStopChance (свой блок рядом со стрелком не мешает).
- * Урон, смерть, тело с лутом, перезарядка из инвентаря, медленная регенерация, лечение HELIX.
+ * Бой: выстрелы лучом внутри конуса разброса (как в Foxhole: прицеливание сужает конус, движение и
+ * отдача расширяют), дробь — несколько лучей. Стены и закрытые двери останавливают пули, бетонный
+ * блок — с вероятностью COMBAT.barrierStopChance × (1 − пробитие оружия); свой блок рядом со стрелком
+ * не мешает. Урон падает с дальностью. Дубинка — удар в секторе перед собой с оглушением.
+ * Смерть, тело с лутом, перезарядка (магазин у каждого ствола свой), регенерация, лечение HELIX.
  */
 export class CombatSystem {
   readonly tracers: Tracer[] = [];
+  readonly swings: Swing[] = [];
   readonly impacts: Impact[] = [];
   readonly corpses: Corpse[] = [];
   readonly shots: Shot[] = [];
@@ -104,7 +133,7 @@ export class CombatSystem {
 
   reserveAmmo(c: Character): number {
     const w = this.weaponOf(c);
-    return w ? c.inventory.count(AMMO_ITEM[w.ammo]) : 0;
+    return w?.ammo ? c.inventory.count(AMMO_ITEM[w.ammo]) : 0;
   }
 
   reloading(c: Character): boolean {
@@ -114,25 +143,38 @@ export class CombatSystem {
   /** Начать перезарядку, если есть чем. */
   reload(c: Character): boolean {
     const w = this.weaponOf(c);
-    if (!w || this.reloading(c) || c.mag >= w.magazine || this.reserveAmmo(c) <= 0) return false;
+    if (!w || !w.ammo || this.reloading(c) || c.mag >= w.magazine || this.reserveAmmo(c) <= 0) return false;
     c.reloadUntil = this.time + w.reload;
     return true;
   }
 
-  /** Выбрать оружие (магазин считается пустым до перезарядки, кроме первого взятия в руки). */
+  /**
+   * Взять оружие в руки (null — убрать). Патроны в магазине остаются у ствола: при смене
+   * оружия они не теряются. Новый ствол заряжается из запаса при первом взятии; достать его —
+   * WeaponDef.draw секунд (раньше не выстрелить).
+   */
   equip(c: Character, id: Character['weapon']): void {
     if (c.weapon === id) return;
-    c.equip(id);
-    c.mag = 0;
+    if (c.weapon) c.mags[c.weapon] = c.mag;
+    if (!c.equip(id)) return;
     c.reloadUntil = 0;
-    if (id) this.loadInstant(c);
+    c.aim = 0;
+    c.recoil = 0;
+    if (!id) {
+      c.mag = 0;
+      return;
+    }
+    const stored = c.mags[id];
+    c.mag = stored ?? 0;
+    if (stored === undefined) this.loadInstant(c);
+    c.nextShot = Math.max(c.nextShot, this.time + WEAPONS[id].draw);
   }
 
   /** Мгновенно зарядить магазин из запаса (при выдаче оружия). */
-  loadInstant(c: Character): void {
+  loadInstant(c: Character, max = Infinity): void {
     const w = this.weaponOf(c);
-    if (!w) return;
-    const need = w.magazine - c.mag;
+    if (!w?.ammo) return;
+    const need = Math.min(max, w.magazine - c.mag);
     const have = this.reserveAmmo(c);
     const k = Math.min(need, have);
     if (k > 0) {
@@ -141,28 +183,119 @@ export class CombatSystem {
     }
   }
 
-  canFire(c: Character): boolean {
-    return !!c.weapon && c.alive && !this.reloading(c) && this.time >= c.nextShot && c.mag > 0;
+  /** Оружие в инвентаре (для смены по Q и выбора ИИ). */
+  weaponsOf(c: Character): WeaponId[] {
+    const out: WeaponId[] = [];
+    for (const s of c.inventory.slots) if (s.id in WEAPONS && !out.includes(s.id as WeaponId)) out.push(s.id as WeaponId);
+    return out;
   }
 
-  /** Выстрел в сторону точки. Возвращает, в кого попали. */
-  fire(c: Character, tx: number, ty: number, accuracy = 1): Character | null {
+  /** Есть ли у ствола патроны (в магазине или в запасе). */
+  hasAmmo(c: Character, id: WeaponId): boolean {
+    const w = WEAPONS[id];
+    if (!w.ammo) return true;
+    const inMag = c.weapon === id ? c.mag : (c.mags[id] ?? 0);
+    return inMag > 0 || c.inventory.count(AMMO_ITEM[w.ammo]) > 0;
+  }
+
+  /**
+   * Лучший огнестрел против цели на дистанции d (для ИИ): с патронами, достаёт, наибольший урон
+   * в секунду с учётом падения урона. null — нечем стрелять.
+   */
+  bestWeapon(c: Character, d: number): WeaponId | null {
+    let best: WeaponId | null = null;
+    let bestScore = 0;
+    for (const id of this.weaponsOf(c)) {
+      const w = WEAPONS[id];
+      if (w.mode === 'melee' || !this.hasAmmo(c, id)) continue;
+      const reach = d <= Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul) ? 1 : 0.05;
+      // Грубая оценка попадания: полуширина прицельного конуса у цели против радиуса кружка.
+      const hit = Math.min(1, CHARACTER.radius / (d * Math.tan(w.spreadAim * DEG) + 1));
+      const score = weaponDps(w) * falloffMul(w, d) * hit * reach * (id === c.weapon ? 1.15 : 1);
+      if (score > bestScore) {
+        bestScore = score;
+        best = id;
+      }
+    }
+    return best;
+  }
+
+  /** Наибольшая дальность огнестрела с патронами (ИИ ищет цели в этом радиусе). */
+  maxRange(c: Character): number {
+    let r = 0;
+    for (const id of this.weaponsOf(c)) {
+      const w = WEAPONS[id];
+      if (w.mode !== 'melee' && this.hasAmmo(c, id)) r = Math.max(r, w.range);
+    }
+    return r;
+  }
+
+  /** Дистанция, с которой ИИ реально ведёт огонь (дробовик — только вблизи). */
+  reach(c: Character): number {
+    let r = 0;
+    for (const id of this.weaponsOf(c)) {
+      const w = WEAPONS[id];
+      if (w.mode !== 'melee' && this.hasAmmo(c, id)) r = Math.max(r, Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul));
+    }
+    return r;
+  }
+
+  canFire(c: Character): boolean {
+    if (!c.weapon || !c.alive || this.time < c.nextShot) return false;
+    if (WEAPONS[c.weapon].mode === 'melee') return true;
+    return !this.reloading(c) && c.mag > 0;
+  }
+
+  /**
+   * Текущий полуугол конуса разброса, градусы: от бедра → прицельно по мере прицеливания,
+   * плюс движение (бег — сильнее) и накопленная отдача. У NPC — чуть шире (COMBAT.ai.spreadMul).
+   */
+  spreadOf(c: Character, w: WeaponDef | null = this.weaponOf(c)): number {
+    if (!w) return 0;
+    if (w.mode === 'melee') return w.spreadHip;
+    const base = w.spreadHip + (w.spreadAim - w.spreadHip) * c.aim;
+    const v = c.moveSpeed / CHARACTER.walkSpeed;
+    const move = v < 0.15 ? 0 : w.moveSpread * (v <= 1 ? v : 1 + (v - 1) * COMBAT.runSpreadMul);
+    let s = base + move + c.recoil;
+    if (!c.isPlayer) s *= COMBAT.ai.spreadMul;
+    return Math.min(s, COMBAT.maxSpread);
+  }
+
+  /** Выстрел (удар) в сторону точки. Возвращает, в кого попали (для дроби — в последнего). */
+  fire(c: Character, tx: number, ty: number): Character | null {
     const w = this.weaponOf(c);
-    if (!w || !this.canFire(c)) {
-      if (w && c.mag <= 0) this.reload(c);
+    if (!w) return null;
+    if (w.mode === 'melee') return this.swing(c, w, tx, ty);
+    // Дробовик заряжается по патрону: выстрел прерывает перезарядку, если в магазине что-то есть.
+    if (w.perRound && this.reloading(c) && c.mag > 0) c.reloadUntil = 0;
+    if (!this.canFire(c)) {
+      if (c.mag <= 0) this.reload(c);
       return null;
     }
     c.mag--;
     c.nextShot = this.time + 1 / w.fireRate;
     this.shotsFired++;
-    const moving = c.moveSpeed > 20 ? COMBAT.movingSpreadMul : 1;
-    const g = (this.rng.next() + this.rng.next() + this.rng.next() - 1.5) / 1.5;
-    const ang = Math.atan2(ty - c.y, tx - c.x) + g * ((w.spread * Math.PI) / 180) * moving * accuracy;
-    c.facing = Math.atan2(ty - c.y, tx - c.x);
+    const aim = Math.atan2(ty - c.y, tx - c.x);
+    c.facing = aim;
+    const spread = this.spreadOf(c, w) * DEG;
+    let hit: Character | null = null;
+    for (let k = 0; k < w.pellets; k++) {
+      // Треугольное распределение в [−1, 1]: гуще к центру, но всегда внутри конуса.
+      const g = this.rng.next() + this.rng.next() - 1;
+      hit = this.bullet(c, w, aim + g * spread) ?? hit;
+    }
+    c.recoil = Math.min(w.maxRecoil, c.recoil + w.recoil);
+    this.shots.push({ x: c.x, y: c.y, t: this.time, shooter: c, weapon: w.id, noise: w.noise });
+    return hit;
+  }
+
+  /** Одна пуля (дробина) по направлению ang. */
+  private bullet(c: Character, w: WeaponDef, ang: number): Character | null {
     const dx = Math.cos(ang);
     const dy = Math.sin(ang);
     const ox = c.x + dx * (c.radius + 1);
     const oy = c.y + dy * (c.radius + 1);
+    const stopChance = Math.min(COMBAT.barrierMaxStop, Math.max(0, COMBAT.barrierStopChance * (1 - w.penetration)));
     let stoppedBy: 'wall' | 'barrier' | 'miss' = 'miss';
     // Блок из нескольких тайлов — одно укрытие: шанс остановки бросается при входе в него.
     let inBarrier = false;
@@ -174,7 +307,7 @@ export class CombatSystem {
       const barrier = this.map.tileAt(x, y) === T.BARRIER;
       const entering = barrier && !inBarrier;
       inBarrier = barrier;
-      if (entering && t > COMBAT.ownCoverDistance && this.rng.chance(COMBAT.barrierStopChance)) {
+      if (entering && t > COMBAT.ownCoverDistance && this.rng.chance(stopChance)) {
         stoppedBy = 'barrier';
         return true;
       }
@@ -202,15 +335,45 @@ export class CombatSystem {
     }
     const ex = ox + dx * hitT;
     const ey = oy + dy * hitT;
-    this.tracers.push({ x0: ox, y0: oy, x1: ex, y1: ey, t: COMBAT.tracerTime, combine: FACTIONS[c.faction].authority });
-    this.shots.push({ x: c.x, y: c.y, t: this.time, shooter: c });
+    this.tracers.push({ x0: ox, y0: oy, x1: ex, y1: ey, t: COMBAT.tracerTime, combine: FACTIONS[c.faction].authority, kind: w.class });
     if (hitT < w.range) this.impacts.push({ x: ex, y: ey, t: COMBAT.impactTime, blood: !!hit });
     if (hit) {
       this.hits++;
       this.stats.hit++;
-      this.damage(hit, w.damage, c);
+      this.damage(hit, w.damage * falloffMul(w, hitT + c.radius), c);
     } else this.stats[stoppedBy]++;
     return hit;
+  }
+
+  /** Удар дубинкой: ближайший в секторе перед собой; оглушает. */
+  private swing(c: Character, w: WeaponDef, tx: number, ty: number): Character | null {
+    if (!this.canFire(c)) return null;
+    c.nextShot = this.time + 1 / w.fireRate;
+    const ang = Math.atan2(ty - c.y, tx - c.x);
+    c.facing = ang;
+    const half = w.spreadHip * DEG;
+    let best: Character | null = null;
+    let bestD = Infinity;
+    for (const o of this.entities.near(c.x, c.y, c.radius + w.range + 16, near)) {
+      if (o === c || !o.alive) continue;
+      const gap = Math.hypot(o.x - c.x, o.y - c.y) - o.radius - c.radius;
+      if (gap > w.range) continue;
+      if (gap > 4 && Math.abs(angleDiff(Math.atan2(o.y - c.y, o.x - c.x), ang)) > half) continue;
+      if (!lineOfSight(this.map, c.x, c.y, o.x, o.y)) continue;
+      if (gap < bestD) {
+        bestD = gap;
+        best = o;
+      }
+    }
+    this.swings.push({ x: c.x, y: c.y, ang, half, reach: c.radius + w.range, t: COMBAT.swingTime, hit: !!best });
+    if (!best) return null;
+    best.stunUntil = Math.max(best.stunUntil, this.time + w.stun);
+    best.aim = 0;
+    this.impacts.push({ x: best.x - Math.cos(ang) * best.radius, y: best.y - Math.sin(ang) * best.radius, t: COMBAT.impactTime, blood: false });
+    this.hits++;
+    this.stats.hit++;
+    this.damage(best, w.damage, c);
+    return best;
   }
 
   damage(target: Character, amount: number, attacker: Character | null): void {
@@ -234,6 +397,7 @@ export class CombatSystem {
     const loot = c.inventory.takeAll();
     c.weapon = null;
     c.mag = 0;
+    c.mags = {};
     this.corpses.push({ x: c.x, y: c.y, faction: c.faction, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot });
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
@@ -283,6 +447,7 @@ export class CombatSystem {
     this.time += dt;
     for (let i = this.tracers.length - 1; i >= 0; i--) if ((this.tracers[i].t -= dt) <= 0) this.tracers.splice(i, 1);
     for (let i = this.impacts.length - 1; i >= 0; i--) if ((this.impacts[i].t -= dt) <= 0) this.impacts.splice(i, 1);
+    for (let i = this.swings.length - 1; i >= 0; i--) if ((this.swings[i].t -= dt) <= 0) this.swings.splice(i, 1);
     for (let i = this.corpses.length - 1; i >= 0; i--) if (this.corpses[i].until < this.time) this.corpses.splice(i, 1);
     while (this.shots.length > 0 && this.time - this.shots[0].t > 2) this.shots.shift();
     // Убитые NPC уходят из мира после тика (не посреди обхода списка мозгами).
@@ -290,10 +455,28 @@ export class CombatSystem {
     this.dead.length = 0;
     for (const c of this.entities.list) {
       if (!c.alive) continue;
-      // Перезарядка.
+      const w = this.weaponOf(c);
+      // Перезарядка: магазином или по патрону (дробовик — пока не полон или не кончится запас).
       if (c.reloadUntil > 0 && this.time >= c.reloadUntil) {
         c.reloadUntil = 0;
-        this.loadInstant(c);
+        if (w?.perRound) {
+          this.loadInstant(c, 1);
+          if (c.mag < w.magazine && this.reserveAmmo(c) > 0) c.reloadUntil = this.time + w.reload;
+        } else this.loadInstant(c);
+      }
+      // Оглушение: медленнее и без прицела.
+      const stunned = c.stunUntil > this.time;
+      c.speedMul = stunned ? COMBAT.stunSpeedMul : 1;
+      // Прицеливание копится стоя (при ходьбе — медленнее), теряется на бегу, без ПКМ и при перезарядке.
+      if (w && w.mode !== 'melee') {
+        const running = c.moveSpeed > CHARACTER.walkSpeed * 1.2;
+        if (c.aiming && !running && !stunned && !this.reloading(c)) {
+          c.aim = Math.min(1, c.aim + (dt / w.aimTime) * (c.moveSpeed > 20 ? COMBAT.aimWhileMoving : 1));
+        } else c.aim = Math.max(0, c.aim - dt * (running ? COMBAT.aimLossRun : COMBAT.aimLoss));
+        c.recoil = Math.max(0, c.recoil - w.recovery * dt);
+      } else {
+        c.aim = 0;
+        c.recoil = 0;
       }
       // Регенерация, если давно не ранили.
       if (this.time - c.lastHurt > COMBAT.regenDelay && c.health < c.maxHealth * COMBAT.regenCap) {
@@ -307,8 +490,15 @@ export class CombatSystem {
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
       if (this.time - s.t > sec) break;
-      if (s.shooter !== c && Math.hypot(s.x - c.x, s.y - c.y) < r) return s;
+      if (s.shooter !== c && Math.hypot(s.x - c.x, s.y - c.y) < Math.min(r, s.noise)) return s;
     }
     return null;
   }
+}
+
+/** Множитель урона на дистанции d: полный до effectiveRange, дальше линейно до falloff на range. */
+export function falloffMul(w: WeaponDef, d: number): number {
+  if (d <= w.effectiveRange || w.range <= w.effectiveRange) return 1;
+  const k = Math.min(1, (d - w.effectiveRange) / (w.range - w.effectiveRange));
+  return 1 + (w.falloff - 1) * k;
 }

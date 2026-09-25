@@ -19,6 +19,7 @@ import type { Character } from '../entities/Character';
 import { createCharacter, nameFor, randomName, resetCids } from '../entities/factory';
 import { stepPhysics } from '../entities/physics';
 import { EntityRenderer } from '../entities/EntityRenderer';
+import { AimRenderer } from '../entities/AimRenderer';
 import { PathService } from '../ai/PathService';
 import { AnchorBfs } from '../ai/yieldSearch';
 import type { AiContext } from '../ai/AiContext';
@@ -33,7 +34,7 @@ import { WarSystem } from '../systems/WarSystem';
 import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
-import { ITEMS, type ItemId, type WeaponId } from '../config/items';
+import { ITEMS, REBEL_OFFICER_RANK, type ItemId, type WeaponId } from '../config/items';
 import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
 import type { CheckChoice } from '../ui/CheckPanel';
@@ -70,6 +71,7 @@ export class Game {
   private readonly entityRenderer = new EntityRenderer();
   private readonly fog = new FogRenderer();
   private readonly effects = new EffectsRenderer();
+  private readonly aim = new AimRenderer();
   /** Бетонные блоки, поставленные игроком-GRID (самый старый убирается). */
   private placedBarriers: number[] = [];
   private readonly sight = new VisibilityPolygon(VISION.rays);
@@ -211,7 +213,7 @@ export class Game {
     p.hunger = ECONOMY.hunger.max;
     p.hostile = false;
     p.panicUntil = 0;
-    equipKit(p, faction === 'cp' ? cpKit(p.division) : faction, this.ai);
+    equipKit(p, faction === 'cp' ? cpKit(p.division) : faction === 'rebel' && rank >= REBEL_OFFICER_RANK ? 'rebel_officer' : faction, this.ai);
     // Жителям оружие на виду ни к чему: у повстанца пистолет спрятан до первого выстрела.
     if (faction !== 'cp') this.combat.equip(p, null);
     p.name = faction === 'cp' ? nameFor(this.rng, 'cp') : this.civilName || randomName(this.rng);
@@ -348,10 +350,14 @@ export class Game {
     const m = this.input.mouseInside
       ? this.camera.screenToWorld(this.input.mouseX, this.input.mouseY)
       : { x: this.player.x, y: this.player.y };
-    this.camera.follow(this.player.x, this.player.y, m.x, m.y, dt, this.map.worldWidth, this.map.worldHeight);
+    this.camera.follow(this.player.x, this.player.y, m.x, m.y, dt, this.map.worldWidth, this.map.worldHeight, this.player.aiming);
     this.zones.update(this.map, this.player, dt);
     if (this.input.wasPressed('debug')) this.debug.enabled = !this.debug.enabled;
     if (this.input.wasPressed('devPanel')) this.ui.dev.toggle();
+    if (this.input.wasPressed('mute')) {
+      const muted = this.ui.audio.toggle();
+      this.bus.emit('log', { text: muted ? 'Звук выключен (N).' : 'Звук включён (N).', kind: 'system' });
+    }
     this.ui.update(this.player, this.law.now, dt);
     this.input.endTick();
   }
@@ -367,9 +373,12 @@ export class Game {
     this.mapRenderer.draw(ctx, v);
     this.drawTerminal(v);
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now);
-    this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll);
+    this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
+    this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     this.effects.drawShots(ctx, v, this.combat);
+    this.aim.drawSwings(ctx, v, this.combat);
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y);
+    this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);
     this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll);
     this.debug.draw(ctx, v, this.entities.list, this.nav, this.player, alpha, dpr);
     if (this.vignette) {
@@ -377,6 +386,7 @@ export class Game {
       ctx.fillRect(0, 0, v.width, v.height);
     }
     this.effects.drawAlert(ctx, v, this.war.code === 'red', this.law.now, this.player);
+    this.effects.drawFrontMarkers(ctx, v, this.war, this.player, dpr, this.law.now);
     if (this.input.mouseInside) this.drawCrosshair(this.input.mouseX * dpr, this.input.mouseY * dpr, dpr);
   }
 

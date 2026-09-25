@@ -15,8 +15,8 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
     c.prevX = c.x;
     c.prevY = c.y;
     if (!c.alive) continue;
-    let dvx = c.wantX - c.vx;
-    let dvy = c.wantY - c.vy;
+    let dvx = c.wantX * c.speedMul - c.vx;
+    let dvy = c.wantY * c.speedMul - c.vy;
     const dv = Math.hypot(dvx, dvy);
     const maxDv = c.accel * dt;
     if (dv > maxDv) {
