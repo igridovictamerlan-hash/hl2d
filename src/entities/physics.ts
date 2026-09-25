@@ -7,7 +7,7 @@ const tmp: Character[] = [];
 
 /**
  * Шаг физики: разгон к желаемой скорости → перемещение → расталкивание кружков
- * (по массам: игрок тяжелее) → выталкивание из стен (стены всегда побеждают).
+ * (по массам: игрок тяжелее; NPC-«призрак» из затора — сквозь NPC) → выталкивание из стен (стены всегда побеждают).
  */
 export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): void {
   const list = entities.list;
@@ -15,6 +15,7 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
     c.prevX = c.x;
     c.prevY = c.y;
     if (!c.alive) continue;
+    if (c.ghost > 0) c.ghost -= dt;
     let dvx = c.wantX * c.speedMul - c.vx;
     let dvy = c.wantY * c.speedMul - c.vy;
     const dv = Math.hypot(dvx, dvy);
@@ -36,6 +37,8 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
       entities.near(a.x, a.y, a.radius * 2 + 2, tmp);
       for (const b of tmp) {
         if (b.id <= a.id || !b.alive) continue;
+        // Разбор затора: «призрак» проходит сквозь NPC, но не сквозь игрока.
+        if ((a.ghost > 0 || b.ghost > 0) && !a.isPlayer && !b.isPlayer) continue;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const minD = a.radius + b.radius;

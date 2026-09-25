@@ -36,6 +36,15 @@ export const AI = {
     maxRepaths: 3,
     /** Ждать неподвижного игрока, потом развернуться и выбрать другую цель. */
     waitForPlayer: 2.5,
+    /**
+     * Сторож затора: идёт к цели, но не может уйти дальше giveUpProgress px от одного места.
+     * Через ghostAfter с, если упирается в NPC, — ghostTime с проходит сквозь NPC (как в Garry's Mod
+     * без коллизий у застрявших); через giveUpAfter с бросает цель (failed), мозг выберет другую.
+     */
+    ghostAfter: 4,
+    ghostTime: 1.5,
+    giveUpAfter: 12,
+    giveUpProgress: 64,
   },
 
   yield: {

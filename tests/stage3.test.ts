@@ -40,6 +40,8 @@ describe('экономика', () => {
   test('раздача рационов: очередь, ГСР выдаёт, граждане получают паёк и токены', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
+    // Проверяем экономику: без прорывов с КПП (перестрелка у будки разгоняет очередь).
+    for (const f of sim.war.fronts) f.nextSquadAt = f.nextWaveAt = Infinity;
     const before = new Map(sim.entities.list.map((c) => [c, c.money]));
     run(sim, ECONOMY.rations.firstDelay + ECONOMY.rations.duration - 1);
     const served = sim.entities.list.filter((c) => sim.economy.hasBeenServed(c));

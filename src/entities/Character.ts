@@ -113,6 +113,8 @@ export class Character {
   stunUntil = 0;
   /** Множитель желаемой скорости (оглушение). Ставит CombatSystem, применяет физика. */
   speedMul = 1;
+  /** Сколько секунд ещё проходит сквозь других NPC (разбор затора, Mover); игрока не проходит. */
+  ghost = 0;
   /** Когда последний раз ранили и кто. */
   lastHurt = -1e9;
   lastAttacker: Character | null = null;

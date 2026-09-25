@@ -43,6 +43,10 @@ export class Mover {
   private yieldPts: Vec2[] = [];
   private yieldWp = 0;
   private yieldTime = 0;
+  /** Сторож затора: где стояли в начале окна и сколько секунд не отошли оттуда. */
+  private spotX = 0;
+  private spotY = 0;
+  private noProgress = 0;
 
   constructor(public speed: number) {}
 
@@ -50,6 +54,7 @@ export class Mover {
     this.goal = goal;
     this.repaths = 0;
     this.waitTime = 0;
+    // Сторож затора не сбрасывается: мозг, заново посылающий к той же цели, не должен его обманывать.
     this.requestPath(self, ctx);
   }
 
@@ -87,6 +92,7 @@ export class Mover {
 
   update(self: Character, ctx: AiContext, dt: number): void {
     this.avgSpeed = lerp(this.avgSpeed, self.moveSpeed, Math.min(1, dt * 5));
+    if (this.watchdog(self, dt)) return;
     if (this.yieldFrom) {
       this.updateYield(self, ctx, dt);
       return;
@@ -110,6 +116,37 @@ export class Mover {
       default:
         self.wantX = self.wantY = 0;
     }
+  }
+
+  /** Затор: давно топчемся на пятачке, не дойдя до цели, — бросаем её (true — сдались на этом тике). */
+  private watchdog(self: Character, dt: number): boolean {
+    if (this.goal < 0 || (this.status !== 'moving' && this.status !== 'pending' && !this.yieldFrom)) {
+      this.noProgress = 0;
+      return false;
+    }
+    const M = AI.move;
+    if (this.noProgress === 0 || dist(self.x, self.y, this.spotX, this.spotY) > M.giveUpProgress) {
+      this.spotX = self.x;
+      this.spotY = self.y;
+      this.noProgress = dt;
+      return false;
+    }
+    const before = this.noProgress;
+    this.noProgress += dt;
+    // Упёрлись в NPC — ненадолго проходим сквозь (раз в окно).
+    if (before < M.ghostAfter && this.noProgress >= M.ghostAfter && self.ghost <= 0) {
+      const o = this.blocker ?? this.yieldFrom;
+      if (o && !o.isPlayer) self.ghost = M.ghostTime;
+    }
+    if (this.noProgress < M.giveUpAfter) return false;
+    this.noProgress = 0;
+    this.yieldFrom = null;
+    this.blocker = null;
+    this.req?.cancel();
+    this.req = null;
+    this.status = 'failed';
+    self.wantX = self.wantY = 0;
+    return true;
   }
 
   private follow(self: Character, ctx: AiContext, dt: number): void {
