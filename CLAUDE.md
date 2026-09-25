@@ -35,7 +35,7 @@ src/
   main.ts            точка входа, параметры адреса
   config/            ВСЕ настраиваемые значения (см. ниже) — никаких «магических чисел» в коде
   core/              Game (корень), GameLoop (фикс. шаг 60 Гц + интерполяция), Input (по KeyboardEvent.code),
-                     PlayerController (движение, ЛКМ/ПКМ/R/Q/H, E, F, G, Tab, 1/2/3), Camera (~600×400 px мира), EventBus, Rng, MinHeap, math
+                     PlayerController (движение, ЛКМ/ПКМ/R/Q/H/T, E, F, G, Tab, 1/2/3), Camera (~600×400 px мира), EventBus, Rng, MinHeap, math
   world/             GameMap (данные карты + состояние дверей), tiles (типы тайлов), NavGrid (якоря 2×2),
                      collision (круг–тайлы), visibility (лучи DDA, прямая видимость), FogRenderer (туман войны),
                      connectivity (flood fill + тоннели), mapStats, mapIO (JSON), MapRenderer, EffectsRenderer
@@ -47,13 +47,14 @@ src/
                      Inventory, EntityManager, physics, factory, EntityRenderer (тела до тумана, подписи после)
   ai/                AStar, smoothing, PathService (очередь с бюджетом), Mover (движение/уступание),
                      yieldSearch (поиск «кармана»), StateMachine, Brain, facing, destinations,
-                     Gunner (стрелок ИИ, угол обзора, тревога), HatchTravel (пути через люки),
+                     Gunner (стрелок ИИ, угол обзора, тревога, гранаты), Dodge (бегство от гранат),
+                     streetBark (реплики на улице), HatchTravel (пути через люки),
                      brains/: CitizenBrain (граждане, ГСР, подпольщики), CpBrain (ГО), RebelBrain (отряды с
                      пустошей), UndergroundBrain (убежище: саботаж, засады), OtaBrain, PrisonerBrain, PostBrain
   systems/           ZoneSystem, DoorSystem (двери), LawSystem (закон, КПЗ), EconomySystem (рационы, голод,
                      зарплаты, ремонт, узлы Альянса, магазин, чёрный рынок), CombatSystem (бой), WarSystem (граница,
                      тревоги: жёлтый/красный код), UndergroundSystem (уровни, люки), InsurgencySystem (убежище,
-                     операции в городе), Loyalty (очки и уровни), ChatSystem (чат и команды), SaveGame
+                     операции в городе), Loyalty (очки и уровни), ChatSystem (чат и команды), Barks (реплики в бою), SaveGame
                      (формат сохранения), Population (заселение, наборы предметов, точки появления ролей)
   ui/                DOM поверх холста: Hud, ZoneBanner, EventLog, RoleMenu, CheckPanel, InventoryPanel (Tab),
                      ShopPanel (ГСР и чёрный рынок), AlertBar, CaptureBar (капт), ChatBox (Enter), MapView
@@ -66,7 +67,8 @@ public/maps/         сохранённые карты (JSON), открываю�
 ### Тик логики (`Game.update`, 60 Гц)
 1. `PlayerController`: ввод → `player.wantX/wantY`, взгляд на курсор, прицел (ПКМ), огонь, смена оружия, E/F/1/2/3.
    Задержанному игроку временно ставится `PrisonerBrain` — тогда ввод движения игнорируется.
-2. `updateNpcs`: мозги (FSM) → `Mover` выставляет `wantX/wantY`; затем `PathService.process()`.
+2. `updateNpcs`: мозги (FSM) → `Mover` выставляет `wantX/wantY` → `dodgeGrenades` (граната рядом —
+   бегство поверх решения мозга); затем `PathService.process()`.
 3. `DoorSystem`: двери открываются, если рядом кто-то есть; закрываются через `DOORS.closeDelay`.
 4. `stepPhysics`: разгон → движение → расталкивание по массам → выталкивание из стен.
 5. `LawSystem.update`: неподчинение игрока, заведение в камеру, сроки, освобождение.
@@ -149,6 +151,9 @@ public/maps/         сохранённые карты (JSON), открываю�
   встречные лоб в лоб → уступает младший по `FACTIONS[*].yieldPriority` (игрок главнее всех),
   при равенстве — тот, кому ближе до «кармана»; стоящего NPC просят отойти; стоящего игрока ждут,
   потом разворачиваются; упёрся в стену — перестраивает путь.
+  Сторож затора (`AI.move.giveUp*`, `ghost*`): идёт к цели, но не отходит дальше 64 px от одного места —
+  через 4 с, упираясь в NPC, ненадолго проходит сквозь NPC (`Character.ghost`, физика не расталкивает;
+  игрока — никогда), через 12 с бросает цель (`failed`). Тест: никто не упирается дольше 20 с.
 - Цели прогулок — `ai/destinations.ts`; зоны, которых NPC избегают, — через `avoidZones` в A*.
 
 ### Закон (`systems/LawSystem.ts` + `ai/brains/CpBrain.ts`)
@@ -208,6 +213,18 @@ public/maps/         сохранённые карты (JSON), открываю�
   Напавший на ГО/OTA получает `hostile` и розыск. Gunner не стреляет, если на линии свой.
 - Звук (`ui/GunfireAudio.ts`, `config/audio.ts`): синтез WebAudio по классу оружия, тише и глуше
   с расстоянием, панорама по стороне; N — вкл/выкл. Логика звук не трогает — UI читает `combat.shots`.
+- **Гранаты** (`GRENADE` в `config/combat.ts`, предмет `grenade`): `CombatSystem.throwGrenade` — летит к
+  точке (стену не перелетает, блок — да), взрыв через `fuse` с от броска: урон по кругу с падением к
+  краю, стена закрывает, блок ослабляет; взрыв — «выстрел» `weapon: 'grenade'` (слышат NPC, звук).
+  Игрок — T к курсору. ИИ (`Gunner.tryGrenade`): цель за укрытием (скрылась после контакта или блок на
+  линии) или кучка врагов, своих у точки нет, сам вне радиуса; шанс и откат. `ai/Dodge.ts`: заметил
+  гранату (видит в угле обзора; бросок «своих» — слышит крик) — бежит, предпочитая место за стеной.
+  Наборы: повстанцы, GRID, OTA; продаются на чёрном рынке.
+- **Следы** (`combat.decals`, `COMBAT.decals`): гильзы, кровь, выбоины у стен, копоть; живут десятки
+  секунд, список ограничен. Взрыв — вспышка/дым (`combat.blasts`) и тряска экрана (`Game.shake`).
+- **Реплики** (`systems/Barks.ts`, `config/barks.ts`): контакт, перезарядка, ранен, убил, потеря
+  своего (видит тело), «вперёд» на перебежке в капте; на улице — бытовое, а если у КПП бой — о границе
+  (`ai/streetBark.ts`). Откат у каждого, говорящего не перебивают.
 
 ### Война на границе (`systems/WarSystem.ts`, `ai/brains/RebelBrain.ts`, `config/war.ts`)
 - Фронт = пограничный КПП: пустошь 14 тайлов с завалами-укрытиями, гарнизон — 3 часовых GRID на
