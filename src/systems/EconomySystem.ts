@@ -4,6 +4,8 @@ import type { GameMap } from '../world/GameMap';
 import type { EventBus } from '../core/EventBus';
 import type { Rng } from '../core/rng';
 import { ECONOMY } from '../config/economy';
+import { LOYALTY } from '../config/loyalty';
+import { adjustLoyalty, hasLoyalty, loyaltyTier } from './Loyalty';
 import { ITEMS, WEAPONS, AMMO_ITEM, type ItemId, type WeaponId } from '../config/items';
 import { T } from '../world/tiles';
 import type { Vec2 } from '../core/math';
@@ -206,10 +208,14 @@ export class EconomySystem {
     this.served.add(c.id);
     const R = ECONOMY.rations;
     c.inventory.add(R.item, 1);
-    c.money += R.tokens;
+    // Лоялистам — надбавка к рациону.
+    const tokens = R.tokens + (hasLoyalty(c) ? loyaltyTier(c).rationBonus : 0);
+    c.money += tokens;
     worker.money += ECONOMY.cwuPay.rationServed;
     this.markWorked(worker);
-    if (c.isPlayer) this.bus.emit('log', { text: `Вы получили рацион и ${R.tokens} токенов.`, kind: 'world' });
+    if (c.isPlayer) this.bus.emit('log', { text: `Вы получили рацион и ${tokens} токенов.`, kind: 'world' });
+    adjustLoyalty(c, LOYALTY.points.ration, 'рацион получен', this.bus);
+    adjustLoyalty(worker, LOYALTY.points.cwuWork, 'работа ГСР', this.bus);
     return c;
   }
 
@@ -231,8 +237,15 @@ export class EconomySystem {
   }
 
   /** Купить в магазине. */
+  /** Цена в магазине ГСР для персонажа (лоялистам — скидка). */
+  shopPrice(c: Character, id: ItemId): number | undefined {
+    const base = ITEMS[id].price;
+    if (base === undefined) return undefined;
+    return Math.max(1, Math.round(base * (1 - (hasLoyalty(c) ? loyaltyTier(c).discount : 0))));
+  }
+
   buy(c: Character, id: ItemId): string | null {
-    const price = ITEMS[id].price;
+    const price = this.shopPrice(c, id);
     if (price === undefined) return 'Этого в магазине нет.';
     if (c.money < price) return `Не хватает токенов: нужно ${price}.`;
     if (c.inventory.add(id, 1) === 0) return 'Инвентарь полон.';
@@ -302,6 +315,7 @@ export class EconomySystem {
     spot.progress = 0;
     const pay = spot.kind === 'node' ? ECONOMY.cwuPay.node : ECONOMY.cwuPay.repair;
     worker.money += pay;
+    adjustLoyalty(worker, LOYALTY.points.cwuWork, 'ремонт', this.bus);
     const what = spot.kind === 'node' ? 'узел Альянса' : 'неисправность';
     this.bus.emit('log', { text: `${worker.isPlayer ? 'Вы починили' : `${worker.name} (ГСР) починил`} ${what}. +${pay} токенов`, kind: 'world' });
     return true;

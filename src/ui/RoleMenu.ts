@@ -12,6 +12,7 @@ export class RoleMenu {
   constructor(
     parent: HTMLElement,
     private readonly onChoose: (faction: FactionId, rank: number, division: DivisionId | null) => void,
+    private readonly onNewGame: () => void = () => {},
   ) {
     this.el = document.createElement('div');
     this.el.className = 'role-menu';
@@ -43,11 +44,17 @@ export class RoleMenu {
     this.el.innerHTML = `<div class="role-box panel-like">
         <div class="role-head"><span>ВЫБОР РОЛИ</span><button class="role-close" title="Закрыть (Esc)">×</button></div>
         <div class="role-cards">${cards}</div>
-        <div class="role-foot">Сменить роль можно у терминала найма на площади раздачи (клавиша E).</div>
+        <div class="role-foot">Сменить роль можно у терминала найма на площади раздачи (клавиша E). Игра сохраняется в браузере автоматически.
+          <button class="role-new" data-new>Новая игра (новый город, стереть сохранение)</button></div>
       </div>`;
     parent.appendChild(this.el);
     this.closeBtn = this.el.querySelector('.role-close')!;
     this.closeBtn.addEventListener('click', () => this.close());
+    this.el.querySelector('[data-new]')!.addEventListener('click', () => {
+      if (!window.confirm('Начать заново? Сохранение будет стёрто.')) return;
+      this.close();
+      this.onNewGame();
+    });
     this.el.querySelectorAll<HTMLButtonElement>('button[data-pick]').forEach((b) =>
       b.addEventListener('click', () => {
         const id = b.dataset.pick as FactionId;

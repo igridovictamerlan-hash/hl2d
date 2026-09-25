@@ -1,5 +1,6 @@
 import type { Character } from '../entities/Character';
 import { FACTIONS, rankOf } from '../config/factions';
+import { hasLoyalty, loyaltyTier } from '../systems/Loyalty';
 
 /** HUD в духе HL2: здоровье, токены, личность (имя, роль, CID). Обновляется, только если что-то изменилось. */
 export class Hud {
@@ -14,6 +15,7 @@ export class Hud {
   private hungerFill: HTMLElement;
   private weaponEl: HTMLElement;
   private rationEl: HTMLElement;
+  private loyaltyEl: HTMLElement;
   private last = '';
 
   constructor(parent: HTMLElement) {
@@ -27,7 +29,7 @@ export class Hud {
       <div class="hud-row"><span class="hud-label">ТОКЕНЫ</span><span class="hud-value" data-money></span></div>
       <div class="hud-weapon" data-weapon></div>
       <div class="hud-ration" data-ration></div>
-      <div class="hud-id"><div class="hud-name" data-name></div><div class="hud-role" data-role></div></div>
+      <div class="hud-id"><div class="hud-name" data-name></div><div class="hud-role" data-role></div><div class="hud-loyalty" data-loyalty></div></div>
       <div class="hud-law" data-law></div>`;
     parent.appendChild(this.el);
     this.hpFill = this.el.querySelector('[data-hpfill]')!;
@@ -40,12 +42,13 @@ export class Hud {
     this.hungerFill = this.el.querySelector('[data-hungerfill]')!;
     this.weaponEl = this.el.querySelector('[data-weapon]')!;
     this.rationEl = this.el.querySelector('[data-ration]')!;
+    this.loyaltyEl = this.el.querySelector('[data-loyalty]')!;
   }
 
   update(p: Character, now: number, weapon: string, ration: string): void {
     const status = lawStatus(p, now);
     const hunger = Math.ceil(p.hunger);
-    const key = `${Math.ceil(p.health)}|${p.maxHealth}|${p.money}|${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${status}|${hunger}|${weapon}|${ration}`;
+    const key = `${Math.ceil(p.health)}|${p.maxHealth}|${p.money}|${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${status}|${hunger}|${weapon}|${ration}|${p.loyalty}`;
     if (key === this.last) return;
     this.last = key;
     const hp = Math.max(0, Math.ceil(p.health));
@@ -65,6 +68,13 @@ export class Hud {
     const div = p.division ? ` · ${p.division.toUpperCase()}` : '';
     this.role.textContent = r ? `${f.role} · ${r.name}${div}` : `${f.role} · CID #${p.cid}`;
     this.role.style.color = r ? r.color : f.label;
+    const loyal = hasLoyalty(p);
+    this.loyaltyEl.hidden = !loyal;
+    if (loyal) {
+      const t = loyaltyTier(p);
+      this.loyaltyEl.textContent = `Лояльность ${p.loyalty} · ${t.name}`;
+      this.loyaltyEl.style.color = t.color;
+    }
     this.lawEl.textContent = status;
     this.lawEl.hidden = status === '';
   }

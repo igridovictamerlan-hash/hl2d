@@ -33,6 +33,10 @@ import { CombatSystem } from '../systems/CombatSystem';
 import { WarSystem } from '../systems/WarSystem';
 import { UndergroundSystem } from '../systems/UndergroundSystem';
 import { InsurgencySystem } from '../systems/InsurgencySystem';
+import { ChatSystem } from '../systems/ChatSystem';
+import { LOYALTY } from '../config/loyalty';
+import { SAVE } from '../config/save';
+import { capturePlayer, parseSave, applyToPlayer, decodeBits, type SaveData } from '../systems/SaveGame';
 import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
@@ -68,6 +72,7 @@ export class Game {
   combat!: CombatSystem;
   war!: WarSystem;
   insurgency!: InsurgencySystem;
+  private chat!: ChatSystem;
   private ai!: AiContext;
   private mapRenderer!: MapRenderer;
   private readonly ctx: CanvasRenderingContext2D;
@@ -87,6 +92,10 @@ export class Game {
   /** Гражданское имя игрока (для ролей без позывного). */
   private civilName = '';
   time = 0;
+  /** Сохранение, которое применить после генерации карты (продолжение игры). */
+  private pendingSave: SaveData | null = null;
+  private saveTimer: number = SAVE.interval;
+  paused = false;
   /** Уровень, на котором игрок (для камеры и тумана). */
   private level: Level = 'city';
 
@@ -113,6 +122,9 @@ export class Game {
       (a) => this.render(a),
     );
     window.addEventListener('resize', () => this.resize());
+    // Сохранить при закрытии/сворачивании вкладки.
+    window.addEventListener('beforeunload', () => this.save());
+    document.addEventListener('visibilitychange', () => document.hidden && this.save());
     this.resize();
   }
 
@@ -165,6 +177,7 @@ export class Game {
     this.ai.war = this.war;
     this.insurgency = new InsurgencySystem(this.ai);
     this.ai.insurgency = this.insurgency;
+    this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
     this.law.panicking = (c) => c.panicUntil > this.law.now;
     this.entities.clear();
@@ -176,7 +189,11 @@ export class Game {
     this.civilName = this.player.name;
     this.ai.player = this.player;
     spawnPopulation(this.ai, this.opts.npcs);
-    if (this.role) this.applyRole(this.role.faction, this.role.rank, this.role.division, false);
+    const save = this.pendingSave && this.pendingSave.seed === map.seed && source === 'generated' ? this.pendingSave : null;
+    this.pendingSave = null;
+    this.ui.mapView.reset(map, save ? decodeBits(save.explored, map.width * map.height) : null, save?.hatches);
+    if (save) this.restore(save);
+    else if (this.role) this.applyRole(this.role.faction, this.role.rank, this.role.division, false);
     else this.ui.roles.open(true);
     this.zones.reset();
     this.camera.snapTo(this.player.x, this.player.y);
@@ -198,6 +215,7 @@ export class Game {
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null = null): void {
     this.role = { faction, rank, division: faction === 'cp' ? division ?? 'union' : null };
     this.applyRole(faction, rank, this.role.division, true);
+    this.save();
   }
 
   private applyRole(faction: FactionId, rank: number, division: DivisionId | null, announce: boolean): void {
@@ -222,6 +240,8 @@ export class Game {
     p.hunger = ECONOMY.hunger.max;
     p.hostile = false;
     p.panicUntil = 0;
+    // Новая роль — лояльность с чистого листа (при возрождении сохраняется).
+    if (announce) p.loyalty = faction === 'cwu' ? LOYALTY.playerStart.cwu : LOYALTY.playerStart.citizen;
     equipKit(p, faction === 'cp' ? cpKit(p.division) : faction === 'rebel' && rank >= REBEL_OFFICER_RANK ? 'rebel_officer' : faction, this.ai);
     // Жителям оружие на виду ни к чему; повстанец начинает в убежище — с оружием в руках (Q/H — убрать).
     if (faction !== 'cp' && faction !== 'rebel') this.combat.equip(p, null);
@@ -244,6 +264,63 @@ export class Game {
     }
   }
 
+  /** Прочитать сохранение из браузера (null — нет или повреждено). */
+  static readSave(): SaveData | null {
+    try {
+      return parseSave(localStorage.getItem(SAVE.key));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Продолжить сохранённую игру: та же карта, та же роль и вещи. */
+  resume(save: SaveData): void {
+    this.pendingSave = save;
+    this.regenerate(save.seed);
+  }
+
+  /** Сохранить сейчас (если роль выбрана и игрок жив). */
+  save(): boolean {
+    if (!this.role || !this.player?.alive) return false;
+    const data = capturePlayer(this.player, this.map.seed, this.role, this.civilName, { explored: this.ui.mapView.explored, hatches: this.ui.mapView.hatches });
+    try {
+      localStorage.setItem(SAVE.key, JSON.stringify(data));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Новая игра: стереть сохранение, новый город, выбор роли. */
+  newGame(): void {
+    try {
+      localStorage.removeItem(SAVE.key);
+    } catch {
+      /* нет хранилища */
+    }
+    this.role = null;
+    this.civilName = '';
+    this.regenerate();
+  }
+
+  private restore(save: SaveData): void {
+    this.role = { ...save.role };
+    this.civilName = save.civilName || this.civilName;
+    this.applyRole(save.role.faction, save.role.rank, save.role.division, false);
+    applyToPlayer(this.player, save);
+    const p = this.player;
+    // Позиция — если там можно стоять (карта та же).
+    if (save.pos) {
+      const a = this.nav.nearestWalkable(save.pos.x, save.pos.y, 2);
+      if (a >= 0) {
+        p.x = p.prevX = this.nav.worldX(a);
+        p.y = p.prevY = this.nav.worldY(a);
+      }
+    }
+    const when = new Date(save.savedAt).toLocaleString('ru-RU');
+    this.bus.emit('log', { text: `Игра продолжена (сохранение от ${when}). Новая игра — у терминала найма или в меню роли.`, kind: 'system' });
+  }
+
   /** Инвентарь игрока: съесть/применить. */
   useItem(id: ItemId): void {
     if (!this.player.alive) return;
@@ -254,6 +331,18 @@ export class Game {
   equipItem(id: WeaponId | null): void {
     if (!this.player.alive) return;
     this.combat.equip(this.player, id);
+  }
+
+  say(text: string): void {
+    this.chat.submit(this.player, text);
+  }
+
+  focusGame(): void {
+    this.canvas.focus();
+  }
+
+  shopPrice(id: ItemId): number | undefined {
+    return this.economy.shopPrice(this.player, id);
   }
 
   buyBlack(k: number): string | null {
@@ -362,6 +451,20 @@ export class Game {
   }
 
   private update(dt: number): void {
+    // Пауза (P): мир стоит, отрисовка идёт.
+    if (this.input.wasPressed('pause') && !this.ui.chat.isOpen) {
+      this.paused = !this.paused;
+      this.ui.setPaused(this.paused);
+    }
+    if (this.paused) {
+      this.input.endTick();
+      return;
+    }
+    this.saveTimer -= dt;
+    if (this.saveTimer <= 0) {
+      this.saveTimer = SAVE.interval;
+      this.save();
+    }
     this.time += dt;
     this.ai.time = this.time;
     this.playerCtl.update(this.player, this.ai, dt);
@@ -388,6 +491,13 @@ export class Game {
     this.zones.update(this.map, this.player, dt);
     if (this.input.wasPressed('debug')) this.debug.enabled = !this.debug.enabled;
     if (this.input.wasPressed('devPanel')) this.ui.dev.toggle();
+    if (this.input.wasPressed('bigMap')) this.ui.mapView.toggleBig();
+    // Чат: Enter — открыть, «/» — открыть с командой.
+    if (!this.ui.chat.isOpen && !this.ui.roles.isOpen && (this.input.wasPressed('chat') || this.input.wasPressed('command'))) {
+      const slash = this.input.wasPressed('command');
+      this.input.releaseAll();
+      this.ui.chat.open(slash ? '/' : '');
+    }
     if (this.input.wasPressed('mute')) {
       const muted = this.ui.audio.toggle();
       this.bus.emit('log', { text: muted ? 'Звук выключен (N).' : 'Звук включён (N).', kind: 'system' });

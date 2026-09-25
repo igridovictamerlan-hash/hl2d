@@ -14,6 +14,7 @@ import { dist, type Vec2 } from '../../core/math';
 import { Gunner } from '../Gunner';
 import { COMBAT } from '../../config/combat';
 import { ALARM } from '../../config/underground';
+import { hasLoyalty, loyaltyTier } from '../../systems/Loyalty';
 import { FACTIONS } from '../../config/factions';
 
 const near: Character[] = [];
@@ -171,7 +172,10 @@ export class CpBrain implements Brain {
       if (o === self || !law.checkable(o)) continue;
       const inCheckpoint = ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint';
       // Код жёлтый — проверки чаще.
-      const chance = atCheckpoint && inCheckpoint ? LAW.checkpointCheckChance : LAW.randomCheckChance * (ctx.war.code === 'yellow' ? LAW.alarmCheckMul : 1);
+      // Неблагонадёжных проверяют чаще, лоялистов — реже.
+      const chance = atCheckpoint && inCheckpoint
+        ? LAW.checkpointCheckChance
+        : LAW.randomCheckChance * (ctx.war.code === 'yellow' ? LAW.alarmCheckMul : 1) * (hasLoyalty(o) ? loyaltyTier(o).checkMul : 1);
       if (ctx.rng.chance(chance) && law.canSee(self, o)) {
         this.engage(o, 'routine');
         return;

@@ -85,6 +85,8 @@ export class Character {
   maxHealth: number = CHARACTER.maxHealth;
   /** Токены. */
   money: number = CHARACTER.startMoney;
+  /** Лояльность к Альянсу (очки; уровни — config/loyalty.ts). */
+  loyalty = 0;
 
   brain: Brain | null = null;
   alive = true;

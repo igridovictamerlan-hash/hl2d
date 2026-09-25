@@ -17,13 +17,15 @@ import { AlertBar } from './AlertBar';
 import { DeathScreen } from './DeathScreen';
 import { GunfireAudio } from './GunfireAudio';
 import { CaptureBar } from './CaptureBar';
+import { ChatBox } from './ChatBox';
+import { MapView, type MapViewHost } from './MapView';
 import type { WarSystem } from '../systems/WarSystem';
 import { GAME } from '../config/game';
 import { WEAPONS, type FireMode } from '../config/items';
 
 const FIRE_MODE: Record<FireMode, string> = { semi: 'одиночный', auto: 'авто', pump: 'помпа', melee: 'удар' };
 
-export interface UIHost extends DevPanelHost {
+export interface UIHost extends DevPanelHost, MapViewHost {
   readonly economy: EconomySystem;
   readonly combat: CombatSystem;
   readonly war: WarSystem;
@@ -33,7 +35,14 @@ export interface UIHost extends DevPanelHost {
   equipItem(id: WeaponId | null): void;
   buyItem(id: ItemId): string | null;
   buyBlack(k: number): string | null;
+  shopPrice(id: ItemId): number | undefined;
   sellItem(id: ItemId): string | null;
+  /** Сообщение или команда чата от игрока. */
+  say(text: string): void;
+  /** Стереть сохранение и начать заново. */
+  newGame(): void;
+  /** Вернуть фокус игре (после чата). */
+  focusGame(): void;
   /** Прилавок чёрного рынка (px) — магазин закрывается, если отойти. */
   readonly blackMarketCounter: { x: number; y: number } | null;
 }
@@ -54,6 +63,9 @@ export class UI {
   readonly death: DeathScreen;
   readonly audio = new GunfireAudio();
   readonly capture: CaptureBar;
+  readonly chat: ChatBox;
+  readonly mapView: MapView;
+  private readonly pauseEl: HTMLElement;
   private hudHeight = 0;
   private acc = 0;
 
@@ -65,11 +77,18 @@ export class UI {
     this.check = new CheckPanel(root, bus, (t, c) => host.resolveCheck(t, c));
     this.inventory = new InventoryPanel(root, host);
     this.capture = new CaptureBar(root);
-    this.shop = new ShopPanel(root, { buy: (id) => host.buyItem(id), buyBlack: (k) => host.buyBlack(k), sell: (id) => host.sellItem(id) });
+    this.mapView = new MapView(root);
+    this.pauseEl = document.createElement('div');
+    this.pauseEl.className = 'pause-overlay';
+    this.pauseEl.hidden = true;
+    this.pauseEl.innerHTML = '<div>ПАУЗА</div><small>P — продолжить · игра сохраняется автоматически</small>';
+    root.appendChild(this.pauseEl);
+    this.chat = new ChatBox(root, (t) => host.say(t), () => host.focusGame());
+    this.shop = new ShopPanel(root, { price: (id) => host.shopPrice(id), buy: (id) => host.buyItem(id), buyBlack: (k) => host.buyBlack(k), sell: (id) => host.sellItem(id) });
     this.alert = new AlertBar(root, bus);
     this.death = new DeathScreen(root);
     new HelpBar(root);
-    this.roles = new RoleMenu(root, (f, r, d) => host.chooseRole(f, r, d));
+    this.roles = new RoleMenu(root, (f, r, d) => host.chooseRole(f, r, d), () => host.newGame());
     this.dev.toggle(); // панель карты по умолчанию свёрнута — F2
     bus.on('announce', ({ text }) => this.banner.show(text));
     bus.on('map:loaded', ({ source }) => {
@@ -78,6 +97,10 @@ export class UI {
       this.capture.reset();
       this.dev.setMap(host.map, source === 'file' ? 'Карта загружена из файла' : undefined);
     });
+  }
+
+  setPaused(on: boolean): void {
+    this.pauseEl.hidden = !on;
   }
 
   update(player: Character, now: number, dt: number): void {
@@ -113,6 +136,7 @@ export class UI {
     }
     this.inventory.update(player);
     this.capture.update(this.host.war);
+    this.mapView.update(this.host, GAME.hudInterval);
     this.shop.update(player, this.shop.kind === 'black' ? this.host.blackMarketCounter : economy.shopCounter);
     this.death.update(player, combat.now);
     this.dev.update();

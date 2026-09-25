@@ -1,11 +1,11 @@
 import type { EventBus } from '../core/EventBus';
 
-const KIND_PREFIX: Record<string, string> = { radio: '[Рация] ', law: '', world: '', system: '' };
+const KIND_PREFIX: Record<string, string> = { radio: '[Рация] ', law: '', world: '', system: '', chat: '' };
 
-/** Журнал событий мира (задержания, штрафы, рация ГО). Полноценный чат с командами — этап 5. */
+/** Журнал событий мира и чат (задержания, штрафы, рация ГО, речь персонажей). */
 export class EventLog {
   readonly el: HTMLElement;
-  private readonly max = 7;
+  private readonly max = 8;
 
   constructor(parent: HTMLElement, bus: EventBus) {
     this.el = document.createElement('div');
@@ -16,7 +16,7 @@ export class EventLog {
 
   push(text: string, kind: string): void {
     const line = document.createElement('div');
-    line.className = `log-line log-${kind}`;
+    line.className = `log-line log-${kind}${kind === 'chat' && text.startsWith('* ') ? ' log-emote' : ''}`;
     line.textContent = KIND_PREFIX[kind] + text;
     this.el.appendChild(line);
     while (this.el.children.length > this.max) this.el.firstElementChild?.remove();

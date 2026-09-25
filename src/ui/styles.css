@@ -194,6 +194,8 @@ kbd {
 .log-radio { color: #8fc3f5; }
 .log-world { color: var(--text); }
 .log-system { color: var(--muted); }
+.log-chat { color: #e8e4d6; }
+.log-chat.log-emote { color: #c9a9e6; font-style: italic; }
 
 /* Меню ролей */
 .role-menu {
@@ -330,3 +332,22 @@ kbd {
 .cap-row + .cap-row { margin-top: 3px; }
 .cap-rebel { color: #ff9a4a; font-weight: 600; }
 .cap-cp { color: #8cc8ff; font-weight: 600; }
+
+/* Чат */
+.chat-box { left: 16px; bottom: 16px; width: min(460px, calc(100vw - 32px)); padding: 6px; z-index: 5; }
+.chat-box input { width: 100%; background: rgba(0,0,0,0.5); border: 1px solid var(--panel-border); color: var(--text); font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 4px; outline: none; }
+.chat-box input:focus { border-color: var(--hud); }
+.hud-loyalty { font-size: 12px; margin-top: 2px; }
+
+/* Мини-карта и большая карта (M) */
+.minimap { position: absolute; top: 64px; right: 16px; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.6); pointer-events: none; }
+.bigmap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); z-index: 6; }
+.bigmap-box { position: relative; padding: 10px 12px; }
+.bigmap-box canvas { display: block; border-radius: 4px; }
+.bigmap-hint { color: var(--muted); font-size: 11px; letter-spacing: 0.05em; }
+.bigmap-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12px; color: var(--muted); max-width: 900px; }
+.bigmap-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+
+.pause-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); color: var(--hud); letter-spacing: 0.3em; font-size: 34px; z-index: 7; pointer-events: none; }
+.pause-overlay small { font-size: 12px; letter-spacing: 0.1em; color: var(--muted); margin-top: 8px; }
+.role-new { margin-left: 12px; }

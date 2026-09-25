@@ -9,7 +9,9 @@ export const CONTROLS = {
   run: ['ShiftLeft', 'ShiftRight'],
   interact: ['KeyE'],
   inventory: ['Tab'],
-  chat: ['Enter'],
+  chat: ['Enter', 'NumpadEnter'],
+  /** Открыть чат сразу с «/» для команды. */
+  command: ['Slash'],
   roleAction: ['KeyF'],
   bigMap: ['KeyM'],
   devPanel: ['F2'],
@@ -22,6 +24,8 @@ export const CONTROLS = {
   /** Следующее оружие / убрать (Q), убрать оружие (H). */
   nextWeapon: ['KeyQ'],
   holster: ['KeyH'],
+  /** Пауза. */
+  pause: ['KeyP'],
   /** Звук выстрелов вкл/выкл. */
   mute: ['KeyN'],
 } as const;

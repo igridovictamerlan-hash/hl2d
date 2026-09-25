@@ -6,6 +6,8 @@ import type { EventBus } from '../core/EventBus';
 import type { Rng } from '../core/rng';
 import type { DoorSystem, DoorGroup } from './DoorSystem';
 import { canSeeCircle } from '../world/visibility';
+import { adjustLoyalty } from './Loyalty';
+import { LOYALTY } from '../config/loyalty';
 import { LAW, VIOLATION_NAMES, type Violation } from '../config/law';
 import { VISION } from '../config/vision';
 import { FACTIONS } from '../config/factions';
@@ -152,6 +154,7 @@ export class LawSystem {
       reason === 'running' ? LINES.cpOrderRun
       : reason === 'restricted' ? LINES.cpOrderRestricted
       : reason === 'curfew' ? LINES.cpOrderCurfew
+      : reason === 'insult' ? LINES.cpOrderInsult
       : reason === 'rebel' || reason === 'weapon' ? LINES.cpOrderRebel
       : LINES.cpOrder;
     handler.say(this.rng.pick(lines), this.time);
@@ -193,7 +196,7 @@ export class LawSystem {
     else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
     else if (!law.hasCid) reason = 'no_cid';
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };
-    if (reason === 'running' || reason === 'restricted') {
+    if (reason === 'running' || reason === 'restricted' || reason === 'insult') {
       return { kind: 'fine', reason, fine: LAW.fines[reason] };
     }
     return { kind: 'ok', reason, fine: 0 };
@@ -210,9 +213,11 @@ export class LawSystem {
       target.money -= paid;
       handler.money += Math.floor(paid / 2);
       handler.say(fill(this.rng.pick(LINES.cpFine), { n: verdict.fine }), this.time);
+      adjustLoyalty(target, verdict.reason === 'insult' ? LOYALTY.points.insult : LOYALTY.points.fine, 'штраф', this.bus);
       this.log(`${label(handler)} оштрафовал ${who(target)} на ${verdict.fine} токенов (${VIOLATION_NAMES[verdict.reason]})`, 'law');
     } else {
       handler.say(this.rng.pick(LINES.cpOk), this.time);
+      adjustLoyalty(target, LOYALTY.points.checkOk, 'проверка пройдена', this.bus);
     }
     this.clear(target);
   }
@@ -252,6 +257,7 @@ export class LawSystem {
     target.mass = PRISONER_MASS;
     target.wantX = target.wantY = 0;
     handler.say(this.rng.pick(LINES.cpArrest), this.time);
+    adjustLoyalty(target, LOYALTY.points.arrest, 'задержание', this.bus);
     this.log(`${label(handler)} задержал ${who(target)} (${VIOLATION_NAMES[reason]})`, 'law');
     if (wasPlayerCheck) this.bus.emit('law:checkClosed', { target });
   }

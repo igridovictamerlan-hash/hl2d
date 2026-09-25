@@ -5,6 +5,7 @@ import { FIRST_NAMES, LAST_NAMES, FEMALE_FIRST, genderedLastName } from '../conf
 import type { Rng } from '../core/rng';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
+import { LOYALTY } from '../config/loyalty';
 
 const usedCids = new Set<string>();
 
@@ -53,6 +54,8 @@ export function createCharacter(
     // Часть жителей без действующей CID или в розыске; повстанцы — всегда в розыске.
     c.law.hasCid = !rng.chance(LAW.npc.noCidChance);
     c.law.wanted = faction === 'rebel' || rng.chance(LAW.npc.wantedChance);
+    const L = faction === 'cwu' ? LOYALTY.start.cwu : LOYALTY.start.citizen;
+    c.loyalty = Math.round(rng.range(L[0], L[1]));
   }
   return entities.add(c);
 }

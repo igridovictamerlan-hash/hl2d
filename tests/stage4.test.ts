@@ -104,9 +104,10 @@ describe('канализация', () => {
 });
 
 describe('сопротивление в городе', () => {
-  test('саботаж: группа из убежища через люк выводит из строя узел, код жёлтый, потом отбой; ГСР чинит', { timeout: 120_000 }, () => {
+  test('саботаж: группа из убежища через люк выводит из строя узел, код жёлтый, потом отбой', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
-    spawnPopulation(sim.ctx, 10);
+    // Только убежище, без городских патрулей: иначе исход зависит от случайной встречи у люка.
+    sim.insurgency.populate();
     expect(sim.insurgency.garrison.length).toBeGreaterThan(0);
     expect(sim.insurgency.trader).not.toBeNull();
     const op = sim.insurgency.startOperation('sabotage')!;

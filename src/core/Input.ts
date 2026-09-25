@@ -83,6 +83,12 @@ export class Input {
     return false;
   }
 
+  /** Отпустить все клавиши (открыли чат, потеряли фокус). */
+  releaseAll(): void {
+    this.down.clear();
+    this.mouseDown = this.aimDown = false;
+  }
+
   endTick(): void {
     this.pressed.clear();
     this.mousePressed = false;

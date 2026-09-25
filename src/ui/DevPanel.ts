@@ -52,7 +52,7 @@ export class DevPanel {
     this.el = document.createElement('div');
     this.el.className = 'dev panel';
     this.el.innerHTML = `
-      <div class="dev-head"><span>КАРТА</span><span class="dev-key">F2</span></div>
+      <div class="dev-head"><span>ГЕНЕРАТОР</span><span class="dev-key">F2</span></div>
       <div class="dev-body">
         <div class="dev-row">
           <input class="dev-seed" type="number" min="0" placeholder="seed" />

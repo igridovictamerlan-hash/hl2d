@@ -5,6 +5,8 @@ import { ECONOMY } from '../config/economy';
 export type ShopKind = 'cwu' | 'black';
 
 export interface ShopHandlers {
+  /** Цена в магазине ГСР для игрока (со скидкой лоялиста). */
+  price(id: ItemId): number | undefined;
   buy(id: ItemId): string | null;
   buyBlack(k: number): string | null;
   sell(id: ItemId): string | null;
@@ -75,7 +77,9 @@ export class ShopPanel {
       this.list.innerHTML = ECONOMY.shop.stock
         .map((id) => {
           const d = ITEMS[id];
-          return `<div class="inv-row"><div><b>${d.name}</b><div class="inv-desc">${d.desc}</div></div><button data-buy="${id}">${d.price} ток.</button></div>`;
+          const price = this.h.price(id) ?? d.price;
+          const sale = price !== d.price ? ` <s>${d.price}</s>` : '';
+          return `<div class="inv-row"><div><b>${d.name}</b><div class="inv-desc">${d.desc}</div></div><button data-buy="${id}">${price}${sale} ток.</button></div>`;
         })
         .join('');
     } else {

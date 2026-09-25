@@ -9,6 +9,7 @@ import { fetchMap } from './world/mapIO';
  *   ?map=city1  — загрузить public/maps/city1.json
  *   ?npcs=40    — число NPC-граждан
  *   ?debug=1    — сразу включить отладку ИИ
+ * Без ?seed и ?map игра продолжается из сохранения в браузере (если есть).
  */
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -23,7 +24,12 @@ const game = new Game(canvas, uiRoot, { npcs });
 async function boot(): Promise<void> {
   const mapName = params.get('map');
   try {
+    // Без явного seed/карты — продолжаем сохранённую игру, если она есть.
+    // (seed в адресе, совпадающий с сохранением, — это та же игра после перезагрузки).
+    const saved = mapName ? null : Game.readSave();
+    const save = saved && (!params.has('seed') || Number(params.get('seed')) === saved.seed) ? saved : null;
     if (mapName) game.loadMap(await fetchMap(`${import.meta.env.BASE_URL}maps/${mapName}.json`));
+    else if (save) game.resume(save);
     else game.regenerate(params.has('seed') ? Math.abs(Math.floor(Number(params.get('seed')))) || 0 : undefined);
   } catch (e) {
     console.error(e);

@@ -3,11 +3,14 @@ import type { Zone } from '../world/GameMap';
 import type { Character } from '../entities/Character';
 import type { Verdict } from '../systems/LawSystem';
 
+/** Вид строки журнала: system — подсказки, world — события, radio — рация Альянса, law — закон, chat — речь. */
+export type LogKind = 'system' | 'world' | 'radio' | 'law' | 'chat';
+
 /** Все события игры и их данные. Новые события добавлять сюда. */
 export interface GameEvents {
   'map:loaded': { seed: number; stats: MapStats | null; source: 'generated' | 'file' };
   'zone:enter': { entityId: number; zone: Zone };
-  log: { text: string; kind: 'system' | 'world' | 'radio' | 'law' };
+  log: { text: string; kind: LogKind };
   /** Крупное объявление по центру экрана. */
   announce: { text: string };
   /** Смена кода тревоги. */
