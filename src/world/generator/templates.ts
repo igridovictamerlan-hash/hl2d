@@ -5,7 +5,7 @@
  *   c — пол камеры КПЗ     D — дверь камеры         d — дверь
  *   : — двор (плитка)      g — ворота               F — стойка дежурного (пол + точка интереса)
  *   k — бетонный пол КПП   B — бетонный блок-укрытие  P — пост ГО (бетон + точка интереса)
- *   o — пустошь за городом
+ *   o — пустошь за городом (B на пустоши — обломки-укрытия для отрядов повстанцев)
  * Проходимые клетки на краю шаблона — выходы: генератор прокапывает от них проход наружу.
  */
 export const NEXUS_TEMPLATE: readonly string[] = [
@@ -52,17 +52,17 @@ export const CHECKPOINT_TEMPLATE: readonly string[] = [
   'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
   'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooBoooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'ooBoooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'ooooooMM####dd#########dd####MMMMMMM',
-  'ooooooggkkkBkkkkkkkBkkkkkPkkggkkkkkk',
-  'ooooooggkkkBkkkkkkkBkkkkkkkkggkkkkkk',
+  'ooBoooggkkkBkkkkkkkBkkkkkPkkggkkkkkk',
+  'ooBoooggkkkBkkkkkkkBkkkkkkkkggkkkkkk',
   'ooooooggkkkkkkkBkkkkkkkBkkkkggkkkkkk',
   'ooooooggkkkkkkkBkkkkkkkBkPkkggkkkkkk',
   'ooooooMM###dd###########dd##MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'oooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
+  'oooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'ooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',

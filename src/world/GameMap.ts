@@ -10,7 +10,8 @@ export type ZoneKind =
   | 'industrial'
   | 'restricted'
   | 'checkpoint'
-  | 'outlands';
+  | 'outlands'
+  | 'shop';
 
 export interface Zone {
   id: number;
@@ -31,7 +32,8 @@ export type PoiType =
   | 'industrial_yard'
   | 'checkpoint_post'
   | 'outlands_exit'
-  | 'recruit_terminal';
+  | 'recruit_terminal'
+  | 'shop_counter';
 
 /** Точка интереса в координатах тайлов. */
 export interface Poi {

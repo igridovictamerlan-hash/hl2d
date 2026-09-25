@@ -5,58 +5,114 @@ import type { Cell } from '../../systems/LawSystem';
 import { Mover } from '../Mover';
 import { StateMachine, type State } from '../StateMachine';
 import { randomAnchorAround } from '../destinations';
+import { poiWorld } from '../../systems/Population';
 import { faceMovement, faceTowards, turnTowards } from '../facing';
 import { canSeeCircle } from '../../world/visibility';
 import { LAW } from '../../config/law';
 import { VISION } from '../../config/vision';
 import { dist, type Vec2 } from '../../core/math';
+import { Gunner } from '../Gunner';
+import { COMBAT } from '../../config/combat';
+import { FACTIONS } from '../../config/factions';
 
 const near: Character[] = [];
 
+export interface CpOptions {
+  /** Пост часового (КПП), px мира. */
+  post?: Vec2;
+  facing?: number;
+  /** Номер фронта (пограничного КПП), к которому приписан. */
+  front?: number;
+  /** Место медика HELIX на КПП. */
+  medicStation?: Vec2;
+}
+
+/** Состояния, из которых можно сразу перейти в бой. */
+const CAN_FIGHT = new Set(['patrol', 'patrol-again', 'post', 'guard', 'hunt', 'approach', 'chase', 'medic', 'heal', 'check']);
+
 /**
  * Сотрудник ГО. Патрулирует узкие места и ключевые точки, иногда стоит постом.
- * Часовой КПП (guardPost) стоит на своём посту и проверяет почти всех в коридоре.
- * Заметив нарушение: приказ «стоять» → подход → проверка CID → штраф/арест → конвой в КПЗ.
- * Беглеца преследует бегом; потерял из виду — объявляет в розыск.
+ * Часовой КПП (GRID) стоит на посту и держит коридор; медик HELIX лечит раненых.
+ * Нарушение: приказ «стоять» → подход → проверка CID → штраф/арест → конвой в КПЗ.
+ * Вооружённый враг (повстанец с оружием, напавший на Альянс) — бой на поражение;
+ * безоружного повстанца пытается задержать. Ранен — отходит к медику/в бункер.
+ * При красном коде патрульные прочёсывают город по данным «Надзора».
  */
 export class CpBrain implements Brain {
   readonly mover: Mover;
+  readonly gunner: Gunner;
   readonly fsm: StateMachine<CpBrain>;
+  readonly guardPost: Vec2 | null;
+  readonly guardFacing: number;
+  readonly front: number;
+  readonly medicStation: Vec2 | null;
   target: Character | null = null;
+  /** Кого лечит медик. */
+  patient: Character | null = null;
   cell: Cell | null = null;
   postLeft = 0;
   postFacing = 0;
   lostTime = 0;
   repath = 0;
+  healCooldown = 0;
+  retreatTo: Vec2 | null = null;
   private scan = 0;
 
   constructor(
     public self: Character,
     public ctx: AiContext,
-    /** Пост часового (КПП) в px мира; null — патрульный. */
-    readonly guardPost: Vec2 | null = null,
-    readonly guardFacing = 0,
+    opts: CpOptions = {},
   ) {
+    this.guardPost = opts.post ?? null;
+    this.guardFacing = opts.facing ?? 0;
+    this.front = opts.front ?? -1;
+    this.medicStation = opts.medicStation ?? null;
     this.mover = new Mover(LAW.cpWalkSpeed);
-    this.fsm = new StateMachine<CpBrain>(this, [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT], guardPost ? 'guard' : 'patrol');
+    this.gunner = new Gunner(ctx.rng);
+    this.fsm = new StateMachine<CpBrain>(
+      this,
+      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT],
+      this.idleState,
+    );
     this.scan = ctx.rng.range(0, LAW.scanInterval);
   }
 
   get stateName(): string {
-    const t = this.target ? ` → #${this.target.cid}` : '';
-    return `${this.fsm.current}${t}`;
+    const t = this.target ? ` → #${this.target.cid}` : this.gunner.target ? ` → ${this.gunner.target.name}` : '';
+    const div = this.self.division ? `${this.self.division.toUpperCase()} · ` : '';
+    return `${div}${this.fsm.current}${t}`;
   }
 
   /** Куда возвращаться после разбирательства. */
   get idleState(): string {
-    return this.guardPost ? 'guard' : 'patrol';
+    if (this.medicStation) return 'medic';
+    if (this.guardPost) return 'guard';
+    return this.ctx.war?.code === 'red' ? 'hunt' : 'patrol';
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
     this.self = self;
     this.ctx = ctx;
-    const cur = this.fsm.current;
-    if (cur === 'patrol' || cur === 'post' || cur === 'guard') {
+    this.healCooldown -= dt;
+    let cur = this.fsm.current;
+    // Бой: гарнизон отстреливается из любого состояния (даже на конвое).
+    const engaged = this.gunner.update(self, ctx, dt);
+    if (engaged && this.gunner.target) ctx.war.sighted(this.gunner.target);
+    const wounded = self.health < self.maxHealth * COMBAT.woundedFraction;
+    if (wounded && cur !== 'retreat' && cur !== 'escort') this.fsm.change('retreat');
+    else if (engaged && this.gunner.target && CAN_FIGHT.has(cur) && cur !== 'check') {
+      // Отпускаем проверяемого — не до него.
+      if (this.target && this.target.law.handler === self && this.target.law.phase !== 'cuffed') ctx.law.clear(this.target);
+      this.target = null;
+      this.fsm.change('fight');
+    }
+    cur = this.fsm.current;
+    // Красный код: патрульные — на прочёсывание.
+    if ((cur === 'patrol' || cur === 'post' || cur === 'patrol-again') && !this.guardPost && !this.medicStation && ctx.war.code === 'red') {
+      this.fsm.change('hunt');
+    }
+    cur = this.fsm.current;
+    if (cur === 'patrol' || cur === 'post' || cur === 'guard' || cur === 'hunt' || cur === 'medic') {
       this.scan -= dt;
       if (this.scan <= 0) {
         this.scan = LAW.scanInterval;
@@ -65,23 +121,38 @@ export class CpBrain implements Brain {
     }
     this.fsm.update(dt);
     this.mover.update(self, ctx, dt);
-    if (this.fsm.current !== 'check' && this.fsm.current !== 'post' && this.fsm.current !== 'guard') faceMovement(self, ctx, dt);
+    const now = this.fsm.current;
+    if (this.gunner.target?.alive && now === 'fight') faceTowards(self, this.gunner.target.x, this.gunner.target.y, dt);
+    else if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic') faceMovement(self, ctx, dt);
   }
 
-  /** Осмотреться: нарушения — сразу, остальных иногда проверить «для порядка». */
+  /** Осмотреться: раненые свои (HELIX), нарушения, иногда — проверка «для порядка». */
   private lookAround(): void {
     const { self, ctx } = this;
     const law = ctx.law;
     const zone = ctx.map.zoneAtWorld(self.x, self.y);
     const atCheckpoint = zone?.kind === 'checkpoint';
-    for (const o of ctx.entities.near(self.x, self.y, VISION.npcRange, near)) {
-      if (o === self) continue;
-      const v = law.observe(self, o);
-      if (v) {
-        this.engage(o, v);
+    if (self.division === 'helix') {
+      const p = this.findPatient(this.medicStation ? 450 : 260);
+      if (p) {
+        this.patient = p;
+        this.fsm.change('heal');
         return;
       }
     }
+    for (const o of ctx.entities.near(self.x, self.y, VISION.npcRange, near)) {
+      if (o === self) continue;
+      const v = law.observe(self, o);
+      if (!v) continue;
+      if (v === 'rebel') ctx.war.sighted(o);
+      // Вооружённого врага берёт на себя бой (Gunner), остальных — задерживаем.
+      if (ctx.combat.threat(self, o)) continue;
+      // Часовой не уходит с поста ради беготни по городу.
+      if (this.guardPost && !atCheckpoint) continue;
+      this.engage(o, v);
+      return;
+    }
+    if (ctx.war.code === 'red' || this.medicStation) return;
     for (const o of near) {
       if (o === self || !law.checkable(o)) continue;
       const inCheckpoint = ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint';
@@ -91,6 +162,21 @@ export class CpBrain implements Brain {
         return;
       }
     }
+  }
+
+  /** Раненый сотрудник Альянса поблизости. */
+  findPatient(range: number): Character | null {
+    let best: Character | null = null;
+    let bestD = range;
+    for (const o of this.ctx.entities.near(this.self.x, this.self.y, range, near)) {
+      if (o === this.self || !FACTIONS[o.faction].authority || o.health >= o.maxHealth * 0.75) continue;
+      const d = Math.hypot(o.x - this.self.x, o.y - this.self.y);
+      if (d < bestD) {
+        bestD = d;
+        best = o;
+      }
+    }
+    return best;
   }
 
   engage(o: Character, reason: Parameters<AiContext['law']['order']>[2]): void {
@@ -118,6 +204,15 @@ export class CpBrain implements Brain {
     if (this.repath > 0 && (this.mover.status === 'moving' || this.mover.status === 'pending')) return;
     this.repath = interval;
     const a = this.ctx.nav.nearestWalkable(t.x, t.y, 4);
+    if (a >= 0) this.mover.goTo(this.self, this.ctx, a);
+  }
+
+  /** Идти в точку (перестраивая путь при неудаче). */
+  goToPoint(p: Vec2, dt: number, interval = 2): void {
+    this.repath -= dt;
+    if (this.repath > 0 && this.mover.status !== 'failed' && this.mover.status !== 'idle') return;
+    this.repath = interval;
+    const a = this.ctx.nav.nearestWalkable(p.x, p.y, 5);
     if (a >= 0) this.mover.goTo(this.self, this.ctx, a);
   }
 }
@@ -227,7 +322,7 @@ const CHECK: State<CpBrain> = {
       b.ctx.law.startFlee(t);
       return 'chase';
     }
-    if (b.fsm.time < LAW.checkTime) return;
+    if (b.fsm.time < LAW.checkTime * (b.self.division === 'jury' ? LAW.juryCheckMul : 1)) return;
     const verdict = b.ctx.law.judge(t);
     b.ctx.law.apply(b.self, t, verdict);
     return verdict.kind === 'arrest' ? 'escort' : b.drop();
@@ -308,5 +403,110 @@ const ESCORT: State<CpBrain> = {
         if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
       }
     }
+  },
+};
+
+/** Бой: стоит (часовой — на посту) и стреляет, пока есть цель. */
+const FIGHT: State<CpBrain> = {
+  name: 'fight',
+  enter(b) {
+    b.mover.stop();
+  },
+  update(b) {
+    if (!b.gunner.target) return b.idleState;
+    // Отошёл от поста — вернуться на пост (там укрытие).
+    if (b.guardPost && dist(b.self.x, b.self.y, b.guardPost.x, b.guardPost.y) > 24 && b.mover.status !== 'moving' && b.mover.status !== 'pending') {
+      const a = b.ctx.nav.nearestWalkable(b.guardPost.x, b.guardPost.y, 3);
+      if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    }
+  },
+};
+
+/** Ранен: отходит в бункер КПП / к медику / к Нексусу и ждёт лечения. */
+const RETREAT: State<CpBrain> = {
+  name: 'retreat',
+  enter(b) {
+    b.mover.speed = LAW.cpRunSpeed * 0.9;
+    b.repath = 0;
+    const f = b.front >= 0 ? b.ctx.war.fronts[b.front] : null;
+    let dest: Vec2 | null = null;
+    if (f && f.bunker.length) {
+      const a = f.bunker[Math.floor(b.ctx.rng.next() * f.bunker.length)];
+      dest = { x: b.ctx.nav.worldX(a), y: b.ctx.nav.worldY(a) };
+    } else dest = poiWorld(b.ctx, 'nexus_desk');
+    b.retreatTo = dest;
+  },
+  update(b, dt) {
+    if (b.retreatTo && dist(b.self.x, b.self.y, b.retreatTo.x, b.retreatTo.y) > 20) b.goToPoint(b.retreatTo, dt);
+    else b.mover.stop();
+    // Регенерация поднимает до COMBAT.regenCap — возвращаемся чуть ниже, не дожидаясь медика.
+    if (b.self.health >= b.self.maxHealth * (COMBAT.regenCap - 0.05)) {
+      b.mover.speed = LAW.cpWalkSpeed;
+      return b.idleState;
+    }
+  },
+};
+
+/** Медик HELIX на КПП: ждёт в бункере, выходит к раненым. */
+const MEDIC: State<CpBrain> = {
+  name: 'medic',
+  enter(b) {
+    b.mover.speed = LAW.cpWalkSpeed;
+  },
+  update(b, dt) {
+    const st = b.medicStation!;
+    if (dist(b.self.x, b.self.y, st.x, st.y) > 20) b.goToPoint(st, dt);
+    else b.mover.stop();
+  },
+};
+
+/** Лечение раненого сотрудника: подойти и лечить, пока не поправится. */
+const HEAL: State<CpBrain> = {
+  name: 'heal',
+  enter(b) {
+    b.mover.speed = LAW.cpRunSpeed * 0.85;
+    b.repath = 0;
+  },
+  update(b, dt) {
+    const p = b.patient;
+    if (!p || !p.alive || p.health >= p.maxHealth * 0.95) {
+      b.patient = null;
+      b.mover.speed = LAW.cpWalkSpeed;
+      return b.idleState;
+    }
+    if (dist(b.self.x, b.self.y, p.x, p.y) > COMBAT.healRange) {
+      b.follow(p, dt, 0.6);
+      return;
+    }
+    b.mover.stop();
+    faceTowards(b.self, p.x, p.y, dt);
+    if (b.healCooldown <= 0 && b.ctx.combat.heal(p, COMBAT.healAmount)) {
+      b.healCooldown = COMBAT.healCooldown;
+      b.self.say('Держись, латаю.', b.ctx.law.now, 1.5);
+    }
+  },
+};
+
+/** Красный код: идти к последней известной позиции прорвавшихся. */
+const HUNT: State<CpBrain> = {
+  name: 'hunt',
+  enter(b) {
+    b.mover.speed = LAW.cpWalkSpeed * 1.3;
+    b.repath = 0;
+  },
+  update(b, dt) {
+    if (b.ctx.war.code !== 'red') {
+      b.mover.speed = LAW.cpWalkSpeed;
+      return 'patrol';
+    }
+    const p = b.ctx.war.nearestKnown(b.self.x, b.self.y);
+    if (!p) {
+      if (b.mover.status !== 'moving' && b.mover.status !== 'pending') {
+        const a = randomAnchorAround(b.self, b.ctx, 10, 40, new Set());
+        if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+      }
+      return;
+    }
+    b.goToPoint(p, dt, 3);
   },
 };

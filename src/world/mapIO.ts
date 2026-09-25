@@ -23,7 +23,7 @@ export interface MapFileV1 {
   stats?: MapStats | null;
 }
 
-const ZONE_KINDS: ZoneKind[] = ['residential', 'avenue', 'plaza', 'nexus', 'cells', 'industrial', 'restricted', 'checkpoint', 'outlands'];
+const ZONE_KINDS: ZoneKind[] = ['residential', 'avenue', 'plaza', 'nexus', 'cells', 'industrial', 'restricted', 'checkpoint', 'outlands', 'shop'];
 
 export function mapToFile(map: GameMap): MapFileV1 {
   const tiles: string[] = [];

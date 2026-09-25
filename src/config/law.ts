@@ -21,7 +21,10 @@ export const LAW = {
 
   fines: { running: 5, restricted: 15 },
   /** За что арест (иначе штраф). */
-  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting'] as readonly string[],
+  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew'] as readonly string[],
+  /** Дознаватели JURY: проверка быстрее, штраф больше. */
+  juryCheckMul: 0.5,
+  juryFineMul: 2,
 
   chaseLoseTime: 6,
   catchDistance: 30,
@@ -45,7 +48,16 @@ export const LAW = {
   },
 } as const;
 
-export type Violation = 'running' | 'restricted' | 'no_cid' | 'wanted' | 'resisting' | 'routine';
+export type Violation =
+  | 'running'
+  | 'restricted'
+  | 'no_cid'
+  | 'wanted'
+  | 'resisting'
+  | 'routine'
+  | 'rebel'
+  | 'weapon'
+  | 'curfew';
 
 export const VIOLATION_NAMES: Record<Violation, string> = {
   running: 'бег',
@@ -54,4 +66,7 @@ export const VIOLATION_NAMES: Record<Violation, string> = {
   wanted: 'розыск',
   resisting: 'неподчинение',
   routine: 'плановая проверка',
+  rebel: 'участие в сопротивлении',
+  weapon: 'ношение оружия',
+  curfew: 'нарушение комендантского часа',
 };

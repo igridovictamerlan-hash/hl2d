@@ -5,6 +5,19 @@ import type { GameMap } from './GameMap';
  * (стена, закрытая дверь) или maxDist. Стартовый тайл не проверяется.
  */
 export function castRay(map: GameMap, ox: number, oy: number, dx: number, dy: number, maxDist: number): number {
+  return castRayWith(map, ox, oy, dx, dy, maxDist, (tx, ty) => map.isOpaque(tx, ty));
+}
+
+/** То же, но что останавливает луч, решает blocks(tx, ty, t) — например, пули и укрытия. */
+export function castRayWith(
+  map: GameMap,
+  ox: number,
+  oy: number,
+  dx: number,
+  dy: number,
+  maxDist: number,
+  blocks: (tx: number, ty: number, t: number) => boolean,
+): number {
   const ts = map.tileSize;
   let tx = Math.floor(ox / ts);
   let ty = Math.floor(oy / ts);
@@ -28,7 +41,7 @@ export function castRay(map: GameMap, ox: number, oy: number, dx: number, dy: nu
       ty += stepY;
     }
     if (t >= maxDist) return maxDist;
-    if (map.isOpaque(tx, ty)) return t;
+    if (blocks(tx, ty, t)) return t;
   }
 }
 

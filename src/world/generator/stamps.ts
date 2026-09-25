@@ -289,3 +289,45 @@ export function stampRestricted(g: GenGrid, rect: Rect, gates: GateSpec[], rng: 
   }
   return placed;
 }
+
+/**
+ * Магазин ГСР: комната 6×4 в застройке недалеко от площади, дверь 2 тайла в переулок.
+ * Возвращает false, если места не нашлось.
+ */
+export function stampShop(g: GenGrid, rng: Rng, cx: number, cy: number, zone: number, pois: Poi[]): boolean {
+  const iw = 6;
+  const ih = 4;
+  const W = iw + 2;
+  const H = ih + 2;
+  for (let tries = 0; tries < 3000; tries++) {
+    const r = rng.int(10, 45);
+    const a = rng.range(0, Math.PI * 2);
+    const x0 = Math.round(cx + Math.cos(a) * r) - (W >> 1);
+    const y0 = Math.round(cy + Math.sin(a) * r) - (H >> 1);
+    const rect: Rect = { x: x0, y: y0, w: W, h: H };
+    if (!g.isSolidFree(rect)) continue;
+    // Стороны: где снаружи двух соседних клеток стены — проходимо.
+    const doors: { tiles: { x: number; y: number }[]; far: { x: number; y: number } }[] = [];
+    for (let k = 1; k < W - 2; k++) {
+      const top = [{ x: x0 + k, y: y0 }, { x: x0 + k + 1, y: y0 }];
+      if (top.every((t) => g.passable(t.x, t.y - 1))) doors.push({ tiles: top, far: { x: x0 + (W >> 1), y: y0 + H - 2 } });
+      const bot = [{ x: x0 + k, y: y0 + H - 1 }, { x: x0 + k + 1, y: y0 + H - 1 }];
+      if (bot.every((t) => g.passable(t.x, t.y + 1))) doors.push({ tiles: bot, far: { x: x0 + (W >> 1), y: y0 + 1 } });
+    }
+    for (let k = 1; k < H - 2; k++) {
+      const left = [{ x: x0, y: y0 + k }, { x: x0, y: y0 + k + 1 }];
+      if (left.every((t) => g.passable(t.x - 1, t.y))) doors.push({ tiles: left, far: { x: x0 + W - 2, y: y0 + (H >> 1) } });
+      const right = [{ x: x0 + W - 1, y: y0 + k }, { x: x0 + W - 1, y: y0 + k + 1 }];
+      if (right.every((t) => g.passable(t.x + 1, t.y))) doors.push({ tiles: right, far: { x: x0 + 1, y: y0 + (H >> 1) } });
+    }
+    if (doors.length === 0) continue;
+    const door = rng.pick(doors);
+    g.fillRect({ x: x0 + 1, y: y0 + 1, w: iw, h: ih }, T.INTERIOR);
+    for (const t of door.tiles) g.set(t.x, t.y, T.DOOR);
+    g.setZoneRect(rect, zone);
+    g.lockRect(rect);
+    pois.push({ type: 'shop_counter', x: door.far.x, y: door.far.y });
+    return true;
+  }
+  return false;
+}

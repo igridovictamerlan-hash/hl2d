@@ -26,7 +26,15 @@ import { updateNpcs } from '../ai/NpcController';
 import { ZoneSystem } from '../systems/ZoneSystem';
 import { DoorSystem } from '../systems/DoorSystem';
 import { LawSystem } from '../systems/LawSystem';
-import { spawnPopulation, roleSpawn, poiWorld } from '../systems/Population';
+import { spawnPopulation, roleSpawn, poiWorld, equipKit, cpKit } from '../systems/Population';
+import { EconomySystem } from '../systems/EconomySystem';
+import { CombatSystem } from '../systems/CombatSystem';
+import { WarSystem } from '../systems/WarSystem';
+import { EffectsRenderer } from '../world/EffectsRenderer';
+import { ECONOMY } from '../config/economy';
+import type { DivisionId } from '../config/factions';
+import { ITEMS, type ItemId, type WeaponId } from '../config/items';
+import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
 import type { CheckChoice } from '../ui/CheckPanel';
 import { DebugOverlay } from '../ui/DebugOverlay';
@@ -53,18 +61,24 @@ export class Game {
   player!: Character;
   doors!: DoorSystem;
   law!: LawSystem;
+  economy!: EconomySystem;
+  combat!: CombatSystem;
+  war!: WarSystem;
   private ai!: AiContext;
   private mapRenderer!: MapRenderer;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly entityRenderer = new EntityRenderer();
   private readonly fog = new FogRenderer();
+  private readonly effects = new EffectsRenderer();
+  /** Бетонные блоки, поставленные игроком-GRID (самый старый убирается). */
+  private placedBarriers: number[] = [];
   private readonly sight = new VisibilityPolygon(VISION.rays);
   private readonly zones: ZoneSystem;
   private readonly playerCtl: PlayerController;
   private rng = new Rng(randomSeed());
   private vignette: CanvasGradient | null = null;
   /** Выбранная роль игрока (сохраняется при смене карты). */
-  private role: { faction: FactionId; rank: number } | null = null;
+  private role: { faction: FactionId; rank: number; division: DivisionId | null } | null = null;
   /** Гражданское имя игрока (для ролей без позывного). */
   private civilName = '';
   time = 0;
@@ -81,6 +95,9 @@ export class Game {
     this.playerCtl = new PlayerController(this.input, this.camera, this.bus, {
       openRoleMenu: () => this.ui.roles.open(false),
       menuOpen: () => this.ui.roles.isOpen,
+      openShop: () => this.ui.shop.open(),
+      toggleInventory: () => this.ui.inventory.toggle(),
+      placeBarrier: () => this.placeBarrier(),
       checkPanelTarget: () => this.ui.check.target,
       closeCheckPanel: (c) => this.ui.check.choose(c),
     });
@@ -116,6 +133,9 @@ export class Game {
     this.rng = new Rng(map.seed ^ 0x51f15e);
     this.doors = new DoorSystem(map, this.nav);
     this.law = new LawSystem(map, this.nav, this.doors, this.entities, this.bus, this.rng);
+    this.economy = new EconomySystem(map, this.entities, this.bus, this.rng);
+    this.combat = new CombatSystem(map, this.entities, this.bus, this.rng, this.law);
+    this.placedBarriers = [];
     this.ai = {
       map,
       nav: this.nav,
@@ -127,7 +147,15 @@ export class Game {
       time: this.time,
       law: this.law,
       doors: this.doors,
+      bus: this.bus,
+      economy: this.economy,
+      combat: this.combat,
+      war: null as unknown as WarSystem,
     };
+    this.war = new WarSystem(this.ai);
+    this.ai.war = this.war;
+    this.law.curfewCheck = (c) => this.war.curfewViolation(c);
+    this.law.panicking = (c) => c.panicUntil > this.law.now;
     this.entities.clear();
     resetCids();
     this.playerCtl.reset();
@@ -137,7 +165,7 @@ export class Game {
     this.civilName = this.player.name;
     this.ai.player = this.player;
     spawnPopulation(this.ai, this.opts.npcs);
-    if (this.role) this.applyRole(this.role.faction, this.role.rank, false);
+    if (this.role) this.applyRole(this.role.faction, this.role.rank, this.role.division, false);
     else this.ui.roles.open(true);
     this.zones.reset();
     this.camera.snapTo(this.player.x, this.player.y);
@@ -156,12 +184,12 @@ export class Game {
   }
 
   /** Выбор роли из меню. */
-  chooseRole(faction: FactionId, rank: number): void {
-    this.role = { faction, rank };
-    this.applyRole(faction, rank, true);
+  chooseRole(faction: FactionId, rank: number, division: DivisionId | null = null): void {
+    this.role = { faction, rank, division: faction === 'cp' ? division ?? 'union' : null };
+    this.applyRole(faction, rank, this.role.division, true);
   }
 
-  private applyRole(faction: FactionId, rank: number, announce: boolean): void {
+  private applyRole(faction: FactionId, rank: number, division: DivisionId | null, announce: boolean): void {
     const p = this.player;
     const law = p.law;
     // Если сидел — освобождаем камеру.
@@ -173,8 +201,19 @@ export class Game {
     for (const o of this.entities.list) if (o.law.handler === p) this.law.clear(o);
     this.ui.check.hide();
     this.playerCtl.reset();
+    this.economy.leaveQueue(p);
+    this.economy.releaseDispenser(p);
     p.faction = faction;
     p.rank = rank;
+    p.division = faction === 'cp' ? division : null;
+    p.alive = true;
+    p.health = p.maxHealth;
+    p.hunger = ECONOMY.hunger.max;
+    p.hostile = false;
+    p.panicUntil = 0;
+    equipKit(p, faction === 'cp' ? cpKit(p.division) : faction, this.ai);
+    // Жителям оружие на виду ни к чему: у повстанца пистолет спрятан до первого выстрела.
+    if (faction !== 'cp') this.combat.equip(p, null);
     p.name = faction === 'cp' ? nameFor(this.rng, 'cp') : this.civilName || randomName(this.rng);
     p.money = CHARACTER.roleMoney[faction] ?? CHARACTER.startMoney;
     p.brain = null;
@@ -189,8 +228,70 @@ export class Game {
     this.camera.snapTo(p.x, p.y);
     if (announce) {
       const r = rankOf(faction, rank);
-      this.bus.emit('log', { text: `Вы теперь: ${FACTIONS[faction].role}${r ? ` (${r.name})` : ''} — ${p.name}`, kind: 'system' });
+      const div = p.division ? ` · ${p.division.toUpperCase()}` : '';
+      this.bus.emit('log', { text: `Вы теперь: ${FACTIONS[faction].role}${r ? ` (${r.name})` : ''}${div} — ${p.name}`, kind: 'system' });
     }
+  }
+
+  /** Инвентарь игрока: съесть/применить. */
+  useItem(id: ItemId): void {
+    if (!this.player.alive) return;
+    if (this.economy.use(this.player, id)) this.bus.emit('log', { text: `Вы использовали: ${ITEMS[id].name}.`, kind: 'system' });
+  }
+
+  /** Взять оружие в руки (null — убрать). Житель с оружием в руках — нарушитель. */
+  equipItem(id: WeaponId | null): void {
+    if (!this.player.alive) return;
+    this.combat.equip(this.player, id);
+  }
+
+  buyItem(id: ItemId): string | null {
+    return this.economy.buy(this.player, id);
+  }
+
+  /** Возрождение игрока после гибели: прежняя роль, штраф к токенам. */
+  private respawn(): void {
+    const p = this.player;
+    const money = Math.floor(p.money * (1 - ECONOMY.deathTokenLoss));
+    const r = this.role ?? { faction: 'citizen' as FactionId, rank: 0, division: null };
+    this.applyRole(r.faction, r.rank, r.division, false);
+    p.money = money;
+    this.bus.emit('log', { text: `Вы очнулись. Потеряно ${Math.round(ECONOMY.deathTokenLoss * 100)}% токенов.`, kind: 'system' });
+  }
+
+  /**
+   * GRID: поставить бетонный блок перед собой (не больше трёх — старый убирается).
+   * Возвращает текст ошибки или null.
+   */
+  placeBarrier(): string | null {
+    const p = this.player;
+    const ts = this.map.tileSize;
+    const tx = Math.floor((p.x + Math.cos(p.facing) * 28) / ts);
+    const ty = Math.floor((p.y + Math.sin(p.facing) * 28) / ts);
+    const t = this.map.tileAt(tx, ty);
+    const allowed = t === T.FLOOR || t === T.STREET || t === T.BUNKER || t === T.PLAZA || t === T.WASTE;
+    if (!allowed) return 'Сюда блок не поставить.';
+    const cx = (tx + 0.5) * ts;
+    const cy = (ty + 0.5) * ts;
+    if (this.entities.near(cx, cy, 20).length > 0) return 'Место занято.';
+    const i = ty * this.map.width + tx;
+    this.map.tiles[i] = T.BARRIER;
+    this.placedBarriers.push(i);
+    if (this.placedBarriers.length > 3) {
+      const old = this.placedBarriers.shift()!;
+      this.map.tiles[old] = T.BUNKER;
+      this.refreshTile(old);
+    }
+    this.refreshTile(i);
+    return null;
+  }
+
+  private refreshTile(i: number): void {
+    const w = this.map.width;
+    const x = i % w;
+    const y = (i - x) / w;
+    this.nav.refresh(x - 1, y - 1, x + 1, y + 1);
+    this.mapRenderer.refresh(x, y);
   }
 
   /** Решение игрока-ГО по проверке CID (панель или клавиши 1/2/3). */
@@ -234,11 +335,15 @@ export class Game {
   private update(dt: number): void {
     this.time += dt;
     this.ai.time = this.time;
-    this.playerCtl.update(this.player, this.ai);
+    this.playerCtl.update(this.player, this.ai, dt);
     updateNpcs(this.ai, dt);
     this.doors.update(this.entities, dt);
     stepPhysics(this.entities, this.map, dt);
     this.law.update(dt, this.player);
+    this.economy.update(dt);
+    this.combat.update(dt);
+    this.war.update(dt);
+    if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside
       ? this.camera.screenToWorld(this.input.mouseX, this.input.mouseY)
@@ -261,7 +366,9 @@ export class Game {
     ctx.fillRect(0, 0, v.width, v.height);
     this.mapRenderer.draw(ctx, v);
     this.drawTerminal(v);
+    this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll);
+    this.effects.drawShots(ctx, v, this.combat);
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y);
     this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll);
     this.debug.draw(ctx, v, this.entities.list, this.nav, this.player, alpha, dpr);
@@ -269,6 +376,7 @@ export class Game {
       ctx.fillStyle = this.vignette;
       ctx.fillRect(0, 0, v.width, v.height);
     }
+    this.effects.drawAlert(ctx, v, this.war.code === 'red', this.law.now, this.player);
     if (this.input.mouseInside) this.drawCrosshair(this.input.mouseX * dpr, this.input.mouseY * dpr, dpr);
   }
 

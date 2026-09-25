@@ -10,7 +10,7 @@ import { buildingRatio, longestAlleyRun, type MapStats } from '../mapStats';
 import { GenGrid } from './GenGrid';
 import { planLayout, avenueOffsetAt, avenueRects } from './layout';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
-import { stampPlaza, stampTemplate, stampRestricted, carveConnector, carveConnectorChecked } from './stamps';
+import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked } from './stamps';
 import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, rotateTemplate, mirrorTemplate } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 
@@ -65,7 +65,7 @@ export function validateMap(map: GameMap): string[] {
   if (s.buildingRatio < lo || s.buildingRatio > hi) out.push(`доля зданий ${(s.buildingRatio * 100).toFixed(1)}%`);
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 4], ['restricted_gate', 1],
-    ['checkpoint_post', 4], ['outlands_exit', 2],
+    ['checkpoint_post', 4], ['outlands_exit', 2], ['shop_counter', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -151,6 +151,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const zRes = addZone('restricted', ZONE_NAMES.restricted, 'R');
   const zCheckpoints = layout.checkpoints.map((_, k) => addZone('checkpoint', ZONE_NAMES.checkpoints[k], k === 0 ? 'W' : 'E'));
   const zOut = addZone('outlands', ZONE_NAMES.outlands, 'O');
+  const zShop = addZone('shop', ZONE_NAMES.shop, 'S');
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -218,6 +219,10 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[0].length; x++) if (rows[y][x] === 'o') { sx += x; sy += y; n++; }
     pois.push({ type: 'outlands_exit', x: cp.rect.x + Math.round(sx / n), y: cp.rect.y + Math.round(sy / n) });
   });
+
+  // Магазин ГСР неподалёку от площади.
+  const pc = pois.find((p) => p.type === 'plaza_center')!;
+  stampShop(g, rng.fork(9), pc.x, pc.y, zShop, pois);
 
   // 5. Детали застройки.
   const zoneKindAt = (x: number, y: number) => zones[g.zones[y * W + x]]?.kind;

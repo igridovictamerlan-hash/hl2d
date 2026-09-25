@@ -9,6 +9,26 @@ import { CpBrain } from '../ai/brains/CpBrain';
 import { PostBrain } from '../ai/brains/PostBrain';
 import { randomAnchorAround, zoneIds } from '../ai/destinations';
 import { dist } from '../core/math';
+import { KITS, ITEMS, type WeaponId } from '../config/items';
+import type { DivisionId } from '../config/factions';
+
+/** Выдать набор предметов роли; первое оружие из набора — в руки, магазин заряжен. */
+export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat'>): void {
+  c.inventory.clear();
+  c.weapon = null;
+  c.mag = 0;
+  let weapon: WeaponId | null = null;
+  for (const [id, qty] of KITS[kit] ?? []) {
+    c.inventory.add(id, qty);
+    if (!weapon && ITEMS[id].kind === 'weapon') weapon = id as WeaponId;
+  }
+  if (weapon) ctx.combat.equip(c, weapon);
+}
+
+/** Набор ГО по специализации. */
+export function cpKit(division: DivisionId | null): string {
+  return division === 'grid' ? 'cp_grid' : division === 'helix' ? 'cp_helix' : 'cp';
+}
 
 /** Точка в px мира для POI. */
 export function poiWorld(ctx: Pick<AiContext, 'map'>, type: Parameters<AiContext['map']['poisOf']>[0], k = 0): { x: number; y: number } | null {
@@ -46,51 +66,67 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
-  const add = (faction: FactionId, spot: { x: number; y: number } | null, rank = 0): Character | null => {
+  const add = (faction: FactionId, spot: { x: number; y: number } | null, kit: string, rank = 0): Character | null => {
     if (!spot) return null;
     const c = createCharacter(ctx.entities, ctx.rng, faction, spot.x, spot.y, false, rank);
     c.facing = ctx.rng.range(0, Math.PI * 2);
+    // У жителей немного разная сытость — не все проголодаются одновременно.
+    c.hunger = ctx.rng.range(40, 100);
+    equipKit(c, kit, ctx);
     return c;
   };
 
   const nearPlaza = Math.min(6, citizens);
   for (let k = 0; k < citizens; k++) {
     const spot = k < nearPlaza ? freeSpot(ctx, plaza, 3, 22, civAvoid) : freeSpot(ctx, anywhere, 0, 110, civAvoid);
-    const c = add('citizen', spot);
+    const c = add('citizen', spot, 'citizen');
     if (c) c.brain = new CitizenBrain(c, ctx);
   }
   for (let k = 0; k < P.cwu; k++) {
-    const c = add('cwu', freeSpot(ctx, plaza, 3, 30, civAvoid));
+    const c = add('cwu', freeSpot(ctx, plaza, 3, 30, civAvoid), 'cwu');
     if (c) c.brain = new CitizenBrain(c, ctx);
   }
+  // Подпольщики в городе — без оружия на виду.
   for (let k = 0; k < P.rebels; k++) {
-    const c = add('rebel', freeSpot(ctx, anywhere, 40, 110, civAvoid), randomRank(ctx, 'rebel', 4));
+    const c = add('rebel', freeSpot(ctx, anywhere, 40, 110, civAvoid), 'citizen', randomRank(ctx, 'rebel', 4));
     if (c) c.brain = new CitizenBrain(c, ctx);
   }
   const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
   const none = new Set<number>();
+  const patrolDivisions: DivisionId[] = ['union', 'union', 'jury', 'helix', 'union', 'jury'];
   for (let k = 0; k < P.cpPatrol; k++) {
-    const c = add('cp', freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, none), randomRank(ctx, 'cp', 6));
-    if (c) c.brain = new CpBrain(c, ctx);
-  }
-  // Часовые КПП: пост в коридоре, лицом к пустошам.
-  const outs = ctx.map.poisOf('outlands_exit');
-  ctx.map.poisOf('checkpoint_post').forEach((p, k) => {
-    if (Math.floor(k / 2) >= outs.length || k % 2 >= P.cpPerCheckpoint) return;
-    const ts = ctx.map.tileSize;
-    const post = { x: (p.x + 0.5) * ts, y: (p.y + 0.5) * ts };
-    const out = outs[Math.floor(k / 2)];
-    const facing = Math.atan2((out.y + 0.5) * ts - post.y, (out.x + 0.5) * ts - post.x);
-    const c = add('cp', freeSpot(ctx, post, 0, 0, none, 20), randomRank(ctx, 'cp', 5));
+    const division = patrolDivisions[k % patrolDivisions.length];
+    const c = add('cp', freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, none), cpKit(division), randomRank(ctx, 'cp', 6));
     if (c) {
-      c.facing = facing;
-      c.brain = new CpBrain(c, ctx, post, facing);
+      c.division = division;
+      c.brain = new CpBrain(c, ctx);
     }
-  });
+  }
+  // Гарнизоны КПП: часовые GRID на постах лицом к пустошам + медик HELIX в бункере.
+  for (const f of ctx.war.fronts) {
+    f.posts.slice(0, P.cpPerCheckpoint).forEach((post) => {
+      const facing = Math.atan2(f.exit.y - post.y, f.exit.x - post.x);
+      const c = add('cp', freeSpot(ctx, post, 0, 0, none, 20), 'cp_grid', randomRank(ctx, 'cp', 5));
+      if (c) {
+        c.division = 'grid';
+        c.facing = facing;
+        c.brain = new CpBrain(c, ctx, { post, facing, front: f.index });
+      }
+    });
+    if (f.bunker.length) {
+      const a = ctx.rng.pick(f.bunker);
+      const st = { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) };
+      const c = add('cp', freeSpot(ctx, st, 0, 0, none, 20), 'cp_helix', randomRank(ctx, 'cp', 4));
+      if (c) {
+        c.division = 'helix';
+        c.brain = new CpBrain(c, ctx, { front: f.index, medicStation: st });
+      }
+    }
+  }
   if (P.admin > 0) {
     const desk = poiWorld(ctx, 'nexus_desk');
     if (desk) {
-      const c = add('admin', freeSpot(ctx, desk, 0, 0, none, 10));
+      const c = add('admin', freeSpot(ctx, desk, 0, 0, none, 10), 'admin');
       if (c) c.brain = new PostBrain({ x: c.x, y: c.y }, ctx.rng.range(0, Math.PI * 2));
     }
   }

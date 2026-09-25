@@ -17,6 +17,8 @@ export const CONTROLS = {
   choice1: ['Digit1', 'Numpad1'],
   choice2: ['Digit2', 'Numpad2'],
   choice3: ['Digit3', 'Numpad3'],
+  reload: ['KeyR'],
+  special: ['KeyG'],
 } as const;
 
 export type Action = keyof typeof CONTROLS;

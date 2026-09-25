@@ -21,7 +21,7 @@ export class MapRenderer {
   private ys = new Float64Array(0);
 
   constructor(private readonly map: GameMap) {
-    const { width: w, height: h, tiles } = map;
+    const { width: w, height: h } = map;
     const n = w * h;
     this.color = new Array<string>(n);
     this.edges = new Uint8Array(n);
@@ -29,62 +29,73 @@ export class MapRenderer {
     this.noise = new Uint32Array(n);
     const seed = map.seed | 0;
     this.buildParcels(seed);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.computeTile(x, y);
+  }
+
+  private readonly roofColor = new Map<number, [number, number, number]>();
+
+  /** Пересчитать тайл и соседей (игрок поставил/убрал блок). */
+  refresh(tx: number, ty: number): void {
+    for (let y = ty - 1; y <= ty + 1; y++) {
+      for (let x = tx - 1; x <= tx + 1; x++) if (this.map.inBounds(x, y)) this.computeTile(x, y);
+    }
+  }
+
+  /** Цвет и маска соседей одного тайла. */
+  private computeTile(x: number, y: number): void {
+    const map = this.map;
+    const seed = map.seed | 0;
     const P = RENDER.tiles;
-    const roofColor = new Map<number, [number, number, number]>();
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        const t = tiles[i];
-        const hv = hash2(x, y, seed);
-        this.noise[i] = hv;
-        const jit = (hv / 4294967296 - 0.5) * 2;
-        const solid = SOLID[t] === 1;
-        let e = 0;
-        const nb = (dx: number, dy: number) => this.map.isSolid(x + dx, y + dy);
-        if (solid) {
-          if (!nb(0, -1)) e |= 1;
-          if (!nb(1, 0)) e |= 2;
-          if (!nb(0, 1)) e |= 4;
-          if (!nb(-1, 0)) e |= 8;
-        } else {
-          if (nb(0, -1)) e |= 1;
-          if (nb(1, 0)) e |= 2;
-          if (nb(0, 1)) e |= 4;
-          if (nb(-1, 0)) e |= 8;
-          if (nb(-1, -1)) e |= 16;
+    const i = y * map.width + x;
+    const t = map.tiles[i];
+    const hv = hash2(x, y, seed);
+    this.noise[i] = hv;
+    const jit = (hv / 4294967296 - 0.5) * 2;
+    const solid = SOLID[t] === 1;
+    let e = 0;
+    const nb = (dx: number, dy: number) => map.isSolid(x + dx, y + dy);
+    if (solid) {
+      if (!nb(0, -1)) e |= 1;
+      if (!nb(1, 0)) e |= 2;
+      if (!nb(0, 1)) e |= 4;
+      if (!nb(-1, 0)) e |= 8;
+    } else {
+      if (nb(0, -1)) e |= 1;
+      if (nb(1, 0)) e |= 2;
+      if (nb(0, 1)) e |= 4;
+      if (nb(-1, 0)) e |= 8;
+      if (nb(-1, -1)) e |= 16;
+    }
+    this.edges[i] = e;
+    const tone = (c: { h: number; s: number; l: number; noise: number }) => hsl(c.h, c.s, c.l + jit * c.noise);
+    switch (t) {
+      case T.WALL: {
+        const p = this.parcel[i];
+        let rc = this.roofColor.get(p);
+        if (!rc) {
+          const r1 = hash01(p, 1, seed);
+          const r2 = hash01(p, 2, seed);
+          const r3 = hash01(p, 3, seed);
+          const R = P.roof;
+          rc = [R.hues[Math.floor(r1 * R.hues.length)], R.sat[0] + r2 * (R.sat[1] - R.sat[0]), R.light[0] + r3 * (R.light[1] - R.light[0])];
+          this.roofColor.set(p, rc);
         }
-        this.edges[i] = e;
-        const tone = (c: { h: number; s: number; l: number; noise: number }) => hsl(c.h, c.s, c.l + jit * c.noise);
-        switch (t) {
-          case T.WALL: {
-            const p = this.parcel[i];
-            let rc = roofColor.get(p);
-            if (!rc) {
-              const r1 = hash01(p, 1, seed);
-              const r2 = hash01(p, 2, seed);
-              const r3 = hash01(p, 3, seed);
-              const R = P.roof;
-              rc = [R.hues[Math.floor(r1 * R.hues.length)], R.sat[0] + r2 * (R.sat[1] - R.sat[0]), R.light[0] + r3 * (R.light[1] - R.light[0])];
-              roofColor.set(p, rc);
-            }
-            this.color[i] = hsl(rc[0], rc[1], rc[2] + jit * 0.8);
-            break;
-          }
-          case T.METAL: this.color[i] = P.metal; break;
-          case T.FLOOR: this.color[i] = tone(P.floor); break;
-          case T.STREET: this.color[i] = tone(P.street); break;
-          case T.PLAZA: this.color[i] = tone(P.plaza); break;
-          case T.INTERIOR: this.color[i] = tone(P.interior); break;
-          case T.COURTYARD: this.color[i] = tone(P.courtyard); break;
-          case T.ARCH: this.color[i] = tone(P.arch); break;
-          case T.DOOR: this.color[i] = P.doorFrame; break;
-          case T.GATE: this.color[i] = P.gate; break;
-          case T.BUNKER: this.color[i] = tone(P.bunker); break;
-          case T.WASTE: this.color[i] = tone(P.waste); break;
-          case T.BARRIER: this.color[i] = P.barrier; break;
-          default: this.color[i] = '#f0f';
-        }
+        this.color[i] = hsl(rc[0], rc[1], rc[2] + jit * 0.8);
+        break;
       }
+      case T.METAL: this.color[i] = P.metal; break;
+      case T.FLOOR: this.color[i] = tone(P.floor); break;
+      case T.STREET: this.color[i] = tone(P.street); break;
+      case T.PLAZA: this.color[i] = tone(P.plaza); break;
+      case T.INTERIOR: this.color[i] = tone(P.interior); break;
+      case T.COURTYARD: this.color[i] = tone(P.courtyard); break;
+      case T.ARCH: this.color[i] = tone(P.arch); break;
+      case T.DOOR: this.color[i] = P.doorFrame; break;
+      case T.GATE: this.color[i] = P.gate; break;
+      case T.BUNKER: this.color[i] = tone(P.bunker); break;
+      case T.WASTE: this.color[i] = tone(P.waste); break;
+      case T.BARRIER: this.color[i] = P.barrier; break;
+      default: this.color[i] = '#f0f';
     }
   }
 

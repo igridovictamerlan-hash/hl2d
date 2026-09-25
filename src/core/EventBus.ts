@@ -8,6 +8,10 @@ export interface GameEvents {
   'map:loaded': { seed: number; stats: MapStats | null; source: 'generated' | 'file' };
   'zone:enter': { entityId: number; zone: Zone };
   log: { text: string; kind: 'system' | 'world' | 'radio' | 'law' };
+  /** Крупное объявление по центру экрана. */
+  announce: { text: string };
+  /** Смена кода тревоги. */
+  alert: { code: 'green' | 'red' };
   /** Игрок-ГО закончил проверку документов — показать решение. */
   'law:checkResult': { target: Character; verdict: Verdict };
   /** Панель проверки закрыта (решение принято или задержанный ушёл). */

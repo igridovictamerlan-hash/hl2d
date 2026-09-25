@@ -152,7 +152,7 @@ export class Mover {
 
     // Блокировка: движемся заметно медленнее желаемого.
     const slow = this.avgSpeed < this.speed * M.slowFraction;
-    const blocker = slow ? this.findBlocker(self, dx, dy, ctx) : null;
+    const blocker = slow ? (this.findBlocker(self, dx, dy, ctx) ?? this.findContact(self, dx, dy, ctx)) : null;
     this.blocker = blocker;
     if (slow && blocker) {
       this.blockedTime += dt;
@@ -219,6 +219,21 @@ export class Mover {
       }
     }
     return best;
+  }
+
+  /**
+   * Упираемся, а прямо по курсу никого — возможно, мешает тот, кто касается нас сбоку
+   * (например, стоит у входа в узкий проход, куда мы поворачиваем).
+   */
+  private findContact(self: Character, dx: number, dy: number, ctx: AiContext): Character | null {
+    for (const o of ctx.entities.near(self.x, self.y, self.radius * 2 + 4, near)) {
+      if (o === self || !o.alive) continue;
+      const ox = o.x - self.x;
+      const oy = o.y - self.y;
+      const d = Math.hypot(ox, oy);
+      if (d > 1e-3 && d - self.radius - o.radius < 4 && (ox * dx + oy * dy) / d > -0.3) return o;
+    }
+    return null;
   }
 
   private resolveBlock(self: Character, b: Character, dx: number, dy: number, ctx: AiContext): void {

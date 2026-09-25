@@ -9,6 +9,7 @@ export function roleLabel(c: Character): string {
   const f = FACTIONS[c.faction];
   const r = rankOf(c.faction, c.rank);
   let s = r ? `${f.role} · ${r.short}` : c.faction === 'admin' ? f.role : `${f.role} · #${c.cid}`;
+  if (c.division) s += ` · ${c.division.toUpperCase()}`;
   const phase = c.law.phase;
   if (phase === 'cuffed' || phase === 'entering') s += ' · задержан';
   else if (phase === 'jailed') s += ' · в КПЗ';
@@ -42,6 +43,15 @@ export class EntityRenderer {
       ctx.lineWidth = Math.max(1, s * 1.5);
       ctx.strokeStyle = col.outline;
       ctx.stroke();
+      // Оружие в руках — ствол по направлению взгляда (видно, кто вооружён).
+      if (c.weapon) {
+        ctx.strokeStyle = RENDER.entity.gun;
+        ctx.lineWidth = Math.max(2, s * 3);
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(c.facing) * r * 0.5, y + Math.sin(c.facing) * r * 0.5);
+        ctx.lineTo(x + Math.cos(c.facing) * r * 1.55, y + Math.sin(c.facing) * r * 1.55);
+        ctx.stroke();
+      }
       // Направление взгляда.
       ctx.fillStyle = col.outline;
       ctx.beginPath();

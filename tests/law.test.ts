@@ -141,27 +141,30 @@ describe('живой город со всеми фракциями', () => {
     spawnPopulation(sim.ctx, 20);
     const count = (f: string) => sim.entities.list.filter((c) => c.faction === f).length;
     expect(count('citizen')).toBe(20);
-    expect(count('cp')).toBe(10);
+    // 6 патрульных + на каждом из двух КПП 2 часовых GRID и медик HELIX.
+    expect(count('cp')).toBe(12);
+    const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
+    for (const d of ['union', 'grid', 'helix', 'jury']) expect(divisions.has(d as never)).toBe(true);
     expect(count('rebel')).toBe(3);
     expect(count('admin')).toBe(1);
-    const stuckSince = new Map<Character, number>();
+    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, конвой, заведение) дольше 60 с.
+    const stuckSince = new Map<Character, [number, string]>();
     let worstStuck = 0;
     for (let t = 0; t < 180 * 60; t++) {
       sim.step();
       if (t % 30 !== 0) continue;
       for (const c of sim.entities.list) {
         const ph = c.law.phase;
-        // «Застрял в процедуре»: одно и то же нетерминальное состояние дольше 60 с.
         if (ph === 'ordered' || ph === 'checking' || ph === 'cuffed' || ph === 'entering') {
-          const s = stuckSince.get(c) ?? t;
-          stuckSince.set(c, s);
-          worstStuck = Math.max(worstStuck, (t - s) / 60);
+          const s = stuckSince.get(c);
+          if (!s || s[1] !== ph) stuckSince.set(c, [t, ph]);
+          else worstStuck = Math.max(worstStuck, (t - s[0]) / 60);
         } else stuckSince.delete(c);
       }
     }
     const checks = sim.log.filter((l) => /оштрафовал|задержал|убегает|помещён/.test(l));
     console.log(`событий закона: ${checks.length}\n` + sim.log.slice(-12).join('\n'));
-    console.log(`максимум в одной процедуре: ${worstStuck.toFixed(1)} с`);
+    console.log(`максимум в одной фазе процедуры: ${worstStuck.toFixed(1)} с`);
     expect(checks.length).toBeGreaterThan(0);
     expect(worstStuck).toBeLessThan(60);
     for (const cell of sim.law.cells) if (cell.occupant) expect(cell.occupant.law.phase).toBe('jailed');

@@ -10,6 +10,13 @@ import { AI } from '../../config/ai';
 import { CHARACTER } from '../../config/entities';
 import { LAW } from '../../config/law';
 import { FACTIONS } from '../../config/factions';
+import { ECONOMY } from '../../config/economy';
+import { ITEMS, type ItemId } from '../../config/items';
+import type { RepairSpot } from '../../systems/EconomySystem';
+import type { Vec2 } from '../../core/math';
+
+/** Работа ГСР. */
+type Job = { kind: 'dispense' } | { kind: 'repair'; spot: RepairSpot } | { kind: 'clerk'; until: number };
 
 /** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
 export interface StreetProfile {
@@ -40,6 +47,11 @@ export class CitizenBrain implements Brain {
   readonly profile: StreetProfile;
   readonly walkSpeed: number;
   idleLeft = 0;
+  job: Job | null = null;
+  /** В какой раздаче уже решали, идти ли в очередь. */
+  consideredCycle = 0;
+  lastSlot = -1;
+  panicFrom: Vec2 | null = null;
   private cpCheck = 0;
 
   constructor(
@@ -53,7 +65,7 @@ export class CitizenBrain implements Brain {
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
-    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE], 'idle');
+    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
   }
@@ -74,6 +86,22 @@ export class CitizenBrain implements Brain {
     } else if (cur === 'stopped' || cur === 'flee') {
       this.idleLeft = 1;
       this.fsm.change('idle');
+    } else if (cur !== 'panic') {
+      const now = ctx.law.now;
+      const shot = self.panicUntil < now ? ctx.combat.heardShot(self, 220, 0.4) : null;
+      if (shot && self.faction !== 'rebel') {
+        // Стрельба рядом — бежать прочь.
+        self.panicUntil = now + ctx.rng.range(4, 6);
+        this.panicFrom = { x: shot.x, y: shot.y };
+        this.fsm.change('panic');
+      } else if (ctx.war.curfew && cur !== 'shelter') this.fsm.change('shelter');
+      else if (!ctx.war.curfew && cur === 'shelter') this.fsm.change('idle');
+      else if (self.faction === 'cwu' && ctx.economy.open && !ctx.economy.dispenser && (cur === 'idle' || cur === 'walk')) {
+        if (ctx.economy.claimDispenser(self)) {
+          this.job = { kind: 'dispense' };
+          this.fsm.change('work');
+        }
+      }
     }
     if (this.profile.avoidCp && (cur === 'walk' || cur === 'idle')) this.watchForCp(dt);
     this.fsm.update(dt);
@@ -113,6 +141,50 @@ export class CitizenBrain implements Brain {
     return best;
   }
 
+  /** Что делать после паузы: работа, очередь, магазин или прогулка. */
+  decide(): string {
+    const { ctx, self } = this;
+    const eco = ctx.economy;
+    if (self.faction === 'cwu') {
+      const job = this.pickJob();
+      if (job) {
+        this.job = job;
+        return 'work';
+      }
+    }
+    if (eco.open && eco.cycle !== this.consideredCycle && !eco.hasBeenServed(self) && self.faction !== 'rebel') {
+      this.consideredCycle = eco.cycle;
+      if (ctx.rng.chance(ECONOMY.rations.npcJoinChance)) return 'queue';
+    }
+    if (eco.shopCounter && self.money >= 6 && self.hunger < 75 && ctx.rng.chance(ECONOMY.shop.npcVisitChance)) return 'shop';
+    return 'walk';
+  }
+
+  /** Работа для ГСР: выдача рационов, ремонт, прилавок магазина. */
+  private pickJob(): Job | null {
+    const { ctx, self } = this;
+    const eco = ctx.economy;
+    if (eco.open && (!eco.dispenser || eco.dispenser === self) && eco.claimDispenser(self)) return { kind: 'dispense' };
+    const spots = eco.brokenSpots().filter((r) => !r.worker);
+    if (spots.length) {
+      spots.sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y));
+      spots[0].worker = self;
+      return { kind: 'repair', spot: spots[0] };
+    }
+    if (eco.shopCounter && ctx.rng.chance(0.35)) {
+      const busy = ctx.entities.near(eco.shopCounter.x, eco.shopCounter.y, 40).some((o) => o.faction === 'cwu' && o !== self);
+      if (!busy) return { kind: 'clerk', until: ctx.law.now + ctx.rng.range(40, 80) };
+    }
+    return null;
+  }
+
+  goToPoint(p: Vec2): boolean {
+    const a = this.ctx.nav.nearestWalkable(p.x, p.y, 4);
+    if (a < 0) return false;
+    this.mover.goTo(this.self, this.ctx, a);
+    return true;
+  }
+
   pickGoal(): number {
     const { ctx, profile } = this;
     const f = this.self.faction;
@@ -146,7 +218,7 @@ const IDLE: State<CitizenBrain> = {
   update(b, dt) {
     if (b.mover.yieldFrom) return;
     b.idleLeft -= dt;
-    if (b.idleLeft <= 0) return 'walk';
+    if (b.idleLeft <= 0) return b.decide();
   },
 };
 
@@ -195,6 +267,162 @@ const FLEE: State<CitizenBrain> = {
       const h = b.self.law.handler;
       const goal = h ? b.goalAwayFrom(h.x, h.y) : -1;
       if (goal >= 0) b.mover.goTo(b.self, b.ctx, goal);
+    }
+  },
+  exit(b) {
+    b.mover.speed = b.walkSpeed;
+  },
+};
+
+/** Очередь за рационом: встать на своё место, продвигаться, получить паёк. */
+const QUEUE: State<CitizenBrain> = {
+  name: 'queue',
+  enter(b) {
+    b.mover.speed = b.walkSpeed;
+    b.mover.avoidZones = b.avoid;
+    b.lastSlot = -1;
+    if (b.ctx.economy.joinQueue(b.self) < 0) b.idleLeft = 0.5;
+  },
+  update(b, dt) {
+    const eco = b.ctx.economy;
+    const idx = eco.queue.indexOf(b.self);
+    if (idx < 0 || !eco.open) {
+      b.idleLeft = eco.hasBeenServed(b.self) ? 2 : 0.5;
+      eco.leaveQueue(b.self);
+      return 'idle';
+    }
+    const slot = eco.queueSlot(idx);
+    const d = Math.hypot(slot.x - b.self.x, slot.y - b.self.y);
+    if (idx !== b.lastSlot || (d > 14 && b.mover.status !== 'moving' && b.mover.status !== 'pending')) {
+      b.lastSlot = idx;
+      if (d > 8) b.goToPoint(slot);
+    }
+    if (d <= 10 && b.mover.status !== 'moving') {
+      b.mover.stop();
+      faceTowards(b.self, eco.window.x, eco.window.y, dt);
+    }
+  },
+  exit(b) {
+    b.ctx.economy.leaveQueue(b.self);
+  },
+};
+
+/** Сходить в магазин ГСР и купить еды. */
+const SHOP: State<CitizenBrain> = {
+  name: 'shop',
+  enter(b) {
+    const c = b.ctx.economy.shopCounter;
+    if (!c || !b.goToPoint(c)) b.idleLeft = 0.5;
+  },
+  update(b) {
+    const st = b.mover.status;
+    if (st === 'failed' || st === 'idle') return 'idle';
+    if (st !== 'arrived') return;
+    const affordable = ECONOMY.shop.stock.filter((id: ItemId) => ITEMS[id].kind === 'food' && (ITEMS[id].price ?? 1e9) <= b.self.money);
+    if (affordable.length) {
+      const id = b.ctx.rng.pick(affordable);
+      if (!b.ctx.economy.buy(b.self, id)) b.self.say(`Мне ${ITEMS[id].name.toLowerCase()}, пожалуйста.`, b.ctx.law.now, 2);
+    }
+    b.idleLeft = b.ctx.rng.range(2, 5);
+    return 'idle';
+  },
+};
+
+/** Работа ГСР. */
+const WORK: State<CitizenBrain> = {
+  name: 'work',
+  enter(b) {
+    b.mover.speed = b.walkSpeed;
+    const job = b.job;
+    const eco = b.ctx.economy;
+    if (!job) return;
+    if (job.kind === 'dispense') b.goToPoint(eco.dispenserSpot);
+    else if (job.kind === 'repair') b.goToPoint(job.spot);
+    else if (eco.shopCounter) b.goToPoint(eco.shopCounter);
+  },
+  update(b, dt) {
+    const job = b.job;
+    const eco = b.ctx.economy;
+    const done = () => {
+      if (job?.kind === 'dispense') eco.releaseDispenser(b.self);
+      if (job?.kind === 'repair' && job.spot.worker === b.self) job.spot.worker = null;
+      b.job = null;
+      b.idleLeft = b.ctx.rng.range(1, 4);
+      return 'idle';
+    };
+    if (!job) return done();
+    const st = b.mover.status;
+    if (st === 'failed') return done();
+    switch (job.kind) {
+      case 'dispense': {
+        if (!eco.open || (eco.dispenser && eco.dispenser !== b.self)) return done();
+        const d = Math.hypot(eco.dispenserSpot.x - b.self.x, eco.dispenserSpot.y - b.self.y);
+        if (d < 24) {
+          b.mover.stop();
+          const q = eco.queueSlot(0);
+          faceTowards(b.self, q.x, q.y, dt);
+          eco.markWorked(b.self);
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(eco.dispenserSpot);
+        return;
+      }
+      case 'repair': {
+        if (!job.spot.broken) return done();
+        if (Math.hypot(job.spot.x - b.self.x, job.spot.y - b.self.y) < 30) {
+          b.mover.stop();
+          faceTowards(b.self, job.spot.x, job.spot.y, dt);
+          if (eco.repairStep(b.self, job.spot, dt)) return done();
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(job.spot);
+        return;
+      }
+      case 'clerk': {
+        if (b.ctx.law.now > job.until || !eco.shopCounter) return done();
+        if (st === 'arrived') b.mover.stop();
+        if (b.fsm.time % 10 < dt) eco.markWorked(b.self);
+        return;
+      }
+    }
+  },
+  exit(b) {
+    if (b.job?.kind === 'dispense') b.ctx.economy.releaseDispenser(b.self);
+  },
+};
+
+/** Комендантский час: уйти в ближайший подъезд/двор и сидеть там до отбоя. */
+const SHELTER: State<CitizenBrain> = {
+  name: 'shelter',
+  enter(b) {
+    b.mover.speed = CHARACTER.walkSpeed * 1.05;
+    b.mover.avoidZones = b.avoid;
+    const a = b.ctx.war.nearestShelter(b.self.x, b.self.y);
+    if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+  },
+  update(b) {
+    const st = b.mover.status;
+    if (st === 'arrived') b.mover.stop();
+    else if (st === 'failed' || (st === 'idle' && b.ctx.war.outdoors(b.self))) {
+      const a = b.ctx.war.nearestShelter(b.self.x, b.self.y);
+      if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    }
+  },
+  exit(b) {
+    b.mover.speed = b.walkSpeed;
+  },
+};
+
+/** Стрельба рядом: бежать прочь несколько секунд. */
+const PANIC: State<CitizenBrain> = {
+  name: 'panic',
+  enter(b) {
+    b.mover.speed = CHARACTER.runSpeed * 0.85;
+    const p = b.panicFrom;
+    const goal = p ? b.goalAwayFrom(p.x, p.y) : -1;
+    if (goal >= 0) b.mover.goTo(b.self, b.ctx, goal);
+    b.self.say(b.ctx.rng.pick(['Стреляют!', 'Бежим!', 'Ложись!']), b.ctx.law.now, 1.5);
+  },
+  update(b) {
+    if (b.self.panicUntil < b.ctx.law.now || b.mover.status === 'arrived' || b.mover.status === 'failed') {
+      b.idleLeft = 1;
+      return 'idle';
     }
   },
   exit(b) {

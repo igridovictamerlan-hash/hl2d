@@ -1,4 +1,7 @@
-import type { FactionId } from '../config/factions';
+import type { FactionId, DivisionId } from '../config/factions';
+import type { ItemId, WeaponId } from '../config/items';
+import { ECONOMY } from '../config/economy';
+import { Inventory } from './Inventory';
 import { CHARACTER } from '../config/entities';
 import type { Brain } from '../ai/Brain';
 import type { Violation } from '../config/law';
@@ -53,6 +56,8 @@ export class Character {
   faction: FactionId;
   /** Ранг во фракции (у ГО и повстанцев от него зависит цвет). */
   rank = 0;
+  /** Специализация ГО (UNION, GRID, HELIX, JURY). */
+  division: DivisionId | null = null;
   name: string;
   /** Номер CID-карты. */
   cid: string;
@@ -83,6 +88,33 @@ export class Character {
 
   brain: Brain | null = null;
   alive = true;
+
+  readonly inventory = new Inventory(ECONOMY.inventorySlots);
+  /** Сытость 0..100. */
+  hunger: number = ECONOMY.hunger.max;
+  /** Оружие в руках (предмет из инвентаря) или null. */
+  weapon: WeaponId | null = null;
+  /** Патронов в магазине. */
+  mag = 0;
+  /** Время, когда закончится перезарядка / можно стрелять снова (игровое время). */
+  reloadUntil = 0;
+  nextShot = 0;
+  /** Когда последний раз ранили и кто. */
+  lastHurt = -1e9;
+  lastAttacker: Character | null = null;
+  /** Напал на Альянс (стрелял по ГО/OTA) — ГО стреляет без предупреждения. */
+  hostile = false;
+  /** Для игрока: когда возродится (после гибели). */
+  respawnAt = 0;
+  /** До какого времени в панике (бег от стрельбы — не нарушение). */
+  panicUntil = 0;
+
+  /** Экипировать оружие, если оно есть в инвентаре; null — убрать. */
+  equip(id: WeaponId | null): boolean {
+    if (id && !this.inventory.has(id as ItemId)) return false;
+    this.weapon = id;
+    return true;
+  }
   /** Виден ли игроку в этот тик (туман войны). */
   visible = true;
 

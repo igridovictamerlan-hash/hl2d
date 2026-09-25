@@ -38,4 +38,5 @@ export const ZONE_NAMES = {
   restricted: 'Запретная зона',
   checkpoints: ['Пограничный КПП «Запад»', 'Пограничный КПП «Восток»'],
   outlands: 'Пустоши (за городской стеной)',
+  shop: 'Магазин ГСР',
 } as const;

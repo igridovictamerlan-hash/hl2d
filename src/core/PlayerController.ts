@@ -7,7 +7,10 @@ import type { CheckChoice } from '../ui/CheckPanel';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
 import { FACTIONS } from '../config/factions';
-import { poiWorld } from '../systems/Population';
+import { poiWorld, equipKit, cpKit } from '../systems/Population';
+import { WEAPONS } from '../config/items';
+import { COMBAT } from '../config/combat';
+import type { RepairSpot } from '../systems/EconomySystem';
 
 const near: Character[] = [];
 
@@ -22,6 +25,9 @@ const REACH = 48;
 export class PlayerController {
   /** Идёт проверка документов, начатая игроком-ГО. */
   private check: { target: Character; until: number } | null = null;
+  /** Чинит ли игрок (ГСР) поломку. */
+  private repairing: RepairSpot | null = null;
+  private healCooldown = 0;
 
   constructor(
     private readonly input: Input,
@@ -30,6 +36,9 @@ export class PlayerController {
     private readonly hooks: {
       openRoleMenu(): void;
       menuOpen(): boolean;
+      openShop(): void;
+      toggleInventory(): void;
+      placeBarrier(): string | null;
       checkPanelTarget(): Character | null;
       closeCheckPanel(choice: CheckChoice): void;
     },
@@ -37,11 +46,21 @@ export class PlayerController {
 
   reset(): void {
     this.check = null;
+    this.repairing = null;
   }
 
-  update(p: Character, ctx: AiContext): void {
+  private say(text: string, kind: 'system' | 'world' | 'law' = 'system'): void {
+    this.bus.emit('log', { text, kind });
+  }
+
+  update(p: Character, ctx: AiContext, dt: number): void {
     const i = this.input;
     const law = p.law;
+    this.healCooldown -= dt;
+    if (!p.alive) {
+      p.wantX = p.wantY = 0;
+      return;
+    }
     const locked = !!p.brain || law.phase === 'checking' || this.hooks.menuOpen();
     if (locked) {
       if (!p.brain) p.wantX = p.wantY = 0;
@@ -61,14 +80,28 @@ export class PlayerController {
         p.facing = Math.atan2(m.y - p.y, m.x - p.x);
       } else if (len > 0) p.facing = Math.atan2(my, mx);
     }
+    if (i.wasPressed('inventory')) this.hooks.toggleInventory();
     if (this.hooks.menuOpen() || p.brain) return;
 
-    if (i.wasPressed('interact')) {
-      const t = poiWorld(ctx, 'recruit_terminal');
-      if (t && Math.hypot(t.x - p.x, t.y - p.y) < REACH) this.hooks.openRoleMenu();
-      else this.bus.emit('log', { text: 'Рядом нечего использовать. Терминал найма — в углу площади раздачи.', kind: 'system' });
+    // Стрельба: автомат — пока зажата кнопка, пистолет — по клику.
+    const w = p.weapon ? WEAPONS[p.weapon] : null;
+    if (w && i.mouseInside && (w.auto ? i.mouseDown : i.mousePressed)) {
+      const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
+      if (p.mag <= 0 && !ctx.combat.reloading(p)) {
+        if (!ctx.combat.reload(p) && i.mousePressed) this.say('Нет патронов.');
+      } else ctx.combat.fire(p, m.x, m.y);
     }
+    if (i.wasPressed('reload') && w && !ctx.combat.reload(p) && ctx.combat.reserveAmmo(p) <= 0) this.say('Нет запасных патронов.');
+    if (i.wasPressed('interact')) this.interact(p, ctx);
     if (i.wasPressed('roleAction')) this.roleAction(p, ctx);
+    if (i.wasPressed('special')) this.special(p, ctx);
+    if (this.repairing) {
+      const r = this.repairing;
+      if (Math.hypot(r.x - p.x, r.y - p.y) > 36) {
+        this.repairing = null;
+        this.say('Ремонт прерван — отошли слишком далеко.');
+      } else if (ctx.economy.repairStep(p, r, dt)) this.repairing = null;
+    }
     if (this.hooks.checkPanelTarget()) {
       if (i.wasPressed('choice1')) this.hooks.closeCheckPanel('release');
       else if (i.wasPressed('choice2')) this.hooks.closeCheckPanel('fine');
@@ -81,6 +114,73 @@ export class PlayerController {
         if (o !== p && o.law.handler === p && o.law.phase === 'fleeing') ctx.law.arrest(p, o, 'resisting');
       }
     }
+  }
+
+  /** E: взаимодействие с ближайшим — терминал, магазин, тело, раздача, ремонт, оружейная. */
+  private interact(p: Character, ctx: AiContext): void {
+    const eco = ctx.economy;
+    const d = (q: { x: number; y: number } | null) => (q ? Math.hypot(q.x - p.x, q.y - p.y) : Infinity);
+    const terminal = poiWorld(ctx, 'recruit_terminal');
+    if (d(terminal) < REACH) return this.hooks.openRoleMenu();
+    if (d(eco.shopCounter) < REACH + 8) return this.hooks.openShop();
+    const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
+    if (corpse) {
+      const n = ctx.combat.loot(p, corpse);
+      return this.say(n > 0 ? `Обыскали тело: ${corpse.name}.` : 'Инвентарь полон.');
+    }
+    // ГСР: встать на выдачу / выдать следующему.
+    if (p.faction === 'cwu' && eco.open && d(eco.dispenserSpot) < REACH) {
+      if (eco.dispenser !== p) {
+        if (!eco.claimDispenser(p)) return this.say('На выдаче уже стоит работник.');
+        return this.say('Вы на выдаче рационов. E — выдать следующему в очереди.', 'world');
+      }
+      const served = eco.serveNext(p);
+      return this.say(served ? `Выдано: ${served.name}. +2 токена` : 'Очередь пуста или первый ещё не подошёл.', 'world');
+    }
+    if (p.faction === 'cwu') {
+      const spot = eco.repairs.find((r) => r.broken && d(r) < REACH);
+      if (spot) {
+        if (!p.inventory.has('toolkit')) return this.say('Нужен набор инструментов (есть в магазине ГСР).');
+        this.repairing = spot;
+        return this.say('Ремонт… не отходите 5 секунд.', 'world');
+      }
+    }
+    // Очередь за рационом.
+    if (eco.open && d(eco.window) < 200 && p.faction !== 'cp') {
+      if (eco.hasBeenServed(p)) return this.say('Вы уже получили рацион в эту раздачу.');
+      const n = eco.joinQueue(p);
+      return this.say(n >= 0 ? `Вы в очереди за рационом: ${n + 1}-й. Подойдите к отметке у окна.` : 'Очередь заполнена — подождите.', 'world');
+    }
+    // ГО: пополнить боекомплект у стойки дежурного.
+    const desk = poiWorld(ctx, 'nexus_desk');
+    if (p.faction === 'cp' && d(desk) < REACH * 1.5) {
+      const weapon = p.weapon;
+      equipKit(p, cpKit(p.division), ctx);
+      if (weapon) ctx.combat.equip(p, weapon);
+      return this.say('Боекомплект пополнен.', 'world');
+    }
+    this.say('Рядом нечего использовать. E работает у терминала найма, прилавка ГСР, окна раздачи, поломок и тел.');
+  }
+
+  /** G: умение специализации ГО. */
+  private special(p: Character, ctx: AiContext): void {
+    if (p.faction !== 'cp') return this.say('Умение (G) есть у ГО: HELIX лечит, GRID ставит бетонный блок.');
+    if (p.division === 'helix') {
+      if (this.healCooldown > 0) return;
+      let best: Character | null = null;
+      for (const o of ctx.entities.near(p.x, p.y, COMBAT.healRange + 12, near)) {
+        if (o !== p && o.alive && o.health < o.maxHealth && (!best || o.health < best.health)) best = o;
+      }
+      const target = best ?? (p.health < p.maxHealth ? p : null);
+      if (!target || !ctx.combat.heal(target, COMBAT.healAmount)) return this.say('Некого лечить рядом.');
+      this.healCooldown = COMBAT.healCooldown;
+      return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
+    }
+    if (p.division === 'grid') {
+      const err = this.hooks.placeBarrier();
+      return this.say(err ?? 'Бетонный блок установлен (не больше трёх).', err ? 'system' : 'world');
+    }
+    this.say(p.division === 'jury' ? 'JURY: проверки CID идут быстрее, штрафы выше (F).' : 'UNION: патруль, проверки CID (F).');
   }
 
   /** F: у ГО — проверка документов у ближайшего, кто перед игроком. */
@@ -114,7 +214,7 @@ export class PlayerController {
       return;
     }
     ctx.law.beginCheck(p, best);
-    this.check = { target: best, until: ctx.law.now + LAW.checkTime };
+    this.check = { target: best, until: ctx.law.now + LAW.checkTime * (p.division === 'jury' ? LAW.juryCheckMul : 1) };
   }
 
   private updateCheck(p: Character, ctx: AiContext): void {

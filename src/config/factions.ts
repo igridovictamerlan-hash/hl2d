@@ -88,6 +88,24 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
   },
 };
 
+/** Специализации (дивизионы) ГО. */
+export type DivisionId = 'union' | 'grid' | 'helix' | 'jury';
+
+export interface DivisionDef {
+  id: DivisionId;
+  short: string;
+  name: string;
+  desc: string;
+  color: string;
+}
+
+export const CP_DIVISIONS: Record<DivisionId, DivisionDef> = {
+  union: { id: 'union', short: 'UNION', name: 'Патрульный отряд', color: '#9cc9f5', desc: 'Патрули и проверки в городе. Быстрее бегает.' },
+  grid: { id: 'grid', short: 'GRID', name: 'Пограничный отряд', color: '#8fd6b0', desc: 'Держит КПП. MP7, G — поставить бетонный блок-укрытие.' },
+  helix: { id: 'helix', short: 'HELIX', name: 'Медицинский отряд', color: '#f08a8a', desc: 'G — вылечить того, кто перед вами. Аптечки в наборе.' },
+  jury: { id: 'jury', short: 'JURY', name: 'Дознаватели', color: '#d7b6f5', desc: 'Проверка CID вдвое быстрее, штрафы вдвое больше.' },
+};
+
 export function rankOf(faction: FactionId, rank: number): RankDef | null {
   const ranks = FACTIONS[faction].ranks;
   return ranks ? ranks[Math.max(0, Math.min(ranks.length - 1, rank))] : null;

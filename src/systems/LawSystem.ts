@@ -12,6 +12,9 @@ import { FACTIONS } from '../config/factions';
 import { LINES, fill } from '../config/lines';
 import { T } from '../world/tiles';
 import { PrisonerBrain } from '../ai/brains/PrisonerBrain';
+import { CHARACTER } from '../config/entities';
+
+const PRISONER_MASS = 0.4;
 
 export interface Verdict {
   kind: 'ok' | 'fine' | 'arrest';
@@ -110,12 +113,21 @@ export class LawSystem {
     return canSeeCircle(this.map, observer.x, observer.y, target.x, target.y, target.radius);
   }
 
+  /** Задаёт Game: нарушает ли персонаж комендантский час (красный код, на улице). */
+  curfewCheck: (c: Character) => boolean = () => false;
+  /** Задаёт Game: паникует ли персонаж (бег от стрельбы — не нарушение). */
+  panicking: (c: Character) => boolean = () => false;
+
   /** Нарушение, которое observer видит прямо сейчас, или null. */
   observe(observer: Character, target: Character): Violation | null {
     if (FACTIONS[target.faction].authority || target.law.phase !== 'none' || !target.alive) return null;
     if (!this.canSee(observer, target)) return null;
+    // Повстанца узнают сразу (форма), вооружённого — тоже.
+    if (target.faction === 'rebel') return 'rebel';
+    if (target.weapon) return 'weapon';
     if (this.map.zoneAtWorld(target.x, target.y)?.kind === 'restricted') return 'restricted';
-    if (target.moveSpeed > LAW.runSpeed) return 'running';
+    if (this.curfewCheck(target)) return 'curfew';
+    if (target.moveSpeed > LAW.runSpeed && !this.panicking(target)) return 'running';
     return null;
   }
 
@@ -136,7 +148,12 @@ export class LawSystem {
     law.orderX = target.x;
     law.orderY = target.y;
     law.since = this.time;
-    const lines = reason === 'running' ? LINES.cpOrderRun : reason === 'restricted' ? LINES.cpOrderRestricted : LINES.cpOrder;
+    const lines =
+      reason === 'running' ? LINES.cpOrderRun
+      : reason === 'restricted' ? LINES.cpOrderRestricted
+      : reason === 'curfew' ? LINES.cpOrderCurfew
+      : reason === 'rebel' || reason === 'weapon' ? LINES.cpOrderRebel
+      : LINES.cpOrder;
     handler.say(this.rng.pick(lines), this.time);
     if (!target.isPlayer) {
       const flee = LAW.npc.fleeChance[target.faction] ?? 0.1;
@@ -172,7 +189,8 @@ export class LawSystem {
   judge(target: Character): Verdict {
     const law = target.law;
     let reason: Violation = law.reason ?? 'routine';
-    if (law.wanted) reason = 'wanted';
+    if (target.faction === 'rebel') reason = 'rebel';
+    else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
     else if (!law.hasCid) reason = 'no_cid';
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };
     if (reason === 'running' || reason === 'restricted') {
@@ -187,6 +205,7 @@ export class LawSystem {
       return;
     }
     if (verdict.kind === 'fine') {
+      if (handler.division === 'jury') verdict = { ...verdict, fine: verdict.fine * LAW.juryFineMul };
       const paid = Math.min(target.money, verdict.fine);
       target.money -= paid;
       handler.money += Math.floor(paid / 2);
@@ -229,6 +248,8 @@ export class LawSystem {
     law.since = this.time;
     law.savedBrain = target.brain;
     target.brain = new PrisonerBrain(target);
+    // В наручниках не упирается: конвоир и прохожие легко отталкивают.
+    target.mass = PRISONER_MASS;
     target.wantX = target.wantY = 0;
     handler.say(this.rng.pick(LINES.cpArrest), this.time);
     this.log(`${label(handler)} задержал ${who(target)} (${VIOLATION_NAMES[reason]})`, 'law');
@@ -266,6 +287,19 @@ export class LawSystem {
     }
   }
 
+  /** Снять с персонажа любые процедуры (гибель, смена роли): освободить камеру, вернуть мозг. */
+  release(c: Character): void {
+    const cell = this.cells[c.law.cell];
+    if (cell) {
+      if (cell.occupant === c) cell.occupant = null;
+      if (cell.door) this.doors.setLocked(cell.door, false);
+    }
+    for (const cl of this.cells) if (cl.reserved === c) cl.reserved = null;
+    c.law.cell = -1;
+    if (c.law.savedBrain || c.brain instanceof PrisonerBrain) this.restoreBrain(c);
+    this.clear(c);
+  }
+
   /** Отпустить без камеры (КПЗ переполнены). */
   releaseNoCell(handler: Character, prisoner: Character): void {
     handler.say(this.rng.pick(LINES.noCellFree), this.time);
@@ -276,6 +310,7 @@ export class LawSystem {
   }
 
   private restoreBrain(p: Character): void {
+    p.mass = p.isPlayer ? CHARACTER.mass.player : CHARACTER.mass.npc;
     p.brain = p.law.savedBrain;
     p.law.savedBrain = null;
     p.wantX = p.wantY = 0;
