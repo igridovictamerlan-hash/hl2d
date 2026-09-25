@@ -393,19 +393,20 @@ const SHELTER: State<CitizenBrain> = {
   enter(b) {
     b.mover.speed = CHARACTER.walkSpeed * 1.05;
     b.mover.avoidZones = b.avoid;
-    const a = b.ctx.war.nearestShelter(b.self.x, b.self.y);
+    const a = b.ctx.war.nearestShelter(b.self.x, b.self.y, b.self);
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
   },
   update(b) {
     const st = b.mover.status;
     if (st === 'arrived') b.mover.stop();
     else if (st === 'failed' || (st === 'idle' && b.ctx.war.outdoors(b.self))) {
-      const a = b.ctx.war.nearestShelter(b.self.x, b.self.y);
+      const a = b.ctx.war.nearestShelter(b.self.x, b.self.y, b.self);
       if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
     }
   },
   exit(b) {
     b.mover.speed = b.walkSpeed;
+    b.ctx.war.releaseShelter(b.self);
   },
 };
 

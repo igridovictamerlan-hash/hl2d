@@ -60,6 +60,8 @@ export class WarSystem {
   readonly lastKnown = new Map<Character, Vec2>();
   /** Укрытия на время комендантского часа: подъезды, дворы, магазин. */
   readonly shelters: number[] = [];
+  /** Кто какое укрытие занял (якорь → гражданин). */
+  private readonly shelterClaims = new Map<number, Character>();
   readonly ota: Character[] = [];
   private time = 0;
   private redSince = 0;
@@ -142,20 +144,33 @@ export class WarSystem {
     );
   }
 
-  /** Ближайшее укрытие для гражданина на время комендантского часа. */
-  nearestShelter(x: number, y: number): number {
+  /**
+   * Укрытие для гражданина на время комендантского часа: ближайшее из случайной выборки, но не
+   * занятое другими и не вплотную к занятым (иначе толпа набивается в один тупик и застревает).
+   */
+  nearestShelter(x: number, y: number, who: Character | null = null): number {
     const nav = this.ctx.nav;
+    if (who) this.releaseShelter(who);
+    const claimed = [...this.shelterClaims.entries()].filter(([, c]) => c.alive).map(([a]) => a);
     let best = -1;
     let bestD = Infinity;
     for (let k = 0; k < 60 && this.shelters.length; k++) {
       const a = this.ctx.rng.pick(this.shelters);
-      const d = Math.hypot(nav.worldX(a) - x, nav.worldY(a) - y);
+      const ax = nav.worldX(a);
+      const ay = nav.worldY(a);
+      let d = Math.hypot(ax - x, ay - y);
+      for (const b of claimed) if (Math.hypot(nav.worldX(b) - ax, nav.worldY(b) - ay) < WAR.shelterSpacing) d += WAR.shelterCrowdPenalty;
       if (d < bestD) {
         bestD = d;
         best = a;
       }
     }
+    if (who && best >= 0) this.shelterClaims.set(best, who);
     return best;
+  }
+
+  releaseShelter(who: Character): void {
+    for (const [a, c] of this.shelterClaims) if (c === who) this.shelterClaims.delete(a);
   }
 
   /** Сообщить: сотрудник Альянса видит прорвавшегося. */
@@ -305,6 +320,7 @@ export class WarSystem {
   private declareGreen(): void {
     this.code = 'green';
     this.curfew = false;
+    this.shelterClaims.clear();
     this.ctx.law.log('Администрация: Код зелёный. Комендантский час отменён. Благодарим за сотрудничество.', 'world');
     this.ctx.bus.emit('alert', { code: 'green' });
     this.ctx.bus.emit('announce', { text: 'Код зелёный' });
