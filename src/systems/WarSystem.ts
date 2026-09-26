@@ -26,6 +26,8 @@ export interface Capture {
   until: number;
   rebelKills: number;
   cpKills: number;
+  /** Гарнизон КПП в начале капта: перебит — КПП захвачен. */
+  defenders: Character[];
 }
 
 /** Как радио называет особых бойцов отряда. */
@@ -48,8 +50,6 @@ export interface Front {
   /** Все бойцы повстанцев на этом фронте (из всех подошедших отрядов). */
   squad: Character[];
   nextSquadAt: number;
-  /** Когда подойдёт следующая волна (сверх минимума). */
-  nextWaveAt: number;
   /** Когда здесь последний раз стреляли (для маркеров на экране). */
   lastShot: number;
   /** Сколько секунд на КПП нет ни одного часового на посту. */
@@ -156,10 +156,10 @@ export class WarSystem {
       }
       this.fronts.push({
         index, name: zone?.name ?? `КПП ${index + 1}`, exit, outerGate, innerGate, apron, posts: myPosts, outlands, bunker,
-        squad: [], nextSquadAt: rng.range(WAR.firstSquad[0], WAR.firstSquad[1]), nextWaveAt: rng.range(WAR.waveEvery[0], WAR.waveEvery[1]),
+        squad: [], nextSquadAt: rng.range(WAR.firstSquad[0], WAR.firstSquad[1]),
         lastShot: -1e9, reinforceAt: 0, medicAt: 0, unguarded: 0, assaultAnnounced: false,
         corridor: corridor.sort((a, b) => Math.hypot(nav.worldX(a) - outerGate.x, nav.worldY(a) - outerGate.y) - Math.hypot(nav.worldX(b) - outerGate.x, nav.worldY(b) - outerGate.y)),
-        owner: 'combine', capture: null, nextCaptureAt: WAR.capture.firstAfter * (1 + index) + rng.range(0, 30), heldSince: 0, rebelFree: 0, retakeAt: 0,
+        owner: 'combine', capture: null, nextCaptureAt: WAR.capture.firstAfter + rng.range(0, 10), heldSince: 0, rebelFree: 0, retakeAt: 0,
       });
     });
   }
@@ -270,14 +270,15 @@ export class WarSystem {
       equipKit(c, kit, this.ctx);
       const brain = new RebelBrain(c, this.ctx, f.index, assaultAt);
       c.brain = brain;
-      // Подошли во время капта — сразу в бой за КПП.
+      // КПП ещё у Альянса — собираются на точке сбора; во время капта — сразу в бой.
       if (f.capture) brain.orderCapture();
+      else if (f.owner === 'combine' && !assault) brain.orderGather();
       f.squad.push(c);
       roles.push(KIT_ROLE[kit] ?? '');
     }
     const extra = roles.filter(Boolean);
     this.ctx.law.log(
-      `${f.name}: контакт! Отряд повстанцев у ворот (${n}${extra.length ? `: ${extra.join(', ')}` : ''})${assault ? ', готовится штурм' : ''}.`,
+      `${f.name}: на пустоши замечен отряд повстанцев (${n}${extra.length ? `: ${extra.join(', ')}` : ''})${assault ? ', готовится штурм' : ', собираются'}.`,
       'radio',
     );
   }
@@ -367,8 +368,10 @@ export class WarSystem {
   /** Начать капт КПП (или принудительно — для тестов и отладки). */
   startCapture(f: Front): void {
     if (f.capture || f.owner !== 'combine') return;
-    f.capture = { since: this.time, until: this.time + WAR.capture.duration, rebelKills: 0, cpKills: 0 };
-    this.ctx.law.log(`${f.name}: КАПТ! Повстанцы начали захват КПП. Всем постам — держать оборону!`, 'radio');
+    const { guards, medics } = this.guardsOf(f);
+    f.capture = { since: this.time, until: this.time + WAR.capture.duration, rebelKills: 0, cpKills: 0, defenders: [...guards, ...medics] };
+    f.reinforceAt = f.medicAt = 0;
+    this.ctx.law.log(`${f.name}: КАПТ! Повстанцы (${f.squad.length}) идут на захват КПП. Подкреплений не будет — держать оборону!`, 'radio');
     this.ctx.bus.emit('announce', { text: `Капт · ${f.name}` });
     for (const r of f.squad) rebelBrain(r)?.orderCapture();
   }
@@ -382,7 +385,7 @@ export class WarSystem {
     if (!won) {
       this.ctx.law.log(`${f.name}: капт отбит (${score}). КПП удержан.`, 'radio');
       this.ctx.bus.emit('announce', { text: `КПП удержан · ${score}` });
-      for (const r of f.squad) rebelBrain(r)?.orderRaid();
+      for (const r of f.squad) rebelBrain(r)?.orderRegroup();
       return;
     }
     f.owner = 'rebels';
@@ -396,7 +399,8 @@ export class WarSystem {
     f.squad.forEach((r, k) => {
       if (k < f.posts.length) rebelBrain(r)?.orderHold(f.posts[k]);
     });
-    if (this.code !== 'red') this.declareRed(f.name, 'КПП захвачен повстанцами');
+    // Капт идёт часто: захват КПП — тревога (код жёлтый, патрули к воротам), красный — только прорыв в город.
+    this.raiseAlarm(f.apron.x, f.apron.y, `${f.name} захвачен повстанцами`);
   }
 
   /** Капт: старт при сборе повстанцев, таймер, удержание и возврат захваченного КПП. */
@@ -406,7 +410,13 @@ export class WarSystem {
     if (f.owner === 'combine') {
       if (!f.capture && rebels >= W.minAttackers && this.time >= f.nextCaptureAt) this.startCapture(f);
       const c = f.capture;
-      if (c && this.time >= c.until) this.endCapture(f, c.rebelKills >= W.minKills && c.rebelKills > c.cpKills);
+      if (!c) return;
+      // Гарнизон перебит — захвачен; штурмующих не осталось (погибли, отошли) — отбит.
+      const wiped = c.defenders.length > 0 && c.defenders.every((d) => !d.alive);
+      const attackers = f.squad.filter((r) => rebelBrain(r)?.mode === 'capture').length;
+      if (wiped) this.endCapture(f, true);
+      else if (attackers === 0 && this.time - c.since > 2) this.endCapture(f, false);
+      else if (this.time >= c.until) this.endCapture(f, c.rebelKills >= W.minKills && c.rebelKills > c.cpKills);
       return;
     }
     // Захвачен: контрудары отрядами GRID; КПП отбит — когда в самом КПП (не на пустоши) не осталось повстанцев.
@@ -423,7 +433,8 @@ export class WarSystem {
       f.owner = 'combine';
       this.ctx.law.log(`${f.name}: КПП отбит. Гарнизон восстанавливается.`, 'radio');
       this.ctx.bus.emit('announce', { text: `КПП отбит · ${f.name}` });
-      for (const r of f.squad) rebelBrain(r)?.orderRaid();
+      f.nextCaptureAt = this.time + WAR.capture.cooldown;
+      for (const r of f.squad) rebelBrain(r)?.orderRegroup();
     }
   }
 
@@ -558,20 +569,15 @@ export class WarSystem {
         }
         return true;
       });
-      // Подход отрядов: минимум бойцов держится всегда, сверх него — волнами до maxRebels.
+      // Подход отрядов: к КПП Альянса — пока на сборе меньше minAttackers (потом все идут на капт);
+      // во время капта — никого; к захваченному — пополнение до minRebels.
       const rng = this.ctx.rng;
       const holding = f.squad.length;
-      const low = holding < (f.capture ? WAR.capture.minAttackers : WAR.minRebels) && this.time >= f.nextSquadAt;
-      const wave = this.time >= f.nextWaveAt && holding + WAR.squadSize[1] <= WAR.maxRebels;
-      if (low || wave) {
-        const { guards } = this.guardsOf(f);
-        // Никого на посту — отряд идёт на штурм сразу.
-        const assault = guards.length === 0 || rng.chance(WAR.assaultChance);
-        this.spawnSquad(f, assault);
-        // Во время капта подкрепления повстанцев подходят вдвое быстрее.
-        f.nextSquadAt = this.time + rng.range(WAR.squadGap[0], WAR.squadGap[1]) * (f.capture ? 0.5 : 1);
-        f.nextWaveAt = this.time + rng.range(WAR.waveEvery[0], WAR.waveEvery[1]);
-      } else if (holding >= WAR.minRebels) {
+      const want = f.capture ? 0 : f.owner === 'combine' ? WAR.capture.minAttackers : WAR.minRebels;
+      if (holding < want && holding < WAR.maxRebels && this.time >= f.nextSquadAt) {
+        this.spawnSquad(f, false);
+        f.nextSquadAt = this.time + rng.range(WAR.squadGap[0], WAR.squadGap[1]);
+      } else if (holding >= want) {
         // Пока бойцов хватает, таймер подхода не «копится».
         f.nextSquadAt = Math.max(f.nextSquadAt, this.time + WAR.squadGap[0]);
       }
@@ -592,17 +598,16 @@ export class WarSystem {
         this.ctx.law.log(`${f.name}: повстанцы идут на прорыв!`, 'radio');
       }
       // Нехватка часовых: погибли — или двое+ отошли раненными (тогда — один сверх штата).
-      // Во время капта оборону подкрепляют быстрее и сверх штата; у захваченного КПП — только контрудары.
-      const extra = f.capture ? WAR.capture.defenseExtra : 0;
-      const short = guards.length < WAR.guardsPerFront + extra || (onPost < WAR.guardsPerFront - 1 && guards.length < WAR.guardsPerFront + 1);
-      if (short && f.owner === 'combine') {
-        if (f.reinforceAt === 0) f.reinforceAt = this.time + WAR.reinforceDelay * (f.capture ? WAR.capture.defenseReinforceMul : 1);
+      // Во время капта подкреплений нет (бой тех, кто есть); у захваченного КПП — только контрудары.
+      const short = guards.length < WAR.guardsPerFront || (onPost < WAR.guardsPerFront - 1 && guards.length < WAR.guardsPerFront + 1);
+      if (short && f.owner === 'combine' && !f.capture) {
+        if (f.reinforceAt === 0) f.reinforceAt = this.time + WAR.reinforceDelay;
         else if (this.time >= f.reinforceAt) {
           f.reinforceAt = 0;
           this.reinforce(f, false);
         }
       } else f.reinforceAt = 0;
-      if (medics.length < WAR.medicPerFront) {
+      if (medics.length < WAR.medicPerFront && f.owner === 'combine' && !f.capture) {
         if (f.medicAt === 0) f.medicAt = this.time + WAR.reinforceDelay * 1.5;
         else if (this.time >= f.medicAt) {
           f.medicAt = 0;
@@ -627,7 +632,8 @@ export class WarSystem {
       }
     }
     if (this.code === 'yellow') {
-      this.calm = this.operatives.size === 0 ? this.calm + dt : 0;
+      // Тревога держится, пока есть нападавшие или КПП в руках повстанцев.
+      this.calm = this.operatives.size === 0 && this.fronts.every((f) => f.owner === 'combine') ? this.calm + dt : 0;
       if (this.calm >= ALARM.calmToGreen && this.time - this.yellowSince >= ALARM.minTime) this.declareGreen();
     }
     // «Надзор» периодически засекает прорвавшихся.

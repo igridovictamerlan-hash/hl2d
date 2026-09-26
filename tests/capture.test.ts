@@ -25,7 +25,7 @@ describe('капт КПП', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     f.nextCaptureAt = 0;
-    f.nextSquadAt = f.nextWaveAt = Infinity;
+    f.nextSquadAt = Infinity;
     for (let k = 0; k < WAR.capture.minAttackers; k++) {
       const a = f.outlands[k * 3];
       const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
@@ -38,10 +38,10 @@ describe('капт КПП', () => {
     expect(f.squad.every((r) => (r.brain as RebelBrain).mode === 'capture')).toBe(true);
   });
 
-  test('повстанцы набрали убийства с перевесом — КПП захвачен, красный код; зона очищена — отбит', () => {
+  test('повстанцы набрали убийства с перевесом — КПП захвачен, код жёлтый; зона очищена — отбит', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
-    f.nextSquadAt = f.nextWaveAt = Infinity;
+    f.nextSquadAt = Infinity;
     sim.war.startCapture(f);
     killInCorridor(sim, f, 'cp');
     for (let k = 0; k < WAR.capture.killsToWin - 1; k++) killInCorridor(sim, f, 'rebel');
@@ -52,7 +52,7 @@ describe('капт КПП', () => {
     expect(f.owner).toBe('rebels');
     expect(f.capture).toBeNull();
     sim.step();
-    expect(sim.war.code).toBe('red');
+    expect(sim.war.code).toBe('yellow');
     // Повстанцев в КПП нет — после holdTime и retakeCalm КПП снова у Альянса.
     for (const c of sim.entities.list) if (c.faction === 'rebel') c.alive = false;
     for (let t = 0; t < (WAR.capture.holdTime + WAR.capture.retakeCalm + 2) * 60 && f.owner === 'rebels'; t++) sim.step();
@@ -62,7 +62,7 @@ describe('капт КПП', () => {
   test('по таймеру без перевеса — КПП удержан, следующий капт не раньше cooldown', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[1];
-    f.nextSquadAt = f.nextWaveAt = Infinity;
+    f.nextSquadAt = Infinity;
     sim.war.startCapture(f);
     for (let k = 0; k < WAR.capture.minKills; k++) killInCorridor(sim, f, 'rebel');
     for (let k = 0; k < WAR.capture.minKills; k++) killInCorridor(sim, f, 'cp');
@@ -75,7 +75,7 @@ describe('капт КПП', () => {
   test('задержанный боец отряда (мозг конвоя) не ломает захват КПП', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
-    f.nextSquadAt = f.nextWaveAt = Infinity;
+    f.nextSquadAt = Infinity;
     const a = f.outlands[0];
     const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
     r.brain = new PrisonerBrain(r);
@@ -85,5 +85,45 @@ describe('капт КПП', () => {
       for (let k = 0; k < WAR.capture.killsToWin; k++) killInCorridor(sim, f, 'rebel');
     }).not.toThrow();
     expect(f.owner).toBe('rebels');
+  });
+
+  test('капт: гарнизон перебит — КПП захвачен; подкрепления ГО во время капта не приходят', () => {
+    const sim = makeSim(12345);
+    const f = sim.war.fronts[0];
+    f.nextSquadAt = Infinity;
+    // Гарнизон подтянулся.
+    for (let t = 0; t < 40 * 60; t++) sim.step();
+    const cps = () => sim.entities.list.filter((c) => c.alive && c.faction === 'cp' && sim.war.frontAt(c.x, c.y) === f).length;
+    expect(cps()).toBeGreaterThan(0);
+    for (let k = 0; k < WAR.capture.minAttackers; k++) {
+      const a = f.outlands[k * 3];
+      const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
+      equipKit(r, 'rebel_raider', sim.ctx);
+      r.brain = new RebelBrain(r, sim.ctx, 0, Infinity);
+      f.squad.push(r);
+    }
+    sim.war.startCapture(f);
+    expect(f.capture!.defenders.length).toBeGreaterThan(0);
+    // Убиваем гарнизон без стрельбы — и ждём: новых ГО на КПП быть не должно.
+    for (const d of f.capture!.defenders) sim.combat.damage(d, 1000, null);
+    for (let t = 0; t < 30 && f.capture; t++) sim.step();
+    expect(f.owner).toBe('rebels');
+  });
+
+  test('штурмующих не осталось — капт отбит, повстанцы снова собираются', () => {
+    const sim = makeSim(12345);
+    const f = sim.war.fronts[0];
+    f.nextSquadAt = Infinity;
+    const a = f.outlands[0];
+    const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
+    r.brain = new RebelBrain(r, sim.ctx, 0, Infinity);
+    f.squad.push(r);
+    sim.war.startCapture(f);
+    const reinforcements = sim.entities.list.filter((c) => c.faction === 'cp').length;
+    sim.combat.damage(r, 1000, null);
+    for (let t = 0; t < 4 * 60 && f.capture; t++) sim.step();
+    expect(f.capture).toBeNull();
+    expect(f.owner).toBe('combine');
+    expect(reinforcements).toBe(0);
   });
 });

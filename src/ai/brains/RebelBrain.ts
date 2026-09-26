@@ -12,10 +12,11 @@ import { WAR } from '../../config/war';
 import { CHARACTER } from '../../config/entities';
 import { T } from '../../world/tiles';
 
-type Mode = 'raid' | 'assault' | 'infiltrate' | 'retreat' | 'capture' | 'hold';
+type Mode = 'gather' | 'raid' | 'assault' | 'infiltrate' | 'retreat' | 'capture' | 'hold';
 
 /**
  * Боец сопротивления из пустошей.
+ *  gather — собирается с остальными на пустоши вне видимости постов, ждёт капта (не лезет под огонь);
  *  raid — занимает позицию на пустоши с видом на ворота КПП и перестреливается с часовыми;
  *  assault — идёт на прорыв через коридор КПП в город (стреляет по пути);
  *  infiltrate — прорвался: прячется в кварталах, отстреливается, если нашли;
@@ -58,12 +59,20 @@ export class RebelBrain implements Brain {
   }
 
   orderAssault(): void {
+    if (this.mode === 'gather') this.mode = 'raid';
     if (this.mode === 'raid') this.assaultAt = 0;
+  }
+
+  /** Собираться на точке сбора до начала капта. */
+  orderGather(): void {
+    if (this.mode !== 'raid') return;
+    this.mode = 'gather';
+    this.goal = -1;
   }
 
   /** Капт начался: вперёд по коридору перебежками от укрытия к укрытию. */
   orderCapture(): void {
-    if (this.mode !== 'raid' && this.mode !== 'assault') return;
+    if (this.mode !== 'raid' && this.mode !== 'assault' && this.mode !== 'gather') return;
     this.mode = 'capture';
     this.goal = -1;
     this.advance = this.ctx.rng.range(0, WAR.capture.advanceStep);
@@ -101,12 +110,42 @@ export class RebelBrain implements Brain {
     this.goal = -1;
   }
 
-  /** Капт закончился / КПП отбит — обратно на пустошь. */
-  orderRaid(): void {
-    if (this.mode !== 'capture' && this.mode !== 'hold') return;
-    this.mode = 'raid';
+  /** Капт отбит / КПП отбит — назад на точку сбора, ждать подхода своих. */
+  orderRegroup(): void {
+    if (this.mode !== 'capture' && this.mode !== 'hold' && this.mode !== 'raid') return;
+    this.mode = 'gather';
     this.goal = -1;
     this.assaultAt = Infinity;
+  }
+
+  /**
+   * Точка сбора: пустошь в WAR.gatherDist от внешних ворот, не видна ни с одного поста (не лезть
+   * под огонь по одному), рядом со своими, но не вплотную.
+   */
+  private pickGather(f: NonNullable<AiContext['war']['fronts'][number]>): number {
+    const { ctx, self } = this;
+    let best = -1;
+    let bestScore = -Infinity;
+    for (let k = 0; k < 40; k++) {
+      const a = ctx.rng.pick(f.outlands);
+      const x = ctx.nav.worldX(a);
+      const y = ctx.nav.worldY(a);
+      const d = Math.hypot(x - f.outerGate.x, y - f.outerGate.y);
+      let score = ctx.rng.range(0, 2);
+      if (d < WAR.gatherDist[0] || d > WAR.gatherDist[1]) score -= 8;
+      if (f.posts.some((p) => canSeeCircle(ctx.map, x, y, p.x, p.y, 10))) score -= 20;
+      for (const o of f.squad) {
+        if (o === self) continue;
+        const od = Math.hypot(o.x - x, o.y - y);
+        if (od < 30) score -= 4;
+        else if (od < 120) score += 1;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = a;
+      }
+    }
+    return best;
   }
 
   infiltrate(): void {
@@ -208,6 +247,15 @@ export class RebelBrain implements Brain {
     this.repath -= dt;
 
     switch (this.mode) {
+      case 'gather': {
+        if (!f) break;
+        if (this.goal < 0 || this.mover.status === 'failed') this.go(this.pickGather(f));
+        // Заметили — отстреливается с места, но вперёд не лезет.
+        if (fighting && this.gunner.target) this.mover.stop();
+        else if (this.mover.status === 'idle' && this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) > 20) this.go(this.goal);
+        else if (this.mover.status === 'arrived') this.mover.stop();
+        break;
+      }
       case 'raid': {
         if (!f) break;
         // Позиция: пустошь, с видом на внешние ворота.
@@ -312,7 +360,7 @@ export class RebelBrain implements Brain {
     this.mover.update(self, ctx, dt);
     if (this.gunner.look(self, ctx, dt)) return;
     // На позиции смотрит на КПП (глаз на спине нет — иначе часовых не заметить).
-    if (this.mode === 'raid' && f && self.moveSpeed < 8) {
+    if ((this.mode === 'raid' || this.mode === 'gather') && f && self.moveSpeed < 8) {
       const post = f.posts[0] ?? f.outerGate;
       faceTowards(self, (post.x + f.outerGate.x) / 2, (post.y + f.outerGate.y) / 2, dt);
     } else faceMovement(self, ctx, dt);

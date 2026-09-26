@@ -99,7 +99,7 @@ describe('чат и команды', () => {
 
   test('донос: видимый повстанец — тревога и +лояльность; ложный — минус; ГО поощряет', () => {
     const sim = makeSim(12345);
-    for (const f of sim.war.fronts) f.nextSquadAt = f.nextWaveAt = Infinity;
+    for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
     const p = plaza(sim);
     const me = createCharacter(sim.entities, sim.ctx.rng, 'citizen', p.x, p.y, true);
     me.loyalty = 0;

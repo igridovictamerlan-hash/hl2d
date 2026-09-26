@@ -106,7 +106,8 @@ describe('канализация', () => {
 describe('сопротивление в городе', () => {
   test('саботаж: группа из убежища через люк выводит из строя узел, код жёлтый, потом отбой', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
-    // Только убежище, без городских патрулей: иначе исход зависит от случайной встречи у люка.
+    // Только убежище, без городских патрулей и боёв на КПП: иначе исход зависит от случайностей.
+    for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
     sim.insurgency.populate();
     expect(sim.insurgency.garrison.length).toBeGreaterThan(0);
     expect(sim.insurgency.trader).not.toBeNull();
@@ -141,7 +142,7 @@ describe('сопротивление в городе', () => {
   test('тревога: жёлтый код, отбой без нападавших через calmToGreen', () => {
     const sim = makeSim(12345);
     // Без отрядов у КПП (гарнизона в тесте нет — иначе будет прорыв и красный код).
-    for (const f of sim.war.fronts) f.nextSquadAt = f.nextWaveAt = Infinity;
+    for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
     const p = poiWorld(sim.ctx, 'plaza_center')!;
     sim.war.raiseAlarm(p.x, p.y, 'проверка');
     expect(sim.war.code).toBe('yellow');
@@ -154,7 +155,7 @@ describe('жизнь убежища', () => {
   test('бойцы ходят на вылазки: по тоннелям, на рынок, через люки в город — и возвращаются', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     sim.insurgency.populate();
-    for (const f of sim.war.fronts) f.nextSquadAt = f.nextWaveAt = Infinity;
+    for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
     let climbs = 0;
     const level = new Map<number, string>();
     for (let t = 0; t < 180 * 60; t++) {

@@ -36,6 +36,8 @@ export class InsurgencySystem {
   private nextOuting = 5;
   /** Сколько вылазок было (для тестов и отладки). */
   outings = 0;
+  /** Без вылазок и операций (тесты и отладка). */
+  paused = false;
 
   constructor(private readonly ctx: AiContext) {
     this.base = poiWorld(ctx, 'rebel_base');
@@ -162,6 +164,7 @@ export class InsurgencySystem {
       this.nextRecruit = this.time + INSURGENCY.recruitEvery;
       this.recruit();
     }
+    if (this.paused) return;
     // Вылазки: убежище живёт — ходят по тоннелям, на рынок, наверх через люки.
     if (this.time >= this.nextOuting) {
       this.nextOuting = this.time + ctx.rng.range(INSURGENCY.outingEvery[0], INSURGENCY.outingEvery[1]);

@@ -1,3 +1,4 @@
+import { WAR } from '../src/config/war';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
@@ -155,19 +156,36 @@ describe('ИИ и оружие', () => {
 });
 
 describe('граница', () => {
-  test('перестрелка у обоих КПП почти не затихает', { timeout: 120_000 }, () => {
+  test('у КПП повстанцы собираются по 5+ и идут на капт; во время капта ГО не подкрепляют', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
     const active = sim.war.fronts.map(() => 0);
-    const secs = 200;
-    const warm = 20;
+    const starts = sim.war.fronts.map(() => 0);
+    const sizes: number[] = [];
+    let cpDuringCapture = 0;
+    const seen = new Set(sim.entities.list.map((c) => c.id));
+    const secs = 240;
     for (let t = 0; t < secs * 60; t++) {
+      const before = sim.war.fronts.map((f) => f.capture);
       sim.step();
-      if (t % 60 === 0 && t >= warm * 60) sim.war.fronts.forEach((f, i) => sim.war.active(f) && active[i]++);
+      sim.war.fronts.forEach((f, i) => {
+        if (f.capture && !before[i]) {
+          starts[i]++;
+          sizes.push(f.squad.length);
+        }
+      });
+      for (const c of sim.entities.list) {
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        if (c.faction === 'cp' && sim.war.frontAt(c.x, c.y)?.capture) cpDuringCapture++;
+      }
+      if (t % 60 === 0) sim.war.fronts.forEach((f, i) => sim.war.active(f) && active[i]++);
     }
-    const share = active.map((a) => a / (secs - warm));
-    console.log(`бой идёт: ${share.map((x) => `${Math.round(x * 100)}%`).join(' / ')} времени`);
-    for (const x of share) expect(x).toBeGreaterThan(0.75);
+    console.log(`каптов: ${starts.join(' / ')}, штурмующих: ${sizes.join(', ')}, бой ${active.map((a) => `${Math.round((a / secs) * 100)}%`).join(' / ')}`);
+    for (const n of starts) expect(n).toBeGreaterThanOrEqual(2);
+    for (const n of sizes) expect(n).toBeGreaterThanOrEqual(WAR.capture.minAttackers);
+    expect(cpDuringCapture).toBe(0);
+    for (const a of active) expect(a / secs).toBeGreaterThan(0.35);
   });
 });
 
