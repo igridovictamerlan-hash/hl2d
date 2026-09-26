@@ -10,6 +10,7 @@ import { adjustLoyalty } from './Loyalty';
 import { LOYALTY } from '../config/loyalty';
 import { LAW, VIOLATION_NAMES, type Violation } from '../config/law';
 import { VISION } from '../config/vision';
+import { loyalistPerk } from './Loyalty';
 import { FACTIONS } from '../config/factions';
 import { LINES, fill } from '../config/lines';
 import { T } from '../world/tiles';
@@ -123,20 +124,23 @@ export class LawSystem {
   /** Нарушение, которое observer видит прямо сейчас, или null. */
   observe(observer: Character, target: Character): Violation | null {
     if (FACTIONS[target.faction].authority || target.law.phase !== 'none' || !target.alive) return null;
+    // Вортигонтов-рабов Альянс не проверяет.
+    if (target.faction === 'vort') return null;
     if (!this.canSee(observer, target)) return null;
-    // Повстанца узнают сразу (форма), вооружённого — тоже.
-    if (target.faction === 'rebel') return 'rebel';
+    // Повстанца узнают сразу (форма), вооружённого — тоже; партизана в маскировке — нет.
+    if (target.faction === 'rebel' && !target.disguised) return 'rebel';
     if (target.weapon) return 'weapon';
     if (this.map.zoneAtWorld(target.x, target.y)?.kind === 'restricted') return 'restricted';
     if (this.curfewCheck(target)) return 'curfew';
-    if (target.moveSpeed > LAW.runSpeed && !this.panicking(target)) return 'running';
+    // Лоялистам бегать разрешено.
+    if (target.moveSpeed > LAW.runSpeed && !this.panicking(target) && !loyalistPerk(target, 'run')) return 'running';
     return null;
   }
 
   /** Можно ли сейчас устроить плановую проверку. */
   checkable(target: Character): boolean {
     return (
-      !FACTIONS[target.faction].authority && target.law.phase === 'none' && target.alive &&
+      !FACTIONS[target.faction].authority && target.faction !== 'vort' && target.law.phase === 'none' && target.alive &&
       this.time - target.law.lastCheck > LAW.recheckCooldown
     );
   }
@@ -192,7 +196,11 @@ export class LawSystem {
   judge(target: Character): Verdict {
     const law = target.law;
     let reason: Violation = law.reason ?? 'routine';
-    if (target.faction === 'rebel') reason = 'rebel';
+    // Проверка CID раскрывает партизана в маскировке.
+    if (target.faction === 'rebel') {
+      target.disguised = false;
+      reason = 'rebel';
+    }
     else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
     else if (!law.hasCid) reason = 'no_cid';
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };

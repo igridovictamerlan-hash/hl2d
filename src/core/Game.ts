@@ -34,6 +34,7 @@ import { CombatSystem } from '../systems/CombatSystem';
 import { WarSystem } from '../systems/WarSystem';
 import { UndergroundSystem } from '../systems/UndergroundSystem';
 import { InsurgencySystem } from '../systems/InsurgencySystem';
+import { LaborSystem } from '../systems/LaborSystem';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
 import { SAVE } from '../config/save';
@@ -74,6 +75,7 @@ export class Game {
   combat!: CombatSystem;
   war!: WarSystem;
   insurgency!: InsurgencySystem;
+  labor!: LaborSystem;
   private chat!: ChatSystem;
   private ai!: AiContext;
   private mapRenderer!: MapRenderer;
@@ -176,11 +178,15 @@ export class Game {
       underground: new UndergroundSystem(map, this.nav, this.entities),
       war: null as unknown as WarSystem,
       insurgency: null as unknown as InsurgencySystem,
+      labor: null as unknown as LaborSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
     this.insurgency = new InsurgencySystem(this.ai);
     this.ai.insurgency = this.insurgency;
+    this.labor = new LaborSystem(this.ai);
+    this.ai.labor = this.labor;
+    this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
     this.law.panicking = (c) => c.panicUntil > this.law.now;
@@ -530,6 +536,7 @@ export class Game {
     this.combat.update(dt);
     this.war.update(dt);
     this.insurgency.update(dt);
+    this.labor.update(dt);
     if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside
@@ -586,6 +593,7 @@ export class Game {
     this.mapRenderer.draw(ctx, v);
     this.drawTerminal(v);
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
+    this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     this.effects.drawShots(ctx, v, this.combat);

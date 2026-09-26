@@ -13,6 +13,7 @@ import type { WarSystem } from '../systems/WarSystem';
 import type { EventBus } from '../core/EventBus';
 import type { UndergroundSystem } from '../systems/UndergroundSystem';
 import type { InsurgencySystem } from '../systems/InsurgencySystem';
+import type { LaborSystem } from '../systems/LaborSystem';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -36,4 +37,6 @@ export interface AiContext {
   /** Создаются после контекста (им нужен контекст для спавна). */
   war: WarSystem;
   insurgency: InsurgencySystem;
+  /** Работы профессий: завод, доставка, мусор, лечение. */
+  labor: LaborSystem;
 }

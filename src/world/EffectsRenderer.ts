@@ -1,5 +1,7 @@
 import type { View } from '../core/Camera';
 import type { CombatSystem } from '../systems/CombatSystem';
+import type { LaborSystem } from '../systems/LaborSystem';
+import { LABOR } from '../config/labor';
 import type { EconomySystem } from '../systems/EconomySystem';
 import type { Character } from '../entities/Character';
 import type { WarSystem } from '../systems/WarSystem';
@@ -168,6 +170,91 @@ export class EffectsRenderer {
         ctx.fillStyle = E.loot;
         ctx.fillRect(x + 8 * s, y - 10 * s, 3 * s, 3 * s);
       }
+    }
+  }
+
+  /**
+   * Работы профессий на земле: кучи мусора, конвейер завода с коробками на складе, коробки у
+   * будки раздачи (склад будки) с числом рационов.
+   */
+  drawLabor(ctx: CanvasRenderingContext2D, v: View, labor: LaborSystem, stock: number, now: number): void {
+    const s = v.scale;
+    const E = RENDER.effects;
+    const onScreen = (x: number, y: number, m: number) => x > -m && y > -m && x < v.width + m && y < v.height + m;
+    for (const p of labor.trash) {
+      const x = (p.x - v.left) * s;
+      const y = (p.y - v.top) * s;
+      if (!onScreen(x, y, 30)) continue;
+      for (let k = 0; k < 5; k++) {
+        const a = ((p.seed >>> (k * 4)) % 628) / 100;
+        const r = 2 + ((p.seed >>> (k * 3)) % 5);
+        const w = 3.2 + ((p.seed >>> (k * 5)) % 3);
+        ctx.fillStyle = E.trash[(p.seed + k) % E.trash.length];
+        ctx.strokeStyle = PAWN.outline;
+        ctx.lineWidth = Math.max(0.8, 0.8 * s);
+        ctx.beginPath();
+        ctx.ellipse(x + Math.cos(a) * r * s, y + Math.sin(a) * r * s, w * s, (w - 1) * s, a, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      if (p.searched) {
+        ctx.fillStyle = E.trashSearched;
+        ctx.beginPath();
+        ctx.arc(x, y, 7 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Идёт уборка — полоска.
+      if (p.worker && p.progress > 0) {
+        ctx.fillStyle = E.progress;
+        ctx.fillRect(x - 8 * s, y - 12 * s, 16 * s * Math.min(1, p.progress / LABOR.trash.cleanTime), 2 * s);
+      }
+    }
+    const box = (x: number, y: number) => {
+      ctx.fillStyle = E.box;
+      ctx.strokeStyle = PAWN.outline;
+      ctx.lineWidth = Math.max(1, 1.1 * s);
+      ctx.fillRect(x - 4 * s, y - 3.4 * s, 8 * s, 6.8 * s);
+      ctx.strokeRect(x - 4 * s, y - 3.4 * s, 8 * s, 6.8 * s);
+      ctx.fillStyle = E.boxTape;
+      ctx.fillRect(x - 0.7 * s, y - 3.4 * s, 1.4 * s, 6.8 * s);
+    };
+    // Конвейер завода и коробки на складе.
+    const f = labor.factory;
+    if (f) {
+      const x = (f.x - v.left) * s;
+      const y = (f.y - 22 - v.top) * s;
+      if (onScreen(x, y, 80)) {
+        ctx.fillStyle = E.conveyor;
+        ctx.strokeStyle = PAWN.outline;
+        ctx.lineWidth = Math.max(1, 1.2 * s);
+        ctx.fillRect(x - 26 * s, y - 6 * s, 52 * s, 12 * s);
+        ctx.strokeRect(x - 26 * s, y - 6 * s, 52 * s, 12 * s);
+        ctx.fillStyle = E.conveyorBelt;
+        ctx.fillRect(x - 24 * s, y - 3.5 * s, 48 * s, 7 * s);
+        // Ролики «бегут».
+        ctx.fillStyle = E.roller;
+        const shift = (now * 12) % 6;
+        for (let k = -24 + shift; k < 24; k += 6) ctx.fillRect(x + k * s, y - 3.5 * s, 1.2 * s, 7 * s);
+        box(x + (((now * 12) % 40) - 20) * s, y);
+      }
+      const st = labor.factoryStore;
+      if (st) {
+        const sx = (st.x - v.left) * s;
+        const sy = (st.y + 14 - v.top) * s;
+        for (let k = 0; k < labor.boxes; k++) box(sx + ((k % 3) - 1) * 9 * s, sy - Math.floor(k / 3) * 7 * s);
+      }
+    }
+    // Склад будки раздачи.
+    const d = labor.boothDrop;
+    const bx = (d.x - v.left) * s;
+    const by = (d.y - v.top) * s;
+    if (onScreen(bx, by, 40)) {
+      const n = Math.min(6, Math.ceil(stock / LABOR.factory.boxRations));
+      for (let k = 0; k < n; k++) box(bx + ((k % 3) - 1) * 9 * s, by - Math.floor(k / 3) * 7 * s);
+      ctx.font = `600 ${Math.round(9 * s)}px "Segoe UI", Roboto, Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = stock > 0 ? E.stockText : E.brokenA;
+      ctx.fillText(`рационов: ${stock}`, bx, by + 14 * s);
     }
   }
 

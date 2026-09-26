@@ -68,6 +68,18 @@ export class EntityRenderer {
       if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading);
       drawPawn(ctx, look, x, y, ps, dir);
       if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading);
+      // Курьер несёт коробку перед собой.
+      if (c.carrying) {
+        const bx = x + Math.cos(c.facing) * 6 * ps;
+        const by = y + 4 * ps + Math.sin(c.facing) * 3 * ps;
+        ctx.fillStyle = RENDER.effects.box;
+        ctx.strokeStyle = PAWN.outline;
+        ctx.lineWidth = Math.max(1, 1.1 * ps);
+        ctx.fillRect(bx - 5 * ps, by - 4 * ps, 10 * ps, 8 * ps);
+        ctx.strokeRect(bx - 5 * ps, by - 4 * ps, 10 * ps, 8 * ps);
+        ctx.fillStyle = RENDER.effects.boxTape;
+        ctx.fillRect(bx - 0.8 * ps, by - 4 * ps, 1.6 * ps, 8 * ps);
+      }
       // Оглушён дубинкой — голубые искры вокруг головы.
       if (c.stunUntil > now) {
         const hy = y + PAWN.head.y * ps;

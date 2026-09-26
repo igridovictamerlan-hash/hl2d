@@ -16,6 +16,7 @@ import { CombatSystem } from '../src/systems/CombatSystem';
 import { WarSystem } from '../src/systems/WarSystem';
 import { UndergroundSystem } from '../src/systems/UndergroundSystem';
 import { InsurgencySystem } from '../src/systems/InsurgencySystem';
+import { LaborSystem } from '../src/systems/LaborSystem';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
 export function makeSim(seedOrMap: number | GameMap) {
@@ -47,11 +48,15 @@ export function makeSim(seedOrMap: number | GameMap) {
     underground: new UndergroundSystem(map, nav, entities),
     war: null as unknown as WarSystem,
     insurgency: null as unknown as InsurgencySystem,
+    labor: null as unknown as LaborSystem,
   };
   const war = new WarSystem(ctx);
   ctx.war = war;
   const insurgency = new InsurgencySystem(ctx);
   ctx.insurgency = insurgency;
+  const labor = new LaborSystem(ctx);
+  ctx.labor = labor;
+  economy.onEmpty = () => labor.noticeEmpty();
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;
   const step = (dt = 1 / 60) => {
@@ -64,6 +69,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     combat.update(dt);
     war.update(dt);
     insurgency.update(dt);
+    labor.update(dt);
   };
-  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency };
+  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor };
 }

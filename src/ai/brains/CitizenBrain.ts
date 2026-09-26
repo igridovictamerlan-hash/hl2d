@@ -15,10 +15,20 @@ import { FACTIONS } from '../../config/factions';
 import { ECONOMY } from '../../config/economy';
 import { ITEMS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
+import type { TrashPile } from '../../systems/LaborSystem';
+import { LABOR } from '../../config/labor';
 import type { Vec2 } from '../../core/math';
 
-/** Работа ГСР. */
-type Job = { kind: 'dispense' } | { kind: 'repair'; spot: RepairSpot } | { kind: 'clerk'; until: number };
+/** Работа по профессии (ГСР, вортигонт, отброс общества). */
+type Job =
+  | { kind: 'dispense' }
+  | { kind: 'repair'; spot: RepairSpot }
+  | { kind: 'clerk'; until: number }
+  | { kind: 'pack'; until: number }
+  | { kind: 'deliver'; carry: boolean }
+  | { kind: 'clean'; pile: TrashPile }
+  | { kind: 'scavenge'; pile: TrashPile; left: number }
+  | { kind: 'heal'; patient: Character; repath: number };
 
 /** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
 export interface StreetProfile {
@@ -29,10 +39,11 @@ export interface StreetProfile {
   avoidCp: boolean;
 }
 
-const PROFILES: Record<'citizen' | 'cwu' | 'rebel', StreetProfile> = {
+const PROFILES: Record<'citizen' | 'cwu' | 'rebel' | 'vort', StreetProfile> = {
   citizen: { favouriteChance: AI.citizen.plazaChance, favourite: ['plaza'], avoidCp: false },
   cwu: { favouriteChance: 0.6, favourite: ['plaza', 'industrial'], avoidCp: false },
   rebel: { favouriteChance: 0.2, favourite: ['industrial', 'residential'], avoidCp: true },
+  vort: { favouriteChance: 0.4, favourite: ['residential', 'industrial'], avoidCp: false },
 };
 
 const near: Character[] = [];
@@ -65,7 +76,7 @@ export class CitizenBrain implements Brain {
     this.mover = new Mover(this.walkSpeed);
     this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands']);
     this.mover.avoidZones = this.avoid;
-    const f = self.faction === 'cwu' || self.faction === 'rebel' ? self.faction : 'citizen';
+    const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
     this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
@@ -98,7 +109,7 @@ export class CitizenBrain implements Brain {
         this.fsm.change('panic');
       } else if (ctx.war.curfew && cur !== 'shelter') this.fsm.change('shelter');
       else if (!ctx.war.curfew && cur === 'shelter') this.fsm.change('idle');
-      else if (self.faction === 'cwu' && ctx.economy.open && !ctx.economy.dispenser && (cur === 'idle' || cur === 'walk')) {
+      else if (self.profession === 'cook' && ctx.economy.open && !ctx.economy.dispenser && (cur === 'idle' || cur === 'walk')) {
         if (ctx.economy.claimDispenser(self)) {
           this.job = { kind: 'dispense' };
           this.fsm.change('work');
@@ -148,13 +159,12 @@ export class CitizenBrain implements Brain {
   decide(): string {
     const { ctx, self } = this;
     const eco = ctx.economy;
-    if (self.faction === 'cwu') {
-      const job = this.pickJob();
-      if (job) {
-        this.job = job;
-        return 'work';
-      }
+    const job = this.pickJob();
+    if (job) {
+      this.job = job;
+      return 'work';
     }
+    if (self.faction === 'vort') return 'walk';
     if (eco.open && eco.cycle !== this.consideredCycle && !eco.hasBeenServed(self) && self.faction !== 'rebel') {
       this.consideredCycle = eco.cycle;
       if (ctx.rng.chance(ECONOMY.rations.npcJoinChance)) return 'queue';
@@ -163,22 +173,66 @@ export class CitizenBrain implements Brain {
     return 'walk';
   }
 
-  /** Работа для ГСР: выдача рационов, ремонт, прилавок магазина. */
+  /**
+   * Работа по профессии: повар — раздача и прилавок; фасовщик — завод; курьер — коробки с завода
+   * к будке; уборщик — поломки и мусор; медик ГСР — раненые рядом; вортигонт — мусор;
+   * отброс общества — порыться в мусоре.
+   */
   private pickJob(): Job | null {
     const { ctx, self } = this;
     const eco = ctx.economy;
-    if (eco.open && (!eco.dispenser || eco.dispenser === self) && eco.claimDispenser(self)) return { kind: 'dispense' };
-    const spots = eco.brokenSpots().filter((r) => !r.worker);
-    if (spots.length) {
-      spots.sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y));
-      spots[0].worker = self;
-      return { kind: 'repair', spot: spots[0] };
-    }
-    if (eco.shopCounter && ctx.rng.chance(0.35)) {
-      const busy = ctx.entities.near(eco.shopCounter.x, eco.shopCounter.y, 40).some((o) => o.faction === 'cwu' && o !== self);
-      if (!busy) return { kind: 'clerk', until: ctx.law.now + ctx.rng.range(40, 80) };
+    const labor = ctx.labor;
+    switch (self.profession) {
+      case 'cook': {
+        if (eco.open && (!eco.dispenser || eco.dispenser === self) && eco.claimDispenser(self)) return { kind: 'dispense' };
+        if (eco.shopCounter && ctx.rng.chance(0.5)) {
+          const busy = ctx.entities.near(eco.shopCounter.x, eco.shopCounter.y, 40).some((o) => o.profession === 'cook' && o !== self);
+          if (!busy) return { kind: 'clerk', until: ctx.law.now + ctx.rng.range(40, 80) };
+        }
+        return null;
+      }
+      case 'packer':
+        return labor.factory && labor.boxes < LABOR.factory.maxBoxes ? { kind: 'pack', until: ctx.law.now + ctx.rng.range(40, 90) } : null;
+      case 'courier':
+        if (self.carrying) return { kind: 'deliver', carry: true };
+        return labor.factoryStore && labor.deliveryNeeded ? { kind: 'deliver', carry: false } : null;
+      case 'janitor': {
+        // Поломки важнее мусора.
+        const spots = eco.brokenSpots().filter((r) => !r.worker && r.kind === 'fuse');
+        if (spots.length) {
+          spots.sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y));
+          spots[0].worker = self;
+          return { kind: 'repair', spot: spots[0] };
+        }
+        return this.cleanJob();
+      }
+      case 'vort_slave':
+        return this.cleanJob();
+      case 'cwu_medic': {
+        const M = LABOR.medic;
+        let best: Character | null = null;
+        for (const o of ctx.entities.near(self.x, self.y, M.seek, near)) {
+          if (o === self || !o.alive || o.isPlayer || o.hostile || o.faction === 'rebel' || o.faction === 'vort') continue;
+          if (o.health >= o.maxHealth * M.below || o.law.phase !== 'none') continue;
+          if (!FACTIONS[o.faction].authority && o.money < M.fee) continue;
+          if (!best || o.health < best.health) best = o;
+        }
+        return best && (self.inventory.has('bandage') || self.inventory.has('medkit')) ? { kind: 'heal', patient: best, repath: 0 } : null;
+      }
+      case 'outcast': {
+        const pile = labor.trash.filter((p) => !p.searched).sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y))[0];
+        return pile && ctx.rng.chance(0.6) ? { kind: 'scavenge', pile, left: LABOR.trash.searchTime } : null;
+      }
     }
     return null;
+  }
+
+  /** Ближайшая свободная куча мусора (не дальше ~полгорода). */
+  private cleanJob(): Job | null {
+    const pile = this.ctx.labor.nearestTrash(this.self.x, this.self.y, true, 1400);
+    if (!pile) return null;
+    pile.worker = this.self;
+    return { kind: 'clean', pile };
   }
 
   goToPoint(p: Vec2): boolean {
@@ -339,16 +393,28 @@ const WORK: State<CitizenBrain> = {
     const job = b.job;
     const eco = b.ctx.economy;
     if (!job) return;
+    const labor = b.ctx.labor;
     if (job.kind === 'dispense') b.goToPoint(eco.dispenserSpot);
     else if (job.kind === 'repair') b.goToPoint(job.spot);
+    else if (job.kind === 'pack') {
+      if (labor.factory) b.goToPoint(labor.factory);
+    } else if (job.kind === 'deliver') {
+      const to = job.carry ? labor.boothDrop : labor.factoryStore;
+      if (to) b.goToPoint(to);
+    } else if (job.kind === 'clean' || job.kind === 'scavenge') b.goToPoint(job.pile);
+    else if (job.kind === 'heal') b.goToPoint(job.patient);
     else if (eco.shopCounter) b.goToPoint(eco.shopCounter);
   },
   update(b, dt) {
     const job = b.job;
     const eco = b.ctx.economy;
+    const labor = b.ctx.labor;
     const done = () => {
       if (job?.kind === 'dispense') eco.releaseDispenser(b.self);
       if (job?.kind === 'repair' && job.spot.worker === b.self) job.spot.worker = null;
+      if (job?.kind === 'clean' && job.pile.worker === b.self) job.pile.worker = null;
+      if (job?.kind === 'pack') labor.stopPacking(b.self);
+      b.mover.speed = b.walkSpeed;
       b.job = null;
       b.idleLeft = b.ctx.rng.range(1, 4);
       return 'idle';
@@ -383,10 +449,92 @@ const WORK: State<CitizenBrain> = {
         if (b.fsm.time % 10 < dt) eco.markWorked(b.self);
         return;
       }
+      case 'pack': {
+        const f = labor.factory;
+        if (!f || b.ctx.law.now > job.until) return done();
+        if (Math.hypot(f.x - b.self.x, f.y - b.self.y) < 26) {
+          b.mover.stop();
+          faceTowards(b.self, f.x, f.y - 20, dt);
+          labor.packStep(b.self, dt);
+          if (labor.boxes >= LABOR.factory.maxBoxes) return done();
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(f);
+        return;
+      }
+      case 'deliver': {
+        const to = job.carry ? labor.boothDrop : labor.factoryStore;
+        if (!to) return done();
+        if (Math.hypot(to.x - b.self.x, to.y - b.self.y) < 26) {
+          b.mover.stop();
+          if (!job.carry) {
+            if (!labor.takeBox(b.self)) return done();
+            job.carry = true;
+            b.mover.speed = b.walkSpeed * LABOR.booth.carrySpeedMul;
+            b.goToPoint(labor.boothDrop);
+          } else {
+            labor.deliverBox(b.self);
+            if (b.self.carrying) {
+              // Склад будки полон — ждём у будки.
+              if (b.fsm.time > 40) return done();
+              return;
+            }
+            return done();
+          }
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(to);
+        return;
+      }
+      case 'clean': {
+        if (!labor.trash.includes(job.pile)) return done();
+        if (Math.hypot(job.pile.x - b.self.x, job.pile.y - b.self.y) < 22) {
+          b.mover.stop();
+          faceTowards(b.self, job.pile.x, job.pile.y, dt);
+          if (labor.cleanStep(b.self, job.pile, dt)) return done();
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(job.pile);
+        return;
+      }
+      case 'scavenge': {
+        if (!labor.trash.includes(job.pile) || job.pile.searched) return done();
+        if (Math.hypot(job.pile.x - b.self.x, job.pile.y - b.self.y) < 22) {
+          b.mover.stop();
+          faceTowards(b.self, job.pile.x, job.pile.y, dt);
+          if ((job.left -= dt) <= 0) {
+            const got = labor.search(b.self, job.pile);
+            if (got) b.self.say(b.ctx.rng.pick(['О, повезло…', 'Сгодится.', 'Это пригодится.']), b.ctx.law.now, 2);
+            return done();
+          }
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(job.pile);
+        return;
+      }
+      case 'heal': {
+        const p = job.patient;
+        if (!p.alive || p.health >= p.maxHealth * LABOR.medic.below || p.law.phase !== 'none') return done();
+        if (Math.hypot(p.x - b.self.x, p.y - b.self.y) < LABOR.medic.range) {
+          b.mover.stop();
+          faceTowards(b.self, p.x, p.y, dt);
+          const err = labor.treat(b.self, p);
+          if (!err) {
+            b.self.say('Держитесь, сейчас перевяжу.', b.ctx.law.now, 2);
+            p.say('Спасибо, доктор.', b.ctx.law.now + 0.5, 2);
+          }
+          return done();
+        }
+        job.repath -= dt;
+        if (job.repath <= 0 || st === 'idle' || st === 'arrived') {
+          job.repath = 1.5;
+          b.goToPoint(p);
+        }
+        return;
+      }
     }
   },
   exit(b) {
-    if (b.job?.kind === 'dispense') b.ctx.economy.releaseDispenser(b.self);
+    // Ушёл с работы (тревога, приказ ГО, паника) — снять брони; коробку курьер держит при себе.
+    const job = b.job;
+    if (job?.kind === 'dispense') b.ctx.economy.releaseDispenser(b.self);
+    if (job?.kind === 'repair' && job.spot.worker === b.self) job.spot.worker = null;
+    if (job?.kind === 'clean' && job.pile.worker === b.self) job.pile.worker = null;
+    if (job?.kind === 'pack') b.ctx.labor.stopPacking(b.self);
+    b.job = null;
+    b.mover.speed = b.walkSpeed;
   },
 };
 

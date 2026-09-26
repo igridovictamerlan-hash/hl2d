@@ -10,6 +10,7 @@ import { randomAnchorAround } from '../destinations';
 import { poiWorld } from '../../systems/Population';
 import { faceMovement, faceTowards, turnTowards } from '../facing';
 import { canSeeCircle } from '../../world/visibility';
+import { CHARACTER } from '../../config/entities';
 import { LAW } from '../../config/law';
 import { VISION } from '../../config/vision';
 import { dist, type Vec2 } from '../../core/math';
@@ -32,7 +33,7 @@ export interface CpOptions {
 }
 
 /** Состояния, из которых можно сразу перейти в бой. */
-const CAN_FIGHT = new Set(['patrol', 'patrol-again', 'post', 'guard', 'hunt', 'approach', 'chase', 'medic', 'heal', 'check']);
+const CAN_FIGHT = new Set(['patrol', 'patrol-again', 'post', 'guard', 'hunt', 'approach', 'chase', 'medic', 'heal', 'check', 'bodyguard']);
 
 /**
  * Сотрудник ГО. Патрулирует узкие места и ключевые точки, иногда стоит постом.
@@ -60,6 +61,9 @@ export class CpBrain implements Brain {
   repath = 0;
   healCooldown = 0;
   retreatTo: Vec2 | null = null;
+  /** Кого сопровождает (охрана доверенного лоялиста) и до какого времени. */
+  ward: Character | null = null;
+  wardUntil = 0;
   private scan = 0;
 
   constructor(
@@ -75,7 +79,7 @@ export class CpBrain implements Brain {
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
       this,
-      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT],
+      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD],
       this.idleState,
     );
     this.scan = ctx.rng.range(0, LAW.scanInterval);
@@ -99,10 +103,24 @@ export class CpBrain implements Brain {
     return !!p && Math.hypot(p.x - this.self.x, p.y - this.self.y) < ALARM.respondRadius;
   }
 
+  /** Может ли быть охраной (свободный патрульный). */
+  get canGuard(): boolean {
+    const cur = this.fsm.current;
+    return !this.guardPost && !this.medicStation && !this.target && (cur === 'patrol' || cur === 'post' || cur === 'patrol-again');
+  }
+
+  /** Сопровождать ward до времени until (охрана доверенного лоялиста). */
+  assignGuard(ward: Character, until: number): void {
+    this.ward = ward;
+    this.wardUntil = until;
+    this.fsm.change('bodyguard');
+  }
+
   /** Куда возвращаться после разбирательства. */
   get idleState(): string {
     if (this.medicStation) return 'medic';
     if (this.guardPost) return 'guard';
+    if (this.ward?.alive && this.ctx.law.now < this.wardUntil) return 'bodyguard';
     return this.ctx.war && this.shouldHunt() ? 'hunt' : 'patrol';
   }
 
@@ -537,5 +555,33 @@ const HUNT: State<CpBrain> = {
       return;
     }
     b.goToPoint(p, dt, 3);
+  },
+};
+
+/** Охрана: держится в нескольких шагах за подопечным, отвечает огнём; по истечении — назад в патруль. */
+const BODYGUARD: State<CpBrain> = {
+  name: 'bodyguard',
+  enter(b) {
+    b.mover.speed = LAW.cpWalkSpeed * 1.25;
+    b.repath = 0;
+    if (b.ward) b.self.say('Юнит на сопровождении. Держитесь рядом.', b.ctx.law.now, 3);
+  },
+  update(b, dt) {
+    const w = b.ward;
+    if (!w || !w.alive || b.ctx.law.now >= b.wardUntil) {
+      b.ward = null;
+      return 'patrol';
+    }
+    const d = Math.hypot(w.x - b.self.x, w.y - b.self.y);
+    b.repath -= dt;
+    if (d > 70 && (b.repath <= 0 || b.mover.status === 'idle' || b.mover.status === 'arrived')) {
+      b.repath = 0.8;
+      const a = b.ctx.nav.nearestWalkable(w.x, w.y, 3);
+      if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    } else if (d < 44) b.mover.stop();
+    b.mover.speed = d > 160 ? CHARACTER.runSpeed * 0.9 : LAW.cpWalkSpeed * 1.25;
+  },
+  exit(b) {
+    b.mover.speed = LAW.cpWalkSpeed;
   },
 };

@@ -10,9 +10,9 @@ export function loyaltyTier(c: Character): LoyaltyTier {
   return tier;
 }
 
-/** Лояльность есть только у тех, кого проверяют (граждане, ГСР). */
+/** Лояльность есть только у тех, кого проверяют (граждане, ГСР); у вортигонтов её нет. */
 export function hasLoyalty(c: Character): boolean {
-  return !FACTIONS[c.faction].authority && c.faction !== 'rebel';
+  return !FACTIONS[c.faction].authority && c.faction !== 'rebel' && c.faction !== 'vort';
 }
 
 /** Изменить лояльность (в пределах); игроку — сообщение, смена уровня — отдельно. */
@@ -24,4 +24,9 @@ export function adjustLoyalty(c: Character, delta: number, why: string, bus?: Ev
   bus.emit('log', { text: `Лояльность ${delta > 0 ? '+' : ''}${delta} (${why}) → ${c.loyalty}`, kind: 'system' });
   const after = loyaltyTier(c);
   if (after !== before) bus.emit('announce', { text: `Статус: ${after.name}` });
+}
+
+/** Есть ли у персонажа привилегия лоялиста (бег, очередь, охрана). */
+export function loyalistPerk(c: Character, perk: 'run' | 'queue' | 'escort'): boolean {
+  return hasLoyalty(c) && loyaltyTier(c).perks.includes(perk);
 }

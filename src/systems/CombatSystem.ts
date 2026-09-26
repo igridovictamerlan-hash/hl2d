@@ -158,7 +158,8 @@ export class CombatSystem {
     const B = FACTIONS[b.faction].authority;
     if (A === B) return false;
     const other = A ? b : a;
-    return other.faction === 'rebel' || other.hostile;
+    // Партизан в маскировке — «гражданин», пока не выдал себя.
+    return (other.faction === 'rebel' && !other.disguised) || other.hostile;
   }
 
   /**
@@ -169,6 +170,13 @@ export class CombatSystem {
     if (!this.isHostile(a, b)) return false;
     if (!FACTIONS[a.faction].authority) return true;
     return b.weapon !== null || b.hostile;
+  }
+
+  /** Партизан раскрыт: снова виден как повстанец. */
+  reveal(c: Character, why: string): void {
+    if (!c.disguised) return;
+    c.disguised = false;
+    if (c.isPlayer) this.bus.emit('log', { text: `Маскировка раскрыта: вы ${why}. Теперь ГО узнаёт вас в лицо.`, kind: 'law' });
   }
 
   weaponOf(c: Character): WeaponDef | null {
@@ -208,6 +216,8 @@ export class CombatSystem {
       c.mag = 0;
       return;
     }
+    // Оружие в руках выдаёт партизана.
+    if (c.disguised) this.reveal(c, 'достал оружие');
     const stored = c.mags[id];
     c.mag = stored ?? 0;
     if (stored === undefined) this.loadInstant(c);

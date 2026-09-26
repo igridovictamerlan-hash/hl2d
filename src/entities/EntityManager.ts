@@ -15,6 +15,8 @@ export class EntityManager {
   add(c: Character): Character {
     this.list.push(c);
     this.byIdMap.set(c.id, c);
+    // Сразу в хэш: иначе появившегося (подкрепление, новый отряд) до следующего шага физики не видно.
+    if (c.alive) this.hash.insert(c);
     return c;
   }
 

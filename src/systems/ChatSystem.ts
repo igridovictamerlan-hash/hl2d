@@ -5,7 +5,7 @@ import { LINES } from '../config/lines';
 import { LOYALTY } from '../config/loyalty';
 import { CHAT } from '../config/chat';
 import { CpBrain } from '../ai/brains/CpBrain';
-import { adjustLoyalty, hasLoyalty, loyaltyTier } from './Loyalty';
+import { adjustLoyalty, hasLoyalty, loyaltyTier, loyalistPerk } from './Loyalty';
 
 const near: Character[] = [];
 
@@ -18,6 +18,7 @@ export const CHAT_HELP: [string, string][] = [
   ['/cid', 'ваша CID, статус и лояльность'],
   ['/донос', 'сообщить ГО о подозрительном, кого видите (+лояльность; ложный — минус)'],
   ['/поощрить', 'ГО: поднять лояльность гражданину перед собой'],
+  ['/охрана', 'доверенный лоялист: два юнита ГО сопровождают вас'],
   ['/помощь', 'список команд'],
 ];
 
@@ -28,6 +29,7 @@ export const CHAT_HELP: [string, string][] = [
  */
 export class ChatSystem {
   private lastReport = -1e9;
+  private lastEscort = -1e9;
   private readonly rewarded = new Map<Character, number>();
 
   constructor(private readonly ctx: AiContext) {}
@@ -75,6 +77,9 @@ export class ChatSystem {
       case 'поощрить':
       case 'reward':
         return this.reward(p, now);
+      case 'охрана':
+      case 'escort':
+        return this.escort(p, now);
       case 'помощь':
       case 'help':
       case '?':
@@ -117,6 +122,21 @@ export class ChatSystem {
         this.log(`${best.name}: ${reply}`, 'chat');
       }
     }
+  }
+
+  /** /охрана: доверенный лоялист вызывает двух ближайших свободных патрульных в сопровождение. */
+  private escort(p: Character, now: number): void {
+    const E = LOYALTY.escort;
+    if (!loyalistPerk(p, 'escort')) return this.log('Охрану ГО могут запросить только доверенные лоялисты.');
+    if (now - this.lastEscort < E.cooldown) return this.log(`Запрос охраны — не чаще раза в ${E.cooldown / 60} мин.`);
+    const guards = this.ctx.entities.list
+      .filter((o) => o.alive && o.brain instanceof CpBrain && o.brain.canGuard && this.ctx.map.levelAt(o.x, o.y) === 'city')
+      .sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))
+      .slice(0, E.units);
+    if (guards.length === 0) return this.log('Свободных юнитов нет — все на вызовах.');
+    this.lastEscort = now;
+    for (const g of guards) (g.brain as CpBrain).assignGuard(p, now + E.time);
+    this.log(`Надзор: юниты ${guards.map((g) => g.name).join(', ')} направлены в сопровождение (${E.time} с).`, 'radio');
   }
 
   /** Донос: подозреваемый (повстанец, с оружием, в розыске), которого игрок сейчас видит. */

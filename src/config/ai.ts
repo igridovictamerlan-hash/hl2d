@@ -2,7 +2,16 @@
 export const AI = {
   /** Население при старте. citizens меняется параметром ?npcs=. */
   citizens: 20,
-  population: { cwu: 3, cpPatrol: 6, cpPerCheckpoint: 3, rebels: 3, admin: 1 },
+  population: {
+    cpPatrol: 6, cpPerCheckpoint: 3, rebels: 3, admin: 1,
+    /** ГСР по профессиям (config/professions.ts): повара на раздаче, фасовщик, курьер, уборщики, медик. */
+    cwuProfessions: ['cook', 'cook', 'packer', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic'] as const,
+    /** Доля воров и отбросов среди граждан. */
+    thiefShare: 0.12,
+    outcastShare: 0.12,
+    /** Вортигонты-рабы, убирающие улицы. */
+    vorts: 3,
+  },
 
   /** Сколько запросов A* обрабатывается за один тик (распределение нагрузки). */
   pathBudgetPerTick: 4,

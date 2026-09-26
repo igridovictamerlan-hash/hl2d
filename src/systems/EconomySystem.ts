@@ -4,8 +4,9 @@ import type { GameMap } from '../world/GameMap';
 import type { EventBus } from '../core/EventBus';
 import type { Rng } from '../core/rng';
 import { ECONOMY } from '../config/economy';
+import { LABOR } from '../config/labor';
 import { LOYALTY } from '../config/loyalty';
-import { adjustLoyalty, hasLoyalty, loyaltyTier } from './Loyalty';
+import { adjustLoyalty, hasLoyalty, loyaltyTier, loyalistPerk } from './Loyalty';
 import { ITEMS, WEAPONS, AMMO_ITEM, type ItemId, type WeaponId } from '../config/items';
 import { T } from '../world/tiles';
 import type { Vec2 } from '../core/math';
@@ -44,6 +45,10 @@ export class EconomySystem {
   readonly queue: Character[] = [];
   /** Кто стоит на выдаче. */
   dispenser: Character | null = null;
+  /** Рационов на складе будки (пополняют курьеры с завода, LaborSystem). */
+  rationStock: number = LABOR.booth.startStock;
+  /** Задаёт LaborSystem: склад будки пуст. */
+  onEmpty: () => void = () => {};
   readonly repairs: RepairSpot[] = [];
   private served = new Set<number>();
   private serveProgress = 0;
@@ -169,6 +174,17 @@ export class EconomySystem {
     const i = this.queue.indexOf(c);
     if (i >= 0) return i;
     if (this.queue.length >= ECONOMY.rations.queueSlots) return -1;
+    // Лоялисты встают перед теми, у кого статус ниже (не перед первым — ему уже выдают).
+    if (loyalistPerk(c, 'queue')) {
+      const mine = c.loyalty;
+      for (let k = 1; k < this.queue.length; k++) {
+        const o = this.queue[k];
+        if (!loyalistPerk(o, 'queue') || o.loyalty < mine - 60) {
+          this.queue.splice(k, 0, c);
+          return k;
+        }
+      }
+    }
     this.queue.push(c);
     return this.queue.length - 1;
   }
@@ -204,6 +220,11 @@ export class EconomySystem {
     if (!c || !this.open) return null;
     const slot = this.queueSlot(0);
     if (Math.hypot(c.x - slot.x, c.y - slot.y) > 30) return null;
+    if (this.rationStock <= 0) {
+      this.onEmpty();
+      return null;
+    }
+    this.rationStock--;
     this.queue.shift();
     this.served.add(c.id);
     const R = ECONOMY.rations;

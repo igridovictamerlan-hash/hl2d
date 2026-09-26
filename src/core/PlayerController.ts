@@ -13,6 +13,9 @@ import { UNDERGROUND, INSURGENCY } from '../config/underground';
 import { ECONOMY } from '../config/economy';
 import { COMBAT } from '../config/combat';
 import type { RepairSpot } from '../systems/EconomySystem';
+import type { TrashPile } from '../systems/LaborSystem';
+import type { Corpse } from '../systems/CombatSystem';
+import { LABOR } from '../config/labor';
 
 const near: Character[] = [];
 
@@ -33,6 +36,9 @@ export class PlayerController {
   private climbing: { left: number; to: { x: number; y: number }; down: boolean } | null = null;
   /** Саботирует узел Альянса (повстанец). */
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
+  /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
+  private packing = false;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'scan'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse } | null = null;
   private healCooldown = 0;
 
   constructor(
@@ -55,11 +61,15 @@ export class PlayerController {
     this.repairing = null;
     this.climbing = null;
     this.sabotaging = null;
+    this.packing = false;
+    this.task = null;
   }
 
   /** Прогресс текущего действия (люк, саботаж, ремонт) 0..1 — полоска над игроком; null — нет. */
   get progress(): number | null {
     if (this.climbing) return 1 - this.climbing.left / UNDERGROUND.climbTime;
+    if (this.task) return 1 - this.task.left / this.task.total;
+    if (this.packing && this.laborRef) return this.laborRef.packProgress(this.playerRef!);
     if (this.sabotaging) return this.sabotaging.progress / INSURGENCY.sabotageTime;
     if (this.repairing) return this.repairing.progress / ECONOMY.repairs.time;
     return null;
@@ -69,8 +79,13 @@ export class PlayerController {
     this.bus.emit('log', { text, kind });
   }
 
+  private laborRef: AiContext['labor'] | null = null;
+  private playerRef: Character | null = null;
+
   update(p: Character, ctx: AiContext, dt: number): void {
     const i = this.input;
+    this.laborRef = ctx.labor;
+    this.playerRef = p;
     const law = p.law;
     this.healCooldown -= dt;
     if (!p.alive) {
@@ -152,6 +167,15 @@ export class PlayerController {
         this.say(`Узел Альянса выведен из строя. Сопротивление платит: +${INSURGENCY.sabotageReward} токенов. Уходите!`, 'world');
       }
     }
+    if (this.packing) {
+      const f = ctx.labor.factory;
+      if (!f || Math.hypot(f.x - p.x, f.y - p.y) > 40) {
+        this.packing = false;
+        ctx.labor.stopPacking(p);
+        this.say('Фасовка прервана — отошли от конвейера.');
+      } else ctx.labor.packStep(p, dt);
+    }
+    if (this.task) this.updateTask(p, ctx, dt);
     if (this.repairing) {
       const r = this.repairing;
       if (Math.hypot(r.x - p.x, r.y - p.y) > 36) {
@@ -209,22 +233,52 @@ export class PlayerController {
       const n = ctx.combat.loot(p, corpse);
       return this.say(n > 0 ? `Обыскали тело: ${corpse.name}.` : 'Инвентарь полон.');
     }
+    // Работы ГСР: завод, доставка коробок.
+    const labor = ctx.labor;
+    if (p.profession === 'packer' && d(labor.factory) < REACH) {
+      this.packing = !this.packing;
+      if (!this.packing) labor.stopPacking(p);
+      return this.say(this.packing ? `Вы у конвейера: собираете коробки рационов (${LABOR.factory.packTime} с каждая). E — закончить.` : 'Фасовка окончена.', 'world');
+    }
+    if (p.profession === 'courier') {
+      if (!p.carrying && d(labor.factoryStore) < REACH) {
+        return this.say(labor.takeBox(p) ? 'Вы взяли коробку рационов. Несите к будке раздачи на площади.' : 'На складе завода нет коробок — нужен фасовщик.', 'world');
+      }
+      if (p.carrying && (d(labor.boothDrop) < REACH + 10 || d(eco.window) < REACH + 10)) {
+        if (!labor.deliverBox(p)) this.say('Склад будки полон — подождите раздачи.');
+        return;
+      }
+    }
+    // Мусор: уборщик и вортигонт убирают, остальные роются.
+    const pile = labor.nearestTrash(p.x, p.y, false, REACH);
+    if (pile) {
+      if (p.profession === 'janitor' || p.faction === 'vort') {
+        this.task = { kind: 'clean', x: pile.x, y: pile.y, left: LABOR.trash.cleanTime, total: LABOR.trash.cleanTime, pile };
+        return this.say('Убираете мусор…', 'world');
+      }
+      if (pile.searched) return this.say('Здесь уже рылись.');
+      this.task = { kind: 'search', x: pile.x, y: pile.y, left: LABOR.trash.searchTime, total: LABOR.trash.searchTime, pile };
+      return this.say('Роетесь в мусоре…', 'world');
+    }
     // Повстанец: саботаж узла Альянса.
     const node = eco.nodes.find((r) => !r.broken && d(r) < REACH);
     if (node && p.faction === 'rebel') {
       this.sabotaging = { spot: node, progress: 0 };
       return this.say(`Саботаж узла… не отходите ${INSURGENCY.sabotageTime} с. ГО рядом быть не должно.`, 'world');
     }
-    // ГСР: встать на выдачу / выдать следующему.
+    // ГСР: встать на выдачу / выдать следующему (это работа повара).
+    if (p.faction === 'cwu' && p.profession !== 'cook' && eco.open && d(eco.dispenserSpot) < REACH) {
+      return this.say('Рационы выдают повара ГСР. Ваша работа — в описании профессии (меню роли).');
+    }
     if (p.faction === 'cwu' && eco.open && d(eco.dispenserSpot) < REACH) {
       if (eco.dispenser !== p) {
         if (!eco.claimDispenser(p)) return this.say('На выдаче уже стоит работник.');
         return this.say('Вы на выдаче рационов. E — выдать следующему в очереди.', 'world');
       }
       const served = eco.serveNext(p);
-      return this.say(served ? `Выдано: ${served.name}. +2 токена` : 'Очередь пуста или первый ещё не подошёл.', 'world');
+      return this.say(served ? `Выдано: ${served.name}. +2 токена · на складе ${eco.rationStock}` : eco.rationStock <= 0 ? 'Склад будки пуст — ждите курьера с завода.' : 'Очередь пуста или первый ещё не подошёл.', 'world');
     }
-    if (p.faction === 'cwu') {
+    if (p.faction === 'cwu' && (p.profession === 'janitor' || p.profession === 'packer')) {
       const spot = eco.repairs.find((r) => r.broken && d(r) < REACH);
       if (spot) {
         if (!p.inventory.has('toolkit')) return this.say('Нужен набор инструментов (есть в магазине ГСР).');
@@ -249,12 +303,93 @@ export class PlayerController {
       eco.refillAmmo(p, 3);
       return this.say('Боекомплект пополнен.', 'world');
     }
-    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, поломок, узлов Альянса и тел.');
+    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Альянса и тел.');
   }
 
-  /** G: умение специализации ГО. */
+  /** Действие с таймером: отошли — прервано; время вышло — результат. */
+  private updateTask(p: Character, ctx: AiContext, dt: number): void {
+    const t = this.task!;
+    const at = t.victim ?? t;
+    if (Math.hypot(at.x - p.x, at.y - p.y) > (t.kind === 'pick' ? 40 : 34)) {
+      this.task = null;
+      if (t.kind === 'clean' && t.pile?.worker === p) t.pile.worker = null;
+      return this.say('Прервано — отошли слишком далеко.');
+    }
+    if (t.kind === 'clean') {
+      if (ctx.labor.cleanStep(p, t.pile!, dt)) this.task = null;
+      else t.left = LABOR.trash.cleanTime - t.pile!.progress;
+      return;
+    }
+    if ((t.left -= dt) > 0) return;
+    this.task = null;
+    if (t.kind === 'search') {
+      const got = ctx.labor.search(p, t.pile!);
+      return this.say(got ? `Нашли в мусоре: ${ITEMS[got].name}.` : 'Ничего полезного.', 'world');
+    }
+    this.finishTask(p, ctx, t);
+  }
+
+  /** Завершение особых действий (кража, взлом, сканирование) — задают профессии. */
+  private finishTask(p: Character, ctx: AiContext, t: NonNullable<PlayerController['task']>): void {
+    void p;
+    void ctx;
+    void t;
+  }
+
+  /** Тот, кто перед игроком (ближе и в секторе взгляда), с фильтром. */
+  private facingTarget(p: Character, ctx: AiContext, range: number, ok: (o: Character) => boolean): Character | null {
+    let best: Character | null = null;
+    let bestScore = Infinity;
+    for (const o of ctx.entities.near(p.x, p.y, range + 12, near)) {
+      if (o === p || !o.alive || !ok(o)) continue;
+      const d = Math.hypot(o.x - p.x, o.y - p.y);
+      let a = Math.atan2(o.y - p.y, o.x - p.x) - p.facing;
+      while (a > Math.PI) a -= Math.PI * 2;
+      while (a < -Math.PI) a += Math.PI * 2;
+      const score = d + Math.abs(a) * 30;
+      if (d <= range + 12 && Math.abs(a) < 1.3 && score < bestScore) {
+        bestScore = score;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  /** G: умение профессии или отряда ГО. */
   private special(p: Character, ctx: AiContext): void {
-    if (p.faction !== 'cp') return this.say('Умение (G) есть у ГО: HELIX лечит, GRID ставит бетонный блок.');
+    // Медик ГСР: лечит за плату (гражданин платит, ГО — бесплатно).
+    if (p.profession === 'cwu_medic') {
+      if (this.healCooldown > 0) return;
+      const t = this.facingTarget(p, ctx, LABOR.medic.range, (o) => o.health < o.maxHealth && o.faction !== 'rebel');
+      if (!t) return this.say('Перед вами некого лечить.');
+      const err = ctx.labor.treat(p, t);
+      if (err) return this.say(err);
+      this.healCooldown = LABOR.medic.cooldown;
+      return this.say(FACTIONS[t.faction].authority ? `Вы подлечили сотрудника: ${t.name}.` : `Вы подлечили: ${t.name}. +${LABOR.medic.fee} токенов`, 'world');
+    }
+    // Медик сопротивления: лечит своих бесплатно.
+    if (p.profession === 'rebel_medic') {
+      if (this.healCooldown > 0) return;
+      const t = this.facingTarget(p, ctx, COMBAT.healRange, (o) => o.faction === 'rebel' && o.health < o.maxHealth);
+      const target = t ?? (p.health < p.maxHealth ? p : null);
+      if (!target) return this.say('Некого лечить рядом.');
+      if (!p.inventory.remove('bandage', 1) && !p.inventory.remove('medkit', 1)) return this.say('Нет бинтов и аптечек — пополните у тайника или на рынке.');
+      ctx.combat.heal(target, COMBAT.healAmount);
+      this.healCooldown = COMBAT.healCooldown;
+      return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
+    }
+    // Партизан: маскировка под гражданина (без оружия в руках).
+    if (p.profession === 'partisan') {
+      if (p.disguised) {
+        p.disguised = false;
+        return this.say('Маскировка снята.', 'world');
+      }
+      if (p.weapon) return this.say('Уберите оружие (H), чтобы надеть маскировку.');
+      if (ctx.combat.now - p.lastHurt < 10 || p.hostile) return this.say('Вас только что видели в бою — маскировка не поможет.');
+      p.disguised = true;
+      return this.say('Вы в маскировке: для ГО вы обычный гражданин. Оружие в руках или проверка CID выдадут вас.', 'world');
+    }
+    if (p.faction !== 'cp') return this.say('Умение (G) есть у ГО и у некоторых профессий (медики, партизан).');
     if (p.division === 'helix') {
       if (this.healCooldown > 0) return;
       let best: Character | null = null;

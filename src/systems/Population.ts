@@ -11,6 +11,7 @@ import { randomAnchorAround, zoneIds } from '../ai/destinations';
 import { dist } from '../core/math';
 import { KITS, ITEMS, type WeaponId } from '../config/items';
 import type { DivisionId } from '../config/factions';
+import { PROFESSIONS, type ProfessionId } from '../config/professions';
 
 /** Выдать набор предметов роли; первое оружие из набора — в руки, магазин заряжен. */
 export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat'>): void {
@@ -79,13 +80,31 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   };
 
   const nearPlaza = Math.min(6, citizens);
+  const thieves = Math.round(citizens * P.thiefShare);
+  const outcasts = Math.round(citizens * P.outcastShare);
   for (let k = 0; k < citizens; k++) {
     const spot = k < nearPlaza ? freeSpot(ctx, plaza, 3, 22, civAvoid) : freeSpot(ctx, anywhere, 0, 110, civAvoid);
-    const c = add('citizen', spot, 'citizen');
-    if (c) c.brain = new CitizenBrain(c, ctx);
+    // Последние в списке — воры и отбросы (не у площади).
+    const prof: ProfessionId = k >= citizens - thieves ? 'thief' : k >= citizens - thieves - outcasts ? 'outcast' : 'citizen';
+    const c = add('citizen', spot, PROFESSIONS[prof].kit ?? 'citizen');
+    if (c) {
+      c.profession = prof;
+      // Отбросы общества — без лояльности к Альянсу.
+      if (prof === 'outcast') c.loyalty = Math.min(c.loyalty, -10);
+      c.brain = new CitizenBrain(c, ctx);
+    }
   }
-  for (let k = 0; k < P.cwu; k++) {
-    const c = add('cwu', freeSpot(ctx, plaza, 3, 30, civAvoid), 'cwu');
+  const factory = ctx.labor?.factory;
+  for (const prof of P.cwuProfessions) {
+    const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : freeSpot(ctx, plaza, 3, 30, civAvoid);
+    const c = add('cwu', at, PROFESSIONS[prof].kit ?? 'cwu');
+    if (c) {
+      c.profession = prof;
+      c.brain = new CitizenBrain(c, ctx);
+    }
+  }
+  for (let k = 0; k < P.vorts; k++) {
+    const c = add('vort', freeSpot(ctx, anywhere, 10, 110, civAvoid), 'vort');
     if (c) c.brain = new CitizenBrain(c, ctx);
   }
   // Подпольщики в городе — без оружия на виду.
