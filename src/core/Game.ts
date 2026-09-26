@@ -37,6 +37,8 @@ import { InsurgencySystem } from '../systems/InsurgencySystem';
 import { LaborSystem } from '../systems/LaborSystem';
 import { CrimeSystem } from '../systems/CrimeSystem';
 import { ScannerSystem } from '../systems/ScannerSystem';
+import { RosterSystem } from '../systems/Roster';
+import { ROSTER } from '../config/roster';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
 import { SAVE } from '../config/save';
@@ -190,6 +192,7 @@ export class Game {
       labor: null as unknown as LaborSystem,
       crime: null as unknown as CrimeSystem,
       scanners: null as unknown as ScannerSystem,
+      roster: null as unknown as RosterSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -199,6 +202,7 @@ export class Game {
     this.ai.labor = this.labor;
     this.ai.crime = new CrimeSystem(this.ai);
     this.ai.scanners = new ScannerSystem(this.ai);
+    this.ai.roster = new RosterSystem(this.ai);
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
@@ -284,7 +288,12 @@ export class Game {
       hasCid: true, wanted: faction === 'rebel', phase: 'none', handler: null, reason: null,
       cell: -1, jailUntil: 0, savedBrain: null, lastCheck: this.law.now,
     });
-    const spot = roleSpawn(this.ai, faction);
+    const spot = roleSpawn(this.ai, faction, p.profession);
+    // Глава восстания один: выбрал игрок — NPC-глава становится ветераном.
+    if (faction === 'rebel' && p.profession === 'rebel_leader') this.war.command.demoteNpcLeader();
+    const hp = p.profession ? ROSTER.hp[p.profession] : undefined;
+    p.maxHealth = hp ?? CHARACTER.maxHealth;
+    p.health = p.maxHealth;
     p.x = p.prevX = spot.x;
     p.y = p.prevY = spot.y;
     p.vx = p.vy = p.wantX = p.wantY = 0;
@@ -551,6 +560,7 @@ export class Game {
     this.insurgency.update(dt);
     this.labor.update(dt);
     this.ai.scanners.update(dt);
+    this.ai.roster.update(dt);
     if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside

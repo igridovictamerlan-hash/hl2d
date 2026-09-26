@@ -27,6 +27,7 @@ export const MINIMAP = {
     [T.SEWER]: [66, 74, 58],
     [T.SEWER_WATER]: [38, 84, 66],
     [T.SEWER_WALL]: [12, 11, 10],
+    [T.ROCK]: [44, 38, 30],
   } as Record<number, readonly [number, number, number]>,
   colors: {
     player: '#ffd36b',

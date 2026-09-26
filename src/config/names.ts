@@ -44,6 +44,8 @@ export const ZONE_NAMES = {
   outlands: 'Пустоши (за городской стеной)',
   shop: 'Магазин ГСР',
   sewer: 'Канализация',
-  rebelBase: 'Убежище сопротивления',
+  rebelBase: 'Схрон партизан',
+  wasteland: 'Тропа через пустошь',
+  rebelCamp: 'Лагерь сопротивления',
   blackMarket: 'Чёрный рынок',
 } as const;

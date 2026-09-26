@@ -219,6 +219,7 @@ export class PlayerController {
     if (d(ctx.insurgency.market) < REACH + 8) return this.hooks.openShop('black');
     // Люк: спуститься / подняться.
     const hatch = ctx.underground.hatchNear(p.x, p.y);
+    if (hatch && !ctx.underground.canUse(p)) return this.say('Люк заварен. Ходы под городом знают только партизаны.');
     if (hatch) {
       const down = ctx.map.levelAt(p.x, p.y) === 'city';
       this.climbing = { left: UNDERGROUND.climbTime, to: hatch.to, down };
@@ -414,6 +415,11 @@ export class PlayerController {
       ctx.combat.heal(target, COMBAT.healAmount);
       this.healCooldown = COMBAT.healCooldown;
       return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
+    }
+    // Глава восстания: клич — бойцы рядом идут за вами на штурм.
+    if (p.profession === 'rebel_leader' && p.faction === 'rebel') {
+      const err = ctx.war.command.shout(p);
+      return this.say(err ?? 'Клич! Бойцы рядом идут за вами.', err ? 'system' : 'world');
     }
     // Партизан: маскировка под гражданина (без оружия в руках).
     if (p.profession === 'partisan') {

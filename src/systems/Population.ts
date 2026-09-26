@@ -3,15 +3,13 @@ import type { Character } from '../entities/Character';
 import type { FactionId } from '../config/factions';
 import { FACTIONS } from '../config/factions';
 import { AI } from '../config/ai';
-import { createCharacter } from '../entities/factory';
-import { CitizenBrain } from '../ai/brains/CitizenBrain';
-import { CpBrain } from '../ai/brains/CpBrain';
-import { PostBrain } from '../ai/brains/PostBrain';
 import { randomAnchorAround, zoneIds } from '../ai/destinations';
 import { dist } from '../core/math';
 import { KITS, ITEMS, type WeaponId } from '../config/items';
 import type { DivisionId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
+import { ROSTER } from '../config/roster';
+import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
 
 /** Выдать набор предметов роли; первое оружие из набора — в руки, магазин заряжен. */
 export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat'>): void {
@@ -60,117 +58,128 @@ function randomRank(ctx: AiContext, faction: FactionId, maxRank: number): number
   return Math.min(ctx.rng.int(0, Math.min(maxRank, n - 1)), ctx.rng.int(0, Math.min(maxRank, n - 1)));
 }
 
+/** Роль бойца армии сопротивления по профессии (глава, HYDRA — свои виды). */
+export function armySpec(profession: ProfessionId, kit: string, rank: number): RoleSpec {
+  const kind: RoleKind = profession === 'rebel_leader' ? 'leader' : profession.startsWith('hydra') ? 'hydra' : 'army';
+  return { kind, faction: 'rebel', profession, division: null, rank, kit };
+}
+
+/** Набор бойца армии по профессии. */
+function armyKit(profession: ProfessionId, ctx: AiContext): string {
+  if (profession === 'rebel_soldier') return ctx.rng.chance(0.3) ? 'rebel_rifleman' : ctx.rng.chance(0.2) ? 'rebel_shotgunner' : 'rebel_raider';
+  return PROFESSIONS[profession].kit ?? 'rebel_raider';
+}
+
 /**
- * Заселение города: граждане (часть у площади), рабочие ГСР, повстанцы, патрули ГО,
- * часовые пограничных КПП, Администратор в Нексусе.
+ * Заселение — постоянный состав мира, как игроки на сервере (config/roster.ts, AI.population):
+ * граждане (часть у площади; воры, отбросы, бандиты, беглецы), ГСР по профессиям, вортигонты,
+ * подпольщики, патрули ГО, часовые на всех постах КПП и медики, резерв OTA в Цитадели,
+ * Администратор, армия сопротивления в лагере (глава, ветераны, солдаты, пиро, подрывник, HYDRA),
+ * партизаны и торговец в схроне. У каждого — роль (RoleSpec): погибнув, он появляется снова.
  */
 export function spawnPopulation(ctx: AiContext, citizens: number): void {
   const P = AI.population;
-  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands']);
+  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
-  const add = (faction: FactionId, spot: { x: number; y: number } | null, kit: string, rank = 0): Character | null => {
-    if (!spot) return null;
-    const c = createCharacter(ctx.entities, ctx.rng, faction, spot.x, spot.y, false, rank);
-    c.facing = ctx.rng.range(0, Math.PI * 2);
-    // У жителей немного разная сытость — не все проголодаются одновременно.
-    c.hunger = ctx.rng.range(40, 100);
-    equipKit(c, kit, ctx);
-    return c;
-  };
+  const put = (spec: RoleSpec, at: { x: number; y: number } | null): Character | null => (at ? spawnRole(ctx, spec, at) : null);
 
   const nearPlaza = Math.min(6, citizens);
-  const thieves = Math.round(citizens * P.thiefShare);
-  const outcasts = Math.round(citizens * P.outcastShare);
+  // Особые жители — в конце списка (не у площади).
+  const special: ProfessionId[] = [];
+  for (const [prof, share] of [['thief', P.thiefShare], ['outcast', P.outcastShare], ['bandit', P.banditShare], ['fugitive', P.fugitiveShare]] as [ProfessionId, number][]) {
+    for (let k = 0; k < Math.round(citizens * share); k++) special.push(prof);
+  }
   for (let k = 0; k < citizens; k++) {
     const spot = k < nearPlaza ? freeSpot(ctx, plaza, 3, 22, civAvoid) : freeSpot(ctx, anywhere, 0, 110, civAvoid);
-    // Последние в списке — воры и отбросы (не у площади).
-    const prof: ProfessionId = k >= citizens - thieves ? 'thief' : k >= citizens - thieves - outcasts ? 'outcast' : 'citizen';
-    const c = add('citizen', spot, PROFESSIONS[prof].kit ?? 'citizen');
-    if (c) {
-      c.profession = prof;
-      // Отбросы общества — без лояльности к Альянсу.
-      if (prof === 'outcast') c.loyalty = Math.min(c.loyalty, -10);
-      c.brain = new CitizenBrain(c, ctx);
+    const j = k - (citizens - special.length);
+    const prof: ProfessionId = j >= 0 ? special[j] : 'citizen';
+    const c = put({ kind: 'citizen', faction: 'citizen', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'citizen' }, spot);
+    if (!c) continue;
+    // Отбросы общества — без лояльности к Альянсу; беглец — без CID и в розыске.
+    if (prof === 'outcast' || prof === 'bandit') c.loyalty = Math.min(c.loyalty, -10);
+    if (prof === 'fugitive') {
+      c.loyalty = Math.min(c.loyalty, -20);
+      c.law.hasCid = false;
+      c.law.wanted = true;
     }
+    if (c.role) c.role.loyalty = c.loyalty;
   }
   const factory = ctx.labor?.factory;
   for (const prof of P.cwuProfessions) {
     const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : freeSpot(ctx, plaza, 3, 30, civAvoid);
-    const c = add('cwu', at, PROFESSIONS[prof].kit ?? 'cwu');
-    if (c) {
-      c.profession = prof;
-      c.brain = new CitizenBrain(c, ctx);
-    }
+    put({ kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'cwu' }, at);
   }
   for (let k = 0; k < P.vorts; k++) {
-    const c = add('vort', freeSpot(ctx, anywhere, 10, 110, civAvoid), 'vort');
-    if (c) c.brain = new CitizenBrain(c, ctx);
+    put({ kind: 'vort', faction: 'vort', profession: 'vort_slave', division: null, rank: 0, kit: 'vort' }, freeSpot(ctx, anywhere, 10, 110, civAvoid));
   }
   // Подпольщики в городе — без оружия на виду.
   for (let k = 0; k < P.rebels; k++) {
-    const c = add('rebel', freeSpot(ctx, anywhere, 40, 110, civAvoid), 'citizen', randomRank(ctx, 'rebel', 4));
-    if (c) c.brain = new CitizenBrain(c, ctx);
+    put({ kind: 'citizen', faction: 'rebel', profession: 'rebel_soldier', division: null, rank: randomRank(ctx, 'rebel', 4), kit: 'citizen' }, freeSpot(ctx, anywhere, 40, 110, civAvoid));
   }
   const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
   const none = new Set<number>();
-  const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands']);
+  const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
   const patrolDivisions: DivisionId[] = ['union', 'union', 'jury', 'union', 'helix', 'tech', 'union', 'jury'];
   for (let k = 0; k < P.cpPatrol; k++) {
     const division = patrolDivisions[k % patrolDivisions.length];
     // Патрули — в городе: КПП и пустошь заняты гарнизонами (иначе патрульный займёт место часового).
-    const c = add('cp', freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, patrolAvoid), cpKit(division), randomRank(ctx, 'cp', 6));
-    if (c) {
-      c.division = division;
-      c.brain = new CpBrain(c, ctx);
-    }
+    const at = freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, patrolAvoid);
+    put({ kind: 'patrol', faction: 'cp', profession: null, division, rank: randomRank(ctx, 'cp', 6), kit: cpKit(division) }, at);
   }
-  // Гарнизоны КПП: часовые GRID на постах обеих точек тамбура лицом к пустошам + медик HELIX в бункере.
+  // Гарнизоны КПП: часовые GRID на всех постах обоих дворов лицом к пустоши + медик HELIX в бункере.
   for (const f of ctx.war.fronts) {
     f.posts.slice(0, P.cpPerCheckpoint).forEach((post) => {
       const facing = Math.atan2(f.exit.y - post.y, f.exit.x - post.x);
-      const c = add('cp', freeSpot(ctx, post, 0, 0, none, 20), 'cp_grid', randomRank(ctx, 'cp', 5));
-      if (c) {
-        c.division = 'grid';
-        c.facing = facing;
-        c.brain = new CpBrain(c, ctx, { post, facing, front: f.index });
-      }
+      put({ kind: 'guard', faction: 'cp', profession: null, division: 'grid', rank: randomRank(ctx, 'cp', 5), kit: 'cp_grid', front: f.index, post, facing }, freeSpot(ctx, post, 0, 0, none, 20));
     });
     if (f.bunker.length) {
       const a = ctx.rng.pick(f.bunker);
       const st = { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) };
-      const c = add('cp', freeSpot(ctx, st, 0, 0, none, 20), 'cp_helix', randomRank(ctx, 'cp', 4));
-      if (c) {
-        c.division = 'helix';
-        c.brain = new CpBrain(c, ctx, { front: f.index, medicStation: st });
+      put({ kind: 'medic', faction: 'cp', profession: null, division: 'helix', rank: randomRank(ctx, 'cp', 4), kit: 'cp_helix', front: f.index, station: st }, freeSpot(ctx, st, 0, 0, none, 20));
+    }
+  }
+  // Резерв OTA в Цитадели: элита и солдаты (часть — с дробовиками).
+  for (const [prof, n] of ROSTER.ota) {
+    for (let k = 0; k < n; k++) {
+      const kit = prof === 'ota_elite' ? 'ota_elite' : ctx.rng.chance(ROSTER.otaShotgunChance) ? 'ota_shotgun' : 'ota';
+      put({ kind: 'ota', faction: 'ota', profession: prof, division: null, rank: 0, kit }, freeSpot(ctx, nexus, 1, 5, none, 24));
+    }
+  }
+  if (P.admin > 0) {
+    const desk = poiWorld(ctx, 'nexus_desk');
+    if (desk) put({ kind: 'admin', faction: 'admin', profession: null, division: null, rank: 0, kit: 'admin' }, freeSpot(ctx, desk, 0, 0, none, 10));
+  }
+  // Армия сопротивления — в лагере в пустоши.
+  const camp = poiWorld(ctx, 'rebel_camp');
+  if (camp) {
+    for (const [prof, n] of [...ROSTER.army, ...ROSTER.hydra]) {
+      for (let k = 0; k < n; k++) {
+        put(armySpec(prof, armyKit(prof, ctx), ROSTER.rank[prof] ?? randomRank(ctx, 'rebel', 2)), freeSpot(ctx, camp, 0, 7, none, 20));
       }
     }
   }
-  // Убежище сопротивления в канализации: гарнизон и торговец чёрного рынка.
+  // Схрон партизан в канализации: партизаны и торговец чёрного рынка.
   ctx.insurgency?.populate();
-  if (P.admin > 0) {
-    const desk = poiWorld(ctx, 'nexus_desk');
-    if (desk) {
-      const c = add('admin', freeSpot(ctx, desk, 0, 0, none, 10), 'admin');
-      if (c) c.brain = new PostBrain({ x: c.x, y: c.y }, ctx.rng.range(0, Math.PI * 2));
-    }
-  }
 }
 
 /** Где появляется игрок в выбранной роли. */
-export function roleSpawn(ctx: AiContext, faction: FactionId): { x: number; y: number } {
+export function roleSpawn(ctx: AiContext, faction: FactionId, profession: ProfessionId | null = null): { x: number; y: number } {
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const none = new Set<number>();
   let spot: { x: number; y: number } | null = null;
   if (faction === 'cp') {
     const desk = poiWorld(ctx, 'nexus_desk');
     if (desk) spot = freeSpot(ctx, desk, 1, 4, none, 30);
-  } else if (faction === 'rebel' && ctx.insurgency?.base) {
-    // Повстанец начинает в убежище в канализации.
+  } else if (faction === 'rebel' && profession === 'partisan' && ctx.insurgency?.base) {
+    // Партизан начинает в схроне в канализации.
     spot = freeSpot(ctx, ctx.insurgency.base, 0, 6, none, 30);
+  } else if (faction === 'rebel' && poiWorld(ctx, 'rebel_camp')) {
+    // Армия сопротивления — в лагере в пустоши.
+    spot = freeSpot(ctx, poiWorld(ctx, 'rebel_camp')!, 0, 6, none, 30);
   } else if (faction === 'rebel') {
     // Подальше от Нексуса, в жилых кварталах.
-    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue']);
+    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp']);
     const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
     for (let k = 0; k < 20 && !spot; k++) {
       const s = freeSpot(ctx, { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 }, 20, 110, avoid);

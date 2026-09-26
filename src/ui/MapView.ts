@@ -144,7 +144,7 @@ export class MapView {
     this.zoneLabels = [];
     for (const [id, [sx, sy, n]] of sums) {
       const zone = map.zones[id];
-      if (!zone || n < 40 || zone.kind === 'avenue' || zone.kind === 'outlands') continue;
+      if (!zone || n < 40 || zone.kind === 'avenue' || zone.kind === 'outlands' || zone.kind === 'wasteland') continue;
       // Части КПП — коротко: «D3», «шорт», «лонг», «D4».
       const name = zone.kind === 'checkpoint' ? zone.name.replace(/^.* · /, '') : zone.name;
       this.zoneLabels.push({ name, x: sx / n, y: sy / n });

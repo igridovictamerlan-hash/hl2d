@@ -31,6 +31,7 @@ const PREVIEW_COLORS: Record<number, [number, number, number]> = {
   [T.SEWER]: [70, 78, 60],
   [T.SEWER_WATER]: [40, 90, 70],
   [T.SEWER_WALL]: [16, 14, 12],
+  [T.ROCK]: [50, 42, 32],
 };
 
 /**

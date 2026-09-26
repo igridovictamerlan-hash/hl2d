@@ -107,7 +107,7 @@ describe('сопротивление в городе', () => {
   test('саботаж: группа из убежища через люк выводит из строя узел, код жёлтый, потом отбой', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     // Только убежище, без городских патрулей, боёв на КПП и подкреплений из Цитадели (они идут через город).
-    for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
+    sim.war.command.paused = true;
     sim.war.reinforcements = false;
     sim.insurgency.populate();
     expect(sim.insurgency.garrison.length).toBeGreaterThan(0);
@@ -143,7 +143,7 @@ describe('сопротивление в городе', () => {
   test('тревога: жёлтый код, отбой без нападавших через calmToGreen', () => {
     const sim = makeSim(12345);
     // Без отрядов у КПП (гарнизона в тесте нет — иначе будет прорыв и красный код).
-    for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
+    sim.war.command.paused = true;
     const p = poiWorld(sim.ctx, 'plaza_center')!;
     sim.war.raiseAlarm(p.x, p.y, 'проверка');
     expect(sim.war.code).toBe('yellow');
@@ -153,10 +153,10 @@ describe('сопротивление в городе', () => {
 });
 
 describe('жизнь убежища', () => {
-  test('бойцы ходят на вылазки: по тоннелям, на рынок, через люки в город — и возвращаются', { timeout: 120_000 }, () => {
+  test('партизаны ходят на вылазки: по тоннелям, на рынок, через люки в город — и возвращаются', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     sim.insurgency.populate();
-    for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
+    sim.war.command.paused = true;
     let climbs = 0;
     const level = new Map<number, string>();
     for (let t = 0; t < 180 * 60; t++) {
@@ -168,8 +168,9 @@ describe('жизнь убежища', () => {
       }
     }
     console.log(`вылазок: ${sim.insurgency.outings}, спусков и подъёмов по люкам: ${climbs}`);
-    expect(sim.insurgency.outings).toBeGreaterThan(10);
-    expect(climbs).toBeGreaterThan(6);
+    // Партизан в схроне трое (постоянный состав), люков два — у края города.
+    expect(sim.insurgency.outings).toBeGreaterThan(5);
+    expect(climbs).toBeGreaterThan(4);
     // В убежище всегда кто-то остаётся.
     expect(sim.insurgency.garrison.some((c) => sim.map.zoneAtWorld(c.x, c.y)?.kind === 'rebel_base' || sim.map.levelAt(c.x, c.y) === 'sewer')).toBe(true);
   });

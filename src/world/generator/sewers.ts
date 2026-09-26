@@ -30,6 +30,9 @@ export function addSewers(city: GameMap, seed: number): GameMap {
   const W = sx0 + sw;
   const area: Rect = { x: sx0, y: sy0, w: sw, h: sh };
 
+  // 1. Люки в городе (до копирования сетки: при нужде прорезают в запретной зоне ход к площадке).
+  const hatches = pickCityHatches(city, rng, S.hatches, S.hatchSpacing, S.hatchEdge);
+
   const tiles = new Uint8Array(W * H).fill(T.SEWER_WALL);
   const zoneGrid = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {
@@ -58,9 +61,6 @@ export function addSewers(city: GameMap, seed: number): GameMap {
   const fill = (x0: number, y0: number, w: number, h: number, t: number, force = true) => {
     for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) set(x, y, t, force);
   };
-
-  // 1. Люки в городе.
-  const hatches = pickCityHatches(city, rng, S.hatches, S.hatchSpacing);
 
   // 2. Решётка тоннелей.
   const gx: number[] = [];
@@ -201,15 +201,117 @@ export function addSewers(city: GameMap, seed: number): GameMap {
   return map;
 }
 
-/** Люки в городе: якорь 2×2 на полу переулка жилого квартала или промзоны, подальше друг от друга. */
-function pickCityHatches(city: GameMap, rng: Rng, count: number, spacing: number): { x: number; y: number }[] {
+/**
+ * Люки в городе: якорь 2×2 на полу запретной зоны у края города (не дальше edge тайлов от стены),
+ * подальше друг от друга. Ими ходят только партизаны.
+ */
+function pickCityHatches(city: GameMap, rng: Rng, count: number, spacing: number, edge: number): { x: number; y: number }[] {
   const w = city.width;
-  const ok = new Set(['residential', 'industrial']);
+  // Прямоугольник самого города (без пустоши вокруг).
+  let cx0 = Infinity, cy0 = Infinity, cx1 = -1, cy1 = -1;
+  for (let y = 0; y < city.height; y++) {
+    for (let x = 0; x < w; x++) {
+      const k = city.zoneAtTile(x, y)?.kind;
+      if (k === 'wasteland' || k === 'rebel_camp') continue;
+      cx0 = Math.min(cx0, x); cy0 = Math.min(cy0, y); cx1 = Math.max(cx1, x); cy1 = Math.max(cy1, y);
+    }
+  }
+  // У края мало переулков — если двух люков не набралось, полоса у края расширяется.
+  let out: { x: number; y: number }[] = [];
+  for (const band of [edge, edge * 2, edge * 3, Infinity]) {
+    out = pickFarthest(hatchCandidates(city, band, cx0, cy0, cx1, cy1), rng, count, spacing);
+    if (out.length >= count) break;
+  }
+  if (out.length >= count) return out;
+  // Зона целиком застроена — прорезаем от её проходов ходы к площадкам у края города.
+  carveHatchYards(city, cx0, cy0, cx1, cy1, spacing);
+  return pickFarthest(hatchCandidates(city, Infinity, cx0, cy0, cx1, cy1), rng, count, spacing);
+}
+
+/**
+ * Две площадки 3×3 в запретной зоне у края города (вдоль двух сторон, выходящих к краю), каждая —
+ * с ходом шириной 2 до проходимой части зоны (поиск в ширину по якорям внутри стен зоны).
+ */
+function carveHatchYards(city: GameMap, cx0: number, cy0: number, cx1: number, cy1: number, spacing: number): void {
+  const w = city.width;
+  const tiles = city.tiles as Uint8Array;
+  let rx0 = Infinity, ry0 = Infinity, rx1 = -1, ry1 = -1;
+  for (let y = 0; y < city.height; y++) {
+    for (let x = 0; x < w; x++) {
+      if (city.zoneAtTile(x, y)?.kind !== 'restricted') continue;
+      rx0 = Math.min(rx0, x); ry0 = Math.min(ry0, y); rx1 = Math.max(rx1, x); ry1 = Math.max(ry1, y);
+    }
+  }
+  if (rx1 < 0) return;
+  // Внутри кольца стен зоны (2 тайла).
+  const ix0 = rx0 + 2, iy0 = ry0 + 2, ix1 = rx1 - 2, iy1 = ry1 - 2;
+  const inside = (x: number, y: number) => x >= ix0 && y >= iy0 && x <= ix1 && y <= iy1;
+  const westSide = rx0 - cx0 <= cx1 - rx1;
+  const northSide = ry0 - cy0 <= cy1 - ry1;
+  const edgeX = westSide ? ix0 + 1 : ix1 - 3;
+  const edgeY = northSide ? iy0 + 1 : iy1 - 3;
+  const cornerX = westSide ? ix0 + 1 : ix1 - 3;
+  const cornerY = northSide ? iy0 + 1 : iy1 - 3;
+  const off = Math.max(spacing, 12);
+  const clampX = (x: number) => Math.max(ix0, Math.min(ix1 - 2, x));
+  const clampY = (y: number) => Math.max(iy0, Math.min(iy1 - 2, y));
+  const targets = [
+    { x: edgeX, y: clampY(cornerY + (northSide ? off : -off)) },
+    { x: clampX(cornerX + (westSide ? off : -off)), y: edgeY },
+  ];
+  const walk = (x: number, y: number) => {
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) if (SOLID[tiles[(y + dy) * w + x + dx]]) return false;
+    return true;
+  };
+  for (const t of targets) {
+    // Поиск в ширину от площадки к ближайшему проходимому якорю зоны (или прохода к ней).
+    const key = (x: number, y: number) => y * w + x;
+    const prev = new Map<number, number>();
+    const q: number[] = [key(t.x, t.y)];
+    prev.set(q[0], -1);
+    let hit = -1;
+    for (let qi = 0; qi < q.length && hit < 0; qi++) {
+      const k = q[qi];
+      const x = k % w;
+      const y = (k - x) / w;
+      if (k !== q[0] && walk(x, y)) {
+        hit = k;
+        break;
+      }
+      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+        const nk = key(nx, ny);
+        if (prev.has(nk)) continue;
+        // Ход — внутри стен зоны; выйти можно только на уже проходимый якорь (проход к воротам).
+        if (!inside(nx, ny) || !inside(nx + 1, ny + 1)) {
+          if (!walk(nx, ny)) continue;
+        }
+        prev.set(nk, k);
+        q.push(nk);
+      }
+    }
+    if (hit < 0) continue;
+    for (let k = prev.get(hit)!; k >= 0; k = prev.get(k)!) {
+      const x = k % w;
+      const y = (k - x) / w;
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) if (SOLID[tiles[(y + dy) * w + x + dx]]) tiles[(y + dy) * w + x + dx] = T.FLOOR;
+    }
+    for (let dy = -1; dy < 3; dy++) for (let dx = -1; dx < 3; dx++) {
+      const x = t.x + dx;
+      const y = t.y + dy;
+      if (inside(x, y) && SOLID[tiles[y * w + x]]) tiles[y * w + x] = T.FLOOR;
+    }
+  }
+}
+
+function hatchCandidates(city: GameMap, edge: number, cx0: number, cy0: number, cx1: number, cy1: number): { x: number; y: number }[] {
+  const w = city.width;
   const cand: { x: number; y: number }[] = [];
   for (let y = 3; y < city.height - 4; y++) {
     for (let x = 3; x < w - 4; x++) {
-      if (city.tileAt(x, y) !== T.FLOOR || city.tileAt(x + 1, y) !== T.FLOOR || city.tileAt(x, y + 1) !== T.FLOOR || city.tileAt(x + 1, y + 1) !== T.FLOOR) continue;
-      if (!ok.has(city.zoneAtTile(x, y)?.kind ?? '')) continue;
+      // Пол под открытым небом: переулок, двор, площадка (люк — не в доме и не в дверях).
+      if (!OUTDOOR.has(city.tileAt(x, y)) || !OUTDOOR.has(city.tileAt(x + 1, y)) || !OUTDOOR.has(city.tileAt(x, y + 1)) || !OUTDOOR.has(city.tileAt(x + 1, y + 1))) continue;
+      if (city.zoneAtTile(x, y)?.kind !== 'restricted') continue;
+      if (Math.min(x - cx0, y - cy0, cx1 - x, cy1 - y) > edge) continue;
       // Не у дверей и ворот (не мешать проходу).
       let near = false;
       for (let dy = -2; dy <= 3 && !near; dy++) for (let dx = -2; dx <= 3; dx++) {
@@ -219,10 +321,16 @@ function pickCityHatches(city: GameMap, rng: Rng, count: number, spacing: number
       if (!near) cand.push({ x, y });
     }
   }
+  return cand;
+}
+
+const OUTDOOR = new Set<number>([T.FLOOR, T.COURTYARD, T.STREET, T.PLAZA]);
+
+/** Выборка «дальней точки»: каждый следующий — дальше всех от уже выбранных (не ближе spacing). */
+function pickFarthest(cand: { x: number; y: number }[], rng: Rng, count: number, spacing: number): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   if (!cand.length) return out;
   out.push(rng.pick(cand));
-  // Выборка «дальней точки»: каждый следующий — дальше всех от уже выбранных.
   while (out.length < count) {
     let best: { x: number; y: number } | null = null;
     let bestD = -1;

@@ -25,7 +25,7 @@ export interface MapFileV1 {
 
 const ZONE_KINDS: ZoneKind[] = [
   'residential', 'avenue', 'plaza', 'nexus', 'cells', 'industrial', 'restricted', 'checkpoint', 'outlands', 'shop',
-  'sewer', 'rebel_base', 'black_market',
+  'sewer', 'rebel_base', 'black_market', 'wasteland', 'rebel_camp',
 ];
 
 export function mapToFile(map: GameMap): MapFileV1 {

@@ -5,13 +5,15 @@ import { WAR } from '../config/war';
 import { ALARM } from '../config/underground';
 import { FACTIONS } from '../config/factions';
 import { T } from '../world/tiles';
-import { createCharacter } from '../entities/factory';
-import { equipKit, poiWorld } from './Population';
+import { equipKit } from './Population';
 import { RebelBrain } from '../ai/brains/RebelBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 import { DefectorBrain } from '../ai/brains/DefectorBrain';
+import { RebelCommand } from './RebelCommand';
+import { spawnRole } from './Roster';
+import { armySpec } from './Population';
 
 /** Мозг бойца отряда — если он сейчас «свой» (задержанный ведёт себя как PrisonerBrain). */
 function rebelBrain(r: Character): RebelBrain | null {
@@ -46,8 +48,6 @@ export interface DPoint {
   center: Vec2;
 }
 
-/** Как радио называет особых бойцов отряда. */
-const KIT_ROLE: Record<string, string> = { rebel_commander: 'командир', rebel_marksman: 'арбалетчик', rebel_shotgunner: 'дробовик', rebel_rifleman: 'AR2', rebel_medic: 'медик', rebel_pyro: 'пиротехник' };
 
 /** Фронт — пограничный КПП: пустошь с отрядами повстанцев по ту сторону ворот. */
 export interface Front {
@@ -71,7 +71,6 @@ export interface Front {
   bunker: number[];
   /** Все бойцы повстанцев на этом фронте (из всех подошедших отрядов). */
   squad: Character[];
-  nextSquadAt: number;
   /** Когда здесь последний раз стреляли (для маркеров на экране). */
   lastShot: number;
   /** О штурме текущего отряда уже сообщили. */
@@ -135,8 +134,11 @@ export class WarSystem {
   private defectLeft = 0;
   private citizensAtStart = -1;
   readonly stats = { defected: 0, counterattacks: 0 };
+  /** Командование сопротивления: армия в лагере, цель главы, клич. */
+  readonly command: RebelCommand;
 
   constructor(private readonly ctx: AiContext) {
+    this.command = new RebelCommand(ctx);
     this.buildFronts();
     ctx.economy.paused = () => this.curfew;
     ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Альянса');
@@ -238,7 +240,7 @@ export class WarSystem {
       this.fronts.push({
         index, name: baseName, exit, outerGate, midGate: shortFloor.length ? centroid(shortFloor) : avg([outerGate, innerGate]), innerGate, apron,
         posts: myPosts, outlands, bunker, short: shortFloor, long: longFloor, shortZone, longZone,
-        squad: [], nextSquadAt: rng.range(WAR.firstSquad[0], WAR.firstSquad[1]),
+        squad: [],
         lastShot: -1e9, reinforceAt: 0, medicAt: 0, assaultAnnounced: false, corridor, points, held: 0,
         owner: 'combine', capture: null, nextCaptureAt: WAR.capture.firstAfter + rng.range(0, 10), heldSince: 0, rebelFree: 0, retakeAt: 0,
       });
@@ -315,57 +317,24 @@ export class WarSystem {
     return best;
   }
 
-  /** Принудительный штурм (отладка, тесты): текущий отряд идёт на прорыв. */
+  /**
+   * Принудительный штурм (отладка, тесты): отряд фронта идёт на прорыв в город. Нет отряда — из
+   * лагеря выходит боец армии прямо на пустошь этого КПП.
+   */
   forceAssault(front = 0): void {
     const f = this.fronts[front];
     if (!f) return;
-    if (f.squad.length === 0) this.spawnSquad(f, true);
-    for (const r of f.squad) rebelBrain(r)?.orderAssault();
-  }
-
-  private spawnSquad(f: Front, assault: boolean): void {
-    const { rng, nav } = this.ctx;
-    if (f.outlands.length === 0) return;
-    // Спавн — в дальней от ворот части пустоши.
-    const far = [...f.outlands].sort(
-      (a, b) =>
-        Math.hypot(nav.worldX(b) - f.outerGate.x, nav.worldY(b) - f.outerGate.y) -
-        Math.hypot(nav.worldX(a) - f.outerGate.x, nav.worldY(a) - f.outerGate.y),
-    ).slice(0, Math.max(6, Math.floor(f.outlands.length / 3)));
-    const n = rng.int(WAR.squadSize[0], WAR.squadSize[1]);
-    const assaultAt = assault ? this.time + rng.range(WAR.assaultAfter[0], WAR.assaultAfter[1]) : Infinity;
-    if (assault) f.assaultAnnounced = false;
-    const roles: string[] = [];
-    for (let k = 0; k < n; k++) {
-      const a = rng.pick(far);
-      let kit = rng.chance(WAR.rifleChance) ? 'rebel_rifleman' : 'rebel_raider';
-      let rank = Math.min(rng.int(0, 3), rng.int(0, 3));
-      if (k === 0 && rng.chance(WAR.commanderChance)) {
-        kit = 'rebel_commander';
-        rank = 4;
-      } else if (k === 1 && !assault && rng.chance(WAR.marksmanChance)) {
-        kit = 'rebel_marksman';
-        rank = Math.max(rank, 2);
-      } else if (k === 2 && rng.chance(WAR.medicChance)) kit = 'rebel_medic';
-      else if (k === 3 && rng.chance(WAR.pyroChance)) kit = 'rebel_pyro';
-      else if (rng.chance(assault ? WAR.shotgunChance * 2 : WAR.shotgunChance)) kit = 'rebel_shotgunner';
-      const c = createCharacter(this.ctx.entities, rng, 'rebel', nav.worldX(a) + rng.range(-4, 4), nav.worldY(a) + rng.range(-4, 4), false, rank);
-      equipKit(c, kit, this.ctx);
-      if (kit === 'rebel_medic') c.profession = 'rebel_medic';
-      if (kit === 'rebel_pyro') c.profession = 'pyro';
-      const brain = new RebelBrain(c, this.ctx, f.index, assaultAt);
-      c.brain = brain;
-      // КПП ещё у Альянса — собираются на точке сбора; во время капта — сразу в бой.
-      if (f.capture) brain.orderCapture();
-      else if (f.owner === 'combine' && !assault) brain.orderGather();
-      f.squad.push(c);
-      roles.push(KIT_ROLE[kit] ?? '');
+    if (f.squad.length === 0 && f.outlands.length) {
+      const a = this.ctx.rng.pick(f.outlands);
+      const c = spawnRole(this.ctx, armySpec('rebel_soldier', 'rebel_raider', 0), { x: this.ctx.nav.worldX(a), y: this.ctx.nav.worldY(a) });
+      const b = c ? rebelBrain(c) : null;
+      if (c && b) {
+        b.setFront(front);
+        b.march('gather');
+        f.squad.push(c);
+      }
     }
-    const extra = roles.filter(Boolean);
-    this.ctx.law.log(
-      `${f.name}: на пустоши замечен отряд повстанцев (${n}${extra.length ? `: ${extra.join(', ')}` : ''})${assault ? ', готовится штурм' : ', собираются'}.`,
-      'radio',
-    );
+    for (const r of f.squad) rebelBrain(r)?.orderAssault();
   }
 
   /** Посты, где сейчас стоят часовые (для огня на подавление). */
@@ -418,42 +387,42 @@ export class WarSystem {
     return { guards, medics };
   }
 
-  /**
-   * Подкрепление: ГО (или OTA) появляется в Цитадели (у ворот Нексуса) и бежит на КПП.
-   * Часовой — на свободный пост точки `point` (по умолчанию — точек, ещё у Альянса).
-   */
-  private reinforce(f: Front, medic: boolean, quiet = false, point = -1, ota = false): void {
-    const { rng, nav } = this.ctx;
-    const citadel = poiWorld(this.ctx, 'nexus_gate') ?? f.apron;
-    const a = nav.nearestWalkable(citadel.x + rng.range(-24, 24), citadel.y + rng.range(-24, 24), 8);
-    if (a < 0) return;
-    const c = createCharacter(this.ctx.entities, rng, ota ? 'ota' : 'cp', nav.worldX(a), nav.worldY(a), false, ota ? 0 : rng.int(0, 4));
-    if (medic) {
-      c.division = 'helix';
-      equipKit(c, 'cp_helix', this.ctx);
-      const st = f.bunker.length ? rng.pick(f.bunker) : a;
-      c.brain = new CpBrain(c, this.ctx, { front: f.index, medicStation: { x: nav.worldX(st), y: nav.worldY(st) } });
-    } else {
-      if (ota) equipKit(c, rng.chance(WAR.otaShotgunChance) ? 'ota_shotgun' : 'ota', this.ctx);
-      else {
-        c.division = 'grid';
-        equipKit(c, 'cp_grid', this.ctx);
-      }
-      const pool = point >= 0 ? f.points[point]?.posts ?? f.posts : f.points.slice(f.held).flatMap((pt) => pt.posts);
-      const posts = pool.length ? pool : f.posts;
-      const taken = this.guardsOf(f).guards.map((g) => (g.brain as CpBrain).guardPost!);
-      const post = posts.find((p) => !taken.some((t) => t.x === p.x && t.y === p.y)) ?? rng.pick(posts);
-      const facing = Math.atan2(f.exit.y - post.y, f.exit.x - post.x);
-      c.brain = new CpBrain(c, this.ctx, { front: f.index, post, facing });
+  /** Сколько защитников (ГО на постах, OTA) живы у точки k фронта f. */
+  defendersAt(f: Front, k: number): number {
+    let n = 0;
+    for (const c of this.ctx.entities.list) {
+      if (!c.alive) continue;
+      const b = c.brain;
+      if (b instanceof CpBrain && b.front === f.index && b.guardPost && this.pointOfPost(f, b.guardPost) === k) n++;
+      else if (b instanceof OtaBrain && b.front === f.index && b.post && this.pointOfPost(f, b.post) === k) n++;
     }
-    if (!quiet) this.ctx.law.log(`${f.name}: подкрепление из Цитадели — ${c.name} (${medic ? 'HELIX' : ota ? 'OTA' : 'GRID'}).`, 'radio');
+    return n;
+  }
+
+  /**
+   * Контрудар: свободные OTA из резерва в Цитадели бегут на посты точки k (ГО туда же приходят сами —
+   * часовые этой точки после гибели возрождаются в Цитадели и бегут на свои посты).
+   */
+  private counterattack(f: Front, k: number): number {
+    if (!this.reinforcements) return 0;
+    const pt = f.points[k];
+    const posts = pt?.posts.length ? pt.posts : f.posts;
+    let sent = 0;
+    for (const o of this.ota) {
+      if (sent >= WAR.capture.retakeOta || !o.alive) continue;
+      const b = o.brain;
+      if (!(b instanceof OtaBrain) || !b.available) continue;
+      b.assignPost(f.index, posts[sent % posts.length], Math.atan2(f.exit.y - posts[sent % posts.length].y, f.exit.x - posts[sent % posts.length].x));
+      sent++;
+    }
+    return sent;
   }
 
   /** В городе ли точка (не КПП, не пустошь, не канализация) — там нападение поднимает тревогу. */
   private inCity(x: number, y: number): boolean {
     if (this.ctx.map.levelAt(x, y) !== 'city') return false;
     const kind = this.ctx.map.zoneAtWorld(x, y)?.kind;
-    return kind !== 'checkpoint' && kind !== 'outlands';
+    return kind !== 'checkpoint' && kind !== 'outlands' && kind !== 'wasteland' && kind !== 'rebel_camp';
   }
 
   /** Ранение сотрудника Альянса в городе — тревога; погибшие за тревогу — эскалация до красного. */
@@ -522,6 +491,7 @@ export class WarSystem {
     const pt = f.points[c.point];
     const score = `${c.rebelKills} : ${c.cpKills}`;
     const attackers = f.squad.filter((r) => rebelBrain(r)?.mode === 'capture');
+    this.command.onCaptureEnd(f.index, won);
     if (!won) {
       this.ctx.law.log(`${f.name}: капт ${pt.name} отбит (${score}). Точка удержана.`, 'radio');
       this.ctx.bus.emit('announce', { text: `${pt.name} удержана · ${score}` });
@@ -585,10 +555,11 @@ export class WarSystem {
     const pt = f.points[k];
     if (this.time >= f.retakeAt) {
       f.retakeAt = this.time + W.retakeEvery;
-      this.stats.counterattacks++;
-      for (let i = 0; i < W.retakeSquad; i++) this.reinforce(f, false, true, k);
-      for (let i = 0; i < W.retakeOta; i++) this.reinforce(f, false, true, k, true);
-      this.ctx.law.log(`${f.name}: контрудар — из Цитадели на ${pt.name} бегут ГО (${W.retakeSquad}) и OTA (${W.retakeOta}).`, 'radio');
+      const sent = this.counterattack(f, k);
+      if (sent > 0) {
+        this.stats.counterattacks++;
+        this.ctx.law.log(`${f.name}: контрудар — из Цитадели на ${pt.name} бегут OTA (${sent}).`, 'radio');
+      }
     }
     let rebelsIn = 0;
     let cpIn = 0;
@@ -622,7 +593,8 @@ export class WarSystem {
   private onDamage(target: Character, attacker: Character | null, killed: boolean): void {
     if (attacker && killed) this.countCaptureKill(target, attacker);
     if (!attacker || !FACTIONS[target.faction].authority || FACTIONS[attacker.faction].authority) return;
-    if (!this.inCity(target.x, target.y)) return;
+    // Нападение в городе — и цель, и стрелок в городе (огонь с постов КПП по проспекту — это фронт).
+    if (!this.inCity(target.x, target.y) || !this.inCity(attacker.x, attacker.y)) return;
     this.operatives.add(attacker);
     this.lastKnown.set(attacker, { x: attacker.x, y: attacker.y });
     if (this.time - this.lastAlarmRaise > 10) this.raiseAlarm(target.x, target.y, `нападение на сотрудника ${FACTIONS[target.faction].role}`);
@@ -665,18 +637,16 @@ export class WarSystem {
     this.ctx.economy.forceClose();
     this.ctx.bus.emit('announce', { text: 'Код красный · комендантский час' });
     for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код красный. Комендантский час!', this.ctx.law.now, 5);
-    const gate = poiWorld(this.ctx, 'nexus_gate');
-    if (!gate) return;
-    const { rng, nav } = this.ctx;
-    for (let k = 0; k < WAR.otaSquad; k++) {
-      const a = nav.nearestWalkable(gate.x + rng.range(-24, 24), gate.y + rng.range(-24, 24), 6);
-      if (a < 0) continue;
-      const c = createCharacter(this.ctx.entities, rng, 'ota', nav.worldX(a), nav.worldY(a), false);
-      equipKit(c, rng.chance(WAR.otaShotgunChance) ? 'ota_shotgun' : 'ota', this.ctx);
-      c.brain = new OtaBrain(c, this.ctx);
-      this.ota.push(c);
+    // Весь свободный резерв OTA из Цитадели — на прочёсывание.
+    let n = 0;
+    for (const o of this.ota) {
+      const b = o.brain;
+      if (o.alive && b instanceof OtaBrain && b.available) {
+        b.hunt();
+        n++;
+      }
     }
-    this.ctx.law.log(`Надзор: отряд OTA (${WAR.otaSquad}) развёрнут из Нексуса.`, 'radio');
+    if (n) this.ctx.law.log(`Надзор: отряд OTA (${n}) выходит из Цитадели.`, 'radio');
   }
 
   /** Не нашли за отведённое время: прорвавшиеся прячут оружие и живут как подпольщики. */
@@ -805,10 +775,13 @@ export class WarSystem {
       this.ctx.bus.emit('defected', { who: c });
       return;
     }
+    // Теперь — боец армии сопротивления (погибнет — вернётся из лагеря).
+    c.role = { ...armySpec('rebel_soldier', 'rebel_raider', 0), name: c.name };
     const b = new RebelBrain(c, this.ctx, f.index, Infinity);
     c.brain = b;
     const posts = f.posts.length ? f.posts : [f.midGate];
     b.orderHold(rng.pick(posts));
+    this.command.join(c);
     f.squad.push(c);
   }
 
@@ -819,7 +792,7 @@ export class WarSystem {
 
   update(dt: number): void {
     this.time += dt;
-    const { entities, map } = this.ctx;
+    const { map } = this.ctx;
     // Где стреляли: выстрел в зоне КПП или пустоши относится к ближайшему фронту.
     const shots = this.ctx.combat.shots;
     for (let i = shots.length - 1; i >= 0 && this.ctx.combat.now - shots[i].t < dt + 1e-6; i--) {
@@ -837,70 +810,40 @@ export class WarSystem {
       }
       if (best) best.lastShot = this.time;
     }
+    // Командование сопротивления: лагерь, цель главы, отряды фронтов, клич.
+    this.command.update(dt);
     for (const f of this.fronts) {
-      // Отряд: живые, не ушедшие, не прорвавшиеся.
-      f.squad = f.squad.filter((r) => {
-        if (!r.alive) return false;
-        const b = r.brain as RebelBrain | null;
-        if (b instanceof RebelBrain && b.departed) {
-          entities.remove(r);
-          return false;
-        }
+      // Прорыв в город: боец в штурме (все точки D взяты, forceAssault) вышел за КПП.
+      for (const r of [...f.squad]) {
+        const b = r.brain;
         const kind = map.zoneAtWorld(r.x, r.y)?.kind;
-        const inCity = kind !== 'outlands' && kind !== 'checkpoint';
-        // Задержанного ведут через город — он уже не боец отряда.
-        if (inCity && !(b instanceof RebelBrain)) return false;
-        // Прорыв в город: штурм (все точки D взяты, forceAssault). Державший пост, которого вытолкнуло
+        const inCity = kind !== 'outlands' && kind !== 'checkpoint' && kind !== 'wasteland' && kind !== 'rebel_camp';
+        if (!r.alive || !inCity) continue;
+        // Задержанного ведут через город — он уже не боец отряда. Державший пост, которого вытолкнуло
         // за ворота, прорвавшимся не считается — вернётся на пост.
-        if (inCity && b instanceof RebelBrain && (b.mode === 'assault' || this.cityPush)) {
-          this.infiltrators.add(r);
-          this.lastKnown.set(r, { x: r.x, y: r.y });
-          b.infiltrate();
-          if (this.code !== 'red') this.declareRed(f.name);
-          return false;
+        if (!(b instanceof RebelBrain)) {
+          f.squad.splice(f.squad.indexOf(r), 1);
+          continue;
         }
-        return true;
-      });
-      // Подход отрядов: к КПП Альянса — пока на сборе меньше minAttackers (потом все идут на капт);
-      // во время капта — никого; к захваченному — пополнение до minRebels.
-      const rng = this.ctx.rng;
-      const holding = f.squad.length;
-      const want = f.capture ? 0 : f.owner === 'combine' ? WAR.capture.minAttackers : WAR.heldRebels;
-      if (holding < want && holding < WAR.maxRebels && this.time >= f.nextSquadAt) {
-        this.spawnSquad(f, false);
-        f.nextSquadAt = this.time + rng.range(WAR.squadGap[0], WAR.squadGap[1]);
-      } else if (holding >= want) {
-        // Пока бойцов хватает, таймер подхода не «копится».
-        f.nextSquadAt = Math.max(f.nextSquadAt, this.time + WAR.squadGap[0]);
+        if (b.mode !== 'assault' && !this.cityPush) continue;
+        f.squad.splice(f.squad.indexOf(r), 1);
+        this.infiltrators.add(r);
+        this.lastKnown.set(r, { x: r.x, y: r.y });
+        b.infiltrate();
+        if (this.code !== 'red') this.declareRed(f.name);
       }
       this.updateCapture(f, dt);
-      // Подкрепления ГО (из Цитадели) — на посты точек, ещё удерживаемых Альянсом.
-      const all = this.guardsOf(f);
-      const medics = all.medics;
-      const guards = all.guards.filter((g) => this.pointOfPost(f, (g.brain as CpBrain).guardPost!) >= f.held);
-      const staff = f.points.slice(f.held).reduce((n, pt) => n + pt.posts.length, 0);
-      const onPost = guards.filter((g) => (g.brain as CpBrain).fsm.current !== 'retreat').length;
       if (!f.assaultAnnounced && f.squad.some((r) => rebelBrain(r)?.mode === 'assault')) {
         f.assaultAnnounced = true;
         this.ctx.law.log(`${f.name}: повстанцы идут на прорыв!`, 'radio');
       }
-      // Нехватка часовых: погибли — или двое+ отошли раненными (тогда — один сверх штата).
-      // Во время капта подкреплений нет (бой тех, кто есть); у захваченного КПП — только контрудары.
-      const short = guards.length < staff || (onPost < staff - 1 && guards.length < staff + 1);
-      if (short && f.owner === 'combine' && !f.capture && this.reinforcements) {
-        if (f.reinforceAt === 0) f.reinforceAt = this.time + WAR.reinforceDelay;
-        else if (this.time >= f.reinforceAt) {
-          f.reinforceAt = 0;
-          this.reinforce(f, false);
+      // Точки снова у Альянса — OTA этого фронта возвращаются в резерв Цитадели.
+      if (f.held === 0 && !f.capture) {
+        for (const o of this.ota) {
+          const b = o.brain;
+          if (b instanceof OtaBrain && b.front === f.index && b.mode === 'post') b.goHome();
         }
-      } else f.reinforceAt = 0;
-      if (medics.length < WAR.medicPerFront && f.held === 0 && !f.capture && this.reinforcements) {
-        if (f.medicAt === 0) f.medicAt = this.time + WAR.reinforceDelay * 1.5;
-        else if (this.time >= f.medicAt) {
-          f.medicAt = 0;
-          this.reinforce(f, true);
-        }
-      } else f.medicAt = 0;
+      }
     }
 
     this.updateCityPush();
@@ -940,14 +883,7 @@ export class WarSystem {
       const held = this.fronts.some((f) => f.held > 0);
       if ((this.calm >= WAR.calmToGreen && long >= WAR.redMinTime) || (long > WAR.redMaxTime && !held)) this.declareGreen();
     }
-    // OTA, вернувшиеся в Нексус, уходят.
-    for (let i = this.ota.length - 1; i >= 0; i--) {
-      const o = this.ota[i];
-      const b = o.brain as OtaBrain | null;
-      if (!o.alive || b?.departed) {
-        if (o.alive) entities.remove(o);
-        this.ota.splice(i, 1);
-      }
-    }
+    // Погибшие OTA — из списка (возвращаются через постоянный состав).
+    for (let i = this.ota.length - 1; i >= 0; i--) if (!this.ota[i].alive) this.ota.splice(i, 1);
   }
 }

@@ -2,12 +2,12 @@ import type { Character } from '../entities/Character';
 import type { AiContext } from '../ai/AiContext';
 import type { Vec2 } from '../core/math';
 import { INSURGENCY } from '../config/underground';
-import { createCharacter } from '../entities/factory';
-import { equipKit, poiWorld } from './Population';
+import { poiWorld } from './Population';
+import { spawnRole } from './Roster';
+import { ROSTER } from '../config/roster';
 import { UndergroundBrain } from '../ai/brains/UndergroundBrain';
-import { PostBrain } from '../ai/brains/PostBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
-import { randomAnchorInZone, randomAnchorAround, zoneIds } from '../ai/destinations';
+import { randomAnchorAround, zoneIds } from '../ai/destinations';
 
 /** Текущая операция сопротивления в городе. */
 export interface Operation {
@@ -32,7 +32,6 @@ export class InsurgencySystem {
   opsStarted = 0;
   private time = 0;
   private nextOp: number;
-  private nextRecruit: number = INSURGENCY.recruitEvery;
   private nextOuting = 5;
   /** Сколько вылазок было (для тестов и отладки). */
   outings = 0;
@@ -50,33 +49,33 @@ export class InsurgencySystem {
     return this.time;
   }
 
-  /** Заселить убежище: гарнизон и торговец. Без канализации на карте — ничего. */
+  /** Партизан (из постоянного состава) — в гарнизон схрона. */
+  adopt(c: Character): void {
+    this.garrison.push(c);
+  }
+
+  /** Заселить схрон: партизаны и торговец (постоянный состав). Без канализации на карте — ничего. */
   populate(): void {
     if (!this.base) return;
-    for (let k = 0; k < INSURGENCY.garrison; k++) this.recruit();
-    const spot = poiWorld(this.ctx, 'trader');
-    const counter = this.market;
-    if (spot && counter) {
-      const a = this.ctx.nav.nearestWalkable(spot.x, spot.y, 3);
-      if (a >= 0) {
-        const t = createCharacter(this.ctx.entities, this.ctx.rng, 'citizen', this.ctx.nav.worldX(a), this.ctx.nav.worldY(a));
+    const { ctx } = this;
+    for (let k = 0; k < ROSTER.partisans; k++) {
+      const rank = Math.min(ctx.rng.int(0, 3), ctx.rng.int(0, 3));
+      // Партизаны: только они знают ходы и люки.
+      spawnRole(ctx, { kind: 'partisan', faction: 'rebel', profession: 'partisan', division: null, rank, kit: ctx.rng.chance(0.3) ? 'rebel_rifleman' : 'rebel_raider' });
+    }
+    const spot = poiWorld(ctx, 'trader');
+    if (spot && this.market) {
+      const t = spawnRole(ctx, { kind: 'trader', faction: 'citizen', profession: null, division: null, rank: 0, kit: 'citizen' }, spot);
+      if (t) {
         t.name = `Барыга ${t.name.split(' ')[0]}`;
-        t.brain = new PostBrain({ x: t.x, y: t.y }, Math.atan2(counter.y - t.y, counter.x - t.x));
-        this.trader = t;
+        if (t.role) t.role.name = t.name;
       }
     }
   }
 
-  private recruit(): Character | null {
-    const { ctx } = this;
-    const a = randomAnchorInZone(ctx, 'rebel_base');
-    if (a < 0) return null;
-    const rank = Math.min(ctx.rng.int(0, 4), ctx.rng.int(0, 4));
-    const c = createCharacter(ctx.entities, ctx.rng, 'rebel', ctx.nav.worldX(a), ctx.nav.worldY(a), false, rank);
-    equipKit(c, rank >= 4 ? 'rebel_commander' : ctx.rng.chance(0.3) ? 'rebel_rifleman' : 'rebel_raider', ctx);
-    c.brain = new UndergroundBrain(c, ctx);
-    this.garrison.push(c);
-    return c;
+  /** Связь сопротивления (слышит только игрок-повстанец). */
+  radio(text: string): void {
+    this.say(text);
   }
 
   private say(text: string): void {
@@ -160,10 +159,6 @@ export class InsurgencySystem {
     for (let i = this.garrison.length - 1; i >= 0; i--) if (!this.garrison[i].alive) this.garrison.splice(i, 1);
     if (!this.base) return;
     // Пополнение гарнизона.
-    if (this.garrison.length < INSURGENCY.garrison && this.time >= this.nextRecruit) {
-      this.nextRecruit = this.time + INSURGENCY.recruitEvery;
-      this.recruit();
-    }
     if (this.paused) return;
     // Вылазки: убежище живёт — ходят по тоннелям, на рынок, наверх через люки.
     if (this.time >= this.nextOuting) {

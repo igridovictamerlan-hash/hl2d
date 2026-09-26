@@ -98,6 +98,7 @@ export class MapRenderer {
       case T.SEWER: this.color[i] = tone(P.sewer); break;
       case T.SEWER_WATER: this.color[i] = tone(P.sewerWater); break;
       case T.SEWER_WALL: this.color[i] = tone(P.sewerWall); break;
+      case T.ROCK: this.color[i] = tone(P.rock); break;
       default: this.color[i] = '#f0f';
     }
   }
@@ -238,6 +239,12 @@ export class MapRenderer {
             if ((tx & 1) === 0) ctx.fillRect(x0, y0, line, ch);
             if ((ty & 1) === 0) ctx.fillRect(x0, y0, cw, line);
             break;
+          case T.ROCK:
+            // Трещины и камни.
+            ctx.fillStyle = P.rockCrack;
+            ctx.fillRect(x0 + px((hv & 15) * 0.8), y0 + px(((hv >> 4) & 15) * 0.8), px(4), px(1));
+            ctx.fillRect(x0 + px(((hv >> 8) & 15) * 0.8), y0 + px(((hv >> 12) & 15) * 0.8), px(1), px(3));
+            continue;
           case T.FLOOR:
           case T.WASTE:
           case T.COURTYARD:

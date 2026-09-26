@@ -106,8 +106,9 @@ export const GRENADE = {
    * ИИ: бросает, если цель в minDist..maxDist и прячется за укрытием (блок/угол — не видно или
    * блок на линии) или цели кучкуются (≥ 2 врага в радиусе взрыва); не чаще cooldown с,
    * шанс chance на каждую проверку (раз в check с); своих в радиусе взрыва у точки — не бросает.
+   * Подрывник (demolitionist): в demoMul раз чаще бросает и короче перерыв; бросает и в одного.
    */
-  ai: { minDist: 90, maxDist: 240, cooldown: [9, 16] as const, check: 1, chance: 0.35 },
+  ai: { minDist: 90, maxDist: 240, cooldown: [9, 16] as const, check: 1, chance: 0.35, demoMul: 3 },
   /** NPC, заметивший гранату ближе radius + fleeMargin, убегает от неё. */
   fleeMargin: 36,
 } as const;

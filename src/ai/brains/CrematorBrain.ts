@@ -18,7 +18,7 @@ export class CrematorBrain implements Brain {
   private readonly avoid: ReadonlySet<number>;
 
   constructor(self: Character, ctx: AiContext) {
-    this.avoid = zoneIds(ctx, ['outlands', 'checkpoint', 'restricted']);
+    this.avoid = zoneIds(ctx, ['outlands', 'checkpoint', 'restricted', 'wasteland', 'rebel_camp']);
     this.mover.avoidZones = this.avoid;
     void self;
   }

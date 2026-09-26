@@ -11,27 +11,35 @@ import { COMBAT } from '../../config/combat';
 import { WAR } from '../../config/war';
 import { CHARACTER } from '../../config/entities';
 import { T } from '../../world/tiles';
+import { COMMAND } from '../../config/roster';
+import { poiWorld } from '../../systems/Population';
 
 const nearRebels: Character[] = [];
 
-type Mode = 'gather' | 'raid' | 'assault' | 'infiltrate' | 'retreat' | 'capture' | 'hold';
+export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 'retreat' | 'capture' | 'hold';
 
 /**
- * Боец сопротивления из пустошей.
+ * Боец армии сопротивления (лагерь в пустоши, штурм КПП).
+ *  camp — в лагере: лечится, пополняет патроны; готов — командование (RebelCommand) шлёт к КПП;
  *  gather — собирается с остальными на пустоши вне видимости постов, ждёт капта (не лезет под огонь);
  *  raid — занимает позицию на пустоши с видом на ворота КПП и перестреливается с часовыми;
  *  assault — идёт на прорыв через коридор КПП в город (стреляет по пути);
  *  infiltrate — прорвался: прячется в кварталах, отстреливается, если нашли;
- *  retreat — ранен или без патронов: уходит вглубь пустоши (исчезает);
+ *  retreat — ранен или без патронов: уходит тропой в лагерь (там — camp);
  *  capture — идёт капт КПП: занимает позиции в передней части коридора и у внешних ворот;
  *  hold — КПП захвачен: держит пост часового.
+ * Поверх режимов: клич главы (идёт за ним на штурм), HYDRA держится рядом с главой.
  */
 export class RebelBrain implements Brain {
   readonly mover: Mover;
   readonly gunner: Gunner;
-  mode: Mode = 'raid';
-  /** Дошёл до края пустоши при отходе — WarSystem уберёт. */
+  mode: RebelMode = 'raid';
+  /** Больше не используется: погибшие и отошедшие не исчезают, а возвращаются (постоянный состав). */
   departed = false;
+  /** Патроны в лагере уже пополнены (сбрасывается при выходе). */
+  restocked = false;
+  /** Шёл за главой по кличу в прошлом тике. */
+  private following = false;
   private relocate = 0;
   private goal = -1;
   private suppressIn = 0;
@@ -57,7 +65,7 @@ export class RebelBrain implements Brain {
   constructor(
     private self: Character,
     private ctx: AiContext,
-    readonly front: number,
+    public front: number,
     /** Когда отряд пойдёт на штурм (Infinity — не пойдёт). */
     private assaultAt: number,
   ) {
@@ -67,6 +75,40 @@ export class RebelBrain implements Brain {
 
   get stateName(): string {
     return `${this.mode}${this.gunner.target ? ' · бой' : ''}`;
+  }
+
+  /** Спецотряд HYDRA: держится рядом с главой. */
+  get isHydra(): boolean {
+    return this.self.profession?.startsWith('hydra') ?? false;
+  }
+
+  /** Доля пути по двору в капте (HYDRA и клич подтягиваются к главе). */
+  get progress(): number {
+    return this.advance;
+  }
+
+  /** Сменить фронт (из лагеря, сбора или перестрелки; держащие посты и штурмующие — нет). */
+  setFront(front: number): void {
+    if (front === this.front) return;
+    if (this.mode !== 'camp' && this.mode !== 'gather' && this.mode !== 'raid') return;
+    this.front = front;
+    this.goal = -1;
+  }
+
+  /** В лагерь (новый или возрождённый боец). */
+  toCamp(): void {
+    this.mode = 'camp';
+    this.goal = -1;
+    this.restocked = false;
+  }
+
+  /** Из лагеря — к своему КПП: на сбор (штурм) или перестрелку (отвлекающая группа). */
+  march(kind: 'gather' | 'raid'): void {
+    if (this.mode !== 'camp') return;
+    this.mode = kind;
+    this.goal = -1;
+    this.assaultAt = Infinity;
+    this.restocked = false;
   }
 
   /** Пост, который держит (режим hold). */
@@ -320,7 +362,7 @@ export class RebelBrain implements Brain {
     const outOfAmmo = ctx.combat.maxRange(self) <= 0;
     // В капте раненые не уходят — дерутся до конца (без патронов — уходят).
     const stays = this.mode === 'capture' && !outOfAmmo;
-    if (this.mode !== 'infiltrate' && this.mode !== 'retreat' && !stays && (self.health < self.maxHealth * COMBAT.woundedFraction || outOfAmmo)) {
+    if (this.mode !== 'infiltrate' && this.mode !== 'retreat' && this.mode !== 'camp' && !stays && (self.health < self.maxHealth * COMBAT.woundedFraction || outOfAmmo)) {
       this.mode = 'retreat';
       this.goal = -1;
     }
@@ -337,10 +379,56 @@ export class RebelBrain implements Brain {
       if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
       return;
     }
+    // Клич главы: бойцы рядом бегут за ним (стреляя на ходу) и вместе идут на штурм.
+    const lead = ctx.war.command.rallyFor(self);
+    if (lead && (this.mode === 'gather' || this.mode === 'raid' || this.mode === 'capture')) {
+      if (this.mode !== 'capture') this.orderCapture();
+      this.following = true;
+      const st = this.mover.status;
+      if (this.repath <= 0 || st === 'idle' || st === 'failed' || st === 'arrived') {
+        this.repath = 0.5;
+        const ang = (self.id * 2.39996) % (Math.PI * 2);
+        const r = 26 + (self.id % 3) * 14;
+        this.go(ctx.nav.nearestWalkable(lead.x + Math.cos(ang) * r, lead.y + Math.sin(ang) * r, 3));
+      }
+      this.mover.speed = CHARACTER.runSpeed * 0.8 * COMMAND.rally.speedMul;
+      this.mover.update(self, ctx, dt);
+      if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
+      return;
+    }
+    const leader = ctx.war.command.leader;
+    const lb = leader && leader !== self && leader.brain instanceof RebelBrain && leader.brain.front === this.front ? leader.brain : null;
+    if (this.following) {
+      // Клич кончился — продолжаем штурм оттуда, куда дошёл глава.
+      this.following = false;
+      this.goal = -1;
+      if (lb) this.advance = Math.max(this.advance, lb.progress);
+    }
 
     switch (this.mode) {
+      case 'camp': {
+        const camp = poiWorld(ctx, 'rebel_camp');
+        if (!camp) break;
+        const inCamp = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'rebel_camp';
+        this.mover.speed = inCamp ? 60 : CHARACTER.runSpeed * 0.6;
+        if (this.goal < 0 || this.mover.status === 'failed' || (this.mover.status === 'arrived' && this.relocate <= 0)) {
+          this.relocate = ctx.rng.range(4, 10);
+          const a = randomAnchorAround(camp, ctx, 1, 7, new Set());
+          this.go(a >= 0 ? a : ctx.nav.nearestWalkable(camp.x, camp.y, 6));
+        } else if (this.mover.status === 'arrived') this.mover.stop();
+        break;
+      }
       case 'gather': {
         if (!f) break;
+        // HYDRA — рядом с главой, если он на этом же фронте.
+        if (this.isHydra && lb && leader && (lb.mode === 'gather' || lb.mode === 'raid')) {
+          if (this.repath <= 0 && Math.hypot(leader.x - self.x, leader.y - self.y) > COMMAND.escortRange) {
+            this.repath = 1.5;
+            this.go(ctx.nav.nearestWalkable(leader.x + ctx.rng.range(-40, 40), leader.y + ctx.rng.range(-40, 40), 3));
+          }
+          if (fighting && this.gunner.target) this.mover.stop();
+          break;
+        }
         if (this.goal < 0 || this.mover.status === 'failed') this.go(this.pickGather(f));
         // Заметили — отстреливается с места, но вперёд не лезет.
         if (fighting && this.gunner.target) this.mover.stop();
@@ -380,9 +468,13 @@ export class RebelBrain implements Brain {
         // Штурмуемый двор; во внутренний — через шорт или лонг (выбор в начале капта, как в CS).
         const k = f.capture?.point ?? Math.min(f.held, f.points.length - 1);
         const pt = f.points[k];
+        // HYDRA идёт тем же путём и не отстаёт от главы.
+        const withLeader = this.isHydra && lb && lb.mode === 'capture';
+        if (withLeader) this.advance = Math.max(this.advance, lb.progress);
         if (this.routeFor !== k) {
           this.routeFor = k;
-          const via = k > 0 && f.long.length && ctx.rng.chance(C.longChance) ? f.long : k > 0 ? f.short : [];
+          const long = withLeader ? lb.viaLong : ctx.rng.chance(C.longChance);
+          const via = k > 0 && f.long.length && long ? f.long : k > 0 ? f.short : [];
           this.viaLong = via === f.long && via.length > 0;
           this.route = via.length ? [via[Math.floor(via.length / 2)], via[via.length - 1]] : [];
           this.goal = -1;
@@ -434,7 +526,7 @@ export class RebelBrain implements Brain {
           break;
         }
         if (this.goal < 0 || this.mover.status === 'arrived' || this.mover.status === 'failed' || this.mover.status === 'idle') {
-          const avoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'plaza', 'avenue']);
+          const avoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp']);
           const g = randomAnchorAround(self, ctx, 12, 45, avoid);
           this.mover.speed = CHARACTER.runSpeed * 0.7;
           this.go(g);
@@ -442,11 +534,21 @@ export class RebelBrain implements Brain {
         break;
       }
       case 'retreat': {
+        this.mover.speed = CHARACTER.runSpeed * 0.7;
+        // Отход тропой в лагерь: там лечение и патроны.
+        const camp = poiWorld(ctx, 'rebel_camp');
+        if (camp) {
+          if (ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'rebel_camp') {
+            this.toCamp();
+            break;
+          }
+          if (this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived') this.go(ctx.nav.nearestWalkable(camp.x, camp.y, 6));
+          break;
+        }
         if (!f) {
           this.departed = true;
           break;
         }
-        this.mover.speed = CHARACTER.runSpeed * 0.7;
         if (this.goal < 0 || this.mover.status === 'failed') {
           // Самая дальняя от ворот точка пустоши.
           let best = -1;

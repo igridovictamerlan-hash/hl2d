@@ -42,13 +42,17 @@ describe('генератор переулочного города', () => {
 
   for (const seed of SEEDS) {
     describe(`seed ${seed}`, () => {
-      test('город ~3000×3000 px, справа — канализация; стена по краю', () => {
+      test('город ~3000×3000 px в кольце пустоши (~3300×3400), справа — канализация; стена по краю', () => {
         const map = get(seed);
         const city = map.levelBounds('city');
-        expect(city.w).toBeGreaterThanOrEqual(2900);
-        expect(city.w).toBeLessThanOrEqual(3100);
-        expect(map.worldHeight).toBeGreaterThanOrEqual(2900);
-        expect(map.worldHeight).toBeLessThanOrEqual(3100);
+        expect(city.w).toBeGreaterThanOrEqual(3200);
+        expect(city.w).toBeLessThanOrEqual(3500);
+        expect(map.worldHeight).toBeGreaterThanOrEqual(3200);
+        expect(map.worldHeight).toBeLessThanOrEqual(3600);
+        // Лагерь сопротивления в пустоши и ровно два люка — в запретной зоне.
+        expect(map.poisOf('rebel_camp')).toHaveLength(1);
+        expect(map.hatches).toHaveLength(2);
+        for (const h of map.hatches) expect(map.zoneAtWorld(h.city.x, h.city.y)?.kind).toBe('restricted');
         const u = map.underground!;
         expect(u.x * map.tileSize).toBeGreaterThanOrEqual(city.w);
         expect(u.w).toBeGreaterThan(60);

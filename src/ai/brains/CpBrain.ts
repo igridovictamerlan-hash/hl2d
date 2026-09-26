@@ -6,7 +6,7 @@ import type { Character } from '../../entities/Character';
 import type { Cell } from '../../systems/LawSystem';
 import { Mover } from '../Mover';
 import { StateMachine, type State } from '../StateMachine';
-import { randomAnchorAround } from '../destinations';
+import { randomAnchorAround, zoneIds } from '../destinations';
 import { poiWorld } from '../../systems/Population';
 import { faceMovement, faceTowards, turnTowards } from '../facing';
 import { canSeeCircle } from '../../world/visibility';
@@ -70,6 +70,8 @@ export class CpBrain implements Brain {
   ward: Character | null = null;
   wardUntil = 0;
   private scan = 0;
+  /** Куда патруль не ходит: пустошь за стеной и лагерь сопротивления. */
+  readonly patrolAvoid: ReadonlySet<number>;
 
   constructor(
     public self: Character,
@@ -80,6 +82,7 @@ export class CpBrain implements Brain {
     this.guardFacing = opts.facing ?? 0;
     this.front = opts.front ?? -1;
     this.medicStation = opts.medicStation ?? null;
+    this.patrolAvoid = zoneIds(ctx, ['outlands', 'wasteland', 'rebel_camp']);
     this.mover = new Mover(LAW.cpWalkSpeed);
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
@@ -211,7 +214,8 @@ export class CpBrain implements Brain {
     }
     if (ctx.war.code === 'red' || this.medicStation) return;
     for (const o of near) {
-      if (o === self || !law.checkable(o)) continue;
+      // Работника ГСР на раздаче плановой проверкой не дёргают.
+      if (o === self || !law.checkable(o) || o === ctx.economy.dispenser) continue;
       const inCheckpoint = ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint';
       // Код жёлтый — проверки чаще.
       // Неблагонадёжных проверяют чаще, лоялистов — реже.
@@ -286,7 +290,7 @@ const PATROL: State<CpBrain> = {
     // Чаще всего — к узкому месту (там ставят посты), иначе — случайная точка.
     let goal = -1;
     for (let k = 0; k < 12 && goal < 0; k++) {
-      const a = randomAnchorAround(self, ctx, LAW.patrolDistance[0], LAW.patrolDistance[1], new Set());
+      const a = randomAnchorAround(self, ctx, LAW.patrolDistance[0], LAW.patrolDistance[1], b.patrolAvoid);
       if (a >= 0 && (ctx.nav.cost[a] > 1 || k > 8)) goal = a;
     }
     if (goal >= 0) b.mover.goTo(self, ctx, goal);
@@ -579,7 +583,7 @@ const HUNT: State<CpBrain> = {
     const p = b.ctx.war.nearestKnown(b.self.x, b.self.y);
     if (!p) {
       if (b.mover.status !== 'moving' && b.mover.status !== 'pending') {
-        const a = randomAnchorAround(b.self, b.ctx, 10, 40, new Set());
+        const a = randomAnchorAround(b.self, b.ctx, 10, 40, b.patrolAvoid);
         if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
       }
       return;

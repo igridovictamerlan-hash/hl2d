@@ -69,7 +69,7 @@ export class ScannerSystem {
       const y = nav.worldY(a);
       if (Math.hypot(x - s.owner.x, y - s.owner.y) > R || map.levelAt(x, y) !== 'city') continue;
       const kind = map.zoneAtWorld(x, y)?.kind;
-      if (kind === 'outlands' || kind === 'nexus') continue;
+      if (kind === 'outlands' || kind === 'wasteland' || kind === 'rebel_camp' || kind === 'nexus') continue;
       s.tx = x;
       s.ty = y;
       return;

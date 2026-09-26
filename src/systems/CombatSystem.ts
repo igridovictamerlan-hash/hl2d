@@ -473,6 +473,9 @@ export class CombatSystem {
     this.onDamage(target, attacker, !target.alive);
   }
 
+  /** Кто слушает гибель персонажей: постоянный состав (возрождение), выборы администратора. */
+  readonly deathListeners: ((c: Character, killer: Character | null) => void)[] = [];
+
   /** Задаёт WarSystem: ранение/гибель (тревога при нападении на ГО в городе). */
   onDamage: (target: Character, attacker: Character | null, killed: boolean) => void = () => {};
 
@@ -502,6 +505,7 @@ export class CombatSystem {
     this.bus.emit('log', { text: who + by, kind: FACTIONS[c.faction].authority ? 'radio' : 'world' });
     if (c.isPlayer) c.respawnAt = this.time + COMBAT.respawnDelay;
     else this.dead.push(c);
+    for (const l of this.deathListeners) l(c, killer);
   }
 
   /** Лечение HELIX / аптечкой: true — если было кого лечить. */

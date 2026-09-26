@@ -19,6 +19,7 @@ export const T = {
   SEWER: 13,
   SEWER_WATER: 14,
   SEWER_WALL: 15,
+  ROCK: 16,
 } as const;
 
 export type TileId = (typeof T)[keyof typeof T];
@@ -51,6 +52,8 @@ export const TILE_DEFS: readonly TileDef[] = [
   { id: T.SEWER, key: 'sewer', char: 's', name: 'Пол канализации', solid: false, opaque: false },
   { id: T.SEWER_WATER, key: 'sewer_water', char: '~', name: 'Сток (вода по щиколотку)', solid: false, opaque: false },
   { id: T.SEWER_WALL, key: 'sewer_wall', char: 'w', name: 'Кладка канализации', solid: true, opaque: true },
+  // Пустошь вокруг города: скалы и завалы по сторонам тропы к лагерю повстанцев.
+  { id: T.ROCK, key: 'rock', char: 'r', name: 'Скалы пустоши', solid: true, opaque: true },
 ];
 
 /** Быстрые таблицы: SOLID[tileId] === 1 — непроходим. */

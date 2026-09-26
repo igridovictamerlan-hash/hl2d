@@ -14,7 +14,9 @@ export type ZoneKind =
   | 'shop'
   | 'sewer'
   | 'rebel_base'
-  | 'black_market';
+  | 'black_market'
+  | 'wasteland'
+  | 'rebel_camp';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -48,7 +50,9 @@ export type PoiType =
   | 'rebel_base'
   | 'rebel_cache'
   | 'black_market'
-  | 'trader';
+  | 'trader'
+  | 'rebel_camp'
+  | 'camp_cache';
 
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)

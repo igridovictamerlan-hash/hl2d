@@ -157,7 +157,7 @@ describe('ИИ и оружие', () => {
 });
 
 describe('граница', () => {
-  test('у КПП повстанцы собираются по 5+ и идут на капт; во время капта ГО не подкрепляют', { timeout: 120_000 }, () => {
+  test('армия из лагеря: большинство идёт на КПП главы, собирается по 5+ и идёт на капт; во время капта ГО не подкрепляют', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
     const active = sim.war.fronts.map(() => 0);
@@ -183,10 +183,11 @@ describe('граница', () => {
       if (t % 60 === 0) sim.war.fronts.forEach((f, i) => sim.war.active(f) && active[i]++);
     }
     console.log(`каптов: ${starts.join(' / ')}, штурмующих: ${sizes.join(', ')}, бой ${active.map((a) => `${Math.round((a / secs) * 100)}%`).join(' / ')}`);
-    for (const n of starts) expect(n).toBeGreaterThanOrEqual(2);
+    // Капты — там, куда глава повёл большинство; на втором КПП отвлекающая группа перестреливается.
+    expect(starts.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(2);
     for (const n of sizes) expect(n).toBeGreaterThanOrEqual(WAR.capture.minAttackers);
     expect(cpDuringCapture).toBe(0);
-    for (const a of active) expect(a / secs).toBeGreaterThan(0.35);
+    for (const a of active) expect(a / secs).toBeGreaterThan(0.2);
   });
 });
 

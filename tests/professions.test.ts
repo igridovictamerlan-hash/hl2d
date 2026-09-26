@@ -33,7 +33,7 @@ function worker(sim: Sim, faction: FactionId, prof: ProfessionId, at: { x: numbe
 }
 
 function calm(sim: Sim): void {
-  for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
+  sim.war.command.paused = true;
   sim.insurgency.paused = true;
 }
 

@@ -10,6 +10,8 @@ export type ProfessionId =
   | 'citizen'
   | 'thief'
   | 'outcast'
+  | 'bandit'
+  | 'fugitive'
   // ГСР.
   | 'cook'
   | 'packer'
@@ -21,10 +23,19 @@ export type ProfessionId =
   | 'rebel_medic'
   | 'pyro'
   | 'partisan'
+  | 'rebel_leader'
+  | 'veteran'
+  | 'demolitionist'
+  // HYDRA — спецотряд сопротивления.
+  | 'hydra_captain'
+  | 'hydra_officer'
+  | 'hydra_soldier'
   // Вортигонты.
   | 'vort_slave'
   // Синтеты Альянса.
-  | 'cremator';
+  | 'cremator'
+  | 'ota_soldier'
+  | 'ota_elite';
 
 export interface ProfessionDef {
   id: ProfessionId;
@@ -105,6 +116,56 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
     desc: 'Порабощён Альянсом: в ошейнике, убирает улицы. Говорит с гражданами.',
     perks: ['E у кучи мусора — убрать (оплата)', 'Альянс не проверяет документы у вортигонтов'],
   },
+  bandit: {
+    id: 'bandit', faction: 'citizen', name: 'Бандит', kit: 'bandit', selectable: true,
+    desc: 'Грабит прохожих в подворотнях под стволом. Увидит ГО — стрельба или арест.',
+    perks: ['E перед прохожим в переулке — «гоп-стоп»: отдаёт токены', 'Самодельный пистолет в кармане (в руках — нарушение)'],
+  },
+  fugitive: {
+    id: 'fugitive', faction: 'citizen', name: 'Беглец', kit: 'fugitive', selectable: true,
+    desc: 'Сбежал из-под надзора: без CID и в розыске. Прячется, ждёт прорыва КПП, чтобы уйти к своим.',
+    perks: ['Проверка CID — арест: не попадайтесь ГО', 'КПП прорван — первым бежит к повстанцам'],
+  },
+  rebel_leader: {
+    id: 'rebel_leader', faction: 'rebel', name: 'Глава восстания', kit: 'rebel_leader', selectable: true,
+    desc: 'Один на всё сопротивление: выбирает, какой КПП штурмовать, и ведёт армию в бой.',
+    perks: ['Повышенное здоровье', 'G — клич: бойцы рядом идут за вами на штурм', 'Армия идёт на тот КПП, к которому идёте вы'],
+  },
+  veteran: {
+    id: 'veteran', faction: 'rebel', name: 'Ветеран', kit: 'rebel_veteran', selectable: true,
+    desc: 'Опытный боец: AR2, больше здоровья, держит фланг на отвлекающем КПП.',
+    perks: ['Трофейный AR2 и больше здоровья', 'Ведёт отвлекающую группу на второй КПП'],
+  },
+  demolitionist: {
+    id: 'demolitionist', faction: 'rebel', name: 'Подрывник', kit: 'rebel_demo', selectable: true,
+    desc: 'Гранаты для штурма: выкуривает часовых из-за блоков.',
+    perks: ['Много гранат (T — к курсору)', 'Бросает гранаты чаще и дальше'],
+  },
+  hydra_captain: {
+    id: 'hydra_captain', faction: 'rebel', name: 'Капитан HYDRA', kit: 'hydra_captain', selectable: true,
+    desc: 'Командир спецотряда HYDRA: снаряжение как у SAS, идёт рядом с главой на штурм точек.',
+    perks: ['Бронежилет и противогаз: больше здоровья', 'AR2, пистолет, гранаты', 'HYDRA держится рядом с главой восстания'],
+  },
+  hydra_officer: {
+    id: 'hydra_officer', faction: 'rebel', name: 'Офицер HYDRA', kit: 'hydra_officer', selectable: true,
+    desc: 'Офицер спецотряда HYDRA.',
+    perks: ['Бронежилет: больше здоровья', 'AR2 и пистолет'],
+  },
+  hydra_soldier: {
+    id: 'hydra_soldier', faction: 'rebel', name: 'Боец HYDRA', kit: 'hydra_soldier', selectable: true,
+    desc: 'Штурмовик спецотряда HYDRA.',
+    perks: ['Бронежилет: больше здоровья', 'MP7 и гранаты'],
+  },
+  ota_soldier: {
+    id: 'ota_soldier', faction: 'ota', name: 'Солдат OTA', selectable: false,
+    desc: 'Сверхчеловеческий солдат Альянса: резерв в Цитадели, контрудары по КПП и красный код.',
+    perks: [],
+  },
+  ota_elite: {
+    id: 'ota_elite', faction: 'ota', name: 'Элита OTA', selectable: false,
+    desc: 'Элитный солдат OTA: больше брони, AR2, ведёт контрудары.',
+    perks: [],
+  },
   cremator: {
     id: 'cremator', faction: 'ota', name: 'Крематор', selectable: false,
     desc: 'Синтет Альянса: ищет тела на улицах и сжигает их.',
@@ -117,6 +178,7 @@ export const DEFAULT_PROFESSION: Partial<Record<FactionId, ProfessionId>> = {
   citizen: 'citizen',
   cwu: 'janitor',
   rebel: 'rebel_soldier',
+  ota: 'ota_soldier',
   vort: 'vort_slave',
 };
 

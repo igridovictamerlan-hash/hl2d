@@ -1,3 +1,4 @@
+import type { RoleSpec } from '../systems/Roster';
 import type { FactionId, DivisionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import type { ItemId, WeaponId } from '../config/items';
@@ -136,6 +137,8 @@ export class Character {
   hostile = false;
   /** Для игрока: когда возродится (после гибели). */
   respawnAt = 0;
+  /** Роль в постоянном составе (NPC): по ней появляется снова после гибели (systems/Roster.ts). */
+  role: RoleSpec | null = null;
   /** До какого времени в панике (бег от стрельбы — не нарушение). */
   panicUntil = 0;
 

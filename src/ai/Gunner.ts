@@ -260,13 +260,15 @@ export class Gunner {
       // Свои (и мирные) у точки взрыва — не бросаем.
       else return false;
     }
-    if (visible && !behindBlock && crowd < 2) return false;
+    // Подрывник бросает и в одиночную цель на виду (для него это работа).
+    const demo = self.profession === 'demolitionist';
+    if (visible && !behindBlock && crowd < (demo ? 1 : 2)) return false;
     // Куда граната реально упадёт (стена ближе — упадёт перед ней): не себе под ноги.
     const land = Math.min(d, castRay(ctx.map, self.x, self.y, dx, dy, d) - 8);
     if (land < G.radius + 12) return false;
-    if (!this.rng.chance(G.ai.chance)) return false;
+    if (!this.rng.chance(Math.min(1, G.ai.chance * (demo ? G.ai.demoMul : 1)))) return false;
     if (!combat.throwGrenade(self, px, py)) return false;
-    this.nextNade = now + this.rng.range(G.ai.cooldown[0], G.ai.cooldown[1]);
+    this.nextNade = now + this.rng.range(G.ai.cooldown[0], G.ai.cooldown[1]) / (demo ? G.ai.demoMul : 1);
     self.say(FACTIONS[self.faction].authority ? 'Граната! Ложись!' : 'Лови подарок!', now, 1.5);
     return true;
   }

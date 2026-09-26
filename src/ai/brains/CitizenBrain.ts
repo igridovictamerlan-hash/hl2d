@@ -76,7 +76,7 @@ export class CitizenBrain implements Brain {
     const [smin, smax] = CHARACTER.npcWalkSpeed;
     this.walkSpeed = ctx.rng.range(smin, smax);
     this.mover = new Mover(this.walkSpeed);
-    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands']);
+    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
@@ -469,7 +469,9 @@ const WORK: State<CitizenBrain> = {
         return;
       }
       case 'clerk': {
-        if (b.ctx.law.now > job.until || !eco.shopCounter) return done();
+        // Открылась раздача, а у окна никого — повар бросает прилавок и идёт выдавать.
+        const toWindow = b.self.profession === 'cook' && eco.open && !eco.dispenser;
+        if (b.ctx.law.now > job.until || !eco.shopCounter || toWindow) return done();
         if (st === 'arrived') b.mover.stop();
         if (b.fsm.time % 10 < dt) eco.markWorked(b.self);
         return;

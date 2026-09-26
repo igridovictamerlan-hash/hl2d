@@ -32,6 +32,11 @@ export class UndergroundSystem {
     return this.map.levelAt(x, y);
   }
 
+  /** Люками пользуются только партизаны (остальным они заварены). */
+  canUse(c: Character): boolean {
+    return c.profession === 'partisan';
+  }
+
   /** Люк в радиусе r от точки (на её уровне). */
   hatchNear(x: number, y: number, r: number = UNDERGROUND.useRadius): HatchUse | null {
     const sewer = this.levelOf(x, y) === 'sewer';

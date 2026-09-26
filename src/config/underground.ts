@@ -9,9 +9,7 @@ export const UNDERGROUND = {
 } as const;
 
 export const INSURGENCY = {
-  /** Гарнизон убежища: сколько бойцов, пополнение раз в… */
-  garrison: 5,
-  recruitEvery: 50,
+  /** Партизан в схроне — ROSTER.partisans (постоянный состав, config/roster.ts). */
   /** Операции из убежища: первая через…, потом раз в… */
   firstOp: [20, 40] as const,
   opEvery: [45, 90] as const,
@@ -22,7 +20,7 @@ export const INSURGENCY = {
    * отходит не дальше scoutRadius тайлов от люка.
    */
   outingEvery: [6, 12] as const,
-  minAtBase: 2,
+  minAtBase: 1,
   outingKinds: { tunnels: 0.5, market: 0.2, scout: 0.3 },
   /** Разведчик не стреляет первым: заметил ГО — уходит к люку; отвечает, если ранили за … с. */
   returnFireFor: 5,
@@ -41,7 +39,7 @@ export const INSURGENCY = {
   /** Засада: сколько вести бой после первого выстрела, потом отход к люку. */
   ambushFight: [18, 30] as const,
   /** Засада не ближе этого к Нексусу и КПП (нападают на патрули в кварталах). */
-  ambushAvoidZones: ['nexus', 'cells', 'checkpoint', 'outlands', 'restricted'] as const,
+  ambushAvoidZones: ['nexus', 'cells', 'checkpoint', 'outlands', 'restricted', 'wasteland', 'rebel_camp'] as const,
   /** Бойцы убежища бродят в пределах… */
   baseWander: [2, 7] as const,
 } as const;

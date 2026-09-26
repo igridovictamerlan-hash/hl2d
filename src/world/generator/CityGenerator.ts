@@ -14,6 +14,7 @@ import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, 
 import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, rotateTemplate, mirrorTemplate, checkpointSection } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
+import { addWastes } from './wastes';
 
 /**
  * Генератор переулочного города. Порядок шагов:
@@ -30,7 +31,7 @@ import { addSewers } from './sewers';
 const DEBUG_GEN = (globalThis as { __HL2D_DEBUG_GEN?: boolean }).__HL2D_DEBUG_GEN === true;
 
 export function generateCity(seed: number): GameMap {
-  return addSewers(generateSurface(seed), seed);
+  return addSewers(addWastes(generateSurface(seed), seed), seed);
 }
 
 /** Город без канализации (несколько попыток, лучшая по требованиям). */

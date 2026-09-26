@@ -38,6 +38,9 @@ export const RENDER = {
     sewerWall: { h: 20, s: 12, l: 9, noise: 1.5 },
     sewerBrick: 'rgba(0,0,0,0.35)',
     sewerWallEdge: 'rgba(160,150,120,0.16)',
+    /** Скалы пустоши вокруг города. */
+    rock: { h: 32, s: 14, l: 14, noise: 3 },
+    rockCrack: 'rgba(0,0,0,0.35)',
     speckle: 'rgba(0,0,0,0.18)',
     /** Тень от зданий на пол (свет с северо-запада). */
     shadow: 'rgba(0,0,0,0.38)',

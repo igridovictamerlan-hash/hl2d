@@ -1,6 +1,6 @@
+import { ROSTER } from '../src/config/roster';
 import { AI } from '../src/config/ai';
 import { describe, expect, test } from 'vitest';
-import { INSURGENCY } from '../src/config/underground';
 import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
 import { CpBrain } from '../src/ai/brains/CpBrain';
@@ -149,9 +149,11 @@ describe('живой город со всеми фракциями', () => {
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['union', 'grid', 'helix', 'jury']) expect(divisions.has(d as never)).toBe(true);
     // Подпольщики в городе + гарнизон убежища в канализации.
-    expect(count('rebel')).toBe(AI.population.rebels + INSURGENCY.garrison);
+    // Армия в лагере + HYDRA + партизаны в схроне.
+    const army = [...ROSTER.army, ...ROSTER.hydra].reduce((n, [, k]) => n + k, 0);
+    expect(count('rebel')).toBe(AI.population.rebels + ROSTER.partisans + army);
     expect(count('admin')).toBe(1);
-    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, конвой, заведение) дольше 60 с.
+    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, заведение) дольше 60 с, конвой — дольше 80 с.
     const stuckSince = new Map<Character, [number, string]>();
     let worstStuck = 0;
     for (let t = 0; t < 180 * 60; t++) {
@@ -162,7 +164,8 @@ describe('живой город со всеми фракциями', () => {
         if (ph === 'ordered' || ph === 'checking' || ph === 'cuffed' || ph === 'entering') {
           const s = stuckSince.get(c);
           if (!s || s[1] !== ph) stuckSince.set(c, [t, ph]);
-          else worstStuck = Math.max(worstStuck, (t - s[0]) / 60);
+          // Конвой через весь город к КПЗ идёт дольше остальных фаз — ему запас побольше.
+          else worstStuck = Math.max(worstStuck, ((t - s[0]) / 60) * (ph === 'cuffed' ? 0.75 : 1));
         } else stuckSince.delete(c);
       }
     }

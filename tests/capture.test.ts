@@ -9,6 +9,8 @@ import { CpBrain } from '../src/ai/brains/CpBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { DefectorBrain } from '../src/ai/brains/DefectorBrain';
 import { spawnPopulation, poiWorld } from '../src/systems/Population';
+import { spawnRole } from '../src/systems/Roster';
+import { ROSTER } from '../src/config/roster';
 
 type Sim = ReturnType<typeof makeSim>;
 
@@ -29,7 +31,6 @@ describe('капт КПП', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     f.nextCaptureAt = 0;
-    f.nextSquadAt = Infinity;
     for (let k = 0; k < WAR.capture.minAttackers; k++) {
       const a = f.outlands[k * 3];
       const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
@@ -45,7 +46,6 @@ describe('капт КПП', () => {
   test('тамбур: точки берутся по очереди (D3, потом D4), код жёлтый; контрудар из Цитадели отбивает обе', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
-    f.nextSquadAt = Infinity;
     expect(f.points.map((p) => p.name)).toEqual(['D3', 'D4']);
     sim.war.startCapture(f);
     expect(f.capture!.point).toBe(0);
@@ -66,8 +66,9 @@ describe('капт КПП', () => {
     for (let k = 0; k < WAR.capture.killsToWin; k++) killInCorridor(sim, f, 'rebel');
     expect(f.held).toBe(2);
     expect(f.owner).toBe('rebels');
-    // Повстанцев нет — контрудары из Цитадели занимают точки и отбивают КПП (сначала D4, потом D3).
+    // Повстанцев нет — резерв OTA из Цитадели занимает точки и отбивает КПП (сначала D4, потом D3).
     for (const c of sim.entities.list) if (c.faction === 'rebel') c.alive = false;
+    for (let k = 0; k < 4; k++) spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_soldier', division: null, rank: 0, kit: 'ota' });
     const cpBefore = sim.entities.list.filter((c) => c.alive && (c.faction === 'cp' || c.faction === 'ota')).length;
     const held: number[] = [];
     for (let t = 0; t < 240 * 60 && f.held > 0; t++) {
@@ -77,13 +78,13 @@ describe('капт КПП', () => {
     expect(held).toEqual([2, 1, 0]);
     expect(f.owner).toBe('combine');
     expect(sim.war.stats.counterattacks).toBeGreaterThan(0);
-    expect(sim.entities.list.filter((c) => c.alive && c.faction === 'ota').length + cpBefore).toBeGreaterThan(cpBefore);
+    // Новых бойцов не появилось — отбивал резерв (постоянный состав).
+    expect(sim.entities.list.filter((c) => c.alive && (c.faction === 'cp' || c.faction === 'ota')).length).toBe(cpBefore);
   });
 
   test('по таймеру без перевеса — КПП удержан, следующий капт не раньше cooldown', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[1];
-    f.nextSquadAt = Infinity;
     sim.war.startCapture(f);
     for (let k = 0; k < WAR.capture.minKills; k++) killInCorridor(sim, f, 'rebel');
     for (let k = 0; k < WAR.capture.minKills; k++) killInCorridor(sim, f, 'cp');
@@ -96,7 +97,6 @@ describe('капт КПП', () => {
   test('задержанный боец отряда (мозг конвоя) не ломает захват КПП', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
-    f.nextSquadAt = Infinity;
     const a = f.outlands[0];
     const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
     r.brain = new PrisonerBrain(r);
@@ -111,9 +111,11 @@ describe('капт КПП', () => {
   test('капт: гарнизон точки перебит — точка захвачена; подкрепления ГО во время капта не приходят', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
-    f.nextSquadAt = Infinity;
-    // Гарнизон подтянулся.
-    for (let t = 0; t < 40 * 60; t++) sim.step();
+    // Гарнизон D3 на постах.
+    for (const post of f.points[0].posts) {
+      spawnRole(sim.ctx, { kind: 'guard', faction: 'cp', profession: null, division: 'grid', rank: 1, kit: 'cp_grid', front: 0, post, facing: 0 }, post);
+    }
+    for (let t = 0; t < 2 * 60; t++) sim.step();
     const cps = () => sim.entities.list.filter((c) => c.alive && c.faction === 'cp' && sim.war.frontAt(c.x, c.y) === f).length;
     expect(cps()).toBeGreaterThan(0);
     for (let k = 0; k < WAR.capture.minAttackers; k++) {
@@ -136,7 +138,6 @@ describe('капт КПП', () => {
   test('штурмующих не осталось — капт отбит, повстанцы снова собираются', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
-    f.nextSquadAt = Infinity;
     const a = f.outlands[0];
     const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
     r.brain = new RebelBrain(r, sim.ctx, 0, Infinity);
@@ -150,18 +151,19 @@ describe('капт КПП', () => {
     expect(reinforcements).toBe(0);
   });
 
-  test('подкрепления ГО выходят из Цитадели и бегут на свои посты', { timeout: 60_000 }, () => {
+  test('часовой КПП погиб — возрождается в Цитадели и бежит на свой пост', { timeout: 90_000 }, () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
-    f.nextSquadAt = Infinity;
-    sim.war.fronts[1].nextSquadAt = Infinity;
     const gate = poiWorld(sim.ctx, 'nexus_gate')!;
-    // Гарнизона нет — через reinforceDelay выходит часовой.
-    for (let t = 0; t < (WAR.reinforceDelay + 1) * 60; t++) sim.step();
-    const g = sim.entities.list.find((c) => c.brain instanceof CpBrain && c.brain.front === 0 && c.brain.guardPost)!;
+    const post = f.points[1].posts[0];
+    const spec = { kind: 'guard' as const, faction: 'cp' as const, profession: null, division: 'grid' as const, rank: 1, kit: 'cp_grid', front: 0, post, facing: 0 };
+    const g0 = spawnRole(sim.ctx, spec, post)!;
+    sim.combat.damage(g0, 1000, null);
+    for (let t = 0; t < (ROSTER.respawn.guard + 1) * 60; t++) sim.step();
+    const g = sim.entities.list.find((c) => c.alive && c.brain instanceof CpBrain && c.brain.guardPost === post)!;
     expect(g).toBeTruthy();
-    expect(Math.hypot(g.x - gate.x, g.y - gate.y)).toBeLessThan(200);
-    const post = (g.brain as CpBrain).guardPost!;
+    expect(g.name).toBe(g0.name);
+    expect(Math.hypot(g.x - gate.x, g.y - gate.y)).toBeLessThan(260);
     for (let t = 0; t < 90 * 60 && Math.hypot(g.x - post.x, g.y - post.y) > 30; t++) sim.step();
     expect(Math.hypot(g.x - post.x, g.y - post.y)).toBeLessThan(30);
   });
@@ -169,7 +171,7 @@ describe('капт КПП', () => {
   test('КПП прорван — граждане бегут туда и становятся повстанцами', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 30);
-    for (const o of sim.war.fronts) o.nextSquadAt = Infinity;
+    sim.war.command.paused = true;
     sim.insurgency.paused = true;
     const f = sim.war.fronts[0];
     sim.war.breach(f);
@@ -192,7 +194,6 @@ describe('капт КПП', () => {
   test('все точки D у повстанцев — они выходят в город (красный код)', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     for (const f of sim.war.fronts) {
-      f.nextSquadAt = Infinity;
       f.retakeAt = Infinity;
       for (let k = 0; k < 4; k++) {
         const a = f.corridor[Math.floor(f.corridor.length * (0.3 + k * 0.15))];

@@ -3,6 +3,7 @@ import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { CpBrain } from '../src/ai/brains/CpBrain';
+import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { spawnPopulation, equipKit } from '../src/systems/Population';
 import { lineOfSight } from '../src/world/visibility';
 import { ECONOMY } from '../src/config/economy';
@@ -41,7 +42,7 @@ describe('экономика', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     // Проверяем экономику: без боёв на КПП и операций сопротивления (стрельба разгоняет очередь).
-    for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
+    sim.war.command.paused = true;
     sim.insurgency.paused = true;
     const before = new Map(sim.entities.list.map((c) => [c, c.money]));
     run(sim, ECONOMY.rations.firstDelay + ECONOMY.rations.duration - 1);
@@ -193,6 +194,8 @@ describe('война на границе', () => {
   test('прорыв в город → красный код, комендантский час, OTA; зачистка → зелёный', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
+    // Армия в лагере (иначе точки КПП у повстанцев держат красный код дольше проверки).
+    sim.war.command.paused = true;
     run(sim, 30);
     // Отряд у западного КПП «прорывается»: переносим бойца за внутренние ворота.
     const f = sim.war.fronts[0];
@@ -204,7 +207,8 @@ describe('война на границе', () => {
     sim.step();
     expect(sim.war.code).toBe('red');
     expect(sim.war.curfew).toBe(true);
-    expect(sim.war.ota.length).toBe(WAR.otaSquad);
+    // Резерв OTA из Цитадели вышел на прочёсывание.
+    expect(sim.war.ota.filter((o) => (o.brain as OtaBrain).mode === 'hunt').length).toBeGreaterThan(0);
     expect(sim.economy.open).toBe(false);
     // Граждане уходят в укрытия.
     run(sim, WAR.curfewGrace + 20);

@@ -45,8 +45,8 @@ describe('NPC в тесном городе', () => {
         maxStuck = Math.max(maxStuck, s);
         if (prevState.get(c.id) !== 'arrived' && m.status === 'arrived') arrivals++;
         prevState.set(c.id, m.status);
-        // Допуск 1 px на численную погрешность выталкивания.
-        if (circleHitsSolid(map, c.x, c.y, c.radius - 1)) wallHits++;
+        // Допуск 1 px на численную погрешность выталкивания. Проверяем граждан (бойцы в давке у КПП — отдельно).
+        if (c.faction === 'citizen' && circleHitsSolid(map, c.x, c.y, c.radius - 1)) wallHits++;
       }
     }
     console.log(`прибытий: ${arrivals}, макс. застревание: ${maxStuck.toFixed(1)} с, касаний стен: ${wallHits}`);
