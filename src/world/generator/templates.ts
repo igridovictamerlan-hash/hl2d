@@ -43,35 +43,55 @@ export function rotateTemplate(rows: readonly string[], rot: 0 | 180): string[] 
 }
 
 /**
- * Пограничный КПП (каноническая ориентация: пустошь на западе, город на востоке).
- * Пустошь 14 тайлов в глубину с завалами-укрытиями (B) — «ничейная земля», где держатся
- * отряды повстанцев. Длинный коридор 4 тайла с шахматными укрытиями — место «коридорной рубки»;
- * ворота с обеих сторон, бункеры ГО сверху и снизу с дверями в коридор. Средние ворота делят
- * коридор на тамбур из двух точек (как D3–D4 / D5–D6 на UnionRP): внешняя камера и внутренняя.
- * Посты часовых (P): два во внешней камере (за блоками), три во внутренней (у средних и внутренних ворот).
+ * Пограничный КПП (каноническая ориентация: пустошь на западе, город на востоке) — как «война на D»
+ * на UnionRP: два отдельных укреплённых двора, соединённых двумя проходами, как в CS.
+ *  - пустошь 14 тайлов с завалами-укрытиями (B) — «ничейная земля», где собираются повстанцы;
+ *  - внешний КПП (D3 / D5): двор за внешними воротами (g), блоки-укрытия, 2 поста (P), бункер ГО;
+ *  - шорт — прямой короткий проход 3 тайла от внешнего двора к внутреннему;
+ *  - лонг — длинный обход поверху: из внешнего двора на север, на восток, вниз во внутренний двор;
+ *  - внутренний КПП (D4 / D6): двор с 3 постами, бункером и внутренними воротами к проспекту.
+ * Ряды CHECKPOINT_AXIS_ROW-2 … +1 — ворота и ось (совпадает с серединой проспекта).
+ * Зоны частей — checkpointSection (двор, шорт, лонг).
  */
 export const CHECKPOINT_TEMPLATE: readonly string[] = [
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'ooooooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooBBooooooBoooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'oooooooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooBoooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooBoooooooMM####dd#########dd####MMMMMMM',
-  'ooBoooooooooBoggkkkBkPkkkggBPkkkkPkkggkkkkkk',
-  'ooBoooooooooBoggkkkBkkkkkggBkkkkkkkkggkkkkkk',
-  'ooooooooBoooooggkkkkkkkBkggkkkkBkkkkggkkkkkk',
-  'ooooooooBoooooggkkkkkkkBPggkkkkBkPkkggkkkkkk',
-  'ooooBoooooooooMM###dd###########dd##MMMMMMMM',
-  'ooooBooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'oooooooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooBBooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'ooooooooooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMkkkkkkkBkkkkkkkkkkkkkkkkkMMMMMMMMM',
+  'ooooooooooooooMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMM',
+  'ooooooooooooooMMMMMMMMkkkkkkkkkkkkBkkkkkBkkkkkkMMMMMMMMM',
+  'ooBBooooooooooMMMMMMMMkkkMMMMMMMMMMMMMMMMMMMkkkMMMMMMMMM',
+  'ooooooooooBoooMMMMMMMMkkkMMMMMMMMMMMMMMMMMMMkkkMMMMMMMMM',
+  'oooooooooooBooMMkkkkkkkkkkkkMMMMMMMMMMkkkkkkkkkkkkkkMMMM',
+  'ooooooBoooooooMMkkkkkkkkkkkkMMMMMMMMMMkkkkkkkBkkkkkkMMMM',
+  'ooooooBoooooooMMkkkkkkkkkBkkMMMMMMMMMMkkkkkkkPkkkBkkMMMM',
+  'ooooooooooooooMMkkBBPkkkkkkkMMMMMMMMMMkkkBkkkkkkkkkkMMMM',
+  'ooBooooooooBooMMkkkkkkkkkkkkMMMMMMMMMMkkkBkkkkkkPkkkMMMM',
+  'ooBooooooooBooggkkkkkkkkkkkkkkkkkkkkkkkkkkPkkkkBkkkkggkk',
+  'ooooooooooooooggkkkkkkBkkkkkkkkkkkkkkkkkkkkkkkkBkkkkggkk',
+  'ooooooooBoooooggkkkkkkBkkkkkkkkkBkkkkkkkkkkkkkkkkkkkggkk',
+  'ooooooooBoooooggkkBkkkkPkkkkMMMMMMMMMMkkkkkkkkkkkkkkggkk',
+  'ooooooooooooooMMkkkkkkkkkkkkMMMMMMMMMMkkkBBkkkkkkkkkMMMM',
+  'ooooBooooooBooMMkkkkkkkkBBkkMMMMMMMMMMkkkkkkkkkkkkkkMMMM',
+  'ooooBooooooBooMM###dd#kkkkkkMMMMMMMMMMkkkkkkk##dd###MMMM',
+  'ooooooooooooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMM',
+  'ooooooooooooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMM',
+  'ooBBooooooooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMM',
+  'oooooooooBooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMM',
+  'ooooooooooooooMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'ooooooooooooooMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
 ];
+
+/** Ряд шаблона КПП, совпадающий с серединой проспекта. */
+export const CHECKPOINT_AXIS_ROW = 13;
+
+/** Часть КПП по координатам шаблона в канонической ориентации (у зеркального — x отражён). */
+export type CheckpointSection = 'outer' | 'short' | 'long' | 'inner';
+export function checkpointSection(x: number, y: number): CheckpointSection {
+  if (y <= 4) return 'long';
+  if (x <= 29) return 'outer';
+  if (x <= 37) return 'short';
+  return 'inner';
+}
 
 /** Зеркало по горизонтали (КПП на восточном конце проспекта). */
 export function mirrorTemplate(rows: readonly string[]): string[] {

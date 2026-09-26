@@ -39,9 +39,11 @@ export interface Capture {
  */
 export interface DPoint {
   name: string;
+  /** Зона двора на карте, посты в нём, пол двора (якоря, от входа со стороны пустоши) и центр. */
+  zone: number;
   posts: Vec2[];
-  from: number;
-  to: number;
+  floor: number[];
+  center: Vec2;
 }
 
 /** Как радио называет особых бойцов отряда. */
@@ -53,10 +55,15 @@ export interface Front {
   name: string;
   /** Центр пустоши, px. */
   exit: Vec2;
-  /** Центры внешних, средних и внутренних ворот, точка за внутренними (в сторону города). */
+  /** Центры внешних ворот, середина шорта, внутренние ворота, точка за ними (в сторону города). */
   outerGate: Vec2;
   midGate: Vec2;
   innerGate: Vec2;
+  /** Проходы между дворами, как в CS: шорт (прямой) и лонг (обход поверху) — якоря и зоны. */
+  short: number[];
+  long: number[];
+  shortZone: number;
+  longZone: number;
   apron: Vec2;
   posts: Vec2[];
   /** Якоря пустоши у этого КПП и укрытия бункера. */
@@ -69,7 +76,7 @@ export interface Front {
   lastShot: number;
   /** О штурме текущего отряда уже сообщили. */
   assaultAnnounced: boolean;
-  /** Пол коридора КПП, от внешних ворот к внутренним. */
+  /** Пол КПП (внешний двор, шорт, внутренний двор), от внешних ворот к внутренним. */
   corridor: number[];
   /** Точки тамбура: [внешняя, внутренняя]; сколько из них (с внешней) держат повстанцы. */
   points: DPoint[];
@@ -119,6 +126,8 @@ export class WarSystem {
   curfewSince = 0;
   /** Все точки D у повстанцев — они выходят в город. */
   cityPush = false;
+  /** Подкрепления ГО из Цитадели на КПП (тесты отключают, чтобы они не шли через город). */
+  reinforcements = true;
   /** Граждане, бегущие к прорванному КПП, чтобы примкнуть к повстанцам. */
   readonly defectors = new Set<Character>();
   private defectIn = 0;
@@ -144,58 +153,91 @@ export class WarSystem {
     return this.time;
   }
 
+  /**
+   * Фронты по карте: у каждого выхода в пустошь — свой КПП из зон: внешний двор (с воротами к
+   * пустоши), внутренний (с воротами к городу), шорт (прямой проход, ближе к оси ворот) и лонг.
+   */
   private buildFronts(): void {
     const { map, nav, rng } = this.ctx;
     const ts = map.tileSize;
-    const exits = map.poisOf('outlands_exit');
+    const exits = map.poisOf('outlands_exit').map((e) => ({ x: (e.x + 0.5) * ts, y: (e.y + 0.5) * ts }));
+    const nearestExit = (p: Vec2) => {
+      let best = 0;
+      exits.forEach((e, k) => {
+        if (Math.hypot(p.x - e.x, p.y - e.y) < Math.hypot(p.x - exits[best].x, p.y - exits[best].y)) best = k;
+      });
+      return best;
+    };
+    // Якоря зон КПП, по зонам.
+    const zoneAnchors = new Map<number, number[]>();
+    for (const a of nav.walkable) {
+      const z = nav.zone[a];
+      if (map.zones[z]?.kind !== 'checkpoint') continue;
+      if (!zoneAnchors.has(z)) zoneAnchors.set(z, []);
+      zoneAnchors.get(z)!.push(a);
+    }
+    const centroid = (list: number[]): Vec2 => ({
+      x: list.reduce((s, a) => s + nav.worldX(a), 0) / Math.max(1, list.length),
+      y: list.reduce((s, a) => s + nav.worldY(a), 0) / Math.max(1, list.length),
+    });
+    const avg = (list: Vec2[]) => ({ x: list.reduce((s, p) => s + p.x, 0) / list.length, y: list.reduce((s, p) => s + p.y, 0) / list.length });
     const posts = map.poisOf('checkpoint_post').map((p) => ({ x: (p.x + 0.5) * ts, y: (p.y + 0.5) * ts }));
-    exits.forEach((e, index) => {
-      const exit = { x: (e.x + 0.5) * ts, y: (e.y + 0.5) * ts };
-      const myPosts = posts.filter((p) => exits.every((o) => Math.hypot(p.x - exit.x, p.y - exit.y) <= Math.hypot(p.x - (o.x + 0.5) * ts, p.y - (o.y + 0.5) * ts)));
-      const zone = myPosts[0] ? map.zoneAtWorld(myPosts[0].x, myPosts[0].y) : null;
+    exits.forEach((exit, index) => {
+      const zonesHere = [...zoneAnchors.keys()].filter((z) => nearestExit(centroid(zoneAnchors.get(z)!)) === index);
+      const myPosts = posts.filter((p) => nearestExit(p) === index);
+      const dExit = (p: Vec2) => Math.hypot(p.x - exit.x, p.y - exit.y);
+      // Ворота: группа ближе к пустоши — внешние, дальше — внутренние (к проспекту).
       const gates: Vec2[] = [];
       for (let y = 0; y < map.height; y++) {
         for (let x = 0; x < map.width; x++) {
-          if (map.tileAt(x, y) === T.GATE && map.zoneAtTile(x, y) === zone) gates.push({ x: (x + 0.5) * ts, y: (y + 0.5) * ts });
+          if (map.tileAt(x, y) !== T.GATE) continue;
+          const z = map.zoneGrid[y * map.width + x];
+          if (zonesHere.includes(z)) gates.push({ x: (x + 0.5) * ts, y: (y + 0.5) * ts });
         }
       }
-      const dExit = (p: Vec2) => Math.hypot(p.x - exit.x, p.y - exit.y);
-      const avg = (list: Vec2[]) => ({ x: list.reduce((s, p) => s + p.x, 0) / list.length, y: list.reduce((s, p) => s + p.y, 0) / list.length });
-      // Ворота — группы по удалённости от пустоши: внешние, средние (тамбур), внутренние.
+      gates.sort((a, b) => dExit(a) - dExit(b));
       const groups: Vec2[][] = [];
-      for (const g of [...gates].sort((a, b) => dExit(a) - dExit(b))) {
+      for (const g of gates) {
         const last = groups[groups.length - 1];
-        if (last && dExit(g) - dExit(last[last.length - 1]) < ts * 2.5) last.push(g);
+        if (last && Math.hypot(g.x - last[0].x, g.y - last[0].y) < ts * 4) last.push(g);
         else groups.push([g]);
       }
       const outerGate = groups.length ? avg(groups[0]) : exit;
       const innerGate = groups.length > 1 ? avg(groups[groups.length - 1]) : exit;
-      const midGate = groups.length > 2 ? avg(groups[Math.floor(groups.length / 2)]) : { x: (outerGate.x + innerGate.x) / 2, y: (outerGate.y + innerGate.y) / 2 };
+      const zoneOfPoint = (p: Vec2) => map.zoneGrid[Math.floor(p.y / ts) * map.width + Math.floor(p.x / ts)];
+      const outerZone = zoneOfPoint(outerGate);
+      const innerZone = zoneOfPoint(innerGate);
+      // Остальные две зоны — шорт (ближе к оси ворот) и лонг.
       const dl = Math.hypot(innerGate.x - outerGate.x, innerGate.y - outerGate.y) || 1;
+      const offAxis = (p: Vec2) => Math.abs((p.x - outerGate.x) * (innerGate.y - outerGate.y) - (p.y - outerGate.y) * (innerGate.x - outerGate.x)) / dl;
+      const links = zonesHere.filter((z) => z !== outerZone && z !== innerZone).sort((a, b) => offAxis(centroid(zoneAnchors.get(a)!)) - offAxis(centroid(zoneAnchors.get(b)!)));
+      const shortZone = links[0] ?? -1;
+      const longZone = links[1] ?? -1;
+      const anchorsOf = (z: number) => zoneAnchors.get(z) ?? [];
+      const floor = (z: number) => anchorsOf(z).filter((a) => map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1) !== T.INTERIOR);
       const apron = { x: innerGate.x + ((innerGate.x - outerGate.x) / dl) * 56, y: innerGate.y + ((innerGate.y - outerGate.y) / dl) * 56 };
       const outlands: number[] = [];
-      const bunker: number[] = [];
-      const corridor: number[] = [];
       for (const a of nav.walkable) {
-        const x = nav.worldX(a);
-        const y = nav.worldY(a);
-        const kind = map.zones[nav.zone[a]]?.kind;
-        if (kind === 'outlands' && dExit({ x, y }) < 14 * ts) outlands.push(a);
-        if (map.zones[nav.zone[a]] === zone && map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1) === T.INTERIOR) bunker.push(a);
-        if (map.zones[nav.zone[a]] === zone && map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1) === T.BUNKER) corridor.push(a);
+        if (map.zones[nav.zone[a]]?.kind === 'outlands' && dExit({ x: nav.worldX(a), y: nav.worldY(a) }) < 14 * ts) outlands.push(a);
       }
-      corridor.sort((a, b) => Math.hypot(nav.worldX(a) - outerGate.x, nav.worldY(a) - outerGate.y) - Math.hypot(nav.worldX(b) - outerGate.x, nav.worldY(b) - outerGate.y));
-      // Доля пути вдоль оси «внешние → внутренние ворота».
-      const axis = (p: Vec2) => ((p.x - outerGate.x) * (innerGate.x - outerGate.x) + (p.y - outerGate.y) * (innerGate.y - outerGate.y)) / (dl * dl);
-      const midT = axis(midGate);
-      const midFrac = corridor.length ? corridor.filter((a) => axis({ x: nav.worldX(a), y: nav.worldY(a) }) < midT).length / corridor.length : 0.5;
+      const bunker = zonesHere.flatMap((z) => anchorsOf(z).filter((a) => map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1) === T.INTERIOR));
+      const byDist = (from: Vec2) => (a: number, b: number) =>
+        Math.hypot(nav.worldX(a) - from.x, nav.worldY(a) - from.y) - Math.hypot(nav.worldX(b) - from.x, nav.worldY(b) - from.y);
+      const corridor = [...floor(outerZone), ...floor(shortZone), ...floor(innerZone)].sort(byDist(outerGate));
       const names = WAR.pointNames[index] ?? [`D${index * 2 + 1}`, `D${index * 2 + 2}`];
+      const outerFloor = floor(outerZone).sort(byDist(outerGate));
+      const outerCenter = outerFloor.length ? centroid(outerFloor) : outerGate;
+      const innerFloor = floor(innerZone).sort(byDist(outerCenter));
       const points: DPoint[] = [
-        { name: names[0], posts: myPosts.filter((p) => axis(p) < midT), from: 0, to: midFrac },
-        { name: names[1], posts: myPosts.filter((p) => axis(p) >= midT), from: midFrac, to: 1 },
+        { name: names[0], zone: outerZone, posts: myPosts.filter((p) => zoneOfPoint(p) === outerZone), floor: outerFloor, center: outerCenter },
+        { name: names[1], zone: innerZone, posts: myPosts.filter((p) => zoneOfPoint(p) === innerZone), floor: innerFloor, center: innerFloor.length ? centroid(innerFloor) : innerGate },
       ];
+      const shortFloor = floor(shortZone).sort(byDist(outerGate));
+      const longFloor = floor(longZone).sort(byDist(outerGate));
+      const baseName = (map.zones[outerZone]?.name ?? `КПП ${index + 1}`).replace(/ · .*$/, '');
       this.fronts.push({
-        index, name: zone?.name ?? `КПП ${index + 1}`, exit, outerGate, midGate, innerGate, apron, posts: myPosts, outlands, bunker,
+        index, name: baseName, exit, outerGate, midGate: shortFloor.length ? centroid(shortFloor) : avg([outerGate, innerGate]), innerGate, apron,
+        posts: myPosts, outlands, bunker, short: shortFloor, long: longFloor, shortZone, longZone,
         squad: [], nextSquadAt: rng.range(WAR.firstSquad[0], WAR.firstSquad[1]),
         lastShot: -1e9, reinforceAt: 0, medicAt: 0, assaultAnnounced: false, corridor, points, held: 0,
         owner: 'combine', capture: null, nextCaptureAt: WAR.capture.firstAfter + rng.range(0, 10), heldSince: 0, rebelFree: 0, retakeAt: 0,
@@ -341,21 +383,27 @@ export class WarSystem {
     return f.points.findIndex((pt) => pt.posts.some((p) => p.x === post.x && p.y === post.y));
   }
 
-  /** Индекс камеры тамбура, где стоит персонаж (только в коридоре своего КПП), или -1. */
-  pointAt(f: Front, x: number, y: number): number {
-    if (this.ctx.map.zoneAtWorld(x, y)?.kind !== 'checkpoint' || this.frontAt(x, y) !== f) return -1;
-    const dx = f.innerGate.x - f.outerGate.x;
-    const dy = f.innerGate.y - f.outerGate.y;
-    const t = ((x - f.outerGate.x) * dx + (y - f.outerGate.y) * dy) / (dx * dx + dy * dy || 1);
-    const mid = ((f.midGate.x - f.outerGate.x) * dx + (f.midGate.y - f.outerGate.y) * dy) / (dx * dx + dy * dy || 1);
-    if (t < 0 || t > 1) return -1;
-    return t < mid ? 0 : 1;
+  /**
+   * Часть КПП фронта f под точкой: 0 — внешний двор, 1 — шорт или лонг, 2 — внутренний двор,
+   * -1 — не КПП этого фронта.
+   */
+  sectionAt(f: Front, x: number, y: number): number {
+    const map = this.ctx.map;
+    const ts = map.tileSize;
+    const tx = Math.floor(x / ts);
+    const ty = Math.floor(y / ts);
+    if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return -1;
+    const z = map.zoneGrid[ty * map.width + tx];
+    if (z === f.points[0]?.zone) return 0;
+    if (z === f.points[1]?.zone) return 2;
+    if (z === f.shortZone || z === f.longZone) return 1;
+    return -1;
   }
 
-  /** Доля коридора, где идёт капт текущей точки. */
-  captureSpan(f: Front): [number, number] {
-    const pt = f.points[f.capture?.point ?? Math.min(f.held, f.points.length - 1)];
-    return pt ? [pt.from, pt.to] : [0, 1];
+  /** Индекс точки D (двора), где стоит персонаж, или -1 (шорт, лонг, вне КПП). */
+  pointAt(f: Front, x: number, y: number): number {
+    const s = this.sectionAt(f, x, y);
+    return s === 0 ? 0 : s === 2 ? 1 : -1;
   }
 
   /** Часовые (по точкам тамбура) и медики КПП. */
@@ -453,7 +501,17 @@ export class WarSystem {
     f.reinforceAt = f.medicAt = 0;
     this.ctx.law.log(`${f.name}: КАПТ точки ${pt.name}! Повстанцы (${f.squad.length}) идут на захват. Подкреплений не будет — держать оборону!`, 'radio');
     this.ctx.bus.emit('announce', { text: `Капт · ${f.name} · ${pt.name}` });
-    for (const r of f.squad) rebelBrain(r)?.orderCapture();
+    // На внутренний двор идут и державшие внешний (на постах остаётся WAR.capture.keepOnHeld).
+    let keep = point > 0 ? WAR.capture.keepOnHeld : 0;
+    for (const r of f.squad) {
+      const b = rebelBrain(r);
+      if (!b) continue;
+      if (b.mode === 'hold' && keep > 0) {
+        keep--;
+        continue;
+      }
+      b.orderCapture(point > 0);
+    }
   }
 
   private endCapture(f: Front, won: boolean): void {
@@ -536,8 +594,9 @@ export class WarSystem {
     let cpIn = 0;
     for (const o of list) {
       if (!o.alive) continue;
-      const at = this.pointAt(f, o.x, o.y);
-      if (at < k) continue;
+      // Отбиваемая точка и всё, что ближе к городу (для внешнего двора — ещё шорт и лонг).
+      const at = this.sectionAt(f, o.x, o.y);
+      if (at < k * 2) continue;
       if (o.faction === 'rebel') rebelsIn++;
       else if (FACTIONS[o.faction].authority) cpIn++;
     }
@@ -699,7 +758,7 @@ export class WarSystem {
         this.defectors.delete(c);
         continue;
       }
-      if (this.pointAt(f, c.x, c.y) >= 0) this.defect(c, f);
+      if (this.sectionAt(f, c.x, c.y) >= 0) this.defect(c, f);
     }
     const citizens = this.ctx.entities.list.filter((c) => c.alive && c.faction === 'citizen').length;
     if (this.citizensAtStart < 0) this.citizensAtStart = citizens;
@@ -828,14 +887,14 @@ export class WarSystem {
       // Нехватка часовых: погибли — или двое+ отошли раненными (тогда — один сверх штата).
       // Во время капта подкреплений нет (бой тех, кто есть); у захваченного КПП — только контрудары.
       const short = guards.length < staff || (onPost < staff - 1 && guards.length < staff + 1);
-      if (short && f.owner === 'combine' && !f.capture) {
+      if (short && f.owner === 'combine' && !f.capture && this.reinforcements) {
         if (f.reinforceAt === 0) f.reinforceAt = this.time + WAR.reinforceDelay;
         else if (this.time >= f.reinforceAt) {
           f.reinforceAt = 0;
           this.reinforce(f, false);
         }
       } else f.reinforceAt = 0;
-      if (medics.length < WAR.medicPerFront && f.held === 0 && !f.capture) {
+      if (medics.length < WAR.medicPerFront && f.held === 0 && !f.capture && this.reinforcements) {
         if (f.medicAt === 0) f.medicAt = this.time + WAR.reinforceDelay * 1.5;
         else if (this.time >= f.medicAt) {
           f.medicAt = 0;

@@ -114,10 +114,12 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
   const none = new Set<number>();
+  const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands']);
   const patrolDivisions: DivisionId[] = ['union', 'union', 'jury', 'union', 'helix', 'tech', 'union', 'jury'];
   for (let k = 0; k < P.cpPatrol; k++) {
     const division = patrolDivisions[k % patrolDivisions.length];
-    const c = add('cp', freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, none), cpKit(division), randomRank(ctx, 'cp', 6));
+    // Патрули — в городе: КПП и пустошь заняты гарнизонами (иначе патрульный займёт место часового).
+    const c = add('cp', freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, patrolAvoid), cpKit(division), randomRank(ctx, 'cp', 6));
     if (c) {
       c.division = division;
       c.brain = new CpBrain(c, ctx);

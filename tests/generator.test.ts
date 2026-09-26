@@ -84,7 +84,7 @@ describe('генератор переулочного города', () => {
         expect(map.poisOf('ration_window').length).toBe(1);
         expect(map.poisOf('checkpoint_post').length).toBe(10);
         expect(map.poisOf('outlands_exit').length).toBe(2);
-        expect(map.zones.filter((z) => z.kind === 'checkpoint')).toHaveLength(2);
+        expect(map.zones.filter((z) => z.kind === 'checkpoint')).toHaveLength(8);
       });
 
       test('открытые пространства ≤ 300×300 px: площадь и двор Нексуса', () => {

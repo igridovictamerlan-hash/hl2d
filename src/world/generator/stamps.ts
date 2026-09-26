@@ -43,7 +43,7 @@ export function stampTemplate(
   rows: readonly string[],
   x0: number,
   y0: number,
-  zoneOf: (ch: string) => number,
+  zoneOf: (ch: string, x: number, y: number) => number,
   pois: Poi[],
 ): StampResult {
   const h = rows.length;
@@ -53,7 +53,7 @@ export function stampTemplate(
       const ch = rows[y][x];
       const t = TEMPLATE_TILES[ch] ?? T.WALL;
       g.set(x0 + x, y0 + y, t, true);
-      g.zones[(y0 + y) * g.w + x0 + x] = zoneOf(ch);
+      g.zones[(y0 + y) * g.w + x0 + x] = zoneOf(ch, x, y);
       if (ch === 'F') pois.push({ type: 'nexus_desk', x: x0 + x, y: y0 + y });
       if (ch === 'P') pois.push({ type: 'checkpoint_post', x: x0 + x, y: y0 + y });
     }

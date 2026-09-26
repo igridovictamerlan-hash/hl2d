@@ -11,7 +11,7 @@ import { GenGrid } from './GenGrid';
 import { planLayout, avenueOffsetAt, avenueRects } from './layout';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked } from './stamps';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, rotateTemplate, mirrorTemplate } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, rotateTemplate, mirrorTemplate, checkpointSection } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 
@@ -72,7 +72,7 @@ export function validateMap(map: GameMap): string[] {
   if (s.buildingRatio < lo || s.buildingRatio > hi) out.push(`доля зданий ${(s.buildingRatio * 100).toFixed(1)}%`);
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 4], ['restricted_gate', 1],
-    ['checkpoint_post', 6], ['outlands_exit', 2], ['shop_counter', 1],
+    ['checkpoint_post', 10], ['outlands_exit', 2], ['shop_counter', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -156,7 +156,18 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const zCells = addZone('cells', ZONE_NAMES.cells, 'K');
   const zInd = addZone('industrial', ZONE_NAMES.industrial, 'I');
   const zRes = addZone('restricted', ZONE_NAMES.restricted, 'R');
-  const zCheckpoints = layout.checkpoints.map((_, k) => addZone('checkpoint', ZONE_NAMES.checkpoints[k], k === 0 ? 'W' : 'E'));
+  // У каждого КПП — четыре зоны: внешний двор, шорт, лонг, внутренний двор (названия точек D — в имени).
+  const zCheckpoints = layout.checkpoints.map((_, k) => {
+    const base = ZONE_NAMES.checkpoints[k];
+    const [pOut, pIn] = ZONE_NAMES.checkpointPoints[k];
+    const chars = ZONE_NAMES.checkpointChars[k];
+    return {
+      outer: addZone('checkpoint', `${base} · ${pOut}`, chars[0]),
+      short: addZone('checkpoint', `${base} · шорт`, chars[1]),
+      long: addZone('checkpoint', `${base} · лонг`, chars[2]),
+      inner: addZone('checkpoint', `${base} · ${pIn}`, chars[3]),
+    };
+  });
   const zOut = addZone('outlands', ZONE_NAMES.outlands, 'O');
   const zShop = addZone('shop', ZONE_NAMES.shop, 'S');
 
@@ -216,7 +227,9 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   // Пограничные КПП. Выход только один — в сторону города (к проспекту).
   layout.checkpoints.forEach((cp, k) => {
     const rows = cp.mirror ? mirrorTemplate(CHECKPOINT_TEMPLATE) : [...CHECKPOINT_TEMPLATE];
-    const res = stampTemplate(g, rows, cp.rect.x, cp.rect.y, (ch) => (ch === 'o' ? zOut : zCheckpoints[k]), pois);
+    const cw = rows[0].length;
+    const zoneOf = (ch: string, x: number, y: number) => (ch === 'o' ? zOut : zCheckpoints[k][checkpointSection(cp.mirror ? cw - 1 - x : x, y)]);
+    const res = stampTemplate(g, rows, cp.rect.x, cp.rect.y, zoneOf, pois);
     const cityDx = cp.mirror ? -1 : 1;
     for (const exit of res.exits) {
       if (exit.dx !== cityDx) continue;

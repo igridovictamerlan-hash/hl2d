@@ -106,8 +106,9 @@ describe('канализация', () => {
 describe('сопротивление в городе', () => {
   test('саботаж: группа из убежища через люк выводит из строя узел, код жёлтый, потом отбой', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
-    // Только убежище, без городских патрулей и боёв на КПП: иначе исход зависит от случайностей.
+    // Только убежище, без городских патрулей, боёв на КПП и подкреплений из Цитадели (они идут через город).
     for (const f of sim.war.fronts) f.nextSquadAt = Infinity;
+    sim.war.reinforcements = false;
     sim.insurgency.populate();
     expect(sim.insurgency.garrison.length).toBeGreaterThan(0);
     expect(sim.insurgency.trader).not.toBeNull();

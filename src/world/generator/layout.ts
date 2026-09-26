@@ -1,7 +1,7 @@
 import type { Rng } from '../../core/rng';
 import { clamp, rectsOverlap, type Rect, type Vec2 } from '../../core/math';
 import { GENERATOR } from '../../config/generator';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CHECKPOINT_AXIS_ROW } from './templates';
 
 /**
  * Макро-план города: магистрали, линии решётки, прямоугольники районов и штампов.
@@ -271,8 +271,8 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
     const x = mirror ? W - border - cw : border;
     const apronX = mirror ? x : x + cw - 1;
     const mid = avenueOffsetAt(hAvenue, apronX) + Math.floor(hWidth / 2);
-    // Ряды коридора в шаблоне — 8..11: центр коридора совпадает с серединой проспекта.
-    return { rect: { x, y: mid - 10, w: cw, h: ch }, mirror };
+    // Ось КПП (ворота, шорт) совпадает с серединой проспекта.
+    return { rect: { x, y: mid - CHECKPOINT_AXIS_ROW, w: cw, h: ch }, mirror };
   });
   for (const c of checkpoints) {
     if (rectsOverlap(c.rect, restricted, 3) || rectsOverlap(c.rect, plaza, 3)) {

@@ -44,6 +44,11 @@ export class RebelBrain implements Brain {
   private coverLeft = 0;
   private shooting = false;
   private phaseLeft = 0;
+  /** Капт: маршрут во внутренний двор (точки шорта или лонга) и для какой точки он выбран. */
+  private route: number[] = [];
+  private routeFor = -1;
+  /** Идёт через лонг (для отладки и тестов). */
+  viaLong = false;
   /** Медик: кого лечит, перерыв между перевязками, как часто искать раненых. */
   private patient: Character | null = null;
   private healCooldown = 0;
@@ -87,27 +92,31 @@ export class RebelBrain implements Brain {
   }
 
   /** Капт начался: вперёд по коридору перебежками от укрытия к укрытию. */
-  orderCapture(): void {
-    if (this.mode !== 'raid' && this.mode !== 'assault' && this.mode !== 'gather') return;
+  orderCapture(withHolders = false): void {
+    if (this.mode !== 'raid' && this.mode !== 'assault' && this.mode !== 'gather' && !(withHolders && this.mode === 'hold')) return;
     this.mode = 'capture';
     this.goal = -1;
+    this.routeFor = -1;
     this.advance = this.ctx.rng.range(0, WAR.capture.advanceStep);
     this.coverLeft = this.ctx.rng.range(WAR.capture.coverWait[0], WAR.capture.coverWait[1]);
     this.shooting = false;
     this.phaseLeft = 0;
   }
 
-  /** Якорь коридора на доле пути t (0 — внешние ворота, 1 — внутренние), по возможности — за блоком. */
-  private coverAt(f: NonNullable<AiContext['war']['fronts'][number]>, t: number): number {
+  /**
+   * Якорь во дворе штурмуемой точки на доле пути t (пол двора отсортирован от входа со стороны
+   * пустоши), по возможности — за блоком.
+   */
+  private coverAt(floor: readonly number[], fallback: { x: number; y: number }, t: number): number {
     const { ctx } = this;
-    const n = f.corridor.length;
-    if (n === 0) return ctx.nav.nearestWalkable(f.outerGate.x, f.outerGate.y, 6);
+    const n = floor.length;
+    if (n === 0) return ctx.nav.nearestWalkable(fallback.x, fallback.y, 6);
     const k = Math.min(n - 1, Math.floor(t * (n - 1)));
     const lo = Math.max(0, k - 4);
     const hi = Math.min(n - 1, k + 4);
     const covered: number[] = [];
     for (let i = lo; i <= hi; i++) {
-      const a = f.corridor[i];
+      const a = floor[i];
       const ax = ctx.nav.ax(a);
       const ay = ctx.nav.ay(a);
       // Блок рядом со стороны города (откуда стреляют) — укрытие.
@@ -115,7 +124,7 @@ export class RebelBrain implements Brain {
       for (let dy = -1; dy <= 2 && !cover; dy++) for (let dx = -1; dx <= 2; dx++) if (ctx.map.tileAt(ax + dx, ay + dy) === T.BARRIER) cover = true;
       if (cover) covered.push(a);
     }
-    return covered.length ? ctx.rng.pick(covered) : f.corridor[lo + Math.floor(ctx.rng.next() * (hi - lo + 1))];
+    return covered.length ? ctx.rng.pick(covered) : floor[lo + Math.floor(ctx.rng.next() * (hi - lo + 1))];
   }
 
   /** КПП захвачен: держать пост. */
@@ -140,6 +149,26 @@ export class RebelBrain implements Brain {
    */
   private pickGather(f: NonNullable<AiContext['war']['fronts'][number]>): number {
     const { ctx, self } = this;
+    // Внешний двор уже наш — собираемся в нём, вне видимости постов внутреннего двора.
+    const yard = f.held >= 1 ? f.points[0]?.floor ?? [] : [];
+    if (yard.length) {
+      let best = -1;
+      let bestScore = -Infinity;
+      const enemy = f.points[1]?.posts ?? [];
+      for (let k = 0; k < 30; k++) {
+        const a = ctx.rng.pick(yard);
+        const x = ctx.nav.worldX(a);
+        const y = ctx.nav.worldY(a);
+        let score = ctx.rng.range(0, 2);
+        if (enemy.some((p) => canSeeCircle(ctx.map, x, y, p.x, p.y, 10))) score -= 20;
+        for (const o of f.squad) if (o !== self && Math.hypot(o.x - x, o.y - y) < 30) score -= 4;
+        if (score > bestScore) {
+          bestScore = score;
+          best = a;
+        }
+      }
+      return best;
+    }
     let best = -1;
     let bestScore = -Infinity;
     for (let k = 0; k < 40; k++) {
@@ -348,12 +377,25 @@ export class RebelBrain implements Brain {
       case 'capture': {
         if (!f) break;
         const C = WAR.capture;
-        // Цель — укрытие в камере штурмуемой точки на доле пути this.advance; дошли и продержались — дальше.
-        const [lo, hi] = ctx.war.captureSpan(f);
-        const at = (t: number) => this.coverAt(f, lo + (hi - lo) * t);
-        if (this.goal < 0 || this.mover.status === 'failed') this.go(at(this.advance));
-        const arrived = this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) < 14;
-        if (arrived) {
+        // Штурмуемый двор; во внутренний — через шорт или лонг (выбор в начале капта, как в CS).
+        const k = f.capture?.point ?? Math.min(f.held, f.points.length - 1);
+        const pt = f.points[k];
+        if (this.routeFor !== k) {
+          this.routeFor = k;
+          const via = k > 0 && f.long.length && ctx.rng.chance(C.longChance) ? f.long : k > 0 ? f.short : [];
+          this.viaLong = via === f.long && via.length > 0;
+          this.route = via.length ? [via[Math.floor(via.length / 2)], via[via.length - 1]] : [];
+          this.goal = -1;
+        }
+        const at = (t: number) => (pt ? this.coverAt(pt.floor, pt.center, t) : -1);
+        const target = () => (this.route.length ? this.route[0] : at(this.advance));
+        if (this.goal < 0 || this.mover.status === 'failed') this.go(target());
+        const arrived = this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) < (this.route.length ? 24 : 14);
+        if (arrived && this.route.length) {
+          // Точка маршрута пройдена — дальше без остановки.
+          this.route.shift();
+          this.go(target());
+        } else if (arrived) {
           this.mover.stop();
           this.coverLeft -= dt;
           if (this.coverLeft <= 0 && this.advance < 1) {

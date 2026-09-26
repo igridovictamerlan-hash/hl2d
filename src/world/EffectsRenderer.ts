@@ -325,12 +325,9 @@ export class EffectsRenderer {
     ctx.textBaseline = 'middle';
     ctx.font = `bold ${Math.round(22 * s)}px sans-serif`;
     for (const f of war.fronts) {
-      const ends = [f.outerGate, f.midGate, f.innerGate];
       f.points.forEach((pt, k) => {
-        const a = ends[k];
-        const b = ends[k + 1];
-        const x = ((a.x + b.x) / 2 - v.left) * s;
-        const y = ((a.y + b.y) / 2 - v.top) * s;
+        const x = (pt.center.x - v.left) * s;
+        const y = (pt.center.y - v.top) * s;
         if (x < -80 || y < -80 || x > v.width + 80 || y > v.height + 80) return;
         const capturing = f.capture?.point === k;
         ctx.globalAlpha = capturing ? 0.6 + 0.4 * Math.abs(Math.sin(now * 4)) : 1;

@@ -40,10 +40,9 @@ export class DefectorBrain implements Brain {
     const st = this.mover.status;
     if (this.repath <= 0 || st === 'idle' || st === 'failed' || st === 'arrived') {
       this.repath = 5;
-      // Цель — внутренняя камера тамбура (между средними и внутренними воротами).
-      const x = (f.midGate.x + f.innerGate.x) / 2;
-      const y = (f.midGate.y + f.innerGate.y) / 2;
-      const a = ctx.nav.nearestWalkable(x, y, 4);
+      // Цель — внутренний двор КПП (ближний к городу).
+      const c = f.points[1]?.center ?? f.innerGate;
+      const a = ctx.nav.nearestWalkable(c.x, c.y, 4);
       if (a >= 0) this.mover.goTo(self, ctx, a);
     }
     this.mover.update(self, ctx, dt);
