@@ -50,8 +50,25 @@ export class RoleMenu {
     parent.appendChild(this.el);
     this.closeBtn = this.el.querySelector('.role-close')!;
     this.closeBtn.addEventListener('click', () => this.close());
-    this.el.querySelector('[data-new]')!.addEventListener('click', () => {
-      if (!window.confirm('Начать заново? Сохранение будет стёрто.')) return;
+    // Подтверждение вторым нажатием (window.confirm в песочнице не работает).
+    const newBtn = this.el.querySelector<HTMLButtonElement>('[data-new]')!;
+    const newText = newBtn.textContent ?? '';
+    let armed = false;
+    newBtn.addEventListener('click', () => {
+      if (!armed) {
+        armed = true;
+        newBtn.textContent = 'Точно? Нажмите ещё раз — сохранение сотрётся';
+        newBtn.classList.add('armed');
+        window.setTimeout(() => {
+          armed = false;
+          newBtn.textContent = newText;
+          newBtn.classList.remove('armed');
+        }, 4000);
+        return;
+      }
+      armed = false;
+      newBtn.textContent = newText;
+      newBtn.classList.remove('armed');
       this.close();
       this.onNewGame();
     });

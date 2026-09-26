@@ -20,7 +20,7 @@ export class GameMenu {
   private readonly el: HTMLElement;
   private readonly box: HTMLElement;
   private mode: 'main' | 'pause' = 'main';
-  private screen: 'buttons' | 'controls' = 'buttons';
+  private screen: 'buttons' | 'controls' | 'confirmNew' = 'buttons';
   private note = '';
 
   constructor(parent: HTMLElement, private readonly host: GameMenuHost) {
@@ -58,9 +58,9 @@ export class GameMenu {
     this.el.hidden = true;
   }
 
-  /** Esc внутри меню: из «Управления» — назад, в паузе — продолжить. */
+  /** Esc внутри меню: из «Управления» и подтверждения — назад, в паузе — продолжить. */
   back(): void {
-    if (this.screen === 'controls') {
+    if (this.screen !== 'buttons') {
       this.screen = 'buttons';
       this.render();
     } else if (this.mode === 'pause') this.close();
@@ -74,7 +74,16 @@ export class GameMenu {
         h.continueGame();
         return;
       case 'new':
-        if (h.canContinue() && !window.confirm('Начать новую игру? Сохранение будет стёрто.')) return;
+        // Подтверждение — своим экраном: window.confirm в песочнице (опубликованная страница) сразу
+        // возвращает «нет», и кнопка молча не работала.
+        if (h.canContinue()) {
+          this.screen = 'confirmNew';
+          break;
+        }
+        this.close();
+        h.newGame();
+        return;
+      case 'newYes':
         this.close();
         h.newGame();
         return;
@@ -108,6 +117,11 @@ export class GameMenu {
     if (this.screen === 'controls') {
       const rows = CONTROLS_HELP.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('');
       this.box.innerHTML = `${title}<div class="gm-controls">${rows}</div><button data-act="back">Назад</button>`;
+      return;
+    }
+    if (this.screen === 'confirmNew') {
+      this.box.innerHTML = `${title}<div class="gm-note">Начать новую игру? Будет новый город, сохранение сотрётся.</div>
+        <div class="gm-buttons"><button data-act="newYes" class="primary">Да, начать заново</button><button data-act="back">Отмена</button></div>`;
       return;
     }
     const btn = (act: string, text: string, primary = false) => `<button data-act="${act}"${primary ? ' class="primary"' : ''}>${text}</button>`;
