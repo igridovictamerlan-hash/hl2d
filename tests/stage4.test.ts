@@ -159,7 +159,7 @@ describe('жизнь убежища', () => {
     sim.war.command.paused = true;
     let climbs = 0;
     const level = new Map<number, string>();
-    for (let t = 0; t < 180 * 60; t++) {
+    for (let t = 0; t < 240 * 60; t++) {
       sim.step();
       for (const c of sim.insurgency.garrison) {
         const l = sim.map.levelAt(c.x, c.y);

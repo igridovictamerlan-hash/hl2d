@@ -60,6 +60,8 @@ export const AI = {
      */
     ghostAfter: 4,
     ghostTime: 1.5,
+    /** Сосед ближе (радиусы + ghostContact px) тоже считается мешающим — прижал сбоку. */
+    ghostContact: 6,
     giveUpAfter: 12,
     giveUpProgress: 64,
   },

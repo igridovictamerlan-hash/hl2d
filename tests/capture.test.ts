@@ -43,7 +43,7 @@ describe('капт КПП', () => {
     expect(f.squad.every((r) => (r.brain as RebelBrain).mode === 'capture')).toBe(true);
   });
 
-  test('тамбур: точки берутся по очереди (D3, потом D4), код жёлтый; контрудар из Цитадели отбивает обе', { timeout: 120_000 }, () => {
+  test('тамбур: точки берутся по очереди (D3, потом D4), код жёлтый; контрудар из Цитадели отбивает обе', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     expect(f.points.map((p) => p.name)).toEqual(['D3', 'D4']);
@@ -71,7 +71,9 @@ describe('капт КПП', () => {
     for (let k = 0; k < 4; k++) spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_soldier', division: null, rank: 0, kit: 'ota' });
     const cpBefore = sim.entities.list.filter((c) => c.alive && (c.faction === 'cp' || c.faction === 'ota')).length;
     const held: number[] = [];
-    for (let t = 0; t < 240 * 60 && f.held > 0; t++) {
+    // Точку нельзя отбить раньше holdTime; контрудары — раз в retakeEvery.
+    const limit = WAR.capture.holdTime + 4 * WAR.capture.retakeEvery;
+    for (let t = 0; t < limit * 60 && f.held > 0; t++) {
       sim.step();
       if (held[held.length - 1] !== f.held) held.push(f.held);
     }

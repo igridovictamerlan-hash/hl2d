@@ -546,6 +546,8 @@ export class WarSystem {
     f.owner = 'rebels';
     this.defectIn = 0;
     this.defectLeft += WAR.defect.perBreach;
+    // Посты прорванного КПП держат захватившие; остальная армия — на следующий КПП.
+    if (this.fronts.some((o) => o.owner !== 'rebels')) this.command.pickTarget(`${f.name} прорван`);
   }
 
   /**

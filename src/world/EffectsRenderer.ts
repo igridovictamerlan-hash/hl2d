@@ -11,6 +11,7 @@ import type { GameMap } from './GameMap';
 import { colorsOf } from '../config/factions';
 import { lookSeed } from '../entities/PawnRenderer';
 import { drawPawnCached } from '../entities/PawnCache';
+import type { Barrel } from '../systems/StreetLife';
 import { PAWN } from '../config/pawns';
 import { RENDER } from '../config/render';
 import { COMBAT, GRENADE } from '../config/combat';
@@ -181,6 +182,49 @@ export class EffectsRenderer {
    * Работы профессий на земле: кучи мусора, конвейер завода с коробками на складе, коробки у
    * будки раздачи (склад будки) с числом рационов.
    */
+  /** Бочки с огнём: отсвет на земле, ржавая бочка, мерцающие языки пламени и искры. */
+  drawBarrels(ctx: CanvasRenderingContext2D, v: View, barrels: readonly Barrel[], now: number): void {
+    const s = v.scale;
+    const B = RENDER.effects.barrel;
+    for (let k = 0; k < barrels.length; k++) {
+      const b = barrels[k];
+      const x = (b.x - v.left) * s;
+      const y = (b.y - v.top) * s;
+      const gr = B.glowRadius * s;
+      if (x < -gr || y < -gr || x > v.width + gr || y > v.height + gr) continue;
+      const flick = 0.8 + 0.2 * Math.sin(now * 11 + k * 1.7) * Math.sin(now * 7.3 + k);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, gr * flick);
+      g.addColorStop(0, `rgba(${B.glow},0.32)`);
+      g.addColorStop(1, `rgba(${B.glow},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(x - gr, y - gr, gr * 2, gr * 2);
+      const r = B.r * s;
+      ctx.fillStyle = B.body;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = Math.max(1, 1.6 * s);
+      ctx.strokeStyle = B.rim;
+      ctx.stroke();
+      ctx.fillStyle = B.rust;
+      ctx.fillRect(x - r * 0.6, y + r * 0.2, r * 0.5, r * 0.35);
+      // Пламя: три языка разного цвета, пляшут.
+      for (let f = 0; f < 3; f++) {
+        const a = now * (5 + f) + k * 2.1 + f * 2;
+        ctx.fillStyle = B.fire[2 - f];
+        ctx.beginPath();
+        ctx.arc(x + Math.sin(a) * r * 0.25, y + Math.cos(a * 1.3) * r * 0.2 - f * r * 0.15, r * (0.75 - f * 0.2) * flick, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Искры вверх.
+      ctx.fillStyle = B.fire[0];
+      for (let f = 0; f < 3; f++) {
+        const t = (now * 0.9 + f / 3 + k * 0.37) % 1;
+        ctx.fillRect(x + Math.sin(t * 9 + f * 3 + k) * r * 0.8, y - r - t * 22 * s, 1.5 * s, 1.5 * s);
+      }
+    }
+  }
+
   drawLabor(ctx: CanvasRenderingContext2D, v: View, labor: LaborSystem, stock: number, now: number): void {
     const s = v.scale;
     const E = RENDER.effects;

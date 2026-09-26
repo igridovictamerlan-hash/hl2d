@@ -234,3 +234,40 @@ describe('проходная КПП', () => {
     expect(back?.role?.kind).toBe('gate');
   });
 });
+
+describe('прорыв и уличная жизнь', () => {
+  test('КПП прорван — глава ведёт армию на следующий; ГО и OTA возвращаются не сразу', () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 20);
+    run(sim, 6);
+    const first = sim.war.command.target;
+    sim.war.breach(sim.war.fronts[first]);
+    expect(sim.war.command.target).not.toBe(first);
+    expect(ROSTER.respawn.guard).toBeGreaterThanOrEqual(60);
+    expect(ROSTER.respawn.ota).toBeGreaterThan(ROSTER.respawn.guard);
+  });
+
+  test('жители болтают, греются у бочек, заходят домой, слушают обращение', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 45);
+    sim.war.command.paused = true;
+    const st = sim.ctx.street;
+    expect(st.barrels.length).toBeGreaterThanOrEqual(5);
+    expect(st.homes.length).toBeGreaterThan(10);
+    let longest = 0;
+    for (let t = 0; t < 60 * 200; t++) {
+      sim.step();
+      for (const c of sim.entities.list) {
+        const b = c.brain;
+        if (b instanceof CitizenBrain && (b.fsm.current === 'chat' || b.fsm.current === 'barrel')) longest = Math.max(longest, b.fsm.time);
+      }
+    }
+    console.log(`уличная жизнь: ${JSON.stringify(st.stats)}, дольше всего в одном занятии ${longest.toFixed(0)} с`);
+    expect(st.stats.chats).toBeGreaterThan(5);
+    expect(st.stats.barrels).toBeGreaterThan(5);
+    expect(st.stats.homes).toBeGreaterThan(5);
+    expect(st.stats.listeners).toBeGreaterThan(3);
+    // Никто не залипает в беседе или у бочки.
+    expect(longest).toBeLessThan(120);
+  });
+});

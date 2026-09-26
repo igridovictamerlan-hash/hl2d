@@ -105,8 +105,8 @@ export class RebelCommand {
   }
 
   /**
-   * Глава выбирает КПП: где точки уже наши — туда (закрепить успех), иначе — где меньше защитников
-   * у очередной точки. Сообщает своим по связи; «Надзор» перехватывает — ГО знает, куда идут.
+   * Глава выбирает КПП: из ещё не прорванных — где точки уже наши (закрепить успех), иначе — где
+   * меньше защитников у очередной точки. Сообщает своим по связи; «Надзор» перехватывает — ГО знает, куда идут.
    */
   pickTarget(reason = ''): void {
     const war = this.ctx.war;
@@ -115,7 +115,9 @@ export class RebelCommand {
     if (leader?.isPlayer) return;
     let best = this.target;
     let bestScore = -Infinity;
-    for (const f of war.fronts) {
+    // Прорванный КПП держат оставшиеся на постах; армия идёт на следующий (в город — только когда все прорваны).
+    const open = war.fronts.filter((f) => f.owner !== 'rebels');
+    for (const f of open.length ? open : war.fronts) {
       let score = f.held * 4 + this.ctx.rng.range(0, 1.5);
       score -= war.defendersAt(f, Math.min(f.held, f.points.length - 1));
       if (f.index === this.target && reason) score -= 3;

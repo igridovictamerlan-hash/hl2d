@@ -40,6 +40,7 @@ import { ScannerSystem } from '../systems/ScannerSystem';
 import { RosterSystem } from '../systems/Roster';
 import { ElectionSystem } from '../systems/ElectionSystem';
 import { ROSTER } from '../config/roster';
+import { StreetLifeSystem } from '../systems/StreetLife';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
 import { SAVE } from '../config/save';
@@ -201,6 +202,7 @@ export class Game {
       scanners: null as unknown as ScannerSystem,
       roster: null as unknown as RosterSystem,
       elections: null as unknown as ElectionSystem,
+      street: null as unknown as StreetLifeSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -212,6 +214,7 @@ export class Game {
     this.ai.scanners = new ScannerSystem(this.ai);
     this.ai.roster = new RosterSystem(this.ai);
     this.ai.elections = new ElectionSystem(this.ai);
+    this.ai.street = new StreetLifeSystem(this.ai);
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
@@ -573,6 +576,7 @@ export class Game {
     this.ai.scanners.update(dt);
     this.ai.roster.update(dt);
     this.ai.elections.update(dt);
+    this.ai.street.update(dt);
     if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside
@@ -630,6 +634,7 @@ export class Game {
     this.drawTerminal(v);
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
+    this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);

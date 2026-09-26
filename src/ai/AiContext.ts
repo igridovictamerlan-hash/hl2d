@@ -18,6 +18,7 @@ import type { CrimeSystem } from '../systems/CrimeSystem';
 import type { ScannerSystem } from '../systems/ScannerSystem';
 import type { RosterSystem } from '../systems/Roster';
 import type { ElectionSystem } from '../systems/ElectionSystem';
+import type { StreetLifeSystem } from '../systems/StreetLife';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -51,4 +52,6 @@ export interface AiContext {
   roster: RosterSystem;
   /** Выборы Администратора после его гибели. */
   elections: ElectionSystem;
+  /** Уличная жизнь: бочки с огнём, дома, обращения Администратора. */
+  street: StreetLifeSystem;
 }

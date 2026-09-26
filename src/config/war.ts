@@ -64,15 +64,15 @@ export const WAR = {
     cooldown: 25,
     firstAfter: 10,
     /** Точку нельзя отбить раньше holdTime с после захвата; отбита — retakeCalm с без повстанцев при ГО в ней. */
-    holdTime: 50,
+    holdTime: 200,
     retakeCalm: 8,
     /**
      * Контрудар по захваченной точке: из резерва Цитадели выбегают retakeOta OTA через counterDelay с
      * после захвата, потом раз в retakeEvery с (часовые точки возвращаются туда сами после гибели).
      */
-    counterDelay: 8,
+    counterDelay: 30,
     retakeOta: 2,
-    retakeEvery: 40,
+    retakeEvery: 75,
     /**
      * Продвижение в капте перебежками: цель — укрытие в коридоре на доле пути advance (0 — внешние
      * ворота, 1 — посты); дошёл — держится coverWait с и продвигается на advanceStep. Под огнём —
