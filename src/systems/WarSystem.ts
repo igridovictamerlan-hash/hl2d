@@ -105,6 +105,9 @@ export interface Front {
  */
 export class WarSystem {
   code: AlertCode = 'green';
+  /** Код, включённый с терминала Администратора (держится до отмены), и кто его включил. */
+  manualCode: AlertCode | null = null;
+  private manualBy: Character | null = null;
   curfew = false;
   readonly fronts: Front[] = [];
   readonly infiltrators = new Set<Character>();
@@ -499,6 +502,8 @@ export class WarSystem {
       }
       b.orderCapture(point > 0);
     }
+    // Не одной толпой: звенья со своими полосами двора и проходами, перекаты.
+    this.command.formTeams(f, true);
   }
 
   private endCapture(f: Front, won: boolean): void {
@@ -646,7 +651,54 @@ export class WarSystem {
     for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код жёлтый!', this.ctx.law.now, 4);
   }
 
+  /** Может ли персонаж пользоваться терминалом кодов тревоги. */
+  canSetCode(c: Character): boolean {
+    return c.alive && (c.faction === 'admin' || (c.faction === 'cp' && c.rank >= WAR.terminal.minCpRank));
+  }
+
+  /**
+   * Терминал Администратора: включить код жёлтый / красный или отбой (зелёный). null — сделано, иначе
+   * причина отказа. Включённый так код держится, пока его не снимут с терминала.
+   */
+  setCode(code: AlertCode, by: Character): string | null {
+    if (!this.canSetCode(by)) return 'Доступ запрещён: только Администратор и старшие офицеры ГО.';
+    if (code === this.code) {
+      if (code === 'green') return 'Тревоги нет — код уже зелёный.';
+      this.manualCode = code;
+      this.manualBy = by;
+      return null;
+    }
+    const who = by.name;
+    if (code === 'green') {
+      this.declareGreen(`по приказу ${who}`);
+      return null;
+    }
+    if (code === 'red') {
+      this.declareRed('весь город', `По приказу ${who}`);
+    } else {
+      // Жёлтый: с зелёного — усиленные проверки; с красного — комендантский час снимается.
+      const wasCurfew = this.curfew;
+      this.code = 'yellow';
+      this.curfew = false;
+      this.shelterClaims.clear();
+      this.yellowSince = this.time;
+      this.alarmKills = 0;
+      this.calm = 0;
+      for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
+      this.ctx.law.log(
+        `Администрация: Код ЖЁЛТЫЙ по приказу ${who}.${wasCurfew ? ' Комендантский час отменён.' : ''} Граждане, предъявляйте CID по первому требованию.`,
+        'world',
+      );
+      this.ctx.bus.emit('alert', { code: 'yellow' });
+      this.ctx.bus.emit('announce', { text: 'Код жёлтый · приказ Администрации' });
+    }
+    this.manualCode = code;
+    this.manualBy = by;
+    return null;
+  }
+
   private declareRed(where: string, why = 'Прорыв периметра'): void {
+    this.manualCode = null;
     this.code = 'red';
     this.curfew = true;
     this.redSince = this.time;
@@ -680,14 +732,17 @@ export class WarSystem {
     this.lastKnown.clear();
   }
 
-  private declareGreen(): void {
+  private declareGreen(by = ''): void {
     const wasCurfew = this.curfew;
+    this.manualCode = null;
+    this.manualBy = null;
     this.code = 'green';
     this.curfew = false;
     this.shelterClaims.clear();
     this.alarm = null;
     this.ctx.law.log(
-      wasCurfew ? 'Администрация: Код зелёный. Комендантский час отменён. Благодарим за сотрудничество.' : 'Администрация: Код зелёный. Отбой тревоги. Благодарим за бдительность.',
+      (wasCurfew ? 'Администрация: Код зелёный. Комендантский час отменён.' : 'Администрация: Код зелёный. Отбой тревоги.') +
+        (by ? ` (${by})` : ' Благодарим за сотрудничество.'),
       'world',
     );
     this.ctx.bus.emit('alert', { code: 'green' });
@@ -885,7 +940,12 @@ export class WarSystem {
         this.lastKnown.delete(r);
       }
     }
-    if (this.code === 'yellow') {
+    // Включивший код с терминала погиб или больше не при должности — снова по обстановке.
+    if (this.manualCode && (!this.manualBy || !this.canSetCode(this.manualBy))) {
+      this.manualCode = null;
+      this.manualBy = null;
+    }
+    if (this.code === 'yellow' && this.manualCode !== 'yellow') {
       // Тревога держится, пока есть нападавшие или КПП в руках повстанцев.
       this.calm = this.operatives.size === 0 && this.fronts.every((f) => f.held === 0) ? this.calm + dt : 0;
       if (this.calm >= ALARM.calmToGreen && this.time - this.yellowSince >= ALARM.minTime) this.declareGreen();
@@ -896,7 +956,7 @@ export class WarSystem {
       this.scanTimer = WAR.overwatchScan;
       for (const r of this.infiltrators) this.lastKnown.set(r, { x: r.x + this.ctx.rng.range(-48, 48), y: r.y + this.ctx.rng.range(-48, 48) });
     }
-    if (this.code === 'red') {
+    if (this.code === 'red' && this.manualCode !== 'red') {
       // Красный код держится, пока есть прорвавшиеся или КПП в руках повстанцев.
       this.calm = this.infiltrators.size === 0 && this.fronts.every((f) => f.held === 0) ? this.calm + dt : 0;
       const long = this.time - this.redSince;

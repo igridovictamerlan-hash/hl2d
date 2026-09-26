@@ -255,6 +255,12 @@ kbd {
 .check-panel .bad { color: var(--danger); }
 .check-actions { display: flex; gap: 6px; margin-top: 6px; }
 .check-actions button { flex: 1; }
+.code-now { font-weight: 600; letter-spacing: 0.08em; }
+.code-now.code-green { color: #7fdca0; }
+.code-now.code-yellow { color: var(--hud); }
+.code-now.code-red { color: var(--danger); }
+.code-manual { color: var(--hud); }
+.code-hint { color: var(--muted); font-size: 12px; }
 
 .hud-small { font-size: 14px; font-variant-numeric: tabular-nums; }
 .hunger-fill { background: #8fd6b0; }

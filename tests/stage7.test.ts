@@ -11,6 +11,7 @@ import { ELECTION } from '../src/config/election';
 import { AI } from '../src/config/ai';
 import { randomAnchorAround } from '../src/ai/destinations';
 import { CpBrain } from '../src/ai/brains/CpBrain';
+import { WAR } from '../src/config/war';
 import { lineOfSight } from '../src/world/visibility';
 
 type Sim = ReturnType<typeof makeSim>;
@@ -269,5 +270,67 @@ describe('прорыв и уличная жизнь', () => {
     expect(st.stats.listeners).toBeGreaterThan(3);
     // Никто не залипает в беседе или у бочки.
     expect(longest).toBeLessThan(120);
+  });
+});
+
+describe('штурм звеньями и терминал кодов', () => {
+  test('капт: штурмующие разбиты на звенья с разными полосами и проходами, укрытия не совпадают', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    const f = sim.war.fronts[0];
+    const men = [];
+    for (let k = 0; k < 11; k++) {
+      const a = f.outlands[(k * 5) % f.outlands.length];
+      const c = spawnRole(sim.ctx, armySpec('rebel_soldier', 'rebel_raider', 0), { x: sim.nav.worldX(a), y: sim.nav.worldY(a) })!;
+      (c.brain as RebelBrain).march('gather');
+      men.push(c);
+    }
+    run(sim, 1);
+    sim.war.startCapture(f);
+    // Отвлекающая группа ушла на второй КПП — звенья у штурмующих этот.
+    const attackers = men.filter((c) => (c.brain as RebelBrain).mode === 'capture');
+    expect(attackers.length).toBeGreaterThanOrEqual(8);
+    const teams = attackers.map((c) => (c.brain as RebelBrain).team);
+    const sizes = new Map<number, number>();
+    for (const t of teams) sizes.set(t, (sizes.get(t) ?? 0) + 1);
+    expect(teams.every((t) => t >= 0)).toBe(true);
+    expect(sizes.size).toBe(Math.ceil(attackers.length / WAR.capture.teamSize));
+    for (const n of sizes.values()) expect(n).toBeLessThanOrEqual(WAR.capture.teamSize);
+    run(sim, 12);
+    // Цели штурмующих разнесены: почти никто не идёт в одно укрытие с другим.
+    const goals = attackers.map((c) => (c.brain as RebelBrain)).filter((b) => b.mode === 'capture' && b.goalAnchor >= 0).map((b) => ({ x: sim.nav.worldX(b.goalAnchor), y: sim.nav.worldY(b.goalAnchor) }));
+    let close = 0;
+    for (let i = 0; i < goals.length; i++) for (let j = i + 1; j < goals.length; j++) if (Math.hypot(goals[i].x - goals[j].x, goals[i].y - goals[j].y) < 24) close++;
+    expect(goals.length).toBeGreaterThan(5);
+    expect(close).toBeLessThanOrEqual(1);
+  });
+
+  test('терминал Администратора: жёлтый и красный держатся до отбоя; жителю доступа нет', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    expect(sim.map.poisOf('code_terminal')).toHaveLength(1);
+    const desk = poiWorld(sim.ctx, 'nexus_desk')!;
+    const admin = createCharacter(sim.entities, sim.ctx.rng, 'admin', desk.x, desk.y);
+    const civ = createCharacter(sim.entities, sim.ctx.rng, 'citizen', desk.x, desk.y);
+    const rct = createCharacter(sim.entities, sim.ctx.rng, 'cp', desk.x, desk.y, false, 0);
+    expect(sim.war.setCode('red', civ)).toMatch(/Доступ/);
+    expect(sim.war.setCode('yellow', rct)).toMatch(/Доступ/);
+    expect(sim.war.setCode('yellow', admin)).toBeNull();
+    expect(sim.war.code).toBe('yellow');
+    run(sim, 90);
+    expect(sim.war.code).toBe('yellow');
+    expect(sim.war.setCode('red', admin)).toBeNull();
+    expect(sim.war.code).toBe('red');
+    expect(sim.war.curfew).toBe(true);
+    run(sim, 150);
+    expect(sim.war.code).toBe('red');
+    expect(sim.war.setCode('green', admin)).toBeNull();
+    expect(sim.war.code).toBe('green');
+    expect(sim.war.curfew).toBe(false);
+    // Включивший погиб — код снова по обстановке (тревогу снимает автоматический отбой).
+    expect(sim.war.setCode('yellow', admin)).toBeNull();
+    admin.alive = false;
+    run(sim, 90);
+    expect(sim.war.code).toBe('green');
   });
 });

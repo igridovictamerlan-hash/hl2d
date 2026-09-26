@@ -28,6 +28,7 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   B: T.BARRIER,
   P: T.BUNKER,
   R: T.BUNKER,
+  T: T.INTERIOR,
 };
 
 export interface StampResult {
@@ -58,6 +59,7 @@ export function stampTemplate(
       if (ch === 'F') pois.push({ type: 'nexus_desk', x: x0 + x, y: y0 + y });
       if (ch === 'P') pois.push({ type: 'checkpoint_post', x: x0 + x, y: y0 + y });
       if (ch === 'R') pois.push({ type: 'gate_post', x: x0 + x, y: y0 + y });
+      if (ch === 'T') pois.push({ type: 'code_terminal', x: x0 + x, y: y0 + y });
     }
   }
   g.lockRect({ x: x0, y: y0, w, h });

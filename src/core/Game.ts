@@ -31,7 +31,7 @@ import { LawSystem } from '../systems/LawSystem';
 import { spawnPopulation, roleSpawn, poiWorld, equipKit, cpKit } from '../systems/Population';
 import { EconomySystem } from '../systems/EconomySystem';
 import { CombatSystem } from '../systems/CombatSystem';
-import { WarSystem } from '../systems/WarSystem';
+import { WarSystem, type AlertCode } from '../systems/WarSystem';
 import { UndergroundSystem } from '../systems/UndergroundSystem';
 import { InsurgencySystem } from '../systems/InsurgencySystem';
 import { LaborSystem } from '../systems/LaborSystem';
@@ -126,6 +126,10 @@ export class Game {
       placeBarrier: () => this.placeBarrier(),
       checkPanelTarget: () => this.ui.check.target,
       closeCheckPanel: (c) => this.ui.check.choose(c),
+      openCodePanel: () => this.ui.code.open(),
+      codePanelOpen: () => this.ui.code.isOpen,
+      chooseCode: (c) => this.ui.code.choose(c),
+      closeCodePanel: () => this.ui.code.close(),
     });
     this.loop = new GameLoop(
       (dt) => this.update(dt),
@@ -332,6 +336,7 @@ export class Game {
     // Свои обработчики Esc у меню роли и большой карты.
     if (ui.roles.isOpen || ui.mapView.bigOpen || ui.check.target) return;
     if (ui.shop.isOpen) return ui.shop.close();
+    if (ui.code.isOpen) return ui.code.close();
     if (ui.inventory.isOpen) return ui.inventory.toggle();
     this.input.releaseAll();
     ui.menu.open('pause');
@@ -502,6 +507,12 @@ export class Game {
   }
 
   /** Решение игрока-ГО по проверке CID (панель или клавиши 1/2/3). */
+  /** Терминал кодов тревоги в кабинете Администратора. */
+  setAlertCode(code: AlertCode): void {
+    const err = this.war.setCode(code, this.player);
+    if (err) this.bus.emit('log', { text: err, kind: 'system' });
+  }
+
   resolveCheck(target: Character, choice: CheckChoice): void {
     this.playerCtl.resolve(this.player, target, choice, this.ai);
   }
@@ -669,6 +680,24 @@ export class Game {
     ctx.fillRect(x - 7 * s, y - 7 * s, 14 * s, 14 * s);
     ctx.fillStyle = RENDER.entity.terminal;
     ctx.fillRect(x - 5 * s, y - 5 * s, 10 * s, 6 * s);
+    // Терминал кодов тревоги: экран цвета текущего кода (включён с терминала — мигает).
+    const ct = poiWorld(this.ai, 'code_terminal');
+    if (!ct) return;
+    const C = RENDER.entity.codeTerminal;
+    const cx = (ct.x - v.left) * s;
+    const cy = (ct.y - v.top) * s;
+    ctx.fillStyle = C.case;
+    ctx.fillRect(cx - 6 * s, cy - 7 * s, 12 * s, 14 * s);
+    ctx.strokeStyle = C.rim;
+    ctx.lineWidth = Math.max(1, s);
+    ctx.strokeRect(cx - 6 * s, cy - 7 * s, 12 * s, 14 * s);
+    const blink = this.war.manualCode && Math.floor(this.law.now * 2) % 2 === 0;
+    ctx.fillStyle = C.screen[this.war.code];
+    ctx.globalAlpha = blink ? 0.45 : 1;
+    ctx.fillRect(cx - 4 * s, cy - 5 * s, 8 * s, 6 * s);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = C.rim;
+    for (let k = 0; k < 3; k++) ctx.fillRect(cx - 4 * s + k * 3 * s, cy + 3 * s, 2 * s, 2 * s);
   }
 
   private drawCrosshair(x: number, y: number, dpr: number): void {

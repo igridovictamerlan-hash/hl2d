@@ -13,6 +13,8 @@ import { CHARACTER } from '../../config/entities';
 import { T } from '../../world/tiles';
 import { COMMAND } from '../../config/roster';
 import { poiWorld } from '../../systems/Population';
+import type { Vec2 } from '../../core/math';
+import type { Front } from '../../systems/WarSystem';
 
 const nearRebels: Character[] = [];
 
@@ -59,6 +61,13 @@ export class RebelBrain implements Brain {
   private routeFor = -1;
   /** Идёт через лонг (для отладки и тестов). */
   viaLong = false;
+  /** Звено штурма (-1 — без звена) и его полоса двора. */
+  team = -1;
+  private lane = 1;
+  /** Звено вошло в проход (шорт/лонг) — в свой такт переката. */
+  private routeStarted = false;
+  /** Идёт вперёд по кличу NPC-главы (своей полосой, без очереди перекатов). */
+  private rallied = false;
   /** Медик: кого лечит, перерыв между перевязками, как часто искать раненых. */
   private patient: Character | null = null;
   private healCooldown = 0;
@@ -88,6 +97,27 @@ export class RebelBrain implements Brain {
   /** Доля пути по двору в капте (HYDRA и клич подтягиваются к главе). */
   get progress(): number {
     return this.advance;
+  }
+
+  /** Цель движения (якорь) — соседи по штурму не встают в то же укрытие. */
+  get goalAnchor(): number {
+    return this.goal;
+  }
+
+  /** Назначить звено штурма: полоса двора; маршрут во внутренний двор выбирается заново. */
+  setTeam(team: number): void {
+    if (team === this.team) return;
+    this.team = team;
+    // Звено главы — по центру, остальные — справа, слева, снова по центру…
+    this.lane = team < 0 ? this.ctx.rng.int(0, WAR.capture.lanes - 1) : (team + 1) % WAR.capture.lanes;
+    this.routeFor = -1;
+  }
+
+  /** Перекат: звенья бегут по очереди — чётные в чётный такт, нечётные в нечётный. */
+  private boundTurn(f: Front): boolean {
+    if (this.team < 0 || !f.capture || this.rallied) return true;
+    const turn = Math.floor((this.ctx.war.now - f.capture.since) / WAR.capture.bound);
+    return turn % 2 === this.team % 2;
   }
 
   /** Сменить фронт (из лагеря, сбора или перестрелки; держащие посты и штурмующие — нет). */
@@ -142,6 +172,7 @@ export class RebelBrain implements Brain {
     this.mode = 'capture';
     this.goal = -1;
     this.routeFor = -1;
+    this.team = -1;
     this.advance = this.ctx.rng.range(0, WAR.capture.advanceStep);
     this.coverLeft = this.ctx.rng.range(WAR.capture.coverWait[0], WAR.capture.coverWait[1]);
     this.shooting = false;
@@ -152,29 +183,52 @@ export class RebelBrain implements Brain {
    * Якорь во дворе штурмуемой точки на доле пути t (пол двора отсортирован от входа со стороны
    * пустоши), по возможности — за блоком.
    */
-  private coverAt(floor: readonly number[], fallback: { x: number; y: number }, t: number): number {
+  private coverAt(floor: readonly number[], fallback: { x: number; y: number }, t: number, taken: readonly Vec2[] = []): number {
     const { ctx } = this;
     const n = floor.length;
     if (n === 0) return ctx.nav.nearestWalkable(fallback.x, fallback.y, 6);
-    const k = Math.min(n - 1, Math.floor(t * (n - 1)));
-    const lo = Math.max(0, k - 4);
-    const hi = Math.min(n - 1, k + 4);
-    const covered: number[] = [];
-    for (let i = lo; i <= hi; i++) {
-      const a = floor[i];
-      const ax = ctx.nav.ax(a);
-      const ay = ctx.nav.ay(a);
-      // Блок рядом со стороны города (откуда стреляют) — укрытие.
-      let cover = false;
-      for (let dy = -1; dy <= 2 && !cover; dy++) for (let dx = -1; dx <= 2; dx++) if (ctx.map.tileAt(ax + dx, ay + dy) === T.BARRIER) cover = true;
-      if (cover) covered.push(a);
+    const C = WAR.capture;
+    const lat = lateralOf(ctx, floor, fallback);
+    const lane = (a: number) => Math.min(C.lanes - 1, Math.floor(((lat.of.get(a)! - lat.min) / (lat.max - lat.min || 1)) * C.lanes));
+    const free = (a: number) => !taken.some((p) => Math.hypot(p.x - ctx.nav.worldX(a), p.y - ctx.nav.worldY(a)) < C.spacing);
+    // Сначала своя полоса рядом с долей пути t, потом шире, потом — любая полоса.
+    for (const [win, own] of [[0.08, true], [0.18, true], [0.18, false], [1, false]] as const) {
+      const lo = Math.max(0, Math.floor((t - win) * (n - 1)));
+      const hi = Math.min(n - 1, Math.ceil((t + win) * (n - 1)));
+      const pool: number[] = [];
+      const covered: number[] = [];
+      for (let i = lo; i <= hi; i++) {
+        const a = floor[i];
+        if ((own && lane(a) !== this.lane) || !free(a)) continue;
+        pool.push(a);
+        // Блок рядом — укрытие.
+        const ax = ctx.nav.ax(a);
+        const ay = ctx.nav.ay(a);
+        let cover = false;
+        for (let dy = -1; dy <= 2 && !cover; dy++) for (let dx = -1; dx <= 2; dx++) if (ctx.map.tileAt(ax + dx, ay + dy) === T.BARRIER) cover = true;
+        if (cover) covered.push(a);
+      }
+      if (pool.length) return ctx.rng.pick(covered.length ? covered : pool);
     }
-    return covered.length ? ctx.rng.pick(covered) : floor[lo + Math.floor(ctx.rng.next() * (hi - lo + 1))];
+    const k = Math.min(n - 1, Math.floor(t * (n - 1)));
+    return floor[k];
+  }
+
+  /** Куда уже идут другие штурмующие этого фронта (их укрытия заняты). */
+  private takenSpots(f: Front): Vec2[] {
+    const out: Vec2[] = [];
+    for (const r of f.squad) {
+      const b = r.brain;
+      if (r === this.self || !r.alive || !(b instanceof RebelBrain) || b.mode !== 'capture' || b.goalAnchor < 0) continue;
+      out.push({ x: this.ctx.nav.worldX(b.goalAnchor), y: this.ctx.nav.worldY(b.goalAnchor) });
+    }
+    return out;
   }
 
   /** КПП захвачен: держать пост. */
   orderHold(post: { x: number; y: number }): void {
     if (this.mode === 'retreat' || this.mode === 'infiltrate') return;
+    this.team = -1;
     this.mode = 'hold';
     this.holdPost = post;
     this.goal = -1;
@@ -183,6 +237,7 @@ export class RebelBrain implements Brain {
   /** Капт отбит / КПП отбит — назад на точку сбора, ждать подхода своих. */
   orderRegroup(): void {
     if (this.mode !== 'capture' && this.mode !== 'hold' && this.mode !== 'raid') return;
+    this.team = -1;
     this.mode = 'gather';
     this.goal = -1;
     this.assaultAt = Infinity;
@@ -206,7 +261,7 @@ export class RebelBrain implements Brain {
         const y = ctx.nav.worldY(a);
         let score = ctx.rng.range(0, 2);
         if (enemy.some((p) => canSeeCircle(ctx.map, x, y, p.x, p.y, 10))) score -= 20;
-        for (const o of f.squad) if (o !== self && Math.hypot(o.x - x, o.y - y) < 30) score -= 4;
+        score -= 4 * this.crowdAt(f, x, y);
         if (score > bestScore) {
           bestScore = score;
           best = a;
@@ -224,11 +279,10 @@ export class RebelBrain implements Brain {
       let score = ctx.rng.range(0, 2);
       if (d < WAR.gatherDist[0] || d > WAR.gatherDist[1]) score -= 8;
       if (f.posts.some((p) => canSeeCircle(ctx.map, x, y, p.x, p.y, 10))) score -= 20;
+      score -= 4 * this.crowdAt(f, x, y);
       for (const o of f.squad) {
-        if (o === self) continue;
         const od = Math.hypot(o.x - x, o.y - y);
-        if (od < 30) score -= 4;
-        else if (od < 120) score += 1;
+        if (o !== self && od >= WAR.capture.spacing && od < 120) score += 1;
       }
       if (score > bestScore) {
         bestScore = score;
@@ -236,6 +290,19 @@ export class RebelBrain implements Brain {
       }
     }
     return best;
+  }
+
+  /** Сколько своих стоит или идёт ближе WAR.capture.spacing к точке (сбор — не кучей). */
+  private crowdAt(f: Front, x: number, y: number): number {
+    let n = 0;
+    const r = WAR.capture.spacing;
+    for (const o of f.squad) {
+      if (o === this.self || !o.alive) continue;
+      const b = o.brain;
+      const g = b instanceof RebelBrain ? b.goalAnchor : -1;
+      if (Math.hypot(o.x - x, o.y - y) < r || (g >= 0 && Math.hypot(this.ctx.nav.worldX(g) - x, this.ctx.nav.worldY(g) - y) < r)) n++;
+    }
+    return n;
   }
 
   infiltrate(): void {
@@ -384,14 +451,26 @@ export class RebelBrain implements Brain {
     }
     // Клич главы: бойцы рядом бегут за ним (стреляя на ходу) и вместе идут на штурм.
     const lead = ctx.war.command.rallyFor(self);
-    if (lead && (this.mode === 'gather' || this.mode === 'raid' || this.mode === 'capture')) {
+    const leadBrain = lead && !lead.isPlayer && lead.brain instanceof RebelBrain && lead.brain.mode === 'capture' ? lead.brain : null;
+    this.rallied = false;
+    if (lead && leadBrain && (this.mode === 'gather' || this.mode === 'raid' || this.mode === 'capture')) {
+      // Клич NPC-главы: все звенья разом вперёд до рубежа главы — но каждое своей полосой, не кучей.
+      if (this.mode !== 'capture') this.orderCapture();
+      this.rallied = true;
+      if (leadBrain.progress > this.advance) {
+        this.advance = leadBrain.progress;
+        this.goal = -1;
+      }
+    } else if (lead && (this.mode === 'gather' || this.mode === 'raid' || this.mode === 'capture')) {
+      // За игроком-главой — врассыпную вокруг него.
       if (this.mode !== 'capture') this.orderCapture();
       this.following = true;
       const st = this.mover.status;
       if (this.repath <= 0 || st === 'idle' || st === 'failed' || st === 'arrived') {
         this.repath = 0.5;
+        // Врассыпную вокруг главы, а не кучей.
         const ang = (self.id * 2.39996) % (Math.PI * 2);
-        const r = 26 + (self.id % 3) * 14;
+        const r = COMMAND.rally.spread[0] + (self.id % 4) * COMMAND.rally.spread[1];
         this.go(ctx.nav.nearestWalkable(lead.x + Math.cos(ang) * r, lead.y + Math.sin(ang) * r, 3));
       }
       this.mover.speed = CHARACTER.runSpeed * 0.8 * COMMAND.rally.speedMul;
@@ -480,13 +559,31 @@ export class RebelBrain implements Brain {
         if (withLeader) this.advance = Math.max(this.advance, lb.progress);
         if (this.routeFor !== k) {
           this.routeFor = k;
-          const long = withLeader ? lb.viaLong : ctx.rng.chance(C.longChance);
+          // Звено идёт одним проходом: чётные — шорт, нечётные — лонг (как в CS — разделиться).
+          const long = withLeader ? lb.viaLong : this.team >= 0 ? this.team % 2 === 1 : ctx.rng.chance(C.longChance);
           const via = k > 0 && f.long.length && long ? f.long : k > 0 ? f.short : [];
           this.viaLong = via === f.long && via.length > 0;
-          this.route = via.length ? [via[Math.floor(via.length / 2)], via[via.length - 1]] : [];
+          // Точки маршрута у каждого свои (середина и конец прохода), не в одном месте со всеми.
+          const taken = this.takenSpots(f);
+          const pickOn = (lo: number, hi: number) => {
+            const part = via.slice(Math.floor(lo * via.length), Math.max(Math.floor(lo * via.length) + 1, Math.ceil(hi * via.length)));
+            const free = part.filter((a) => !taken.some((p) => Math.hypot(p.x - ctx.nav.worldX(a), p.y - ctx.nav.worldY(a)) < C.spacing));
+            return ctx.rng.pick(free.length ? free : part);
+          };
+          this.route = via.length ? [pickOn(0.35, 0.65), pickOn(0.8, 1)] : [];
+          this.routeStarted = withLeader ? lb.routeStarted : false;
           this.goal = -1;
         }
-        const at = (t: number) => (pt ? this.coverAt(pt.floor, pt.center, t) : -1);
+        // В проход звено входит в свой такт переката; пока — стоит и прикрывает.
+        if (this.route.length && !this.routeStarted) {
+          if (!this.boundTurn(f) && !(withLeader && lb.routeStarted)) {
+            if (this.mover.status !== 'moving' || (fighting && this.gunner.target)) this.mover.stop();
+            break;
+          }
+          this.routeStarted = true;
+          this.goal = -1;
+        }
+        const at = (t: number) => (pt ? this.coverAt(pt.floor, pt.center, t, this.takenSpots(f)) : -1);
         const target = () => (this.route.length ? this.route[0] : at(this.advance));
         if (this.goal < 0 || this.mover.status === 'failed') this.go(target());
         const arrived = this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) < (this.route.length ? 24 : 14);
@@ -497,7 +594,7 @@ export class RebelBrain implements Brain {
         } else if (arrived) {
           this.mover.stop();
           this.coverLeft -= dt;
-          if (this.coverLeft <= 0 && this.advance < 1) {
+          if (this.coverLeft <= 0 && this.advance < 1 && this.boundTurn(f)) {
             this.advance = Math.min(1, this.advance + C.advanceStep);
             this.coverLeft = ctx.rng.range(C.coverWait[0], C.coverWait[1]);
             this.go(at(this.advance));
@@ -513,7 +610,7 @@ export class RebelBrain implements Brain {
             if (!this.shooting) bark(self, 'advance', ctx.combat.now, ctx.rng);
           }
         } else this.shooting = false;
-        this.mover.speed = CHARACTER.runSpeed * 0.8;
+        this.mover.speed = CHARACTER.runSpeed * 0.8 * (this.rallied ? COMMAND.rally.speedMul : 1);
         if (this.shooting) this.mover.stop();
         else if (this.mover.status === 'idle') this.go(this.goal);
         break;
@@ -593,4 +690,30 @@ function coverOnLine(ctx: AiContext, x: number, y: number, tx: number, ty: numbe
     if (ctx.map.tileAt(Math.floor(px / ts), Math.floor(py / ts)) === T.BARRIER) return true;
   }
   return false;
+}
+
+/** Поперечная координата якорей двора (от входа к центру) — для полос звеньев; считается один раз. */
+interface Lateral {
+  of: Map<number, number>;
+  min: number;
+  max: number;
+}
+const lateralCache = new WeakMap<readonly number[], Lateral>();
+function lateralOf(ctx: AiContext, floor: readonly number[], center: Vec2): Lateral {
+  const cached = lateralCache.get(floor);
+  if (cached) return cached;
+  const ex = ctx.nav.worldX(floor[0]);
+  const ey = ctx.nav.worldY(floor[0]);
+  const len = Math.hypot(center.x - ex, center.y - ey);
+  const nx = len > 1 ? (center.x - ex) / len : 1;
+  const ny = len > 1 ? (center.y - ey) / len : 0;
+  const lat: Lateral = { of: new Map(), min: Infinity, max: -Infinity };
+  for (const a of floor) {
+    const v = (ctx.nav.worldX(a) - ex) * ny - (ctx.nav.worldY(a) - ey) * nx;
+    lat.of.set(a, v);
+    lat.min = Math.min(lat.min, v);
+    lat.max = Math.max(lat.max, v);
+  }
+  lateralCache.set(floor, lat);
+  return lat;
 }

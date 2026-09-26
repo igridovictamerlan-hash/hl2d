@@ -37,6 +37,7 @@ export type PoiType =
   | 'ration_window'
   | 'nexus_gate'
   | 'nexus_desk'
+  | 'code_terminal'
   | 'nexus_yard'
   | 'cell'
   | 'restricted_gate'

@@ -83,7 +83,8 @@ export const COMMAND = {
   diversion: 3,
   /** Неудачных каптов подряд — и глава пересматривает цель. */
   retargetAfterFails: 2,
-  rally: { time: 12, radius: 340, cooldown: 35, speedMul: 1.1 },
+  /** spread — идут за главой врассыпную: радиус от spread[0] px, шаг spread[1] px (4 кольца). */
+  rally: { time: 12, radius: 340, cooldown: 35, speedMul: 1.1, spread: [36, 22] as const },
   campHeal: 6,
   campMags: 4,
   readyHealth: 0.85,

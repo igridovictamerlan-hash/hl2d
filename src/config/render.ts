@@ -57,6 +57,8 @@ export const RENDER = {
     speechBg: 'rgba(12,14,16,0.82)',
     speechText: '#f1eee4',
     terminal: '#ffd36b',
+    /** Терминал кодов тревоги в кабинете Администратора: корпус, рамка, экран по коду. */
+    codeTerminal: { case: '#1b2530', rim: '#4f5d6f', screen: { green: '#4fd08a', yellow: '#ffd36b', red: '#ff5b4a' } },
     stun: 'rgba(150,210,255,0.9)',
   },
   effects: {

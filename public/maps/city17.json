@@ -643,6 +643,11 @@
       "y": 67
     },
     {
+      "type": "code_terminal",
+      "x": 110,
+      "y": 67
+    },
+    {
       "type": "nexus_gate",
       "x": 90,
       "y": 80
@@ -835,7 +840,7 @@
   "stats": {
     "seed": 12345,
     "attempt": 2,
-    "genMs": 108,
+    "genMs": 66,
     "widthTiles": 188,
     "heightTiles": 188,
     "buildingRatio": 0.6811339972838388,

@@ -4,6 +4,8 @@ import type { EventBus } from './EventBus';
 import type { Character } from '../entities/Character';
 import type { AiContext } from '../ai/AiContext';
 import type { CheckChoice } from '../ui/CheckPanel';
+import type { AlertCode } from '../systems/WarSystem';
+import { WAR } from '../config/war';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
 import { FACTIONS } from '../config/factions';
@@ -55,6 +57,10 @@ export class PlayerController {
       placeBarrier(): string | null;
       checkPanelTarget(): Character | null;
       closeCheckPanel(choice: CheckChoice): void;
+      openCodePanel(): void;
+      codePanelOpen(): boolean;
+      chooseCode(code: AlertCode): void;
+      closeCodePanel(): void;
     },
   ) {}
 
@@ -185,7 +191,14 @@ export class PlayerController {
         this.say('Ремонт прерван — отошли слишком далеко.');
       } else if (ctx.economy.repairStep(p, r, dt)) this.repairing = null;
     }
-    if (this.hooks.checkPanelTarget()) {
+    // Терминал кодов тревоги: 1 — жёлтый, 2 — красный, 3 — отбой; отошёл — закрыт.
+    if (this.hooks.codePanelOpen()) {
+      const term = poiWorld(ctx, 'code_terminal');
+      if (!term || Math.hypot(term.x - p.x, term.y - p.y) > WAR.terminal.reach + 16) this.hooks.closeCodePanel();
+      else if (i.wasPressed('choice1')) this.hooks.chooseCode('yellow');
+      else if (i.wasPressed('choice2')) this.hooks.chooseCode('red');
+      else if (i.wasPressed('choice3')) this.hooks.chooseCode('green');
+    } else if (this.hooks.checkPanelTarget()) {
       if (i.wasPressed('choice1')) this.hooks.closeCheckPanel('release');
       else if (i.wasPressed('choice2')) this.hooks.closeCheckPanel('fine');
       else if (i.wasPressed('choice3')) this.hooks.closeCheckPanel('arrest');
@@ -215,6 +228,11 @@ export class PlayerController {
     const d = (q: { x: number; y: number } | null) => (q ? Math.hypot(q.x - p.x, q.y - p.y) : Infinity);
     const terminal = poiWorld(ctx, 'recruit_terminal');
     if (d(terminal) < REACH) return this.hooks.openRoleMenu();
+    // Терминал кодов тревоги в кабинете Администратора.
+    if (d(poiWorld(ctx, 'code_terminal')) < WAR.terminal.reach) {
+      if (!ctx.war.canSetCode(p)) return this.say('Терминал Администрации: доступ только Администратору и старшим офицерам ГО (с OFC).');
+      return this.hooks.openCodePanel();
+    }
     if (d(eco.shopCounter) < REACH + 8) return this.hooks.openShop('cwu');
     if (d(ctx.insurgency.market) < REACH + 8) return this.hooks.openShop('black');
     // Люк: спуститься / подняться.

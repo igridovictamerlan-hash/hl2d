@@ -5,6 +5,8 @@ import { COMMAND, ROSTER } from '../config/roster';
 import type { ProfessionId } from '../config/professions';
 import { CHARACTER } from '../config/entities';
 import { armySpec, equipKit } from './Population';
+import { WAR } from '../config/war';
+import type { Front } from './WarSystem';
 
 /** Идущий клич главы: кто кричал, до какого времени, на каком фронте. */
 export interface Rally {
@@ -148,6 +150,41 @@ export class RebelCommand {
     if (++this.fails >= COMMAND.retargetAfterFails) this.pickTarget('штурм захлебнулся');
   }
 
+  /**
+   * Звенья штурма на фронте f: глава со спецотрядом HYDRA — звено 0, остальные штурмующие — по
+   * WAR.capture.teamSize. reset — капт только начался (раздать заново); иначе — только бойцам без
+   * звена (подошли по кличу), в самое малочисленное звено.
+   */
+  formTeams(f: Front, reset: boolean): void {
+    const T = WAR.capture;
+    const members = f.squad.filter((r) => r.alive && r.brain instanceof RebelBrain && r.brain.mode === 'capture');
+    const brains = members.map((r) => r.brain as RebelBrain);
+    const leader = this.leader;
+    const leaderHere = !!leader && members.includes(leader);
+    if (reset) {
+      for (const b of brains) b.setTeam(-1);
+      let next = 0;
+      if (leaderHere) {
+        for (const r of members) if (r === leader || (r.brain as RebelBrain).isHydra) (r.brain as RebelBrain).setTeam(0);
+        next = 1;
+      }
+      const rest = members.filter((r) => (r.brain as RebelBrain).team < 0).sort((a, b) => a.id - b.id);
+      rest.forEach((r, k) => (r.brain as RebelBrain).setTeam(next + Math.floor(k / T.teamSize)));
+      return;
+    }
+    const loose = brains.filter((b) => b.team < 0);
+    if (!loose.length) return;
+    const size = new Map<number, number>();
+    for (const b of brains) if (b.team > 0 || (b.team === 0 && !leaderHere)) size.set(b.team, (size.get(b.team) ?? 0) + 1);
+    for (const b of loose) {
+      let best = -1;
+      for (const [t, n] of size) if (n < T.teamSize && (best < 0 || n < size.get(best)!)) best = t;
+      if (best < 0) best = size.size ? Math.max(...size.keys()) + 1 : leaderHere ? 1 : 0;
+      b.setTeam(best);
+      size.set(best, (size.get(best) ?? 0) + 1);
+    }
+  }
+
   /** Клич: бойцы в радиусе идут за главой COMMAND.rally.time секунд. null — удалось, иначе причина. */
   shout(leader: Character): string | null {
     if (this.time < this.rallyReady) return `Клич ещё не готов: ${Math.ceil(this.rallyReady - this.time)} с.`;
@@ -226,6 +263,8 @@ export class RebelCommand {
         }),
       ];
     }
+    // Подошедшие к идущему капту (по кличу, из лагеря) — в звенья.
+    for (const f of war.fronts) if (f.capture) this.formTeams(f, false);
     // NPC-глава в капте кричит клич, как только готов.
     if (leader && !leader.isPlayer && leader.brain instanceof RebelBrain && leader.brain.mode === 'capture' && this.time >= this.rallyReady) {
       const f = war.frontAt(leader.x, leader.y);

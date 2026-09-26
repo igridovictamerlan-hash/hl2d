@@ -12,6 +12,7 @@ import { HelpBar } from './HelpBar';
 import { EventLog } from './EventLog';
 import { RoleMenu } from './RoleMenu';
 import { CheckPanel, type CheckChoice } from './CheckPanel';
+import { CodePanel } from './CodePanel';
 import { InventoryPanel } from './InventoryPanel';
 import { ShopPanel } from './ShopPanel';
 import { AlertBar } from './AlertBar';
@@ -21,7 +22,7 @@ import { CaptureBar } from './CaptureBar';
 import { ChatBox } from './ChatBox';
 import { MapView, type MapViewHost } from './MapView';
 import { GameMenu, type GameMenuHost } from './GameMenu';
-import type { WarSystem } from '../systems/WarSystem';
+import type { WarSystem, AlertCode } from '../systems/WarSystem';
 import { GAME } from '../config/game';
 import { WEAPONS, type FireMode } from '../config/items';
 
@@ -33,6 +34,8 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly war: WarSystem;
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null): void;
   resolveCheck(target: Character, choice: CheckChoice): void;
+  /** Терминал кодов тревоги: игрок выбрал код. */
+  setAlertCode(code: AlertCode): void;
   useItem(id: ItemId): void;
   equipItem(id: WeaponId | null): void;
   buyItem(id: ItemId): string | null;
@@ -58,6 +61,7 @@ export class UI {
   readonly log: EventLog;
   readonly roles: RoleMenu;
   readonly check: CheckPanel;
+  readonly code: CodePanel;
   readonly inventory: InventoryPanel;
   readonly shop: ShopPanel;
   readonly alert: AlertBar;
@@ -77,6 +81,7 @@ export class UI {
     this.dev = new DevPanel(root, host);
     this.log = new EventLog(root, bus);
     this.check = new CheckPanel(root, bus, (t, c) => host.resolveCheck(t, c));
+    this.code = new CodePanel(root, () => host.war, (c) => host.setAlertCode(c));
     this.inventory = new InventoryPanel(root, host);
     this.capture = new CaptureBar(root);
     this.mapView = new MapView(root);
