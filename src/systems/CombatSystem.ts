@@ -11,6 +11,7 @@ import { COMBAT, GRENADE } from '../config/combat';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, weaponDps, type WeaponDef, type WeaponId, type WeaponClass } from '../config/items';
 import { FACTIONS, type FactionId } from '../config/factions';
+import { muzzleWorld } from '../entities/weaponPose';
 import { BARKS } from '../config/barks';
 import { bark, barkSide } from './Barks';
 
@@ -382,7 +383,11 @@ export class CombatSystem {
     }
     const ex = ox + dx * hitT;
     const ey = oy + dy * hitT;
-    this.tracers.push({ x0: ox, y0: oy, x1: ex, y1: ey, t: COMBAT.tracerTime, combine: FACTIONS[c.faction].authority, kind: w.class });
+    // Трассер — от дульного среза (если ствол не упёрся в стену и цель не ближе ствола).
+    const m = muzzleWorld(c, w.id);
+    const md = (m.x - ox) * dx + (m.y - oy) * dy;
+    const fromMuzzle = md > 0 && md < hitT && lineOfSight(this.map, c.x, c.y, m.x, m.y);
+    this.tracers.push({ x0: fromMuzzle ? m.x : ox, y0: fromMuzzle ? m.y : oy, x1: ex, y1: ey, t: COMBAT.tracerTime, combine: FACTIONS[c.faction].authority, kind: w.class });
     if (hitT < w.range) this.impacts.push({ x: ex, y: ey, t: COMBAT.impactTime, blood: !!hit });
     if (hit) {
       // Брызги крови позади раненого.

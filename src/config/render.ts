@@ -54,8 +54,6 @@ export const RENDER = {
     speechBg: 'rgba(12,14,16,0.82)',
     speechText: '#f1eee4',
     terminal: '#ffd36b',
-    gun: '#15171a',
-    stunstick: '#3a4a5c',
     stun: 'rgba(150,210,255,0.9)',
   },
   effects: {
@@ -124,16 +122,7 @@ export const RENDER = {
     steady: '255,255,255',
     reload: '160,160,160',
   },
-  /** Силуэт оружия в руках: длина от центра (в радиусах кружка) и толщина (px мира). */
-  weapons: {
-    melee: { len: 1.4, width: 2.2 },
-    pistol: { len: 1.3, width: 3 },
-    magnum: { len: 1.45, width: 3.4 },
-    smg: { len: 1.55, width: 3.4 },
-    rifle: { len: 1.9, width: 3.6 },
-    shotgun: { len: 1.75, width: 4.2 },
-    crossbow: { len: 1.6, width: 3 },
-  },
+  /** Оружие в руках рисуется по моделям — config/weaponSprites.ts. */
   /** Трассеры: толщина по классу оружия (px мира), особые цвета AR2 и арбалета. */
   tracers: {
     width: { melee: 1, pistol: 1.2, magnum: 2, smg: 1.1, rifle: 1.8, shotgun: 0.9, crossbow: 1.6 },

@@ -21,8 +21,11 @@ export class CaptureBar {
       if (c) {
         const left = Math.max(0, Math.ceil(c.until - war.now));
         const mmss = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+        // Захват — перебить гарнизон или набрать убийства с перевесом; подкреплений ГО нет.
+        const alive = c.defenders.filter((d) => d.alive).length;
+        const attackers = f.squad.filter((r) => r.alive).length;
         rows.push(
-          `<div class="cap-row"><b>КАПТ · ${name}</b> <span class="cap-rebel">Повстанцы ${c.rebelKills}</span> : <span class="cap-cp">${c.cpKills} Альянс</span> · ${mmss} · до захвата ${Math.max(0, WAR.capture.killsToWin - c.rebelKills)} уб.</div>`,
+          `<div class="cap-row"><b>КАПТ · ${name}</b> <span class="cap-rebel">Повстанцы ${c.rebelKills}</span> : <span class="cap-cp">${c.cpKills} Альянс</span> · ${mmss} · штурмуют ${attackers} · гарнизон ${alive}/${c.defenders.length} · до захвата ${Math.max(0, WAR.capture.killsToWin - c.rebelKills)} уб.</div>`,
         );
       } else if (f.owner === 'rebels') rows.push(`<div class="cap-row"><b>${name}</b> <span class="cap-rebel">в руках повстанцев</span></div>`);
     }

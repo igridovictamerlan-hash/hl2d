@@ -3,7 +3,7 @@ import type { View } from '../core/Camera';
 import { FACTIONS, colorsOf, rankOf } from '../config/factions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
-import { WEAPONS } from '../config/items';
+import { drawWeapon } from './WeaponRenderer';
 
 /** Подпись роли: ГО и повстанцы — с рангом, жители — с номером CID. */
 export function roleLabel(c: Character): string {
@@ -44,29 +44,19 @@ export class EntityRenderer {
       ctx.lineWidth = Math.max(1, s * 1.5);
       ctx.strokeStyle = col.outline;
       ctx.stroke();
-      // Нос-треугольник: куда смотрит.
+      // Нос-треугольник: куда смотрит (у вооружённого взгляд и так видно по стволу — нос меньше).
       const cf = Math.cos(c.facing);
       const sf = Math.sin(c.facing);
+      const nose = c.weapon ? 0.75 : 1;
       ctx.fillStyle = col.outline;
       ctx.beginPath();
-      ctx.moveTo(x + cf * r * 1.32, y + sf * r * 1.32);
-      ctx.lineTo(x + cf * r * 0.72 - sf * r * 0.42, y + sf * r * 0.72 + cf * r * 0.42);
-      ctx.lineTo(x + cf * r * 0.72 + sf * r * 0.42, y + sf * r * 0.72 - cf * r * 0.42);
+      ctx.moveTo(x + cf * r * (0.72 + 0.6 * nose), y + sf * r * (0.72 + 0.6 * nose));
+      ctx.lineTo(x + cf * r * 0.72 - sf * r * 0.42 * nose, y + sf * r * 0.72 + cf * r * 0.42 * nose);
+      ctx.lineTo(x + cf * r * 0.72 + sf * r * 0.42 * nose, y + sf * r * 0.72 - cf * r * 0.42 * nose);
       ctx.closePath();
       ctx.fill();
-      // Оружие в правой руке: силуэт по классу (длина и толщина), видно, кто чем вооружён.
-      if (c.weapon) {
-        const w = WEAPONS[c.weapon];
-        const g = RENDER.weapons[w.class];
-        const hx = x - sf * r * 0.42;
-        const hy = y + cf * r * 0.42;
-        ctx.strokeStyle = w.class === 'melee' ? RENDER.entity.stunstick : RENDER.entity.gun;
-        ctx.lineWidth = Math.max(2, s * g.width);
-        ctx.beginPath();
-        ctx.moveTo(hx + cf * r * 0.2, hy + sf * r * 0.2);
-        ctx.lineTo(hx + cf * r * g.len, hy + sf * r * g.len);
-        ctx.stroke();
-      }
+      // Оружие в руках: рисунок по модели (вид сверху) и кисти рук.
+      drawWeapon(ctx, c, x, y, s, c.reloadUntil > now);
       // Оглушён дубинкой — голубые искры.
       if (c.stunUntil > now) {
         ctx.strokeStyle = RENDER.entity.stun;

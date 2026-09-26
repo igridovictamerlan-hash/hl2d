@@ -68,7 +68,8 @@ describe('оружие: конус разброса как в Foxhole', () => {
       sim.combat.tracers.length = 0;
       sim.combat.fire(c, tx, ty);
       const t = sim.combat.tracers[0];
-      const d = Math.abs(angleDiff(Math.atan2(t.y1 - t.y0, t.x1 - t.x0), aim));
+      // Трассер начинается у дульного среза (сбоку от центра); сама пуля летит от центра стрелка.
+      const d = Math.abs(angleDiff(Math.atan2(t.y1 - c.y, t.x1 - c.x), aim));
       worst = Math.max(worst, d / spread);
     }
     expect(worst).toBeLessThanOrEqual(1 + 1e-9);
