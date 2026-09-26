@@ -35,6 +35,7 @@ import { WarSystem } from '../systems/WarSystem';
 import { UndergroundSystem } from '../systems/UndergroundSystem';
 import { InsurgencySystem } from '../systems/InsurgencySystem';
 import { LaborSystem } from '../systems/LaborSystem';
+import { CrimeSystem } from '../systems/CrimeSystem';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
 import { SAVE } from '../config/save';
@@ -179,6 +180,7 @@ export class Game {
       war: null as unknown as WarSystem,
       insurgency: null as unknown as InsurgencySystem,
       labor: null as unknown as LaborSystem,
+      crime: null as unknown as CrimeSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -186,6 +188,7 @@ export class Game {
     this.ai.insurgency = this.insurgency;
     this.labor = new LaborSystem(this.ai);
     this.ai.labor = this.labor;
+    this.ai.crime = new CrimeSystem(this.ai);
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);

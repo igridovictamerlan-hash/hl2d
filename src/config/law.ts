@@ -23,7 +23,7 @@ export const LAW = {
 
   fines: { running: 5, restricted: 15, insult: 12 },
   /** За что арест (иначе штраф). */
-  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew'] as readonly string[],
+  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft'] as readonly string[],
   /** Дознаватели JURY: проверка быстрее, штраф больше. */
   juryCheckMul: 0.5,
   juryFineMul: 2,
@@ -43,7 +43,7 @@ export const LAW = {
     noCidChance: 0.08,
     wantedChance: 0.04,
     /** Шанс, что NPC побежит, когда ГО приказал стоять. */
-    fleeChance: { citizen: 0.12, cwu: 0.05, rebel: 0.8 } as Record<string, number>,
+    fleeChance: { citizen: 0.12, cwu: 0.05, rebel: 0.8, thief: 0.6 } as Record<string, number>,
     /** Шанс нарушить при выборе новой цели: зайти в запретную зону / побежать. */
     trespassChance: { citizen: 0.03, cwu: 0.01, rebel: 0.12 } as Record<string, number>,
     runChance: { citizen: 0.06, cwu: 0.03, rebel: 0.15 } as Record<string, number>,
@@ -60,7 +60,8 @@ export type Violation =
   | 'rebel'
   | 'weapon'
   | 'curfew'
-  | 'insult';
+  | 'insult'
+  | 'theft';
 
 export const VIOLATION_NAMES: Record<Violation, string> = {
   running: 'бег',
@@ -73,4 +74,5 @@ export const VIOLATION_NAMES: Record<Violation, string> = {
   weapon: 'ношение оружия',
   curfew: 'нарушение комендантского часа',
   insult: 'оскорбление сотрудника ГО',
+  theft: 'кража',
 };

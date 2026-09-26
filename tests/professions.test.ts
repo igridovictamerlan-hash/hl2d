@@ -9,6 +9,7 @@ import { ECONOMY } from '../src/config/economy';
 import { ChatSystem } from '../src/systems/ChatSystem';
 import type { ProfessionId } from '../src/config/professions';
 import type { FactionId } from '../src/config/factions';
+import { CRIME } from '../src/config/crime';
 
 type Sim = ReturnType<typeof makeSim>;
 
@@ -198,5 +199,68 @@ describe('лоялисты', () => {
     const before = sim.log.length;
     chat.submit(other, '/охрана');
     expect(sim.log.slice(before).join(' ')).toMatch(/только доверенные лоялисты/);
+  });
+});
+
+describe('граждане: вор, вортигонты', () => {
+  test('карманная кража — только со спины; ГО, увидевший вора после кражи, задерживает за кражу', () => {
+    const sim = makeSim(12345);
+    const p = poiWorld(sim.ctx, 'plaza_center')!;
+    const victim = createCharacter(sim.entities, sim.ctx.rng, 'citizen', p.x, p.y);
+    victim.money = 30;
+    victim.facing = 0;
+    const thief = createCharacter(sim.entities, sim.ctx.rng, 'citizen', p.x + 20, p.y);
+    thief.profession = 'thief';
+    // Спереди — нельзя.
+    expect(sim.crime.behind(thief, victim)).toBe(false);
+    thief.x = p.x - 20;
+    expect(sim.crime.behind(thief, victim)).toBe(true);
+    const got = sim.crime.pickpocket(thief, victim);
+    expect(got).toBeGreaterThan(0);
+    expect(victim.money).toBe(30 - got);
+    // ГО рядом, смотрит на вора.
+    const cp = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x - 80, p.y);
+    cp.facing = 0;
+    expect(sim.law.observe(cp, thief)).toBe('theft');
+    expect(sim.law.judge(thief).kind).toBe('arrest');
+    // Через CRIME.seenFor секунд — уже не «на месте преступления».
+    for (let t = 0; t < (CRIME.seenFor + 0.5) * 60; t++) sim.law.update(1 / 60, null);
+    expect(sim.law.observe(cp, thief)).not.toBe('theft');
+  });
+
+  test('взлом раздатчика: только когда окно закрыто и есть отмычка', () => {
+    const sim = makeSim(12345);
+    const eco = sim.economy;
+    const thief = createCharacter(sim.entities, sim.ctx.rng, 'citizen', eco.window.x, eco.window.y);
+    thief.profession = 'thief';
+    expect(sim.crime.hackDispenser(thief)).toBe(0);
+    thief.inventory.add('lockpick', 1);
+    eco.open = true;
+    expect(sim.crime.hackDispenser(thief)).toBe(0);
+    eco.open = false;
+    const stock = eco.rationStock;
+    expect(sim.crime.hackDispenser(thief)).toBe(CRIME.hack.rations);
+    expect(eco.rationStock).toBe(stock - CRIME.hack.rations);
+    expect(thief.inventory.count('ration')).toBe(CRIME.hack.rations);
+  });
+
+  test('NPC-воры сами обворовывают прохожих в городе', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    calm(sim);
+    spawnPopulation(sim.ctx, 25);
+    run(sim, 240, () => sim.crime.stats.pickpockets > 0);
+    console.log(`краж: ${sim.crime.stats.pickpockets}, украдено ${sim.crime.stats.stolen}, крики ${sim.crime.stats.cries}`);
+    expect(sim.crime.stats.pickpockets).toBeGreaterThan(0);
+  });
+
+  test('вортигонтов ГО не проверяет', () => {
+    const sim = makeSim(12345);
+    const p = poiWorld(sim.ctx, 'plaza_center')!;
+    const v = createCharacter(sim.entities, sim.ctx.rng, 'vort', p.x + 60, p.y);
+    const cp = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x, p.y);
+    cp.facing = 0;
+    v.moveSpeed = 300;
+    expect(sim.law.observe(cp, v)).toBeNull();
+    expect(sim.law.checkable(v)).toBe(false);
   });
 });

@@ -16,6 +16,7 @@ import type { RepairSpot } from '../systems/EconomySystem';
 import type { TrashPile } from '../systems/LaborSystem';
 import type { Corpse } from '../systems/CombatSystem';
 import { LABOR } from '../config/labor';
+import { CRIME } from '../config/crime';
 
 const near: Character[] = [];
 
@@ -233,6 +234,20 @@ export class PlayerController {
       const n = ctx.combat.loot(p, corpse);
       return this.say(n > 0 ? `Обыскали тело: ${corpse.name}.` : 'Инвентарь полон.');
     }
+    // Вор (и отброс): карманная кража — встать за спиной; вор с отмычкой — взлом раздатчика.
+    if (p.profession === 'thief' || p.profession === 'outcast') {
+      const victim = this.facingTarget(p, ctx, CRIME.pickpocket.reach, (o) => ctx.crime.victimOk(p, o));
+      if (victim) {
+        if (!ctx.crime.behind(p, victim)) return this.say('Зайдите со спины — иначе заметит.');
+        this.task = { kind: 'pick', x: victim.x, y: victim.y, left: CRIME.pickpocket.time, total: CRIME.pickpocket.time, victim };
+        return this.say('Тянетесь к карману…', 'world');
+      }
+      if (p.profession === 'thief' && !eco.open && d(eco.window) < REACH + 8) {
+        if (!p.inventory.has('lockpick')) return this.say('Нужна отмычка (чёрный рынок).');
+        this.task = { kind: 'hack', x: eco.window.x, y: eco.window.y, left: CRIME.hack.time, total: CRIME.hack.time };
+        return this.say(`Взламываете раздатчик… ${CRIME.hack.time} с. Если увидит ГО — арест.`, 'world');
+      }
+    }
     // Работы ГСР: завод, доставка коробок.
     const labor = ctx.labor;
     if (p.profession === 'packer' && d(labor.factory) < REACH) {
@@ -331,9 +346,15 @@ export class PlayerController {
 
   /** Завершение особых действий (кража, взлом, сканирование) — задают профессии. */
   private finishTask(p: Character, ctx: AiContext, t: NonNullable<PlayerController['task']>): void {
-    void p;
-    void ctx;
-    void t;
+    if (t.kind === 'pick' && t.victim) {
+      if (!ctx.crime.behind(p, t.victim)) return this.say('Жертва обернулась — кража сорвалась.');
+      if (ctx.crime.pickpocket(p, t.victim) <= 0) this.say('Карманы пусты.');
+      return;
+    }
+    if (t.kind === 'hack') {
+      const n = ctx.crime.hackDispenser(p);
+      return this.say(n > 0 ? `Раздатчик вскрыт: +${n} рационов. Уходите!` : 'Склад будки пуст — взлом впустую.', 'world');
+    }
   }
 
   /** Тот, кто перед игроком (ближе и в секторе взгляда), с фильтром. */

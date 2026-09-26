@@ -36,6 +36,8 @@ export interface LawState {
   jailUntil: number;
   /** Мозг, который был до ареста (у игрока — null). */
   savedBrain: Brain | null;
+  /** До этого времени — «только что украл»: увидевший ГО задерживает за кражу. */
+  crimeUntil?: number;
 }
 
 export interface CharacterInit {

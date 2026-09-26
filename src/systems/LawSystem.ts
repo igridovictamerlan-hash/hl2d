@@ -129,6 +129,8 @@ export class LawSystem {
     if (!this.canSee(observer, target)) return null;
     // Повстанца узнают сразу (форма), вооружённого — тоже; партизана в маскировке — нет.
     if (target.faction === 'rebel' && !target.disguised) return 'rebel';
+    // Только что украл — на глазах у ГО.
+    if ((target.law.crimeUntil ?? -1) > this.time) return 'theft';
     if (target.weapon) return 'weapon';
     if (this.map.zoneAtWorld(target.x, target.y)?.kind === 'restricted') return 'restricted';
     if (this.curfewCheck(target)) return 'curfew';
@@ -163,7 +165,7 @@ export class LawSystem {
       : LINES.cpOrder;
     handler.say(this.rng.pick(lines), this.time);
     if (!target.isPlayer) {
-      const flee = LAW.npc.fleeChance[target.faction] ?? 0.1;
+      const flee = LAW.npc.fleeChance[target.profession ?? ''] ?? LAW.npc.fleeChance[target.faction] ?? 0.1;
       const guilty = law.wanted || !law.hasCid;
       if (this.rng.chance(guilty ? Math.max(flee, 0.5) : flee)) this.startFlee(target);
       else target.say(this.rng.pick(LINES.comply), this.time, 2);

@@ -17,6 +17,7 @@ import { ITEMS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
 import type { TrashPile } from '../../systems/LaborSystem';
 import { LABOR } from '../../config/labor';
+import { CRIME } from '../../config/crime';
 import type { Vec2 } from '../../core/math';
 
 /** Работа по профессии (ГСР, вортигонт, отброс общества). */
@@ -28,7 +29,8 @@ type Job =
   | { kind: 'deliver'; carry: boolean }
   | { kind: 'clean'; pile: TrashPile }
   | { kind: 'scavenge'; pile: TrashPile; left: number }
-  | { kind: 'heal'; patient: Character; repath: number };
+  | { kind: 'heal'; patient: Character; repath: number }
+  | { kind: 'pickpocket'; victim: Character; left: number; until: number; repath: number };
 
 /** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
 export interface StreetProfile {
@@ -219,12 +221,34 @@ export class CitizenBrain implements Brain {
         }
         return best && (self.inventory.has('bandage') || self.inventory.has('medkit')) ? { kind: 'heal', patient: best, repath: 0 } : null;
       }
+      case 'thief': {
+        if (!ctx.rng.chance(CRIME.npc.chance) || this.cpInSight(250)) return null;
+        let victim: Character | null = null;
+        let bestD = Infinity;
+        for (const o of ctx.entities.near(self.x, self.y, CRIME.npc.seek, near)) {
+          if (!ctx.crime.victimOk(self, o) || o.money < CRIME.npc.minMoney || o.profession === 'thief') continue;
+          const d = Math.hypot(o.x - self.x, o.y - self.y);
+          if (d < bestD) {
+            bestD = d;
+            victim = o;
+          }
+        }
+        return victim ? { kind: 'pickpocket', victim, left: CRIME.pickpocket.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0 } : null;
+      }
       case 'outcast': {
         const pile = labor.trash.filter((p) => !p.searched).sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y))[0];
         return pile && ctx.rng.chance(0.6) ? { kind: 'scavenge', pile, left: LABOR.trash.searchTime } : null;
       }
     }
     return null;
+  }
+
+  /** Видит ли сотрудника Альянса поблизости (вор не идёт на дело при свидетелях). */
+  cpInSight(r: number): boolean {
+    for (const o of this.ctx.entities.near(this.self.x, this.self.y, r, near)) {
+      if (FACTIONS[o.faction].authority && o.alive && this.ctx.law.canSee(this.self, o)) return true;
+    }
+    return false;
   }
 
   /** Ближайшая свободная куча мусора (не дальше ~полгорода). */
@@ -403,6 +427,7 @@ const WORK: State<CitizenBrain> = {
       if (to) b.goToPoint(to);
     } else if (job.kind === 'clean' || job.kind === 'scavenge') b.goToPoint(job.pile);
     else if (job.kind === 'heal') b.goToPoint(job.patient);
+    else if (job.kind === 'pickpocket') b.goToPoint(job.victim);
     else if (eco.shopCounter) b.goToPoint(eco.shopCounter);
   },
   update(b, dt) {
@@ -502,6 +527,32 @@ const WORK: State<CitizenBrain> = {
             return done();
           }
         } else if (st === 'idle' || st === 'arrived') b.goToPoint(job.pile);
+        return;
+      }
+      case 'pickpocket': {
+        const v = job.victim;
+        const crime = b.ctx.crime;
+        if (!crime.victimOk(b.self, v) || b.ctx.law.now > job.until || b.cpInSight(200)) return done();
+        if (crime.behind(b.self, v)) {
+          b.mover.stop();
+          faceTowards(b.self, v.x, v.y, dt);
+          if ((job.left -= dt) <= 0) {
+            crime.pickpocket(b.self, v);
+            // Уходит быстрым шагом подальше.
+            const away = b.goalAwayFrom(v.x, v.y);
+            b.job = null;
+            b.mover.speed = b.walkSpeed * 1.3;
+            if (away >= 0) b.mover.goTo(b.self, b.ctx, away);
+            return 'walk';
+          }
+          return;
+        }
+        // Заходит за спину: точка позади жертвы.
+        job.repath -= dt;
+        if (job.repath <= 0 || st === 'idle' || st === 'arrived') {
+          job.repath = 0.6;
+          b.goToPoint({ x: v.x - Math.cos(v.facing) * 18, y: v.y - Math.sin(v.facing) * 18 });
+        }
         return;
       }
       case 'heal': {

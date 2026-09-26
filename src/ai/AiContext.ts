@@ -14,6 +14,7 @@ import type { EventBus } from '../core/EventBus';
 import type { UndergroundSystem } from '../systems/UndergroundSystem';
 import type { InsurgencySystem } from '../systems/InsurgencySystem';
 import type { LaborSystem } from '../systems/LaborSystem';
+import type { CrimeSystem } from '../systems/CrimeSystem';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -39,4 +40,6 @@ export interface AiContext {
   insurgency: InsurgencySystem;
   /** Работы профессий: завод, доставка, мусор, лечение. */
   labor: LaborSystem;
+  /** Кражи (вор, отброс общества). */
+  crime: CrimeSystem;
 }
