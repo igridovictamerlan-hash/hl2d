@@ -27,6 +27,8 @@ export function roleLabel(c: Character): string {
 export class EntityRenderer {
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
     const s = v.scale;
+    // Пешка мельче круга столкновений (PAWN.scale) — как в RimWorld.
+    const ps = s * PAWN.scale;
     // Пешки сверху вниз по экрану: нижняя перекрывает верхнюю (как в RimWorld).
     const shown = drawOrder;
     shown.length = 0;
@@ -49,23 +51,23 @@ export class EntityRenderer {
         ctx.strokeStyle = PAWN.playerRing;
         ctx.lineWidth = Math.max(1, s * 1.3);
         ctx.beginPath();
-        ctx.ellipse(x, y + PAWN.shadow.y * s, (PAWN.shadow.rx + 3) * s, (PAWN.shadow.ry + 1.8) * s, 0, 0, Math.PI * 2);
+        ctx.ellipse(x, y + PAWN.shadow.y * ps, (PAWN.shadow.rx + 3) * ps, (PAWN.shadow.ry + 1.8) * ps, 0, 0, Math.PI * 2);
         ctx.stroke();
       }
-      drawPawnShadow(ctx, x, y, s);
+      drawPawnShadow(ctx, x, y, ps);
       // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
       if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading);
-      drawPawn(ctx, look, x, y, s, dir);
+      drawPawn(ctx, look, x, y, ps, dir);
       if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading);
       // Оглушён дубинкой — голубые искры вокруг головы.
       if (c.stunUntil > now) {
-        const hy = y + PAWN.head.y * s;
+        const hy = y + PAWN.head.y * ps;
         ctx.strokeStyle = RENDER.entity.stun;
         ctx.lineWidth = Math.max(1, s * 1.2);
         ctx.beginPath();
         for (let k = 0; k < 3; k++) {
           const a = now * 9 + (k * Math.PI * 2) / 3;
-          const r = PAWN.head.r * s;
+          const r = PAWN.head.r * ps;
           ctx.moveTo(x + Math.cos(a) * r * 1.2, hy + Math.sin(a) * r * 0.6);
           ctx.lineTo(x + Math.cos(a + 0.5) * r * 1.45, hy + Math.sin(a + 0.5) * r * 0.75);
         }
@@ -77,7 +79,7 @@ export class EntityRenderer {
         ctx.lineWidth = Math.max(1, s * 1.1);
         for (const dx of [-2.2, 2.2]) {
           ctx.beginPath();
-          ctx.arc(x + dx * s, y + 6 * s, 2 * s, 0, Math.PI * 2);
+          ctx.arc(x + dx * ps, y + 6 * ps, 2 * ps, 0, Math.PI * 2);
           ctx.stroke();
         }
       }
@@ -96,7 +98,7 @@ export class EntityRenderer {
       const x = (lerp(c.prevX, c.x, alpha) - v.left) * s;
       const cy = (lerp(c.prevY, c.y, alpha) - v.top) * s;
       // Как в RimWorld: имя под ногами, роль под именем; реплика — над головой.
-      const feet = cy + PAWN.body.bottom * s;
+      const feet = cy + PAWN.body.bottom * s * PAWN.scale;
       if (x < -200 || cy < -80 || x > v.width + 200 || cy > v.height + 80) continue;
       const f = FACTIONS[c.faction];
       const r = rankOf(c.faction, c.rank);
@@ -113,7 +115,7 @@ export class EntityRenderer {
       ctx.strokeText(role, x, ny + 10 * dpr);
       ctx.fillStyle = r ? r.color : f.label;
       ctx.fillText(role, x, ny + 10 * dpr);
-      const top = cy + (PAWN.head.y - PAWN.head.r) * s;
+      const top = cy + (PAWN.head.y - PAWN.head.r) * s * PAWN.scale;
       if (c.speech && c.speech.until > now) this.bubble(ctx, c.speech.text, x, top - 6 * dpr, dpr);
     }
     ctx.globalAlpha = 1;

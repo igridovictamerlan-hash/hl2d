@@ -6,6 +6,8 @@ import type { FactionId } from './factions';
  * причёска/шлем. Четыре стороны: юг — лицо, север — спина, восток/запад — профиль (запад — отражение).
  */
 export const PAWN = {
+  /** Пешка мельче круга столкновений — как в RimWorld пешка ≈ клетка (иначе «игрушечные»). */
+  scale: 0.86,
   outline: '#141414',
   outlineWidth: 1.4,
   /** Внутренние швы и детали брони. */
@@ -35,8 +37,13 @@ export const PAWN = {
     citizen: { base: 'rank', head: 'hair', vest: false, collar: '#4f5a66', zip: true },
     cwu: { base: 'rank', head: 'cap', vest: false, cap: '#c9a53e', armband: '#8a8f96' },
     rebel: { base: 'rank', armor: '#5d6b3a', belt: '#3a2f22', head: 'bandana', cloth: '#7a4a2a', vestFromRank: 1 },
-    cp: { base: '#39424d', armor: 'rank', belt: '#1e2329', head: 'mask', helmet: '#2b3139', mask: '#cfd3d8', lens: '#141a20', lensRim: '#86b4d8', vestFromRank: 0 },
-    ota: { base: '#2c323c', armor: 'rank', belt: '#1a1e24', head: 'ota', helmet: '#3a4352', visor: '#ff4a3a', vestFromRank: 0 },
+    /**
+     * ГО и OTA — силовая броня как у пехотинцев RimWorld (style: 'marine'): крупные наплечники,
+     * сегментная кираса, горжет, пояс с подсумками, набедренники, ранец за спиной, закрытый шлем
+     * без лица с тёмным визором. trim — полосы на наплечниках и шлеме (у ГО — цвет ранга).
+     */
+    cp: { style: 'marine', base: '#2c333c', armor: '#5a6879', belt: '#23282f', trim: 'rank', helmet: '#4f5d6f', visor: '#10151b', shine: '#7fa7cc', head: 'helmet' },
+    ota: { style: 'marine', base: '#5d6166', armor: '#cfccc1', belt: '#4a4d52', trim: '#7c2a24', helmet: '#d6d3c8', visor: '#15191e', shine: '#9fb3c4', eye: '#ff4a3a', head: 'helmet' },
     admin: { base: '#3b3f46', head: 'hair', vest: false, collar: '#f2f2f2', tie: '#7a1c1c' },
   } as Record<FactionId, Record<string, string | boolean | number>>,
 } as const;

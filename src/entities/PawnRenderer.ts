@@ -73,6 +73,15 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   const H = PAWN.head;
   const hx = d === 'E' ? H.sideShift : 0;
 
+  // ГО и OTA — силовая броня и закрытый шлем (лица не видно).
+  if (O.style === 'marine') {
+    const trim = O.trim === 'rank' ? look.color : (O.trim as string);
+    marineBody(ctx, d, O, trim);
+    marineHelmet(ctx, d, O, trim, hx);
+    ctx.restore();
+    return;
+  }
+
   // Сзади: длинные волосы и пучок.
   if (hairy && d !== 'N') backHair(ctx, d, style, hair, hx);
   if (hairy && style === 'bun') bun(ctx, hair, hx);
@@ -93,28 +102,22 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
 
   // Голова.
   headPath(ctx, d, hx);
-  ctx.fillStyle = head === 'ota' ? (O.helmet as string) : skin;
+  ctx.fillStyle = skin;
   ctx.fill();
   ctx.save();
   headPath(ctx, d, hx);
   ctx.clip();
   ctx.fillStyle = PAWN.shade;
   ctx.fillRect(d === 'E' ? hx - 20 - 2 : 3, -40, 20, 60);
-  if (head === 'mask') maskInside(ctx, d, O, hx);
-  if (head === 'ota') otaInside(ctx, d, hx);
   ctx.restore();
   headPath(ctx, d, hx);
   stroke(ctx, PAWN.outlineWidth);
 
   // Лицо, причёска, головной убор.
-  if (head === 'mask') maskOver(ctx, d, O, hx);
-  else if (head === 'ota') otaOver(ctx, d, O, hx);
-  else {
-    if (d !== 'N') face(ctx, d, hx);
-    if (hairy) frontHair(ctx, d, style, hair, hx);
-    if (head === 'bandana') bandana(ctx, d, O.cloth as string, hx);
-    if (head === 'cap') cap(ctx, d, O.cap as string, hx);
-  }
+  if (d !== 'N') face(ctx, d, hx);
+  if (hairy) frontHair(ctx, d, style, hair, hx);
+  if (head === 'bandana') bandana(ctx, d, O.cloth as string, hx);
+  if (head === 'cap') cap(ctx, d, O.cap as string, hx);
   ctx.restore();
 }
 
@@ -556,126 +559,296 @@ function cap(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
   stroke(ctx, 0.8, tint(color, 0.3));
 }
 
-/** Метрокоп: каска и противогаз — заливки в пределах головы. */
-function maskInside(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, hx: number): void {
-  const H = PAWN.head;
-  const cy = H.y;
-  ctx.fillStyle = O.helmet as string;
-  if (d === 'N') {
-    ctx.fillRect(-20, cy - 20, 40, 40);
-    return;
+/**
+ * Силовая броня (как у пехотинцев RimWorld): тёмный комбинезон, кираса с грудными пластинами и
+ * бликом, горжет, пояс с подсумками, набедренники, ранец за спиной, большие наплечники с полосой.
+ */
+function marineBody(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: string): void {
+  const B = PAWN.body;
+  const top = B.top;
+  const armor = O.armor as string;
+  const hi = tint(armor, 0.3);
+  const lo = tint(armor, -0.22);
+  const side = d === 'E';
+  // Ранец за спиной — в профиле торчит назад.
+  if (side) {
+    ctx.beginPath();
+    roundRect(ctx, -9.2, top + 1.4, 5, 9, 1.6);
+    fillStroke(ctx, lo, PAWN.outlineWidth);
+    ctx.beginPath();
+    ctx.moveTo(-8.2, top + 4);
+    ctx.lineTo(-5.4, top + 4);
+    ctx.moveTo(-8.2, top + 6);
+    ctx.lineTo(-5.4, top + 6);
+    stroke(ctx, 0.6, tint(armor, -0.45));
   }
-  ctx.fillRect(-20, cy - 20, 40, 20 - 2.8);
-  if (d === 'E') ctx.fillRect(-20, cy - 20, hx - 1.5 + 20, 40);
-  ctx.fillStyle = O.mask as string;
-  if (d === 'E') ctx.fillRect(hx - 1.5, cy - 2.8, 20, 20);
-  else ctx.fillRect(-20, cy - 2.8, 40, 20);
-  // Тень под каской.
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  ctx.fillRect(d === 'E' ? hx - 1.5 : -20, cy - 2.8, 40, 1.2);
+  // Комбинезон (силуэт туловища).
+  bodyPath(ctx, d);
+  ctx.fillStyle = O.base as string;
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  // Кираса.
+  ctx.beginPath();
+  if (d === 'S') {
+    ctx.moveTo(-6.9, top + 0.6);
+    ctx.lineTo(6.9, top + 0.6);
+    ctx.lineTo(8.2, 5.2);
+    ctx.lineTo(5.2, 7.4);
+    ctx.lineTo(-5.2, 7.4);
+    ctx.lineTo(-8.2, 5.2);
+  } else if (d === 'N') {
+    ctx.moveTo(-7.2, top + 0.4);
+    ctx.lineTo(7.2, top + 0.4);
+    ctx.lineTo(8.4, 7.4);
+    ctx.lineTo(-8.4, 7.4);
+  } else {
+    ctx.moveTo(-3.6, top + 0.4);
+    ctx.lineTo(4.8, top + 0.8);
+    ctx.lineTo(7.4, 4.8);
+    ctx.lineTo(5.6, 7.4);
+    ctx.lineTo(-4.4, 7.4);
+  }
+  ctx.closePath();
+  fillStroke(ctx, armor);
+  ctx.fillStyle = PAWN.shade;
+  ctx.fillRect(side ? -20 : 3, -20, side ? 18 : 20, 40);
+  ctx.beginPath();
+  if (d === 'S') {
+    // Грудные пластины и блик.
+    ctx.moveTo(0, top + 1);
+    ctx.lineTo(0, 6.8);
+    ctx.moveTo(-7.4, top + 6.2);
+    ctx.quadraticCurveTo(-3.5, top + 7.8, 0, top + 6.8);
+    ctx.quadraticCurveTo(3.5, top + 7.8, 7.4, top + 6.2);
+    stroke(ctx, PAWN.seamWidth);
+    ctx.beginPath();
+    ctx.moveTo(-5.6, top + 2);
+    ctx.lineTo(-1.2, top + 2);
+    ctx.moveTo(1.2, top + 2);
+    ctx.lineTo(4.2, top + 2);
+    stroke(ctx, 1, hi);
+    // Нашивка цвета ранга.
+    ctx.beginPath();
+    ctx.rect(-5.4, top + 3.4, 3, 1.4);
+    fillStroke(ctx, trim, 0.5);
+  } else if (d === 'N') {
+    // Спина: ранец с вентиляцией.
+    ctx.moveTo(-7, 6);
+    ctx.lineTo(7, 6);
+    stroke(ctx, PAWN.seamWidth);
+    ctx.beginPath();
+    roundRect(ctx, -4.6, top + 2, 9.2, 7.6, 1.6);
+    fillStroke(ctx, lo);
+    ctx.beginPath();
+    for (let k = 0; k < 3; k++) {
+      ctx.moveTo(-2.8, top + 4 + k * 1.6);
+      ctx.lineTo(2.8, top + 4 + k * 1.6);
+    }
+    stroke(ctx, 0.6, tint(armor, -0.45));
+    ctx.beginPath();
+    ctx.moveTo(-3.6, top + 2.6);
+    ctx.lineTo(3.6, top + 2.6);
+    stroke(ctx, 0.8, hi);
+  } else {
+    ctx.moveTo(-3.4, top + 6.4);
+    ctx.quadraticCurveTo(2, top + 7.8, 7, top + 6);
+    stroke(ctx, PAWN.seamWidth);
+    ctx.beginPath();
+    ctx.moveTo(-1.4, top + 2);
+    ctx.lineTo(4.2, top + 2.3);
+    stroke(ctx, 1, hi);
+    ctx.beginPath();
+    ctx.rect(2.2, top + 3.4, 2.8, 1.4);
+    fillStroke(ctx, trim, 0.5);
+  }
+  // Пояс с подсумками.
+  ctx.beginPath();
+  ctx.rect(-12, 7.4, 24, 2.3);
+  fillStroke(ctx, O.belt as string);
+  ctx.beginPath();
+  const pouches = d === 'S' ? [-5.6, -2.4, 1.4] : d === 'N' ? [-4.6, 2.4] : [3.2];
+  for (const px of pouches) ctx.rect(px, 7.1, 2.8, 2.9);
+  fillStroke(ctx, tint(O.belt as string, 0.25), 0.6);
+  // Набедренники.
+  ctx.beginPath();
+  if (side) roundRect(ctx, -1, 10, 7.4, 3.8, 1.4);
+  else {
+    roundRect(ctx, -7, 10, 6.2, 3.8, 1.4);
+    roundRect(ctx, 0.8, 10, 6.2, 3.8, 1.4);
+  }
+  fillStroke(ctx, lo);
+  ctx.beginPath();
+  if (side) {
+    ctx.moveTo(0, 10.9);
+    ctx.lineTo(5.4, 10.9);
+  } else {
+    ctx.moveTo(-6, 10.9);
+    ctx.lineTo(-1.8, 10.9);
+    ctx.moveTo(1.8, 10.9);
+    ctx.lineTo(6, 10.9);
+  }
+  stroke(ctx, 0.7, tint(armor, 0.1));
+  ctx.restore();
+  bodyPath(ctx, d);
+  stroke(ctx, PAWN.outlineWidth);
+  // Горжет — воротник под шлемом.
+  if (d !== 'N') {
+    ctx.beginPath();
+    ctx.ellipse(side ? 1.2 : 0, top + 0.6, side ? 3.4 : 4.6, 1.9, 0, 0, Math.PI * 2);
+    fillStroke(ctx, lo, PAWN.outlineWidth * 0.8);
+  }
+  // Наплечники: большие, с бликом и полосой цвета ранга.
+  const pads = side ? [0.4] : [-(B.shoulder + 0.9), B.shoulder + 0.9];
+  for (const px of pads) {
+    const rx = side ? 4.3 : 4.2;
+    ctx.beginPath();
+    ctx.ellipse(px, top + 2.4, rx, 4, 0, 0, Math.PI * 2);
+    fillStroke(ctx, armor, PAWN.outlineWidth);
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(px, top + 2.4, rx, 4, 0, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = trim;
+    ctx.fillRect(px - 6, top + 4.2, 12, 1.5);
+    ctx.fillStyle = PAWN.shade;
+    ctx.fillRect(px - 6, top + 5.7, 12, 4);
+    ctx.restore();
+    ctx.beginPath();
+    ctx.ellipse(px, top + 2.4, rx, 4, 0, 0, Math.PI * 2);
+    stroke(ctx, PAWN.outlineWidth);
+    ctx.beginPath();
+    ctx.arc(px - 0.6, top + 2, 2.4, Math.PI * 1.05, Math.PI * 1.6);
+    stroke(ctx, 0.9, hi);
+  }
 }
 
-/** Метрокоп: край каски, линзы, фильтр, ремни — поверх контура головы. */
-function maskOver(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, hx: number): void {
+function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/** Контур закрытого шлема: крупнее головы, с нащёчниками и подбородником. */
+function helmetPath(ctx: Ctx, d: PawnDir, hx: number): void {
   const H = PAWN.head;
-  const cy = H.y;
-  const r = H.r;
-  const helmet = O.helmet as string;
-  // Козырёк каски.
+  const r = H.r + 1.2;
+  const cy = H.y - 0.3;
   ctx.beginPath();
   if (d === 'E') {
-    ctx.moveTo(hx - r - 0.4, cy - 2.2);
-    ctx.lineTo(hx + r + 1.2, cy - 3.4);
-  } else if (d === 'S') {
-    ctx.moveTo(-r - 0.4, cy - 2.8);
-    ctx.lineTo(r + 0.4, cy - 2.8);
+    const cx = hx + 0.3;
+    ctx.moveTo(cx - r, cy + 1);
+    ctx.arc(cx, cy, r, Math.PI * 1.02, Math.PI * 1.98);
+    ctx.bezierCurveTo(cx + r + 1.2, cy + 1, cx + r + 1.2, cy + 4.5, cx + r - 0.4, cy + 6.4);
+    ctx.lineTo(cx + 1.6, cy + r);
+    ctx.bezierCurveTo(cx - 2, cy + r + 0.4, cx - r + 0.4, cy + 6, cx - r, cy + 1);
   } else {
-    ctx.moveTo(-r + 1, cy + 1);
-    ctx.quadraticCurveTo(0, cy + 2.4, r - 1, cy + 1);
+    ctx.moveTo(-r, cy + 1);
+    ctx.arc(0, cy, r, Math.PI * 1.02, Math.PI * 1.98);
+    ctx.bezierCurveTo(r + 0.3, cy + 4.5, r - 1.2, cy + r - 0.4, 3.2, cy + r + 0.6);
+    ctx.lineTo(-3.2, cy + r + 0.6);
+    ctx.bezierCurveTo(-r + 1.2, cy + r - 0.4, -r - 0.3, cy + 4.5, -r, cy + 1);
   }
-  stroke(ctx, 1.6, tint(helmet, -0.35));
-  ctx.beginPath();
-  ctx.arc(hx, cy - 1, r - 1.6, Math.PI * 1.15, Math.PI * 1.55);
-  stroke(ctx, 0.8, tint(helmet, 0.35));
-  if (d === 'N') return;
-  // Линзы.
-  const lenses = d === 'E' ? [hx + r - 2.5] : [-3.1, 3.1];
-  for (const lx of lenses) {
-    ctx.beginPath();
-    ctx.arc(lx, cy - 0.4, 2.2, 0, Math.PI * 2);
-    ctx.fillStyle = O.lens as string;
-    ctx.fill();
-    stroke(ctx, 0.9, O.lensRim as string);
-    ctx.beginPath();
-    ctx.arc(lx - 0.7, cy - 1.1, 0.55, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fill();
-  }
-  // Фильтр-«рыло».
-  ctx.beginPath();
-  if (d === 'E') ctx.rect(hx + r - 1.2, cy + 2.2, 3.4, 3.2);
-  else ctx.rect(-2.1, cy + 3, 4.2, 3.4);
-  fillStroke(ctx, '#7b8189', PAWN.outlineWidth * 0.7);
-  ctx.beginPath();
-  for (let k = 0; k < 3; k++) {
-    const gy = (d === 'E' ? cy + 3 : cy + 3.9) + k * 0.9;
-    ctx.moveTo(d === 'E' ? hx + r - 0.6 : -1.3, gy);
-    ctx.lineTo(d === 'E' ? hx + r + 1.6 : 1.3, gy);
-  }
-  stroke(ctx, 0.45, '#3d4247');
-  // Ремни к каске.
-  if (d === 'S') {
-    ctx.beginPath();
-    ctx.moveTo(-r + 0.6, cy + 1.5);
-    ctx.lineTo(-5.2, cy + 0.6);
-    ctx.moveTo(r - 0.6, cy + 1.5);
-    ctx.lineTo(5.2, cy + 0.6);
-    stroke(ctx, 0.7, tint(helmet, -0.3));
-  }
+  ctx.closePath();
 }
 
-function otaInside(ctx: Ctx, d: PawnDir, hx: number): void {
-  const cy = PAWN.head.y;
-  ctx.fillStyle = '#1a1f27';
-  if (d === 'S') ctx.fillRect(-5.2, cy - 3.8, 10.4, 7.4);
-  else if (d === 'E') ctx.fillRect(hx + 0.5, cy - 3.8, 12, 7);
-}
-
-/** OTA: шлем с одним красным глазом, рёбра шлема. */
-function otaOver(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, hx: number): void {
+/** Закрытый шлем: гребень, наушники, тёмный визор с бликом, решётка подбородника; OTA — красный огонёк. */
+function marineHelmet(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: string, hx: number): void {
   const H = PAWN.head;
-  const cy = H.y;
-  const r = H.r;
+  const r = H.r + 1.2;
+  const cy = H.y - 0.3;
   const helmet = O.helmet as string;
-  ctx.beginPath();
-  ctx.moveTo(hx - (d === 'E' ? 3 : 0), cy - r - 0.2);
-  ctx.lineTo(hx - (d === 'E' ? 3 : 0), cy - 4);
-  stroke(ctx, 1.2, tint(helmet, 0.3));
-  ctx.beginPath();
-  ctx.arc(hx, cy, r - 1.4, Math.PI * 1.1, Math.PI * 1.5);
-  stroke(ctx, 0.8, tint(helmet, 0.4));
-  if (d === 'N') {
-    ctx.beginPath();
-    ctx.rect(-3, cy + 1, 6, 3);
-    fillStroke(ctx, tint(helmet, -0.3));
-    return;
-  }
-  ctx.save();
-  ctx.fillStyle = O.visor as string;
-  ctx.shadowColor = O.visor as string;
-  ctx.shadowBlur = 5 * Math.abs(ctx.getTransform().a);
-  ctx.beginPath();
-  ctx.arc(d === 'E' ? hx + r - 2.2 : -1.8, cy - 0.8, 1.7, 0, Math.PI * 2);
+  const hi = tint(helmet, 0.32);
+  const lo = tint(helmet, -0.28);
+  helmetPath(ctx, d, hx);
+  ctx.fillStyle = helmet;
   ctx.fill();
-  ctx.restore();
-  // Решётка респиратора.
-  ctx.beginPath();
-  const gx = d === 'E' ? hx + r - 3.5 : -2;
-  for (let k = 0; k < 3; k++) {
-    ctx.moveTo(gx, cy + 2 + k);
-    ctx.lineTo(gx + 3.6, cy + 2 + k);
+  ctx.save();
+  helmetPath(ctx, d, hx);
+  ctx.clip();
+  // Объём: затенение снизу и справа.
+  ctx.fillStyle = PAWN.shade;
+  ctx.fillRect(d === 'E' ? hx - 20 - 1.5 : 3.2, cy - 20, 20, 40);
+  ctx.fillRect(-20, cy + 4.5, 40, 20);
+  if (d === 'N') {
+    // Затылок: рёбра жёсткости.
+    ctx.beginPath();
+    ctx.moveTo(-r, cy + 3.4);
+    ctx.quadraticCurveTo(0, cy + 5.4, r, cy + 3.4);
+    stroke(ctx, PAWN.seamWidth);
+  } else {
+    // Визор — тёмная полоса без лица.
+    ctx.beginPath();
+    if (d === 'E') roundRect(ctx, hx + 1, cy - 2.6, r + 3, 4, 1.4);
+    else roundRect(ctx, -r + 1.6, cy - 2.4, (r - 1.6) * 2, 4, 1.8);
+    fillStroke(ctx, O.visor as string, PAWN.seamWidth);
+    // Подбородник с решёткой.
+    ctx.beginPath();
+    if (d === 'E') {
+      for (let k = 0; k < 3; k++) {
+        ctx.moveTo(hx + r - 3.4, cy + 3 + k * 1.1);
+        ctx.lineTo(hx + r, cy + 3 + k * 1.1);
+      }
+    } else {
+      for (let k = 0; k < 3; k++) {
+        ctx.moveTo(-2.2, cy + 4 + k * 1.1);
+        ctx.lineTo(2.2, cy + 4 + k * 1.1);
+      }
+    }
+    stroke(ctx, 0.6, lo);
   }
-  stroke(ctx, 0.5, '#5a6372');
+  ctx.restore();
+  helmetPath(ctx, d, hx);
+  stroke(ctx, PAWN.outlineWidth);
+  // Гребень и полоса цвета ранга по центру шлема.
+  ctx.beginPath();
+  if (d === 'E') {
+    ctx.moveTo(hx - 3.5, cy - r + 1.2);
+    ctx.quadraticCurveTo(hx + 1, cy - r - 0.4, hx + 4.6, cy - r + 2.2);
+  } else {
+    ctx.moveTo(0, cy - r + 0.2);
+    ctx.lineTo(0, d === 'N' ? cy + 2 : cy - 3);
+  }
+  stroke(ctx, 1.6, trim);
+  ctx.beginPath();
+  ctx.arc(d === 'E' ? hx : 0, cy - 0.5, r - 1.6, Math.PI * 1.12, Math.PI * 1.45);
+  stroke(ctx, 0.9, hi);
+  // Наушники.
+  const ears = d === 'E' ? [hx - 1.2] : d === 'S' ? [-r + 0.9, r - 0.9] : [-r + 1, r - 1];
+  for (const ex of ears) {
+    ctx.beginPath();
+    ctx.arc(ex, cy + 1.6, d === 'E' ? 2.1 : 1.25, 0, Math.PI * 2);
+    fillStroke(ctx, lo, PAWN.outlineWidth * 0.8);
+  }
+  if (d === 'N') return;
+  // Блик на визоре.
+  ctx.beginPath();
+  if (d === 'E') {
+    ctx.moveTo(hx + 2.4, cy - 1.6);
+    ctx.lineTo(hx + 5, cy - 1.6);
+  } else {
+    ctx.moveTo(-r + 3, cy - 1.4);
+    ctx.lineTo(-r + 6, cy - 1.4);
+  }
+  stroke(ctx, 0.8, O.shine as string);
+  // OTA: красный огонёк в визоре.
+  if (O.eye) {
+    const ex = d === 'E' ? hx + r - 0.6 : 2.6;
+    ctx.save();
+    ctx.fillStyle = O.eye as string;
+    ctx.globalAlpha *= 0.35;
+    ctx.beginPath();
+    ctx.arc(ex, cy - 0.4, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha /= 0.35;
+    ctx.beginPath();
+    ctx.arc(ex, cy - 0.4, 1.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 /** Тень под ногами пешки. */

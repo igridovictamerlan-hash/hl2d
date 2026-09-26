@@ -1,6 +1,7 @@
 import type { Character } from './Character';
 import { WEAPON_SPRITES, WEAPON_POSE, type SpritePart } from '../config/weaponSprites';
 import { weaponPose } from './weaponPose';
+import { PAWN } from '../config/pawns';
 
 /**
  * Оружие в руках пешки (стиль RimWorld): плоская модель сбоку с тёмным контуром, повёрнута за
@@ -14,7 +15,7 @@ export function drawWeapon(ctx: CanvasRenderingContext2D, c: Character, ox: numb
   // ox, oy — экранная позиция центра персонажа (с интерполяцией); поза считается от c.x, c.y.
   ctx.translate(ox + (pose.x - c.x) * s, oy + (pose.y - c.y) * s);
   ctx.rotate(pose.ang);
-  const k = s * WEAPON_POSE.scale;
+  const k = s * WEAPON_POSE.scale * PAWN.scale;
   ctx.scale(k, pose.flip ? -k : k);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -23,12 +24,16 @@ export function drawWeapon(ctx: CanvasRenderingContext2D, c: Character, ox: numb
   ctx.lineWidth = WEAPON_POSE.outlineWidth * 2;
   for (const part of sp.parts) shape(ctx, part, 'outline');
   for (const part of sp.parts) {
-    if (part.glow) {
-      ctx.shadowColor = part.c;
-      ctx.shadowBlur = 5 * k;
-    }
     shape(ctx, part, 'fill');
-    ctx.shadowBlur = 0;
+    // Свечение — полупрозрачный ореол той же детали (дешевле shadowBlur при десятках стволов).
+    if (part.glow) {
+      ctx.globalAlpha *= 0.35;
+      ctx.strokeStyle = part.c;
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.35;
+      ctx.strokeStyle = WEAPON_POSE.outline;
+    }
   }
   ctx.restore();
 }
