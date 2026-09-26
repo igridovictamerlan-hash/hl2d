@@ -1,5 +1,6 @@
 import type { Character } from '../entities/Character';
-import { FACTIONS, rankOf } from '../config/factions';
+import { FACTIONS, CP_DIVISIONS, rankOf } from '../config/factions';
+import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { hasLoyalty, loyaltyTier } from '../systems/Loyalty';
 
 /** HUD в духе HL2: здоровье, токены, личность (имя, роль, CID). Обновляется, только если что-то изменилось. */
@@ -65,8 +66,11 @@ export class Hud {
     this.name.textContent = p.name;
     const f = FACTIONS[p.faction];
     const r = rankOf(p.faction, p.rank);
-    const div = p.division ? ` · ${p.division.toUpperCase()}` : '';
-    this.role.textContent = r ? `${f.role} · ${r.name}${div}` : `${f.role} · CID #${p.cid}`;
+    const div = p.division ? ` · ${CP_DIVISIONS[p.division].short}` : '';
+    const prof = p.profession ? PROFESSIONS[p.profession] : null;
+    const pname = prof && prof.id !== DEFAULT_PROFESSION[p.faction] ? ` · ${prof.name}` : '';
+    const mask = p.disguised ? ' · в маскировке' : '';
+    this.role.textContent = r ? `${f.role} · ${r.name}${div}${pname}${mask}` : `${prof && pname ? prof.name : f.role} · CID #${p.cid}`;
     this.role.style.color = r ? r.color : f.label;
     const loyal = hasLoyalty(p);
     this.loyaltyEl.hidden = !loyal;

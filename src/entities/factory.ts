@@ -6,6 +6,10 @@ import type { Rng } from '../core/rng';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
 import { LOYALTY } from '../config/loyalty';
+import { DEFAULT_PROFESSION } from '../config/professions';
+
+/** Вортигонты — прозвища (у рабов Альянса номеров нет). */
+const VORT_NAMES = ['Ваал', 'Зин-Гал', 'Ксоро', 'Ур-Ган', 'Лоррек', 'Тахаб', 'Галун', 'Ирвек', 'Соллог', 'Наар'];
 
 const usedCids = new Set<string>();
 
@@ -35,6 +39,7 @@ export function nameFor(rng: Rng, faction: FactionId): string {
   if (faction === 'cp') return `ГО-${rng.int(1000, 9999)}`;
   if (faction === 'ota') return `OTA-${rng.int(100, 999)}`;
   if (faction === 'admin') return `Администратор ${rng.pick(LAST_NAMES)}`;
+  if (faction === 'vort') return `Вортигонт ${rng.pick(VORT_NAMES)}`;
   return randomName(rng);
 }
 
@@ -49,6 +54,7 @@ export function createCharacter(
 ): Character {
   const c = new Character({ id: entities.allocId(), faction, name: nameFor(rng, faction), cid: newCid(rng), x, y, isPlayer });
   c.rank = rank;
+  c.profession = DEFAULT_PROFESSION[faction] ?? null;
   c.money = CHARACTER.roleMoney[faction] ?? CHARACTER.startMoney;
   if (!isPlayer) {
     // Часть жителей без действующей CID или в розыске; повстанцы — всегда в розыске.

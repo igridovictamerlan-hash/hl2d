@@ -1,4 +1,5 @@
 import type { FactionId, DivisionId } from '../config/factions';
+import type { ProfessionId } from '../config/professions';
 import type { ItemId, WeaponId } from '../config/items';
 import { ECONOMY } from '../config/economy';
 import { Inventory } from './Inventory';
@@ -56,8 +57,17 @@ export class Character {
   faction: FactionId;
   /** Ранг во фракции (у ГО и повстанцев от него зависит цвет). */
   rank = 0;
-  /** Специализация ГО (UNION, GRID, HELIX, JURY). */
+  /** Отряд ГО (MPF, GRID, MEDIC, OBS, TECH). */
   division: DivisionId | null = null;
+  /** Профессия (config/professions.ts): повар, курьер, вор, медик сопротивления… */
+  profession: ProfessionId | null = null;
+  /** Партизан в маскировке: выглядит и считается гражданином, пока не выдаст себя. */
+  disguised = false;
+  /** Горит (пиротехник): до этого времени, урон в секунду и кто поджёг. */
+  burnUntil = 0;
+  burnBy: Character | null = null;
+  /** Несёт коробку рационов (курьер). */
+  carrying = false;
   name: string;
   /** Номер CID-карты. */
   cid: string;

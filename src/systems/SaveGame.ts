@@ -1,5 +1,6 @@
 import type { Character } from '../entities/Character';
 import type { FactionId, DivisionId } from '../config/factions';
+import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import type { Stack } from '../entities/Inventory';
 import type { ItemId, WeaponId } from '../config/items';
 import { ITEMS, WEAPONS } from '../config/items';
@@ -15,7 +16,7 @@ export interface SaveData {
   version: 1;
   savedAt: number;
   seed: number;
-  role: { faction: FactionId; rank: number; division: DivisionId | null };
+  role: { faction: FactionId; rank: number; division: DivisionId | null; profession?: ProfessionId | null };
   name: string;
   civilName: string;
   cid: string;
@@ -75,6 +76,7 @@ export function parseSave(text: string | null): SaveData | null {
     if (d.format !== 'hl2d-save' || d.version !== 1 || !Number.isFinite(d.seed)) return null;
     if (!d.role || !(d.role.faction in FACTIONS) || !FACTIONS[d.role.faction].selectable) return null;
     if (!Array.isArray(d.inventory)) return null;
+    if (d.role.profession && !(d.role.profession in PROFESSIONS)) d.role.profession = null;
     d.inventory = d.inventory.filter((s) => s && s.id in ITEMS && Number.isFinite(s.qty) && s.qty > 0);
     if (d.weapon && !(d.weapon in WEAPONS)) d.weapon = null;
     return d;

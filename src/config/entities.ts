@@ -10,7 +10,7 @@ export const CHARACTER = {
   maxHealth: 100,
   startMoney: 25,
   /** Стартовые токены по ролям. */
-  roleMoney: { citizen: 25, cwu: 40, cp: 60, rebel: 15, ota: 0, admin: 200 } as Record<string, number>,
+  roleMoney: { citizen: 25, cwu: 40, cp: 60, rebel: 15, ota: 0, admin: 200, vort: 0 } as Record<string, number>,
   /** Масса для расталкивания: игрок «тяжелее», NPC уступают. */
   mass: { player: 2.5, npc: 1 },
 } as const;

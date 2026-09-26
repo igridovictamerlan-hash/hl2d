@@ -1,4 +1,4 @@
-export type FactionId = 'citizen' | 'cp' | 'cwu' | 'rebel' | 'ota' | 'admin';
+export type FactionId = 'citizen' | 'cp' | 'cwu' | 'rebel' | 'ota' | 'admin' | 'vort';
 
 /** Ранг внутри фракции: у ГО и повстанцев цвет кружка зависит от ранга. */
 export interface RankDef {
@@ -30,16 +30,19 @@ export interface FactionDef {
   ranks?: readonly RankDef[];
 }
 
-/** Гражданская оборона: от светло-голубого рекрута до тёмно-синего командира дивизиона. */
+/**
+ * Гражданская оборона — звания как на сервере (C17.MPF.RCT … C17.CMD.DVL): от светло-голубого
+ * рекрута до тёмно-синего командира дивизиона. Цвет — полосы на броне и шлеме.
+ */
 const CP_RANKS: readonly RankDef[] = [
-  { id: 'rct', name: 'Рекрут', short: 'RCT', color: '#a9dcff', outline: '#4f86ad' },
-  { id: '05', name: 'Юнит 05', short: '05', color: '#84c5fb', outline: '#3d73a2' },
-  { id: '04', name: 'Юнит 04', short: '04', color: '#62acf3', outline: '#2f6396' },
-  { id: '03', name: 'Юнит 03', short: '03', color: '#4290e6', outline: '#23548c' },
-  { id: '02', name: 'Юнит 02', short: '02', color: '#2e73d2', outline: '#19437d' },
-  { id: '01', name: 'Юнит 01', short: '01', color: '#2159b8', outline: '#123368' },
-  { id: 'ofc', name: 'Офицер', short: 'OfC', color: '#19429a', outline: '#0b2356' },
-  { id: 'dvl', name: 'Командир дивизиона', short: 'DvL', color: '#12307c', outline: '#071843' },
+  { id: 'rct', name: 'Рекрут (MPF.RCT)', short: 'RCT', color: '#a9dcff', outline: '#4f86ad' },
+  { id: 'pcu3', name: 'Юнит PCU.03', short: 'PCU.03', color: '#84c5fb', outline: '#3d73a2' },
+  { id: 'pcu2', name: 'Юнит PCU.02', short: 'PCU.02', color: '#62acf3', outline: '#2f6396' },
+  { id: 'pcu1', name: 'Юнит PCU.01', short: 'PCU.01', color: '#4290e6', outline: '#23548c' },
+  { id: 'ofc', name: 'Офицер (MPF.OFC)', short: 'OFC', color: '#2e73d2', outline: '#19437d' },
+  { id: 'insp', name: 'Инспектор (MPF.INSP)', short: 'INSP', color: '#2159b8', outline: '#123368' },
+  { id: 'epu', name: 'Командование (CMD.EPU)', short: 'EPU', color: '#19429a', outline: '#0b2356' },
+  { id: 'dvl', name: 'Командир дивизиона (CMD.DVL)', short: 'DVL', color: '#12307c', outline: '#071843' },
 ];
 
 /** Повстанцы: от оранжевого новобранца до жёлто-золотого командира. */
@@ -60,7 +63,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
   cwu: {
     id: 'cwu', role: 'ГСР', plural: 'Гражданский союз рабочих',
     color: '#e6dc6e', outline: '#6f6a1f', label: '#efe79a', yieldPriority: 2, authority: false, selectable: true,
-    description: 'Гражданский союз рабочих: раздача рационов, магазин, ремонт (работа — этап 3).',
+    description: 'Гражданский союз рабочих: завод рационов, доставка, раздача, уборка улиц, медпомощь.',
   },
   rebel: {
     id: 'rebel', role: 'Повстанец', plural: 'Повстанцы',
@@ -81,6 +84,11 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     color: '#1a2554', outline: '#060b20', label: '#7d8fd0', yieldPriority: 5, authority: true, selectable: false,
     description: 'Вызываются при серьёзных беспорядках (этап 4).',
   },
+  vort: {
+    id: 'vort', role: 'Вортигонт', plural: 'Вортигонты',
+    color: '#7f9a62', outline: '#34442a', label: '#a9c98a', yieldPriority: 0, authority: false, selectable: true,
+    description: 'Порабощённая раса: в ошейниках, убирают улицы города. Документы не проверяют.',
+  },
   admin: {
     id: 'admin', role: 'Администратор', plural: 'Администрация',
     color: '#f2f2f2', outline: '#8a8a8a', label: '#ffffff', yieldPriority: 6, authority: true, selectable: false,
@@ -88,8 +96,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
   },
 };
 
-/** Специализации (дивизионы) ГО. */
-export type DivisionId = 'union' | 'grid' | 'helix' | 'jury';
+/** Специализации (спецотряды) ГО. */
+export type DivisionId = 'union' | 'grid' | 'helix' | 'jury' | 'tech';
 
 export interface DivisionDef {
   id: DivisionId;
@@ -99,11 +107,17 @@ export interface DivisionDef {
   color: string;
 }
 
+/**
+ * Отряды ГО (по мотивам спецюнитов сервера): MPF — патрульные, GRID — гарнизон КПП, MEDIC (SU.MEDIC) —
+ * медики, OBS (MPF.OBS) — наблюдатели-дознаватели (сканируют тела, ищут убийцу), TECH (SU.TECH) —
+ * техники со сканером. id сохранены с прошлых версий (сохранения).
+ */
 export const CP_DIVISIONS: Record<DivisionId, DivisionDef> = {
-  union: { id: 'union', short: 'UNION', name: 'Патрульный отряд', color: '#9cc9f5', desc: 'Патрули и проверки в городе. Быстрее бегает.' },
+  union: { id: 'union', short: 'MPF', name: 'Патрульный отряд', color: '#9cc9f5', desc: 'Патрули и проверки CID в городе. Быстрее бегает.' },
   grid: { id: 'grid', short: 'GRID', name: 'Пограничный отряд', color: '#8fd6b0', desc: 'Держит КПП. MP7, G — поставить бетонный блок-укрытие.' },
-  helix: { id: 'helix', short: 'HELIX', name: 'Медицинский отряд', color: '#f08a8a', desc: 'G — вылечить того, кто перед вами. Аптечки в наборе.' },
-  jury: { id: 'jury', short: 'JURY', name: 'Дознаватели', color: '#d7b6f5', desc: 'Проверка CID вдвое быстрее, штрафы вдвое больше.' },
+  helix: { id: 'helix', short: 'MEDIC', name: 'Медицинский отряд (SU.MEDIC)', color: '#f08a8a', desc: 'G — вылечить сотрудника Альянса перед собой. Аптечки в наборе.' },
+  jury: { id: 'jury', short: 'OBS', name: 'Наблюдатель (MPF.OBS)', color: '#d7b6f5', desc: 'E у тела — сканировать и найти убийцу (он в розыске). Проверка CID быстрее, штрафы выше.' },
+  tech: { id: 'tech', short: 'TECH', name: 'Техник (SU.TECH)', color: '#f0c070', desc: 'G — запустить сканер: летает по городу, засекает повстанцев и нарушителей для Надзора.' },
 };
 
 export function rankOf(faction: FactionId, rank: number): RankDef | null {

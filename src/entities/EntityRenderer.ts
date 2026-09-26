@@ -1,6 +1,7 @@
 import type { Character } from './Character';
 import type { View } from '../core/Camera';
-import { FACTIONS, colorsOf, rankOf } from '../config/factions';
+import { FACTIONS, CP_DIVISIONS, colorsOf, rankOf } from '../config/factions';
+import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
@@ -9,10 +10,15 @@ import { PAWN } from '../config/pawns';
 
 /** Подпись роли: ГО и повстанцы — с рангом, жители — с номером CID. */
 export function roleLabel(c: Character): string {
+  // Партизан в маскировке подписан как гражданин.
+  if (c.disguised) return `${FACTIONS.citizen.role} · #${c.cid}`;
   const f = FACTIONS[c.faction];
   const r = rankOf(c.faction, c.rank);
-  let s = r ? `${f.role} · ${r.short}` : c.faction === 'admin' ? f.role : `${f.role} · #${c.cid}`;
-  if (c.division) s += ` · ${c.division.toUpperCase()}`;
+  const prof = c.profession ? PROFESSIONS[c.profession] : null;
+  // Профессия вместо названия фракции там, где она своя (не «Гражданин»/«Солдат»).
+  const role = prof && prof.id !== DEFAULT_PROFESSION[c.faction] ? prof.name : f.role;
+  let s = r ? `${role} · ${r.short}` : c.faction === 'admin' || c.faction === 'vort' ? role : `${role} · #${c.cid}`;
+  if (c.division) s += ` · ${CP_DIVISIONS[c.division].short}`;
   const phase = c.law.phase;
   if (phase === 'cuffed' || phase === 'entering') s += ' · задержан';
   else if (phase === 'jailed') s += ' · в КПЗ';
@@ -44,7 +50,10 @@ export class EntityRenderer {
     for (const { c, x, y } of shown) {
       ctx.globalAlpha = c.visible ? 1 : 0.4;
       const dir = pawnDir(c.facing);
-      const look = { faction: c.faction, rank: c.rank, color: colorsOf(c.faction, c.rank).color, seed: lookSeed(c.id) };
+      // Партизан в маскировке выглядит как гражданин.
+      const faction = c.disguised ? 'citizen' : c.faction;
+      const rank = c.disguised ? 0 : c.rank;
+      const look = { faction, rank, color: colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? null : c.profession };
       const reloading = c.reloadUntil > now;
       if (c.isPlayer) {
         // Выделение игрока — эллипс у ног.

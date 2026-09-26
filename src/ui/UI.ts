@@ -1,3 +1,4 @@
+import type { ProfessionId } from '../config/professions';
 import type { EventBus } from '../core/EventBus';
 import type { Character } from '../entities/Character';
 import type { FactionId, DivisionId } from '../config/factions';
@@ -30,7 +31,7 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly economy: EconomySystem;
   readonly combat: CombatSystem;
   readonly war: WarSystem;
-  chooseRole(faction: FactionId, rank: number, division: DivisionId | null): void;
+  chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null): void;
   resolveCheck(target: Character, choice: CheckChoice): void;
   useItem(id: ItemId): void;
   equipItem(id: WeaponId | null): void;
@@ -90,7 +91,7 @@ export class UI {
     this.alert = new AlertBar(root, bus);
     this.death = new DeathScreen(root);
     new HelpBar(root);
-    this.roles = new RoleMenu(root, (f, r, d) => host.chooseRole(f, r, d), () => host.newGame());
+    this.roles = new RoleMenu(root, (f, r, d, p) => host.chooseRole(f, r, d, p), () => host.newGame());
     this.dev.toggle(); // панель карты по умолчанию свёрнута — F2
     bus.on('announce', ({ text }) => this.banner.show(text));
     bus.on('map:loaded', ({ source }) => {

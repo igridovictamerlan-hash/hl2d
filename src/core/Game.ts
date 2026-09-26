@@ -8,7 +8,7 @@ import { PlayerController } from './PlayerController';
 import { RENDER } from '../config/render';
 import { VISION } from '../config/vision';
 import { CHARACTER } from '../config/entities';
-import { FACTIONS, rankOf, type FactionId } from '../config/factions';
+import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId } from '../config/factions';
 import type { GameMap, Level } from '../world/GameMap';
 import { NavGrid } from '../world/NavGrid';
 import { MapRenderer } from '../world/MapRenderer';
@@ -41,6 +41,7 @@ import { capturePlayer, parseSave, applyToPlayer, decodeBits, type SaveData } fr
 import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
+import { PROFESSIONS, DEFAULT_PROFESSION, type ProfessionId } from '../config/professions';
 import { ITEMS, REBEL_OFFICER_RANK, type ItemId, type WeaponId } from '../config/items';
 import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
@@ -89,7 +90,7 @@ export class Game {
   private rng = new Rng(randomSeed());
   private vignette: CanvasGradient | null = null;
   /** Выбранная роль игрока (сохраняется при смене карты). */
-  private role: { faction: FactionId; rank: number; division: DivisionId | null } | null = null;
+  private role: { faction: FactionId; rank: number; division: DivisionId | null; profession?: ProfessionId | null } | null = null;
   /** Гражданское имя игрока (для ролей без позывного). */
   private civilName = '';
   time = 0;
@@ -196,7 +197,7 @@ export class Game {
     this.pendingSave = null;
     this.ui.mapView.reset(map, save ? decodeBits(save.explored, map.width * map.height) : null, save?.hatches);
     if (save) this.restore(save);
-    else if (this.role) this.applyRole(this.role.faction, this.role.rank, this.role.division, false);
+    else if (this.role) this.applyRole(this.role.faction, this.role.rank, this.role.division, false, this.role.profession ?? null);
     else this.ui.roles.open(true);
     this.zones.reset();
     this.camera.snapTo(this.player.x, this.player.y);
@@ -215,13 +216,14 @@ export class Game {
   }
 
   /** Выбор роли из меню. */
-  chooseRole(faction: FactionId, rank: number, division: DivisionId | null = null): void {
-    this.role = { faction, rank, division: faction === 'cp' ? division ?? 'union' : null };
-    this.applyRole(faction, rank, this.role.division, true);
+  chooseRole(faction: FactionId, rank: number, division: DivisionId | null = null, profession: ProfessionId | null = null): void {
+    const prof = profession && PROFESSIONS[profession]?.faction === faction ? profession : DEFAULT_PROFESSION[faction] ?? null;
+    this.role = { faction, rank, division: faction === 'cp' ? division ?? 'union' : null, profession: prof };
+    this.applyRole(faction, rank, this.role.division, true, prof);
     this.save();
   }
 
-  private applyRole(faction: FactionId, rank: number, division: DivisionId | null, announce: boolean): void {
+  private applyRole(faction: FactionId, rank: number, division: DivisionId | null, announce: boolean, profession: ProfessionId | null = null): void {
     const p = this.player;
     const law = p.law;
     // Если сидел — освобождаем камеру.
@@ -238,6 +240,10 @@ export class Game {
     p.faction = faction;
     p.rank = rank;
     p.division = faction === 'cp' ? division : null;
+    p.profession = profession && PROFESSIONS[profession]?.faction === faction ? profession : DEFAULT_PROFESSION[faction] ?? null;
+    p.disguised = false;
+    p.carrying = false;
+    p.burnUntil = 0;
     p.alive = true;
     p.health = p.maxHealth;
     p.hunger = ECONOMY.hunger.max;
@@ -245,9 +251,13 @@ export class Game {
     p.panicUntil = 0;
     // Новая роль — лояльность с чистого листа (при возрождении сохраняется).
     if (announce) p.loyalty = faction === 'cwu' ? LOYALTY.playerStart.cwu : LOYALTY.playerStart.citizen;
-    equipKit(p, faction === 'cp' ? cpKit(p.division) : faction === 'rebel' && rank >= REBEL_OFFICER_RANK ? 'rebel_officer' : faction, this.ai);
+    const profKit = p.profession ? PROFESSIONS[p.profession].kit : undefined;
+    const kit = faction === 'cp' ? cpKit(p.division) : profKit ?? (faction === 'rebel' && rank >= REBEL_OFFICER_RANK ? 'rebel_officer' : faction);
+    equipKit(p, kit, this.ai);
     // Жителям оружие на виду ни к чему; повстанец начинает в убежище — с оружием в руках (Q/H — убрать).
     if (faction !== 'cp' && faction !== 'rebel') this.combat.equip(p, null);
+    // Партизан выходит в маскировке, без оружия в руках.
+    if (p.profession === 'partisan') this.combat.equip(p, null);
     p.name = faction === 'cp' ? nameFor(this.rng, 'cp') : this.civilName || randomName(this.rng);
     p.money = CHARACTER.roleMoney[faction] ?? CHARACTER.startMoney;
     p.brain = null;
@@ -262,8 +272,10 @@ export class Game {
     this.camera.snapTo(p.x, p.y);
     if (announce) {
       const r = rankOf(faction, rank);
-      const div = p.division ? ` · ${p.division.toUpperCase()}` : '';
-      this.bus.emit('log', { text: `Вы теперь: ${FACTIONS[faction].role}${r ? ` (${r.name})` : ''}${div} — ${p.name}`, kind: 'system' });
+      const div = p.division ? ` · ${CP_DIVISIONS[p.division].short}` : '';
+      const pr = p.profession && p.profession !== DEFAULT_PROFESSION[faction] ? ` · ${PROFESSIONS[p.profession].name}` : '';
+      this.bus.emit('log', { text: `Вы теперь: ${FACTIONS[faction].role}${r ? ` (${r.name})` : ''}${div}${pr} — ${p.name}`, kind: 'system' });
+      if (p.profession) for (const t of PROFESSIONS[p.profession].perks) this.bus.emit('log', { text: `• ${t}`, kind: 'system' });
     }
   }
 
@@ -347,7 +359,7 @@ export class Game {
   private restore(save: SaveData): void {
     this.role = { ...save.role };
     this.civilName = save.civilName || this.civilName;
-    this.applyRole(save.role.faction, save.role.rank, save.role.division, false);
+    this.applyRole(save.role.faction, save.role.rank, save.role.division, false, save.role.profession ?? null);
     applyToPlayer(this.player, save);
     const p = this.player;
     // Позиция — если там можно стоять (карта та же).

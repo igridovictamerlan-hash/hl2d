@@ -1,8 +1,9 @@
 import { FACTIONS, CP_DIVISIONS, type FactionId, type DivisionId } from '../config/factions';
+import { PROFESSIONS, professionsOf, type ProfessionId } from '../config/professions';
 
 /**
- * Выбор роли: при старте и у терминала найма на площади. У ГО и повстанцев — выбор ранга
- * (от него зависит цвет кружка).
+ * Выбор роли: при старте и у терминала найма на площади. Фракция → ранг (ГО, повстанцы), отряд
+ * (ГО) и профессия (граждане, ГСР, повстанцы, вортигонты) — со списком умений профессии.
  */
 export class RoleMenu {
   private readonly el: HTMLElement;
@@ -11,7 +12,7 @@ export class RoleMenu {
 
   constructor(
     parent: HTMLElement,
-    private readonly onChoose: (faction: FactionId, rank: number, division: DivisionId | null) => void,
+    private readonly onChoose: (faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null) => void,
     private readonly onNewGame: () => void = () => {},
   ) {
     this.el = document.createElement('div');
@@ -32,11 +33,22 @@ export class RoleMenu {
                 .map((d) => `<option value="${d.id}">${d.short} — ${d.name}</option>`)
                 .join('')}</select></label><p class="role-div-desc">${CP_DIVISIONS.union.desc}</p>`
             : '';
+        const profs = professionsOf(id, true);
+        const professions =
+          profs.length > 1
+            ? `<label class="role-rank">Профессия <select id="prof-${id}">${profs
+                .map((p) => `<option value="${p.id}">${p.name}</option>`)
+                .join('')}</select></label>`
+            : '';
+        const first = profs[0];
+        const perks = first ? `<ul class="role-perks" id="perks-${id}">${perkList(first.id)}</ul>` : '';
         return `<div class="role-card" data-role="${id}">
             <div class="role-top"><span class="role-dot" style="background:${f.color};border-color:${f.outline}"></span><b>${f.plural}</b></div>
             <p>${f.description}</p>
             ${ranks}
             ${divisions}
+            ${professions}
+            ${perks}
             <button data-pick="${id}">Играть за: ${f.role}</button>
           </div>`;
       })
@@ -77,8 +89,17 @@ export class RoleMenu {
         const id = b.dataset.pick as FactionId;
         const sel = this.el.querySelector<HTMLSelectElement>(`#rank-${id}`);
         const div = this.el.querySelector<HTMLSelectElement>(`#division-${id}`);
+        const prof = this.el.querySelector<HTMLSelectElement>(`#prof-${id}`);
+        const only = professionsOf(id, true);
         this.close();
-        this.onChoose(id, sel ? Number(sel.value) : 0, div ? (div.value as DivisionId) : null);
+        this.onChoose(id, sel ? Number(sel.value) : 0, div ? (div.value as DivisionId) : null, prof ? (prof.value as ProfessionId) : only[0]?.id ?? null);
+      }),
+    );
+    // Смена профессии — её описание и умения.
+    this.el.querySelectorAll<HTMLSelectElement>('select[id^="prof-"]').forEach((sel) =>
+      sel.addEventListener('change', () => {
+        const id = sel.id.replace('prof-', '');
+        this.el.querySelector(`#perks-${id}`)!.innerHTML = perkList(sel.value as ProfessionId);
       }),
     );
     // Смена ранга сразу красит кружок на карточке.
@@ -111,4 +132,10 @@ export class RoleMenu {
     this.isOpen = false;
     this.el.hidden = true;
   }
+}
+
+/** Описание профессии и её умения — пунктами. */
+function perkList(id: ProfessionId): string {
+  const p = PROFESSIONS[id];
+  return [`<li class="role-prof-desc">${p.desc}</li>`, ...p.perks.map((t) => `<li>${t}</li>`)].join('');
 }

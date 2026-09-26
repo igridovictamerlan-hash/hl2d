@@ -321,6 +321,9 @@ kbd {
 .death-title { font-size: 34px; letter-spacing: 0.2em; color: #ff8a7a; text-shadow: 0 2px 8px #000; }
 .death-timer { margin-top: 8px; color: var(--text); }
 .role-div-desc { font-size: 12px !important; }
+.role-perks { margin: 0; padding-left: 16px; font-size: 12px; color: var(--muted); line-height: 1.35; }
+.role-perks li { margin: 2px 0; }
+.role-perks .role-prof-desc { list-style: none; margin-left: -16px; color: var(--hud); }
 
 /* Чёрный рынок */
 .shop.black .inv-head span { color: #d9a441; }

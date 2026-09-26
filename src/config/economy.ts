@@ -72,6 +72,7 @@ export const ECONOMY = {
       { id: 'ammo_ar2', qty: 30, price: 18 },
       { id: 'medkit', qty: 1, price: 35 },
       { id: 'grenade', qty: 1, price: 30 },
+      { id: 'lockpick', qty: 2, price: 14 },
       { id: 'fake_cid', qty: 1, price: 60 },
     ] as { id: ItemId; qty: number; price: number }[],
     sell: {

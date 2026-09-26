@@ -161,7 +161,7 @@ export class EffectsRenderer {
       ctx.translate(x, y);
       ctx.rotate(seed % 2 ? Math.PI / 2 : -Math.PI / 2);
       ctx.globalAlpha = PAWN.corpseAlpha;
-      drawPawn(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed }, 0, -2 * s, s * PAWN.scale, 'S');
+      drawPawn(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession }, 0, -2 * s, s * PAWN.scale, 'S');
       ctx.restore();
       ctx.globalAlpha = 1;
       if (c.loot.length) {

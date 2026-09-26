@@ -1,4 +1,5 @@
 import type { FactionId } from './factions';
+import type { ProfessionId } from './professions';
 
 /**
  * Пешки в стиле RimWorld. Размеры — px мира от центра персонажа (круг столкновений — радиус 12,
@@ -45,5 +46,23 @@ export const PAWN = {
     cp: { style: 'marine', base: '#2c333c', armor: '#5a6879', belt: '#23282f', trim: 'rank', helmet: '#4f5d6f', visor: '#10151b', shine: '#7fa7cc', head: 'helmet' },
     ota: { style: 'marine', base: '#5d6166', armor: '#cfccc1', belt: '#4a4d52', trim: '#7c2a24', helmet: '#d6d3c8', visor: '#15191e', shine: '#9fb3c4', eye: '#ff4a3a', head: 'helmet' },
     admin: { base: '#3b3f46', head: 'hair', vest: false, collar: '#f2f2f2', tie: '#7a1c1c' },
+    /** Вортигонт: сутулое зеленоватое тело, большой красный глаз и два малых, металлический ошейник раба. */
+    vort: { style: 'vort', skin: '#7f9a62', spots: '#5f7a48', eye: '#e2342a', collar: '#8d949c', light: '#58d0ff' },
   } as Record<FactionId, Record<string, string | boolean | number>>,
+  /**
+   * Одежда по профессиям — поверх фракционной (перекрывает её поля): белый халат медика ГСР с
+   * красным крестом, поварской колпак и фартук, тёмная куртка с капюшоном вора, рваньё отброса,
+   * повязка медика и очки пиротехника у повстанцев, крематор — синтет в плаще с маской.
+   */
+  professionOutfits: {
+    cwu_medic: { base: '#e6e4dc', head: 'hair', cross: '#c93030', collar: '#cfccc4' },
+    cook: { head: 'chef', chef: '#f4f2ec', apron: '#f1efe8' },
+    courier: { cap: '#8b6a3e', bag: '#7a5a38' },
+    janitor: { cap: '#7d848c', hivis: '#e8e04a' },
+    thief: { base: '#3a3d44', head: 'hood', hood: '#2e3137', zip: false, collar: false },
+    outcast: { base: '#6b5d48', patch: '#4d4234', zip: false, collar: false },
+    rebel_medic: { armband: '#f2f2f2', armbandCross: '#c93030' },
+    pyro: { goggles: '#ff8a3a' },
+    cremator: { style: 'cremator', coat: '#3a3833', skin: '#d8cfc4', mask: '#57544d', tank: '#6d7176', eye: '#b8e04a' },
+  } as Partial<Record<ProfessionId, Record<string, string | boolean | number>>>,
 } as const;

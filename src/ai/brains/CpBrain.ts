@@ -17,7 +17,7 @@ import { Gunner } from '../Gunner';
 import { COMBAT } from '../../config/combat';
 import { ALARM } from '../../config/underground';
 import { hasLoyalty, loyaltyTier } from '../../systems/Loyalty';
-import { FACTIONS } from '../../config/factions';
+import { FACTIONS, CP_DIVISIONS } from '../../config/factions';
 
 const near: Character[] = [];
 
@@ -83,7 +83,7 @@ export class CpBrain implements Brain {
 
   get stateName(): string {
     const t = this.target ? ` → #${this.target.cid}` : this.gunner.target ? ` → ${this.gunner.target.name}` : '';
-    const div = this.self.division ? `${this.self.division.toUpperCase()} · ` : '';
+    const div = this.self.division ? `${CP_DIVISIONS[this.self.division].short} · ` : '';
     return `${div}${this.fsm.current}${t}`;
   }
 

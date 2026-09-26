@@ -11,6 +11,7 @@ import { COMBAT, GRENADE } from '../config/combat';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, weaponDps, type WeaponDef, type WeaponId, type WeaponClass } from '../config/items';
 import { FACTIONS, type FactionId } from '../config/factions';
+import type { ProfessionId } from '../config/professions';
 import { muzzleWorld } from '../entities/weaponPose';
 import { BARKS } from '../config/barks';
 import { bark, barkSide } from './Barks';
@@ -49,6 +50,9 @@ export interface Corpse {
   x: number;
   y: number;
   faction: FactionId;
+  profession: ProfessionId | null;
+  /** Кто убил (для сканирования OBS). */
+  killer: Character | null;
   rank: number;
   name: string;
   until: number;
@@ -463,7 +467,7 @@ export class CombatSystem {
     c.weapon = null;
     c.mag = 0;
     c.mags = {};
-    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot });
+    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot });
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
     if (c.law.phase !== 'none') this.law.release(c);

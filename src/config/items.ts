@@ -18,6 +18,7 @@ export type ItemId =
   | 'ammo_bolt'
   | 'fake_cid'
   | 'grenade'
+  | 'lockpick'
   | WeaponId;
 
 export type ItemKind = 'food' | 'medical' | 'weapon' | 'ammo' | 'tool' | 'misc';
@@ -163,6 +164,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   medkit: { id: 'medkit', name: 'Аптечка', desc: 'Лечение +40.', kind: 'medical', stack: 3, heal: 40, price: 28 },
   bandage: { id: 'bandage', name: 'Бинт', desc: 'Лечение +15.', kind: 'medical', stack: 5, heal: 15, price: 9 },
   cigarettes: { id: 'cigarettes', name: 'Сигареты', desc: 'Ходовая валюта «чёрного рынка».', kind: 'misc', stack: 10, price: 5 },
+  lockpick: { id: 'lockpick', name: 'Отмычка', desc: 'Для взлома раздатчика рационов (вор). Ломается.', kind: 'tool', stack: 5 },
   grenade: { id: 'grenade', name: 'Граната', desc: 'Осколочная. T — бросить к курсору (взрыв через 2 с).', kind: 'misc', stack: 3 },
   fake_cid: { id: 'fake_cid', name: 'Поддельная CID', desc: 'С чёрного рынка: «чистая» карта — снимает розыск (повстанца в лицо всё равно узнают).', kind: 'misc', stack: 1 },
   toolkit: { id: 'toolkit', name: 'Набор инструментов', desc: 'Для ремонта (ГСР).', kind: 'tool', stack: 1, price: 20 },
@@ -201,6 +203,15 @@ export const KITS: Record<string, [ItemId, number][]> = {
   ota: [['ar2', 1], ['ammo_ar2', 120], ['grenade', 2]],
   ota_shotgun: [['spas12', 1], ['ammo_buckshot', 36], ['usp', 1], ['ammo_pistol', 36], ['grenade', 1]],
   admin: [['canned', 2]],
+  /** Профессии (config/professions.ts). */
+  thief: [['lockpick', 2], ['water', 1]],
+  outcast: [['bandage', 1]],
+  cwu_cook: [['toolkit', 1], ['bread', 2], ['water', 2]],
+  cwu_medic: [['medkit', 3], ['bandage', 4]],
+  rebel_medic: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['medkit', 3], ['bandage', 3]],
+  rebel_pyro: [['crossbow', 1], ['ammo_bolt', 12], ['rebel_pistol', 1], ['ammo_pistol', 24], ['grenade', 3]],
+  rebel_partisan: [['rebel_pistol', 1], ['ammo_pistol', 36], ['lockpick', 1], ['bandage', 1]],
+  vort: [],
   /** Бойцы отрядов с пустошей: у всех автоматы (трофейные MP7 и AR2), пистолет — запасной. */
   rebel_raider: [['rebel_smg', 1], ['ammo_smg', 135], ['rebel_pistol', 1], ['ammo_pistol', 24], ['grenade', 1]],
   rebel_rifleman: [['ar2', 1], ['ammo_ar2', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['grenade', 1]],

@@ -1,5 +1,6 @@
 import type { FactionId } from '../config/factions';
 import { PAWN } from '../config/pawns';
+import type { ProfessionId } from '../config/professions';
 
 export type PawnDir = 'S' | 'N' | 'E' | 'W';
 
@@ -9,6 +10,17 @@ export interface PawnLook {
   rank: number;
   color: string;
   seed: number;
+  /** Профессия — своя одежда поверх фракционной (халат, колпак, капюшон…). */
+  profession?: ProfessionId | null;
+}
+
+type Outfit = Record<string, string | boolean | number>;
+
+/** Одежда пешки: фракционная, поля профессии перекрывают. */
+function outfitOf(look: PawnLook): Outfit {
+  const base = PAWN.outfits[look.faction] ?? PAWN.outfits.citizen;
+  const prof = look.profession ? PAWN.professionOutfits[look.profession] : undefined;
+  return prof ? { ...base, ...prof } : base;
 }
 
 type HairStyle = keyof typeof PAWN.hairStyles;
@@ -60,13 +72,13 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   const d: PawnDir = dir === 'W' ? 'E' : dir;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  const O = PAWN.outfits[look.faction] ?? PAWN.outfits.citizen;
+  const O = outfitOf(look);
   const base = O.base === 'rank' ? look.color : (O.base as string);
   const armor = O.armor === 'rank' ? look.color : (O.armor as string | undefined);
   const vest = !!armor && O.vest !== false && look.rank >= ((O.vestFromRank as number | undefined) ?? 99);
   let head = O.head as string;
   if (head === 'bandana' && !vest) head = 'hair';
-  const hairy = head === 'hair' || head === 'bandana' || head === 'cap';
+  const hairy = head === 'hair' || head === 'bandana' || head === 'cap' || head === 'chef';
   const style: HairStyle = hairy ? hairStyleOf(look.seed) : 'bald';
   const skin = pick(PAWN.skins, look.seed, 3);
   const hair = pick(PAWN.hairs, look.seed, 11);
@@ -78,6 +90,16 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
     const trim = O.trim === 'rank' ? look.color : (O.trim as string);
     marineBody(ctx, d, O, trim);
     marineHelmet(ctx, d, O, trim, hx);
+    ctx.restore();
+    return;
+  }
+  if (O.style === 'vort') {
+    vortigaunt(ctx, d, O, look.seed);
+    ctx.restore();
+    return;
+  }
+  if (O.style === 'cremator') {
+    cremator(ctx, d, O);
     ctx.restore();
     return;
   }
@@ -99,6 +121,7 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   bodyPath(ctx, d);
   stroke(ctx, PAWN.outlineWidth);
   if (vest && armor) shoulderPads(ctx, d, armor);
+  professionBody(ctx, d, O);
 
   // Голова.
   headPath(ctx, d, hx);
@@ -118,6 +141,9 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   if (hairy) frontHair(ctx, d, style, hair, hx);
   if (head === 'bandana') bandana(ctx, d, O.cloth as string, hx);
   if (head === 'cap') cap(ctx, d, O.cap as string, hx);
+  if (head === 'chef') chefHat(ctx, d, O.chef as string, hx);
+  if (head === 'hood') hood(ctx, d, O.hood as string, hx);
+  if (O.goggles && d !== 'N') goggles(ctx, d, O.goggles as string, hx);
   ctx.restore();
 }
 
@@ -848,6 +874,282 @@ function marineHelmet(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: st
     ctx.arc(ex, cy - 0.4, 1.05, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+  }
+}
+
+/**
+ * Детали профессий поверх туловища: красный крест на халате медика, фартук повара, сумка курьера,
+ * светоотражающие полосы уборщика, заплаты отброса, повязка медика сопротивления.
+ */
+function professionBody(ctx: Ctx, d: PawnDir, O: Outfit): void {
+  const B = PAWN.body;
+  const side = d === 'E';
+  if (O.apron && d !== 'N') {
+    ctx.beginPath();
+    if (side) roundRect(ctx, 1.2, B.top + 4, 6, 10, 1.6);
+    else roundRect(ctx, -5, B.top + 3.6, 10, 11.2, 2);
+    fillStroke(ctx, O.apron as string);
+  }
+  if (O.cross && d === 'S') {
+    ctx.fillStyle = O.cross as string;
+    ctx.fillRect(-4.8, B.top + 3.2, 3.6, 1.2);
+    ctx.fillRect(-3.6, B.top + 2, 1.2, 3.6);
+  }
+  if (O.hivis) {
+    ctx.beginPath();
+    ctx.moveTo(side ? -2 : -7, 3);
+    ctx.lineTo(side ? 6.6 : 7, 3);
+    ctx.moveTo(side ? -2.4 : -7.6, 7);
+    ctx.lineTo(side ? 7 : 7.6, 7);
+    stroke(ctx, 1.4, O.hivis as string);
+  }
+  if (O.patch && d !== 'N') {
+    ctx.beginPath();
+    ctx.rect(side ? 2 : -4.8, 2, 3, 2.6);
+    ctx.rect(side ? 0 : 2.2, 8, 2.6, 2.4);
+    fillStroke(ctx, O.patch as string, 0.6);
+  }
+  if (O.bag) {
+    // Ремень через плечо и сумка на бедре.
+    ctx.beginPath();
+    ctx.moveTo(side ? -2 : -5.5, B.top + 0.6);
+    ctx.lineTo(side ? 3 : 5.5, 8);
+    stroke(ctx, 1.2, O.bag as string);
+    ctx.beginPath();
+    if (side) roundRect(ctx, -6.2, 6.4, 5, 5, 1.2);
+    else roundRect(ctx, 3.4, 6.6, 5.4, 4.6, 1.2);
+    fillStroke(ctx, O.bag as string, PAWN.outlineWidth * 0.8);
+  }
+  if (O.armband && d !== 'N') {
+    ctx.beginPath();
+    const ax = side ? 0.2 : -PAWN.body.shoulder - 0.2;
+    ctx.rect(ax - 2, B.top + 4.4, 4, 2.6);
+    fillStroke(ctx, O.armband as string, 0.7);
+    if (O.armbandCross) {
+      ctx.fillStyle = O.armbandCross as string;
+      ctx.fillRect(ax - 0.4, B.top + 4.6, 0.8, 2.2);
+      ctx.fillRect(ax - 1.1, B.top + 5.3, 2.2, 0.8);
+    }
+  }
+}
+
+/** Поварской колпак. */
+function chefHat(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
+  const H = PAWN.head;
+  const cy = H.y;
+  const cx = d === 'E' ? hx - 0.5 : 0;
+  ctx.beginPath();
+  ctx.moveTo(cx - 5.2, cy - 4.2);
+  ctx.lineTo(cx - 5.4, cy - 7.4);
+  ctx.bezierCurveTo(cx - 8.4, cy - 9.6, cx - 5.6, cy - 14.4, cx - 2.4, cy - 12.8);
+  ctx.bezierCurveTo(cx - 1.2, cy - 15.6, cx + 2.8, cy - 15.2, cx + 3, cy - 12.6);
+  ctx.bezierCurveTo(cx + 6.4, cy - 13.8, cx + 8.2, cy - 9.2, cx + 5.4, cy - 7.4);
+  ctx.lineTo(cx + 5.2, cy - 4.2);
+  ctx.closePath();
+  fillStroke(ctx, color, PAWN.outlineWidth);
+  ctx.beginPath();
+  ctx.moveTo(cx - 5.3, cy - 6.4);
+  ctx.lineTo(cx + 5.3, cy - 6.4);
+  stroke(ctx, 0.7, tint(color, -0.25));
+}
+
+/** Капюшон вора: накрывает голову и плечи, лицо в тени. */
+function hood(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
+  const H = PAWN.head;
+  const cy = H.y;
+  const r = H.r + 1.6;
+  ctx.save();
+  ctx.beginPath();
+  if (d === 'N') {
+    ctx.arc(0, cy, r, 0, Math.PI * 2);
+  } else if (d === 'E') {
+    ctx.moveTo(hx + r - 3, cy - r + 1);
+    ctx.bezierCurveTo(hx + 1, cy - r - 2.2, hx - r - 1.5, cy - r, hx - r - 1, cy + 3);
+    ctx.lineTo(hx - r + 1, cy + r + 0.5);
+    ctx.lineTo(hx + 1, cy + r - 1);
+    ctx.bezierCurveTo(hx - 2, cy + 2, hx + 0.5, cy - 4, hx + r - 3, cy - r + 1);
+  } else {
+    // Спереди: край капюшона обрамляет лицо.
+    ctx.moveTo(-r, cy + r - 1);
+    ctx.bezierCurveTo(-r - 0.6, cy - r - 2.4, r + 0.6, cy - r - 2.4, r, cy + r - 1);
+    ctx.lineTo(r - 2.6, cy + r - 2);
+    ctx.bezierCurveTo(r - 2.2, cy - 3, -r + 2.2, cy - 3, -r + 2.6, cy + r - 2);
+  }
+  ctx.closePath();
+  fillStroke(ctx, color, PAWN.outlineWidth);
+  if (d === 'S') {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(-r + 2.6, cy - 3.6, (r - 2.6) * 2, 2.6);
+  }
+  ctx.restore();
+}
+
+/** Защитные очки пиротехника. */
+function goggles(ctx: Ctx, d: PawnDir, lens: string, hx: number): void {
+  const E = PAWN.eye;
+  ctx.beginPath();
+  if (d === 'E') ctx.moveTo(hx - PAWN.head.r, E.y - 0.6), ctx.lineTo(hx + PAWN.head.r - 3.6, E.y - 0.6);
+  else ctx.moveTo(-PAWN.head.r, E.y - 0.6), ctx.lineTo(PAWN.head.r, E.y - 0.6);
+  stroke(ctx, 1.1, '#2a2622');
+  const lenses = d === 'E' ? [hx + PAWN.head.r - 2.4] : [-E.dx, E.dx];
+  for (const lx of lenses) {
+    ctx.beginPath();
+    ctx.arc(lx, E.y - 0.2, 1.9, 0, Math.PI * 2);
+    fillStroke(ctx, lens, 0.9);
+    ctx.beginPath();
+    ctx.arc(lx - 0.6, E.y - 0.8, 0.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fill();
+  }
+}
+
+/**
+ * Вортигонт: сутулый (голова ниже и вперёд), зеленоватая кожа с пятнами, вытянутая голова,
+ * большой красный глаз посередине и два малых, металлический ошейник раба с огоньком.
+ */
+function vortigaunt(ctx: Ctx, d: PawnDir, O: Outfit, seed: number): void {
+  const B = PAWN.body;
+  const skin = O.skin as string;
+  const side = d === 'E';
+  // Туловище — уже в плечах, шире к низу (сутулость).
+  ctx.beginPath();
+  const sh = side ? 4.6 : 5.6;
+  const wa = side ? 7.4 : 8.8;
+  const top = B.top + 1.5;
+  ctx.moveTo(-sh, top + 2);
+  ctx.quadraticCurveTo(-sh, top - 0.5, 0, top - 0.8);
+  ctx.quadraticCurveTo(sh, top - 0.5, sh, top + 2);
+  ctx.bezierCurveTo(wa, B.bottom - 6, wa, B.bottom, 0, B.bottom);
+  ctx.bezierCurveTo(-wa, B.bottom, -wa, B.bottom - 6, -sh, top + 2);
+  ctx.closePath();
+  ctx.fillStyle = skin;
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = PAWN.shade;
+  ctx.fillRect(side ? -20 : 2.5, -20, side ? 18 : 20, 40);
+  // Пятна.
+  ctx.fillStyle = O.spots as string;
+  for (let k = 0; k < 4; k++) {
+    const sx = ((seed >>> (k * 5)) % 11) - 5.5;
+    const sy = ((seed >>> (k * 3 + 2)) % 12) - 1;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, 1.4, 1, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  stroke(ctx, PAWN.outlineWidth);
+  // Голова: вытянутая, наклонена вперёд.
+  const hy = PAWN.head.y + 2.2;
+  const hx = side ? 2.6 : 0;
+  ctx.beginPath();
+  if (side) {
+    ctx.moveTo(hx - 5.6, hy + 2);
+    ctx.bezierCurveTo(hx - 6.4, hy - 7.6, hx + 5, hy - 8.4, hx + 7.6, hy - 1.2);
+    ctx.bezierCurveTo(hx + 9.4, hy + 2.6, hx + 6.6, hy + 5.4, hx + 3, hy + 5.8);
+    ctx.bezierCurveTo(hx - 1, hy + 6.4, hx - 5, hy + 5, hx - 5.6, hy + 2);
+  } else {
+    ctx.ellipse(0, hy, 6.4, 7.6, 0, 0, Math.PI * 2);
+  }
+  ctx.fillStyle = skin;
+  ctx.fill();
+  stroke(ctx, PAWN.outlineWidth);
+  if (d !== 'N') {
+    // Глаза: большой красный и два малых.
+    const eye = O.eye as string;
+    const big = side ? [hx + 5.4, hy - 1] : [0, hy - 1.2];
+    ctx.beginPath();
+    ctx.arc(big[0], big[1], 1.9, 0, Math.PI * 2);
+    ctx.fillStyle = eye;
+    ctx.fill();
+    stroke(ctx, 0.7);
+    ctx.fillStyle = '#ffd0c8';
+    ctx.beginPath();
+    ctx.arc(big[0] - 0.6, big[1] - 0.6, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    const small = side ? [[hx + 3.6, hy - 3.8]] : [[-3.2, hy - 3.2], [3.2, hy - 3.2]];
+    ctx.fillStyle = eye;
+    for (const [ex, ey] of small) {
+      ctx.beginPath();
+      ctx.arc(ex, ey, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Рот-щель.
+    ctx.beginPath();
+    if (side) {
+      ctx.moveTo(hx + 7.4, hy + 2.6);
+      ctx.lineTo(hx + 4.6, hy + 3.4);
+    } else {
+      ctx.moveTo(-2.2, hy + 3.6);
+      ctx.quadraticCurveTo(0, hy + 4.4, 2.2, hy + 3.6);
+    }
+    stroke(ctx, 0.7);
+  } else {
+    // Затылок: гребень.
+    ctx.beginPath();
+    ctx.moveTo(0, hy - 7);
+    ctx.lineTo(0, hy + 4);
+    stroke(ctx, 0.8, O.spots as string);
+  }
+  // Ошейник раба.
+  ctx.beginPath();
+  ctx.ellipse(side ? 1 : 0, B.top + 2.2, side ? 4.2 : 5, 1.9, 0, 0, Math.PI * 2);
+  fillStroke(ctx, O.collar as string, PAWN.outlineWidth * 0.9);
+  if (d !== 'N') {
+    ctx.beginPath();
+    ctx.arc(side ? 4.6 : 0, B.top + 2.8, 0.9, 0, Math.PI * 2);
+    ctx.fillStyle = O.light as string;
+    ctx.fill();
+  }
+}
+
+/** Крематор: синтет в длинном плаще, бледная лысая голова, маска с одним зелёным глазом, бак за спиной. */
+function cremator(ctx: Ctx, d: PawnDir, O: Outfit): void {
+  const B = PAWN.body;
+  const side = d === 'E';
+  if (d === 'N' || side) {
+    ctx.beginPath();
+    roundRect(ctx, side ? -9 : -4.4, B.top + 1.5, side ? 4.6 : 8.8, 9, 2.2);
+    fillStroke(ctx, O.tank as string, PAWN.outlineWidth);
+  }
+  bodyPath(ctx, d);
+  ctx.fillStyle = O.coat as string;
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = PAWN.shade;
+  ctx.fillRect(side ? -20 : 2.5, -20, side ? 18 : 20, 40);
+  if (d === 'S') {
+    ctx.beginPath();
+    ctx.moveTo(0, B.top);
+    ctx.lineTo(0, B.bottom);
+    stroke(ctx, PAWN.seamWidth);
+  }
+  ctx.restore();
+  bodyPath(ctx, d);
+  stroke(ctx, PAWN.outlineWidth);
+  const hx = side ? PAWN.head.sideShift : 0;
+  headPath(ctx, d, hx);
+  ctx.fillStyle = O.skin as string;
+  ctx.fill();
+  ctx.save();
+  headPath(ctx, d, hx);
+  ctx.clip();
+  if (d !== 'N') {
+    ctx.fillStyle = O.mask as string;
+    if (side) ctx.fillRect(hx - 1, PAWN.head.y - 1, 20, 20);
+    else ctx.fillRect(-20, PAWN.head.y - 1, 40, 20);
+  }
+  ctx.restore();
+  headPath(ctx, d, hx);
+  stroke(ctx, PAWN.outlineWidth);
+  if (d !== 'N') {
+    const ex = side ? hx + PAWN.head.r - 2.4 : 0;
+    ctx.beginPath();
+    ctx.arc(ex, PAWN.head.y - 3.4, 1.7, 0, Math.PI * 2);
+    ctx.fillStyle = O.eye as string;
+    ctx.fill();
+    stroke(ctx, 0.8);
   }
 }
 
