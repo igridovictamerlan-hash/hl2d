@@ -61,6 +61,10 @@ export class CpBrain implements Brain {
   postFacing = 0;
   lostTime = 0;
   repath = 0;
+  /** Прочёсывание: своя точка поиска, вокруг какого места, сколько ещё осматриваться. */
+  huntSpot = -1;
+  private huntAround: Vec2 | null = null;
+  private huntPause = 0;
   healCooldown = 0;
   retreatTo: Vec2 | null = null;
   /** Наблюдатель OBS: какое тело сканирует и сколько осталось. */
@@ -109,6 +113,44 @@ export class CpBrain implements Brain {
     if (war.code === 'red') return true;
     const p = war.nearestKnown(this.self.x, this.self.y);
     return !!p && Math.hypot(p.x - this.self.x, p.y - this.self.y) < ALARM.respondRadius;
+  }
+
+  /** Прочёсывание вокруг места p: своя точка, не у точек других; дошёл — осмотрелся — следующая. */
+  sweep(p: Vec2, dt: number): void {
+    const H = LAW.hunt;
+    const { ctx, self } = this;
+    const moved = !this.huntAround || Math.hypot(p.x - this.huntAround.x, p.y - this.huntAround.y) > H.moved;
+    const st = this.mover.status;
+    const at = this.huntSpot >= 0 && Math.hypot(ctx.nav.worldX(this.huntSpot) - self.x, ctx.nav.worldY(this.huntSpot) - self.y) < 14;
+    if (at || st === 'arrived') {
+      this.mover.stop();
+      this.huntPause -= dt;
+      if (ctx.rng.chance(dt * 0.8)) this.postFacing = ctx.rng.range(0, Math.PI * 2);
+      turnTowards(self, this.postFacing, dt, 3);
+    }
+    const done = (at || st === 'arrived') && this.huntPause <= 0;
+    if (!moved && !done && this.huntSpot >= 0 && st !== 'failed' && st !== 'idle') return;
+    if (!moved && !done && this.huntSpot >= 0 && (at || st === 'arrived')) return;
+    this.huntAround = { x: p.x, y: p.y };
+    // Точки других прочёсывающих рядом — не брать их.
+    const taken: Vec2[] = [];
+    for (const o of ctx.entities.near(p.x, p.y, H.radius[1] * ctx.map.tileSize + H.spacing, near)) {
+      const b = o.brain;
+      if (o !== self && b instanceof CpBrain && b.huntSpot >= 0) taken.push({ x: ctx.nav.worldX(b.huntSpot), y: ctx.nav.worldY(b.huntSpot) });
+    }
+    let best = -1;
+    for (let k = 0; k < 10; k++) {
+      const a = randomAnchorAround(p, ctx, H.radius[0], H.radius[1], this.patrolAvoid);
+      if (a < 0) continue;
+      best = a;
+      const x = ctx.nav.worldX(a);
+      const y = ctx.nav.worldY(a);
+      if (!taken.some((q) => Math.hypot(q.x - x, q.y - y) < H.spacing)) break;
+    }
+    if (best < 0) return;
+    this.huntSpot = best;
+    this.huntPause = ctx.rng.range(H.pause[0], H.pause[1]);
+    this.mover.goTo(self, ctx, best);
   }
 
   /** Может ли быть охраной (свободный патрульный). */
@@ -470,6 +512,12 @@ const ESCORT: State<CpBrain> = {
       b.ctx.law.putInCell(t, cell);
       return;
     }
+    // Задержанный отстал (затор, толпа) — ждём его, не уходя через полгорода вперёд.
+    if (!atFront && dist(b.self.x, b.self.y, t.x, t.y) > LAW.escortWait) {
+      if (st === 'moving' || st === 'pending') b.mover.stop();
+      faceTowards(b.self, t.x, t.y, dt);
+      return;
+    }
     if (st === 'arrived' || st === 'failed' || st === 'idle') {
       // Ждём, пока задержанный подтянется, и перестраиваем путь при неудаче.
       if (!atFront) {
@@ -582,13 +630,17 @@ const HUNT: State<CpBrain> = {
     }
     const p = b.ctx.war.nearestKnown(b.self.x, b.self.y);
     if (!p) {
+      b.huntSpot = -1;
       if (b.mover.status !== 'moving' && b.mover.status !== 'pending') {
         const a = randomAnchorAround(b.self, b.ctx, 10, 40, b.patrolAvoid);
         if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
       }
       return;
     }
-    b.goToPoint(p, dt, 3);
+    b.sweep(p, dt);
+  },
+  exit(b) {
+    b.huntSpot = -1;
   },
 };
 

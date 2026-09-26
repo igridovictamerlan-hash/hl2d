@@ -380,3 +380,20 @@ describe('штурм Нексуса', () => {
     expect((r.brain as RebelBrain).mode).toBe('retreat');
   });
 });
+
+describe('прочёсывание по тревоге', () => {
+  test('патрули ищут вокруг места тревоги каждый в своей точке, а не толпой в одной', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 20);
+    sim.war.command.paused = true;
+    const p = poiWorld(sim.ctx, 'plaza_center')!;
+    sim.war.raiseAlarm(p.x, p.y, 'проверка');
+    run(sim, 25);
+    const hunters = sim.entities.list.filter((c) => c.alive && c.brain instanceof CpBrain && c.brain.fsm.current === 'hunt' && c.brain.huntSpot >= 0);
+    expect(hunters.length).toBeGreaterThanOrEqual(4);
+    const spots = hunters.map((c) => (c.brain as CpBrain).huntSpot).map((a) => ({ x: sim.nav.worldX(a), y: sim.nav.worldY(a) }));
+    let close = 0;
+    for (let i = 0; i < spots.length; i++) for (let j = i + 1; j < spots.length; j++) if (Math.hypot(spots[i].x - spots[j].x, spots[i].y - spots[j].y) < 24) close++;
+    expect(close).toBeLessThanOrEqual(1);
+  });
+});
