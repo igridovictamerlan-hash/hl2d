@@ -17,6 +17,7 @@ import type { TrashPile } from '../systems/LaborSystem';
 import type { Corpse } from '../systems/CombatSystem';
 import { LABOR } from '../config/labor';
 import { CRIME } from '../config/crime';
+import { CP_UNITS } from '../config/cpUnits';
 
 const near: Character[] = [];
 
@@ -230,6 +231,12 @@ export class PlayerController {
       return this.say(n > 0 ? `Тайник: +${n} патронов.` : 'Тайник: патронов вам хватает.', 'world');
     }
     const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
+    // Наблюдатель OBS сначала сканирует тело (найти убийцу), потом можно обыскать.
+    if (corpse && p.faction === 'cp' && p.division === 'jury' && !corpse.scanned) {
+      const T = CP_UNITS.obs.scanTime;
+      this.task = { kind: 'scan', x: corpse.x, y: corpse.y, left: T, total: T, corpse };
+      return this.say('Сканирование тела…', 'world');
+    }
     if (corpse) {
       const n = ctx.combat.loot(p, corpse);
       return this.say(n > 0 ? `Обыскали тело: ${corpse.name}.` : 'Инвентарь полон.');
@@ -351,6 +358,9 @@ export class PlayerController {
       if (ctx.crime.pickpocket(p, t.victim) <= 0) this.say('Карманы пусты.');
       return;
     }
+    if (t.kind === 'scan' && t.corpse) {
+      return this.say(ctx.crime.investigate(t.corpse, p), 'law');
+    }
     if (t.kind === 'hack') {
       const n = ctx.crime.hackDispenser(p);
       return this.say(n > 0 ? `Раздатчик вскрыт: +${n} рационов. Уходите!` : 'Склад будки пуст — взлом впустую.', 'world');
@@ -422,11 +432,15 @@ export class PlayerController {
       this.healCooldown = COMBAT.healCooldown;
       return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
     }
+    if (p.division === 'tech') {
+      const err = ctx.scanners.deploy(p);
+      return this.say(err ?? `Сканер запущен: облетает кварталы вокруг вас ${CP_UNITS.scanner.life} с и засекает повстанцев, вооружённых и разыскиваемых.`, err ? 'system' : 'world');
+    }
     if (p.division === 'grid') {
       const err = this.hooks.placeBarrier();
       return this.say(err ?? 'Бетонный блок установлен (не больше трёх).', err ? 'system' : 'world');
     }
-    this.say(p.division === 'jury' ? 'JURY: проверки CID идут быстрее, штрафы выше (F).' : 'UNION: патруль, проверки CID (F).');
+    this.say(p.division === 'jury' ? 'OBS: E у тела — сканировать и найти убийцу; проверки CID быстрее (F).' : 'MPF: патруль, проверки CID (F).');
   }
 
   /** F: у ГО — проверка документов у ближайшего, кто перед игроком. */

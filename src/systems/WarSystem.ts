@@ -31,7 +31,7 @@ export interface Capture {
 }
 
 /** Как радио называет особых бойцов отряда. */
-const KIT_ROLE: Record<string, string> = { rebel_commander: 'командир', rebel_marksman: 'арбалетчик', rebel_shotgunner: 'дробовик', rebel_rifleman: 'AR2' };
+const KIT_ROLE: Record<string, string> = { rebel_commander: 'командир', rebel_marksman: 'арбалетчик', rebel_shotgunner: 'дробовик', rebel_rifleman: 'AR2', rebel_medic: 'медик', rebel_pyro: 'пиротехник' };
 
 /** Фронт — пограничный КПП: пустошь с отрядами повстанцев по ту сторону ворот. */
 export interface Front {
@@ -265,9 +265,13 @@ export class WarSystem {
       } else if (k === 1 && !assault && rng.chance(WAR.marksmanChance)) {
         kit = 'rebel_marksman';
         rank = Math.max(rank, 2);
-      } else if (rng.chance(assault ? WAR.shotgunChance * 2 : WAR.shotgunChance)) kit = 'rebel_shotgunner';
+      } else if (k === 2 && rng.chance(WAR.medicChance)) kit = 'rebel_medic';
+      else if (k === 3 && rng.chance(WAR.pyroChance)) kit = 'rebel_pyro';
+      else if (rng.chance(assault ? WAR.shotgunChance * 2 : WAR.shotgunChance)) kit = 'rebel_shotgunner';
       const c = createCharacter(this.ctx.entities, rng, 'rebel', nav.worldX(a) + rng.range(-4, 4), nav.worldY(a) + rng.range(-4, 4), false, rank);
       equipKit(c, kit, this.ctx);
+      if (kit === 'rebel_medic') c.profession = 'rebel_medic';
+      if (kit === 'rebel_pyro') c.profession = 'pyro';
       const brain = new RebelBrain(c, this.ctx, f.index, assaultAt);
       c.brain = brain;
       // КПП ещё у Альянса — собираются на точке сбора; во время капта — сразу в бой.

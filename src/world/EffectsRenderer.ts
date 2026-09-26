@@ -1,6 +1,8 @@
 import type { View } from '../core/Camera';
 import type { CombatSystem } from '../systems/CombatSystem';
 import type { LaborSystem } from '../systems/LaborSystem';
+import type { Scanner } from '../systems/ScannerSystem';
+import { CP_UNITS } from '../config/cpUnits';
 import { LABOR } from '../config/labor';
 import type { EconomySystem } from '../systems/EconomySystem';
 import type { Character } from '../entities/Character';
@@ -255,6 +257,112 @@ export class EffectsRenderer {
       ctx.textAlign = 'center';
       ctx.fillStyle = stock > 0 ? E.stockText : E.brokenA;
       ctx.fillText(`рационов: ${stock}`, bx, by + 14 * s);
+    }
+  }
+
+  /** Пламя пиротехника на земле и горящие персонажи (языки огня мерцают). */
+  drawFire(ctx: CanvasRenderingContext2D, v: View, combat: CombatSystem, list: readonly Character[], alpha: number, now: number): void {
+    const s = v.scale;
+    const E = RENDER.effects;
+    const flame = (x: number, y: number, h: number, seed: number) => {
+      const f = 0.75 + 0.25 * Math.sin(now * 17 + seed * 3.1);
+      const w = h * 0.45;
+      ctx.fillStyle = E.flameOuter;
+      ctx.beginPath();
+      ctx.moveTo(x - w, y);
+      ctx.quadraticCurveTo(x - w, y - h * 0.6 * f, x + Math.sin(now * 9 + seed) * w * 0.4, y - h * f);
+      ctx.quadraticCurveTo(x + w, y - h * 0.6 * f, x + w, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = E.flameInner;
+      ctx.beginPath();
+      ctx.moveTo(x - w * 0.5, y);
+      ctx.quadraticCurveTo(x - w * 0.5, y - h * 0.35 * f, x, y - h * 0.6 * f);
+      ctx.quadraticCurveTo(x + w * 0.5, y - h * 0.35 * f, x + w * 0.5, y);
+      ctx.closePath();
+      ctx.fill();
+    };
+    for (const f of combat.fires) {
+      const x = (f.x - v.left) * s;
+      const y = (f.y - v.top) * s;
+      const r = f.r * s;
+      if (x < -r || y < -r || x > v.width + r || y > v.height + r) continue;
+      const left = Math.min(1, (f.until - now) / 2);
+      ctx.globalAlpha = left;
+      ctx.fillStyle = E.flameGlow;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      for (let k = 0; k < 9; k++) {
+        const a = k * 2.4 + f.x * 0.01;
+        const d = (0.25 + ((k * 37) % 10) / 14) * r * 0.9;
+        flame(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.7, (7 + (k % 3) * 3) * s, k + f.x);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // Тела, которые сжигает крематор.
+    for (const k of combat.corpses) {
+      if (!k.burning) continue;
+      const x = (k.x - v.left) * s;
+      const y = (k.y - v.top) * s;
+      for (let j = 0; j < 5; j++) flame(x + (j - 2) * 5 * s, y + ((j % 2) * 4 - 2) * s, (9 + (j % 3) * 3) * s, j + k.x);
+    }
+    for (const c of list) {
+      if (!c.alive || c.burnUntil <= now || !c.visible) continue;
+      const x = (c.prevX + (c.x - c.prevX) * alpha - v.left) * s;
+      const y = (c.prevY + (c.y - c.prevY) * alpha - v.top) * s;
+      for (let k = 0; k < 4; k++) flame(x + (k - 1.5) * 4 * s, y + (4 - (k % 2) * 6) * s, (8 + (k % 2) * 4) * s, k + c.id);
+    }
+  }
+
+  /** Сканеры Альянса: тень на земле, пятно света, парящий корпус с линзой, вспышка при «фото». */
+  drawScanners(ctx: CanvasRenderingContext2D, v: View, list: readonly Scanner[], alpha: number, now: number): void {
+    const s = v.scale;
+    const E = RENDER.effects;
+    for (const sc of list) {
+      const wx = sc.prevX + (sc.x - sc.prevX) * alpha;
+      const wy = sc.prevY + (sc.y - sc.prevY) * alpha;
+      const x = (wx - v.left) * s;
+      const y = (wy - v.top) * s;
+      if (x < -60 || y < -60 || x > v.width + 60 || y > v.height + 60) continue;
+      // Свет на земле и тень (дрон висит выше).
+      ctx.fillStyle = E.scannerLight;
+      ctx.beginPath();
+      ctx.ellipse(x, y + 16 * s, 22 * s, 12 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(x + 3 * s, y + 18 * s, 6 * s, 3 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      const hy = y + Math.sin(now * 3 + sc.x * 0.01) * 1.5 * s;
+      ctx.fillStyle = E.scannerBody;
+      ctx.strokeStyle = PAWN.outline;
+      ctx.lineWidth = Math.max(1, 1.3 * s);
+      ctx.beginPath();
+      ctx.ellipse(x, hy, 7 * s, 5.6 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Антенны-лопасти.
+      ctx.strokeStyle = E.scannerRim;
+      ctx.beginPath();
+      ctx.moveTo(x - 9 * s, hy - 2 * s);
+      ctx.lineTo(x - 5 * s, hy - 1 * s);
+      ctx.moveTo(x + 9 * s, hy - 2 * s);
+      ctx.lineTo(x + 5 * s, hy - 1 * s);
+      ctx.stroke();
+      ctx.fillStyle = E.scannerLens;
+      ctx.beginPath();
+      ctx.arc(x, hy + 1 * s, 2.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      if (now < sc.flashUntil) {
+        const k = (sc.flashUntil - now) / CP_UNITS.scanner.flash;
+        ctx.fillStyle = E.scannerFlash;
+        ctx.globalAlpha = k;
+        ctx.beginPath();
+        ctx.arc(x, hy, 18 * s, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     }
   }
 

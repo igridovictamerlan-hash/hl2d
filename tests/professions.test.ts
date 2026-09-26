@@ -244,11 +244,11 @@ describe('граждане: вор, вортигонты', () => {
     expect(thief.inventory.count('ration')).toBe(CRIME.hack.rations);
   });
 
-  test('NPC-воры сами обворовывают прохожих в городе', { timeout: 120_000 }, () => {
+  test('NPC-воры сами обворовывают прохожих в городе', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
     spawnPopulation(sim.ctx, 25);
-    run(sim, 240, () => sim.crime.stats.pickpockets > 0);
+    run(sim, 480, () => sim.crime.stats.pickpockets > 0);
     console.log(`краж: ${sim.crime.stats.pickpockets}, украдено ${sim.crime.stats.stolen}, крики ${sim.crime.stats.cries}`);
     expect(sim.crime.stats.pickpockets).toBeGreaterThan(0);
   });

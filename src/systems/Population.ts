@@ -114,7 +114,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
   const none = new Set<number>();
-  const patrolDivisions: DivisionId[] = ['union', 'union', 'jury', 'helix', 'union', 'jury'];
+  const patrolDivisions: DivisionId[] = ['union', 'union', 'jury', 'helix', 'tech', 'jury'];
   for (let k = 0; k < P.cpPatrol; k++) {
     const division = patrolDivisions[k % patrolDivisions.length];
     const c = add('cp', freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, none), cpKit(division), randomRank(ctx, 'cp', 6));

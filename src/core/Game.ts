@@ -36,6 +36,7 @@ import { UndergroundSystem } from '../systems/UndergroundSystem';
 import { InsurgencySystem } from '../systems/InsurgencySystem';
 import { LaborSystem } from '../systems/LaborSystem';
 import { CrimeSystem } from '../systems/CrimeSystem';
+import { ScannerSystem } from '../systems/ScannerSystem';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
 import { SAVE } from '../config/save';
@@ -181,6 +182,7 @@ export class Game {
       insurgency: null as unknown as InsurgencySystem,
       labor: null as unknown as LaborSystem,
       crime: null as unknown as CrimeSystem,
+      scanners: null as unknown as ScannerSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -189,6 +191,7 @@ export class Game {
     this.labor = new LaborSystem(this.ai);
     this.ai.labor = this.labor;
     this.ai.crime = new CrimeSystem(this.ai);
+    this.ai.scanners = new ScannerSystem(this.ai);
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
@@ -540,6 +543,7 @@ export class Game {
     this.war.update(dt);
     this.insurgency.update(dt);
     this.labor.update(dt);
+    this.ai.scanners.update(dt);
     if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside
@@ -600,6 +604,8 @@ export class Game {
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     this.effects.drawShots(ctx, v, this.combat);
+    this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);
+    this.effects.drawScanners(ctx, v, this.ai.scanners.list, alpha, this.law.now);
     this.aim.drawSwings(ctx, v, this.combat);
     const sewer = this.level === 'sewer';
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);

@@ -12,6 +12,8 @@ import { WAR } from '../../config/war';
 import { CHARACTER } from '../../config/entities';
 import { T } from '../../world/tiles';
 
+const nearRebels: Character[] = [];
+
 type Mode = 'gather' | 'raid' | 'assault' | 'infiltrate' | 'retreat' | 'capture' | 'hold';
 
 /**
@@ -42,6 +44,10 @@ export class RebelBrain implements Brain {
   private coverLeft = 0;
   private shooting = false;
   private phaseLeft = 0;
+  /** Медик: кого лечит, перерыв между перевязками, как часто искать раненых. */
+  private patient: Character | null = null;
+  private healCooldown = 0;
+  private medicScan = 0;
 
   constructor(
     private self: Character,
@@ -221,6 +227,47 @@ export class RebelBrain implements Brain {
     this.suppressLeft = ctx.rng.int(WAR.suppressBurst[0], WAR.suppressBurst[1]);
   }
 
+  /** Медик: найти раненого своего и перевязать. true — занят лечением (движение уже задано). */
+  private medic(self: Character, ctx: AiContext, dt: number, fighting: boolean): boolean {
+    this.healCooldown -= dt;
+    this.medicScan -= dt;
+    if (this.medicScan <= 0) {
+      this.medicScan = 0.5;
+      this.patient = null;
+      if (!self.inventory.has('bandage') && !self.inventory.has('medkit')) return false;
+      let bestD = 240;
+      for (const o of ctx.entities.near(self.x, self.y, bestD, nearRebels)) {
+        if (o === self || o.faction !== 'rebel' || !o.alive || o.health >= o.maxHealth * 0.6) continue;
+        const d = Math.hypot(o.x - self.x, o.y - self.y);
+        if (d < bestD) {
+          bestD = d;
+          this.patient = o;
+        }
+      }
+    }
+    const p = this.patient;
+    if (!p || !p.alive || (fighting && this.gunner.target && Math.hypot(p.x - self.x, p.y - self.y) > 60)) return false;
+    if (Math.hypot(p.x - self.x, p.y - self.y) > COMBAT.healRange) {
+      if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'arrived') {
+        this.repath = 0.8;
+        this.mover.speed = CHARACTER.runSpeed * 0.8;
+        this.go(ctx.nav.nearestWalkable(p.x, p.y, 3));
+      }
+      return true;
+    }
+    this.mover.stop();
+    if (this.healCooldown <= 0 && (self.inventory.remove('bandage', 1) || self.inventory.remove('medkit', 1))) {
+      ctx.combat.heal(p, COMBAT.healAmount);
+      this.healCooldown = COMBAT.healCooldown;
+      self.say('Держись, брат, латаю.', ctx.law.now, 1.5);
+      if (p.health >= p.maxHealth * 0.6) {
+        this.patient = null;
+        this.goal = -1;
+      }
+    }
+    return true;
+  }
+
   private go(anchor: number): void {
     if (anchor < 0) return;
     this.goal = anchor;
@@ -245,6 +292,12 @@ export class RebelBrain implements Brain {
     const fighting = this.gunner.update(self, ctx, dt);
     this.relocate -= dt;
     this.repath -= dt;
+    // Медик: раненый свой рядом — к нему и перевязать (важнее позиции, но не во время перестрелки в упор).
+    if (self.profession === 'rebel_medic' && this.mode !== 'retreat' && this.mode !== 'infiltrate' && this.medic(self, ctx, dt, fighting)) {
+      this.mover.update(self, ctx, dt);
+      if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
+      return;
+    }
 
     switch (this.mode) {
       case 'gather': {

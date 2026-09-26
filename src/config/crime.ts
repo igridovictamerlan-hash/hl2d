@@ -19,5 +19,5 @@ export const CRIME = {
   hack: { time: 6, rations: 3, lockpickBreak: 0.5 },
   seenFor: 5,
   /** NPC-вор: шанс пойти на дело, где искать жертву, у жертвы должно быть не меньше minMoney. */
-  npc: { chance: 0.3, seek: 260, minMoney: 6, giveUp: 18 },
+  npc: { chance: 0.5, seek: 260, minMoney: 6, giveUp: 18 },
 } as const;

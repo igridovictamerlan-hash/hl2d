@@ -202,7 +202,7 @@ export class LawSystem {
     if (target.faction === 'rebel') {
       target.disguised = false;
       reason = 'rebel';
-    }
+    } else if ((target.law.crimeUntil ?? -1) > this.time) reason = 'theft';
     else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
     else if (!law.hasCid) reason = 'no_cid';
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };

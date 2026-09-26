@@ -11,6 +11,8 @@ import { poiWorld } from '../../systems/Population';
 import { faceMovement, faceTowards, turnTowards } from '../facing';
 import { canSeeCircle } from '../../world/visibility';
 import { CHARACTER } from '../../config/entities';
+import { CP_UNITS } from '../../config/cpUnits';
+import type { Corpse } from '../../systems/CombatSystem';
 import { LAW } from '../../config/law';
 import { VISION } from '../../config/vision';
 import { dist, type Vec2 } from '../../core/math';
@@ -61,6 +63,9 @@ export class CpBrain implements Brain {
   repath = 0;
   healCooldown = 0;
   retreatTo: Vec2 | null = null;
+  /** Наблюдатель OBS: какое тело сканирует и сколько осталось. */
+  corpse: Corpse | null = null;
+  scanLeft = 0;
   /** Кого сопровождает (охрана доверенного лоялиста) и до какого времени. */
   ward: Character | null = null;
   wardUntil = 0;
@@ -79,7 +84,7 @@ export class CpBrain implements Brain {
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
       this,
-      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD],
+      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD, SCAN],
       this.idleState,
     );
     this.scan = ctx.rng.range(0, LAW.scanInterval);
@@ -168,6 +173,22 @@ export class CpBrain implements Brain {
     const law = ctx.law;
     const zone = ctx.map.zoneAtWorld(self.x, self.y);
     const atCheckpoint = zone?.kind === 'checkpoint';
+    // Техник TECH: сканер в воздухе, пока есть заряд.
+    if (self.division === 'tech' && !ctx.scanners.of(self) && ctx.map.levelAt(self.x, self.y) === 'city') {
+      if (!ctx.scanners.deploy(self)) self.say('Сканер пошёл.', ctx.law.now, 2);
+    }
+    // Наблюдатель OBS: неотсканированное тело в городе поблизости — идёт сканировать.
+    if (self.division === 'jury' && !this.guardPost) {
+      const O = CP_UNITS.obs;
+      const c = ctx.combat.corpses.find(
+        (k) => !k.scanned && k.killer && !FACTIONS[k.killer.faction].authority && Math.hypot(k.x - self.x, k.y - self.y) < O.seek && ctx.map.levelAt(k.x, k.y) === 'city',
+      );
+      if (c) {
+        this.corpse = c;
+        this.fsm.change('scan');
+        return;
+      }
+    }
     if (self.division === 'helix') {
       const p = this.findPatient(this.medicStation ? 450 : 260);
       if (p) {
@@ -580,6 +601,38 @@ const BODYGUARD: State<CpBrain> = {
       if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
     } else if (d < 44) b.mover.stop();
     b.mover.speed = d > 160 ? CHARACTER.runSpeed * 0.9 : LAW.cpWalkSpeed * 1.25;
+  },
+  exit(b) {
+    b.mover.speed = LAW.cpWalkSpeed;
+  },
+};
+
+/** Наблюдатель OBS: подойти к телу, сканировать CP_UNITS.obs.scanTime с, объявить убийцу в розыск. */
+const SCAN: State<CpBrain> = {
+  name: 'scan',
+  enter(b) {
+    b.scanLeft = CP_UNITS.obs.scanTime;
+    b.repath = 0;
+    b.mover.speed = LAW.cpWalkSpeed * 1.2;
+  },
+  update(b, dt) {
+    const c = b.corpse;
+    if (!c || c.scanned || !b.ctx.combat.corpses.includes(c)) {
+      b.corpse = null;
+      return b.idleState;
+    }
+    if (dist(b.self.x, b.self.y, c.x, c.y) > CP_UNITS.obs.reach - 8) {
+      b.goToPoint(c, dt, 2);
+      return;
+    }
+    b.mover.stop();
+    faceTowards(b.self, c.x, c.y, dt);
+    if (b.scanLeft === CP_UNITS.obs.scanTime) b.self.say('Сканирую тело.', b.ctx.law.now, 2);
+    if ((b.scanLeft -= dt) <= 0) {
+      b.ctx.crime.investigate(c, b.self);
+      b.corpse = null;
+      return b.idleState;
+    }
   },
   exit(b) {
     b.mover.speed = LAW.cpWalkSpeed;

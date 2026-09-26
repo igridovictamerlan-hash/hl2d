@@ -3,7 +3,7 @@ import type { AiContext } from '../ai/AiContext';
 import { CRIME } from '../config/crime';
 import { FACTIONS } from '../config/factions';
 import { CpBrain } from '../ai/brains/CpBrain';
-import { angleDiff } from './CombatSystem';
+import { angleDiff, type Corpse } from './CombatSystem';
 
 const near: Character[] = [];
 const DEG = Math.PI / 180;
@@ -63,6 +63,29 @@ export class CrimeSystem {
     this.flag(thief);
     this.ctx.bus.emit('log', { text: 'ГСР: раздатчик рационов взломан! Недостача на складе будки.', kind: 'world' });
     return n;
+  }
+
+  /**
+   * Наблюдатель OBS отсканировал тело: убийца (если не сотрудник Альянса) объявлен в розыск,
+   * «Надзор» знает, где он сейчас. Возвращает текст для журнала.
+   */
+  investigate(corpse: Corpse, obs: Character): string {
+    corpse.scanned = true;
+    const k = corpse.killer;
+    const zone = this.ctx.map.zoneAtWorld(corpse.x, corpse.y)?.name ?? 'город';
+    if (!k) return `Скан тела: ${corpse.name} — причина смерти не установлена.`;
+    if (FACTIONS[k.faction].authority) return `Скан тела: ${corpse.name} — ликвидирован сотрудником Альянса (${k.name}).`;
+    k.law.wanted = true;
+    if (k.alive) {
+      this.ctx.war.operatives.add(k);
+      this.ctx.war.lastKnown.set(k, { x: k.x, y: k.y });
+    }
+    const who = k.isPlayer ? 'ВЫ' : k.name;
+    const text = `Надзор: скан тела (${zone}) — убийца ${who}, CID #${k.cid}. Объявлен в розыск.`;
+    this.ctx.bus.emit('log', { text, kind: 'radio' });
+    if (k.isPlayer) this.ctx.bus.emit('announce', { text: 'Вас объявили в розыск' });
+    void obs;
+    return text;
   }
 
   /** «Засветился»: ГО, увидевший вора в ближайшие секунды, задержит его. */

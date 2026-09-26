@@ -7,6 +7,9 @@ import { LOYALTY } from '../config/loyalty';
 import { FACTIONS } from '../config/factions';
 import { T } from '../world/tiles';
 import { adjustLoyalty } from './Loyalty';
+import { createCharacter } from '../entities/factory';
+import { poiWorld } from './Population';
+import { CrematorBrain } from '../ai/brains/CrematorBrain';
 
 /** Куча мусора на улице. */
 export interface TrashPile {
@@ -44,6 +47,9 @@ export class LaborSystem {
   private lastEmptyNotice = -1e9;
   /** Счётчики (тесты, отладка). */
   stats = { packed: 0, delivered: 0, cleaned: 0, searched: 0, healed: 0 };
+  /** Крематор (синтет, сжигает тела) и когда выпустить следующего из Нексуса. */
+  cremator: Character | null = null;
+  private crematorAt = 0;
 
   constructor(private readonly ctx: AiContext) {
     const { map, nav, rng } = ctx;
@@ -229,8 +235,29 @@ export class LaborSystem {
     this.ctx.bus.emit('log', { text, kind: 'world' });
   }
 
+  /** Крематор выходит из Нексуса (один на город; погиб — следующий через LABOR.cremator.respawn с). */
+  private ensureCremator(): void {
+    if (this.cremator?.alive) return;
+    if (this.cremator && !this.cremator.alive) {
+      this.cremator = null;
+      this.crematorAt = this.time + LABOR.cremator.respawn;
+    }
+    if (this.time < this.crematorAt) return;
+    const gate = poiWorld(this.ctx, 'nexus_gate');
+    if (!gate) return;
+    const a = this.ctx.nav.nearestWalkable(gate.x, gate.y, 6);
+    if (a < 0) return;
+    const c = createCharacter(this.ctx.entities, this.ctx.rng, 'ota', this.ctx.nav.worldX(a), this.ctx.nav.worldY(a));
+    c.name = `Крематор-${this.ctx.rng.int(10, 99)}`;
+    c.profession = 'cremator';
+    c.inventory.clear();
+    c.brain = new CrematorBrain(c, this.ctx);
+    this.cremator = c;
+  }
+
   update(dt: number): void {
     this.time += dt;
+    this.ensureCremator();
     this.trashTimer -= dt;
     if (this.trashTimer <= 0) {
       this.trashTimer = this.ctx.rng.range(LABOR.trash.every[0], LABOR.trash.every[1]);

@@ -104,6 +104,16 @@ export const RENDER = {
     box: '#b08a52',
     boxTape: '#e0c07a',
     stockText: '#ffd36b',
+    /** Сканер Альянса: корпус, линза, пятно света на земле, вспышка «фото». */
+    /** Пламя: внешнее, внутреннее, отсвет. */
+    flameOuter: '#e8551c',
+    flameInner: '#ffd24a',
+    flameGlow: 'rgba(255,140,40,0.18)',
+    scannerBody: '#5b6572',
+    scannerRim: '#2c323a',
+    scannerLens: '#9fe0ff',
+    scannerLight: 'rgba(170,220,255,0.12)',
+    scannerFlash: 'rgba(255,255,255,0.85)',
   },
   /**
    * Конус прицела (как в Foxhole): треугольник разброса с дугой на предельной дальности.

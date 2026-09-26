@@ -7,7 +7,7 @@ import type { Rng } from '../core/rng';
 import type { LawSystem } from './LawSystem';
 import { castRayWith, lineOfSight } from '../world/visibility';
 import { T } from '../world/tiles';
-import { COMBAT, GRENADE } from '../config/combat';
+import { COMBAT, GRENADE, FIRE } from '../config/combat';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, weaponDps, type WeaponDef, type WeaponId, type WeaponClass } from '../config/items';
 import { FACTIONS, type FactionId } from '../config/factions';
@@ -51,8 +51,12 @@ export interface Corpse {
   y: number;
   faction: FactionId;
   profession: ProfessionId | null;
-  /** Кто убил (для сканирования OBS). */
+  /** Кто убил (для сканирования OBS) и отсканировано ли уже. */
   killer: Character | null;
+  scanned?: boolean;
+  /** Сжигает крематор: до этого времени горит, потом исчезает; кто сжигает. */
+  burning?: number;
+  cremator?: Character | null;
   rank: number;
   name: string;
   until: number;
@@ -130,6 +134,8 @@ export class CombatSystem {
   readonly grenades: Grenade[] = [];
   readonly blasts: Blast[] = [];
   readonly decals: Decal[] = [];
+  /** Пламя от гранат пиротехника. */
+  readonly fires: { x: number; y: number; r: number; until: number; owner: Character }[] = [];
   private time = 0;
   private readonly dead: Character[] = [];
   /** Сколько выстрелов сделано (для тестов и отладки). */
@@ -416,6 +422,8 @@ export class CombatSystem {
       this.hits++;
       this.stats.hit++;
       this.damage(hit, w.damage * falloffMul(w, hitT + c.radius), c);
+      // Болт пиротехника поджигает.
+      if (w.class === 'crossbow' && c.profession === 'pyro' && hit.alive) this.ignite(hit, c, FIRE.boltBurn);
     } else this.stats[stoppedBy]++;
     return hit;
   }
@@ -568,6 +576,12 @@ export class CombatSystem {
     return g;
   }
 
+  /** Поджечь: горит time с, урон FIRE.dps в секунду (засчитывается поджёгшему). */
+  ignite(c: Character, by: Character | null, time: number = FIRE.burnTime): void {
+    c.burnUntil = Math.max(c.burnUntil, this.time + time);
+    c.burnBy = by;
+  }
+
   /** Сколько бросков и взрывов было (для тестов и отладки). */
   grenadesThrown = 0;
 
@@ -595,6 +609,8 @@ export class CombatSystem {
     this.blasts.push({ x: g.x, y: g.y, t: COMBAT.blastTime });
     this.addDecal(g.x, g.y, 'scorch', COMBAT.decals.scorchTime, this.rng.range(0, Math.PI), 1);
     this.shots.push({ x: g.x, y: g.y, t: this.time, shooter: g.thrower, weapon: 'grenade', noise: G.noise });
+    // Зажигательная (пиротехник): пламя на земле.
+    if (g.thrower.profession === 'pyro') this.fires.push({ x: g.x, y: g.y, r: G.radius * FIRE.zoneRadiusMul, until: this.time + FIRE.zoneTime, owner: g.thrower });
     for (const o of this.entities.near(g.x, g.y, G.radius + 16, near)) {
       if (!o.alive) continue;
       const d = Math.max(0, Math.hypot(o.x - g.x, o.y - g.y) - o.radius * 0.5);
@@ -614,6 +630,19 @@ export class CombatSystem {
       let k = 0;
       while (k < this.decals.length && this.decals[k].until < this.time) k++;
       this.decals.splice(0, k);
+    }
+    // Пламя: кто в нём — горит; горящие получают урон.
+    for (let i = this.fires.length - 1; i >= 0; i--) {
+      const f = this.fires[i];
+      if (this.time >= f.until) {
+        this.fires.splice(i, 1);
+        continue;
+      }
+      for (const o of this.entities.near(f.x, f.y, f.r, near)) if (o.alive) this.ignite(o, f.owner);
+    }
+    for (const c of this.entities.list) {
+      if (!c.alive || c.burnUntil <= this.time) continue;
+      this.damage(c, FIRE.dps * dt, c.burnBy && c.burnBy.alive ? c.burnBy : null);
     }
     // Гранаты: полёт по прямой к точке падения, взрыв по запалу.
     for (let i = this.grenades.length - 1; i >= 0; i--) {

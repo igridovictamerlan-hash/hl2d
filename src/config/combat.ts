@@ -111,3 +111,15 @@ export const GRENADE = {
   /** NPC, заметивший гранату ближе radius + fleeMargin, убегает от неё. */
   fleeMargin: 36,
 } as const;
+
+/**
+ * Огонь пиротехника: его граната оставляет пламя (радиус × zoneRadiusMul, zoneTime с), болт арбалета
+ * поджигает цель. Горящий получает dps урона в секунду burnTime с (стоя в пламени — горит дальше).
+ */
+export const FIRE = {
+  zoneTime: 7,
+  zoneRadiusMul: 0.6,
+  burnTime: 3,
+  dps: 9,
+  boltBurn: 4,
+} as const;

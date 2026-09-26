@@ -15,6 +15,7 @@ import type { UndergroundSystem } from '../systems/UndergroundSystem';
 import type { InsurgencySystem } from '../systems/InsurgencySystem';
 import type { LaborSystem } from '../systems/LaborSystem';
 import type { CrimeSystem } from '../systems/CrimeSystem';
+import type { ScannerSystem } from '../systems/ScannerSystem';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -42,4 +43,6 @@ export interface AiContext {
   labor: LaborSystem;
   /** Кражи (вор, отброс общества). */
   crime: CrimeSystem;
+  /** Сканеры техников ГО. */
+  scanners: ScannerSystem;
 }
