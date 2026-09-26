@@ -43,7 +43,7 @@ src/
     generator/       CityGenerator (оркестратор), layout (макроплан), lattice (решётка + лабиринт),
                      stamps + templates (площадь, Нексус, пограничные КПП, кольцо запретной зоны),
                      магазин ГСР, features (дворы, арки…), sewers (канализация, люки, убежище, рынок), GenGrid
-  entities/          Character (кружок: игрок и NPC одинаковы; ранг, отряд ГО, закон, инвентарь, сытость, оружие),
+  entities/          Character (кружок: игрок и NPC одинаковы; ранг, отряд ГО, профессия, закон, инвентарь, сытость, оружие),
                      Inventory, EntityManager, physics, factory, EntityRenderer (тела до тумана, подписи после),
                      PawnRenderer (пешки в стиле RimWorld), WeaponRenderer + weaponPose (оружие в руках)
   ai/                AStar, smoothing, PathService (очередь с бюджетом), Mover (движение/уступание),
@@ -51,8 +51,9 @@ src/
                      Gunner (стрелок ИИ, угол обзора, тревога, гранаты), Dodge (бегство от гранат),
                      streetBark (реплики на улице), HatchTravel (пути через люки),
                      brains/: CitizenBrain (граждане, ГСР, подпольщики), CpBrain (ГО), RebelBrain (отряды с
-                     пустошей), UndergroundBrain (убежище: саботаж, засады), OtaBrain, PrisonerBrain, PostBrain
-  systems/           ZoneSystem, DoorSystem (двери), LawSystem (закон, КПЗ), EconomySystem (рационы, голод,
+                     пустошей), UndergroundBrain (убежище: саботаж, засады), OtaBrain, CrematorBrain, PrisonerBrain, PostBrain
+  systems/           LaborSystem (завод, коробки, мусор, медики, крематор), CrimeSystem (кражи, взлом, скан тел),
+                     ScannerSystem (дроны TECH), ZoneSystem, DoorSystem (двери), LawSystem (закон, КПЗ), EconomySystem (рационы, голод,
                      зарплаты, ремонт, узлы Альянса, магазин, чёрный рынок), CombatSystem (бой), WarSystem (граница,
                      тревоги: жёлтый/красный код), UndergroundSystem (уровни, люки), InsurgencySystem (убежище,
                      операции в городе), Loyalty (очки и уровни), ChatSystem (чат и команды), Barks (реплики в бою), SaveGame
@@ -324,6 +325,31 @@ public/maps/         сохранённые карты (JSON), открываю�
   главное меню — с сохранением). Пока меню открыто, мир стоит. Esc сначала закрывает открытые панели
   (`Game.onEscape`, перехват до остальных обработчиков); список клавиш — `CONTROLS_HELP` в `HelpBar`.
 
+### Этап 6: профессии (`config/professions.ts`, `config/labor.ts`, `config/crime.ts`, `config/cpUnits.ts`)
+- `Character.profession` (`ProfessionId`), `PROFESSIONS` — описание, умения (для `RoleMenu`), набор;
+  `DEFAULT_PROFESSION`, `professionsOf(faction)`. Сохраняется в `SaveGame` (`role.profession`).
+  Одежда по профессии — `PAWN.professionOutfits`. Новая фракция `vort` (вортигонты: без лояльности,
+  ГО их не проверяет, `LawSystem.checkable`).
+- **Цепочка снабжения ГСР** (`LaborSystem`): фасовщик собирает коробки на заводе в промзоне
+  (`packStep`), курьер носит их к будке (`takeBox`/`deliverBox`, `Character.carrying`), склад будки
+  `EconomySystem.rationStock` расходуется поваром на раздаче (пусто — `onEmpty`, рацион не выдаётся).
+  Уборщик и вортигонт убирают мусор (`trash`, `cleanStep`), отброс — роется (`search`), медик ГСР
+  лечит за плату (`treat`). NPC берут работу в `CitizenBrain.pickJob` по профессии.
+- **Преступность** (`CrimeSystem`): карманная кража только со спины (`behind`), свидетель-ГО —
+  `law.crimeUntil` → нарушение `theft` (и причина ареста в `judge`); жертва может заметить и крикнуть;
+  взлом раздатчика отмычкой. NPC-воры (`CRIME.npc`) выходят на кражу, когда ГО не видно.
+- **Лояльность**: у уровней `perks` (`run` — бег без нарушения, `queue` — очередь впереди, `escort` —
+  `/охрана`, BODYGUARD у `CpBrain`).
+- **ГО**: ранги RCT…DVL, отряды MPF/GRID/MEDIC/OBS(`jury`)/TECH. OBS: состояние SCAN — осмотр тела,
+  `CrimeSystem.investigate` объявляет убийцу (`Corpse.killer`) в розыск. TECH: дрон `ScannerSystem`
+  (время жизни и откат, облёт, повстанец/вооружённый → `raiseAlarm`, розыск → ближайший патрульный).
+- **Повстанцы**: в отрядах WarSystem медики (`RebelBrain.medic`) и пиро; партизан — `disguised`
+  (`isHostile`/`observe` его не узнают; оружие в руках или проверка — `reveal`).
+- **Огонь** (`FIRE`): граната пиро оставляет зону (`combat.fires`), болт поджигает; `ignite` →
+  `burnUntil`, урон `dps`. **Крематор** (`CrematorBrain`, `LaborSystem.ensureCremator`) — один на
+  город, выходит из Нексуса, сжигает тела (`Corpse.burning`).
+- Тесты: `tests/professions.test.ts`, `tests/units.test.ts`.
+
 ## Соглашения
 - Все числа, цвета, скорости, зарплаты и т.п. — в `src/config/*`. Новый параметр → в конфиг.
 - `src/` не использует API Node; `tests/` может (свой `tests/tsconfig.json`).
@@ -350,7 +376,9 @@ public/maps/         сохранённые карты (JSON), открываю�
   внутри города, чёрный рынок. Плюс: оружие детальнее с конусом прицела как в Foxhole, звук
   выстрелов, автоматы у повстанцев, NPC без «глаз на спине».
 - [x] **Этап 5**: лояльность, чат и команды, мини-карта и большая карта (M), сохранение в
-  localStorage, пауза; капт КПП. После: гранаты, реплики, следы боя, сбор повстанцев перед каптом
+  localStorage, пауза; капт КПП.
+- [x] **Этап 6**: профессии по мотивам UnionRP: цепочка снабжения ГСР, воры и отбросы, вортигонты,
+  лоялисты с привилегиями, ранги и отряды ГО (OBS, TECH-сканеры), медики/пиро/партизаны, крематор. После: гранаты, реплики, следы боя, сбор повстанцев перед каптом
   без подкреплений ГО, пешки и оружие в стиле RimWorld.
 
 Работа строго поэтапно: после каждого этапа — отчёт и ожидание подтверждения пользователя.
