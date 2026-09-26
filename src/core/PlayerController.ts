@@ -42,7 +42,7 @@ export class PlayerController {
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
   private packing = false;
-  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse } | null = null;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse } | null = null;
   private healCooldown = 0;
 
   constructor(
@@ -228,6 +228,15 @@ export class PlayerController {
     const d = (q: { x: number; y: number } | null) => (q ? Math.hypot(q.x - p.x, q.y - p.y) : Infinity);
     const terminal = poiWorld(ctx, 'recruit_terminal');
     if (d(terminal) < REACH) return this.hooks.openRoleMenu();
+    // Канцелярия Нексуса: лоялист садится за свободный стол — бумажная работа для Администратора.
+    const paperDesk = ctx.labor.desks.find((k) => Math.hypot(k.x - p.x, k.y - p.y) < LABOR.paperwork.reach);
+    if (paperDesk) {
+      if (p.faction !== 'citizen' || p.loyalty < LABOR.paperwork.minLoyalty) return this.say(`Бумажная работа — только для лоялистов (лояльность от ${LABOR.paperwork.minLoyalty}).`);
+      if (!ctx.labor.claimDesk(p)) return this.say('Все столы заняты.');
+      const T = LABOR.paperwork.workTime;
+      this.task = { kind: 'paper', x: paperDesk.x, y: paperDesk.y, left: T, total: T };
+      return this.say('Разбираете бумаги для Администрации…');
+    }
     // Терминал кодов тревоги в кабинете Администратора.
     if (d(poiWorld(ctx, 'code_terminal')) < WAR.terminal.reach) {
       if (!ctx.war.canSetCode(p)) return this.say('Терминал Администрации: доступ только Администратору и старшим офицерам ГО (с OFC).');
@@ -372,6 +381,7 @@ export class PlayerController {
     if (Math.hypot(at.x - p.x, at.y - p.y) > (t.kind === 'pick' || t.kind === 'rob' ? 50 : 34)) {
       this.task = null;
       if (t.kind === 'clean' && t.pile?.worker === p) t.pile.worker = null;
+      if (t.kind === 'paper') ctx.labor.releaseDesk(p);
       return this.say('Прервано — отошли слишком далеко.');
     }
     if (t.kind === 'clean') {
@@ -401,6 +411,11 @@ export class PlayerController {
     }
     if (t.kind === 'scan' && t.corpse) {
       return this.say(ctx.crime.investigate(t.corpse, p), 'law');
+    }
+    if (t.kind === 'paper') {
+      ctx.labor.payPaperwork(p);
+      ctx.labor.releaseDesk(p);
+      return this.say(`Отчёт сдан: +${LABOR.paperwork.pay} токенов.`, 'world');
     }
     if (t.kind === 'hack') {
       const n = ctx.crime.hackDispenser(p);

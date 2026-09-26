@@ -13,10 +13,10 @@ export type OtaMode = 'reserve' | 'post' | 'hunt' | 'home';
 
 /**
  * Солдат OTA — постоянный резерв Цитадели.
- *  reserve — стоит у ворот Нексуса, ждёт приказа;
+ *  reserve — ждёт приказа в комнате OTA в Нексусе (у своего шкафа; нет комнаты — у ворот);
  *  post — контрудар: бежит на пост захваченной точки КПП и держит его (WarSystem.counterattack);
  *  hunt — красный код: идёт к последней известной позиции прорвавшихся, стреляет на поражение;
- *  home — отбой: возвращается к воротам Нексуса (там снова reserve).
+ *  home — отбой: возвращается в комнату OTA (там снова reserve).
  */
 export class OtaBrain implements Brain {
   readonly mover = new Mover(95);
@@ -93,17 +93,19 @@ export class OtaBrain implements Brain {
         if (a >= 0) this.mover.goTo(self, ctx, a);
       }
     } else {
-      // Резерв и возврат: у ворот Нексуса.
-      const g = poiWorld(ctx, 'nexus_gate');
+      // Резерв и возврат: в комнате OTA, у своего шкафа (нет комнаты — у ворот Нексуса).
+      const spots = ctx.map.poisOf('ota_spot');
+      const g = spots.length ? poiWorld(ctx, 'ota_spot', self.id % spots.length) : poiWorld(ctx, 'nexus_gate');
+      const near = spots.length ? 20 : 70;
       if (g) {
         const d = Math.hypot(g.x - self.x, g.y - self.y);
-        if (this.mode === 'home' && d < 60) this.mode = 'reserve';
-        if (d > 70 && (this.repath <= 0 || st === 'idle' || st === 'failed')) {
+        if (this.mode === 'home' && d < near + 30) this.mode = 'reserve';
+        if (d > near && (this.repath <= 0 || st === 'idle' || st === 'failed')) {
           this.repath = 3;
           this.mover.speed = 95;
           const a = ctx.nav.nearestWalkable(g.x, g.y, 6);
           if (a >= 0) this.mover.goTo(self, ctx, a);
-        } else if (d <= 70 && st === 'arrived') this.mover.stop();
+        } else if (d <= near && st === 'arrived') this.mover.stop();
       }
     }
     this.mover.update(self, ctx, dt);

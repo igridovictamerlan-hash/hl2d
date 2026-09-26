@@ -12,6 +12,7 @@ import { colorsOf } from '../config/factions';
 import { lookSeed } from '../entities/PawnRenderer';
 import { drawPawnCached } from '../entities/PawnCache';
 import type { Barrel } from '../systems/StreetLife';
+import type { Poi } from './GameMap';
 import { PAWN } from '../config/pawns';
 import { RENDER } from '../config/render';
 import { COMBAT, GRENADE } from '../config/combat';
@@ -182,6 +183,76 @@ export class EffectsRenderer {
    * Работы профессий на земле: кучи мусора, конвейер завода с коробками на складе, коробки у
    * будки раздачи (склад будки) с числом рационов.
    */
+  /**
+   * Мебель по точкам интереса: в домах (home — комната x,y,w,h в тайлах) — кровать у стены и стол со
+   * стульями; в Нексусе — нары казармы (bunk), столы канцелярии (clerk_desk), шкафы OTA (ota_spot).
+   */
+  drawFurniture(ctx: CanvasRenderingContext2D, v: View, pois: readonly Poi[], ts: number): void {
+    const s = v.scale;
+    const F = RENDER.effects.furniture;
+    const lw = Math.max(1, s);
+    const box = (x: number, y: number, w: number, h: number, fill: string) => {
+      ctx.fillStyle = fill;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = F.outline;
+      ctx.lineWidth = lw;
+      ctx.strokeRect(x, y, w, h);
+    };
+    const bed = (x: number, y: number, k: number) => {
+      box(x, y, 12 * s, 24 * s, F.bedFrame);
+      ctx.fillStyle = F.blanket[k % F.blanket.length];
+      ctx.fillRect(x + 1.5 * s, y + 8 * s, 9 * s, 14.5 * s);
+      ctx.fillStyle = F.pillow;
+      ctx.fillRect(x + 2 * s, y + 2 * s, 8 * s, 5 * s);
+    };
+    for (let k = 0; k < pois.length; k++) {
+      const p = pois[k];
+      const x = (p.x * ts - v.left) * s;
+      const y = (p.y * ts - v.top) * s;
+      const w = (p.w ?? 1) * ts * s;
+      const h = (p.h ?? 1) * ts * s;
+      if (x > v.width + 40 || y > v.height + 40 || x + w < -40 || y + h < -40) continue;
+      switch (p.type) {
+        case 'home': {
+          // Кровать в углу, стол со стульями — в середине комнаты (если она не совсем крохотная).
+          bed(x + 2 * s, y + 2 * s, p.x + p.y);
+          if ((p.w ?? 0) >= 3 && (p.h ?? 0) >= 2) {
+            const cx = x + w * 0.62;
+            const cy = y + h * 0.5;
+            ctx.fillStyle = F.chair;
+            ctx.fillRect(cx - 13 * s, cy - 3 * s, 5 * s, 6 * s);
+            ctx.fillRect(cx + 8 * s, cy - 3 * s, 5 * s, 6 * s);
+            box(cx - 7 * s, cy - 6 * s, 14 * s, 12 * s, F.table);
+            ctx.fillStyle = F.tableTop;
+            ctx.fillRect(cx - 5 * s, cy - 4 * s, 10 * s, 8 * s);
+          }
+          break;
+        }
+        case 'bunk':
+          bed(x + 2 * s, y - 4 * s, k);
+          break;
+        case 'clerk_desk':
+          box(x - 4 * s, y + 2 * s, 24 * s, 12 * s, F.desk);
+          ctx.fillStyle = F.deskTop;
+          ctx.fillRect(x - 2 * s, y + 4 * s, 20 * s, 8 * s);
+          ctx.fillStyle = F.paper;
+          ctx.fillRect(x + 1 * s, y + 5 * s, 6 * s, 5 * s);
+          ctx.fillRect(x + 8 * s, y + 6 * s, 5 * s, 4 * s);
+          ctx.fillStyle = F.lamp;
+          ctx.fillRect(x + 15 * s, y + 5 * s, 2 * s, 2 * s);
+          break;
+        case 'ota_spot':
+          box(x + 1 * s, y + 1 * s, 14 * s, 14 * s, F.locker);
+          ctx.fillStyle = F.lockerLine;
+          ctx.fillRect(x + 8 * s, y + 1 * s, lw, 14 * s);
+          ctx.fillStyle = F.rifle;
+          ctx.fillRect(x + 3 * s, y + 3 * s, 2 * s, 10 * s);
+          ctx.fillRect(x + 11 * s, y + 3 * s, 2 * s, 10 * s);
+          break;
+      }
+    }
+  }
+
   /** Бочки с огнём: отсвет на земле, ржавая бочка, мерцающие языки пламени и искры. */
   drawBarrels(ctx: CanvasRenderingContext2D, v: View, barrels: readonly Barrel[], now: number): void {
     const s = v.scale;

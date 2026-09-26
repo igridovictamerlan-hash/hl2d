@@ -54,7 +54,11 @@ export type PoiType =
   | 'black_market'
   | 'trader'
   | 'rebel_camp'
-  | 'camp_cache';
+  | 'camp_cache'
+  | 'home'
+  | 'bunk'
+  | 'clerk_desk'
+  | 'ota_spot';
 
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)
@@ -66,6 +70,9 @@ export interface Poi {
   x: number;
   y: number;
   id?: number;
+  /** Комната (дом): ширина и высота пола в тайлах — для мебели. */
+  w?: number;
+  h?: number;
 }
 
 export interface Rect {

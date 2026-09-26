@@ -8,7 +8,7 @@ import { PrisonerBrain } from '../src/ai/brains/PrisonerBrain';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { DefectorBrain } from '../src/ai/brains/DefectorBrain';
-import { spawnPopulation, poiWorld } from '../src/systems/Population';
+import { spawnPopulation } from '../src/systems/Population';
 import { spawnRole } from '../src/systems/Roster';
 import { ROSTER } from '../src/config/roster';
 
@@ -153,10 +153,9 @@ describe('капт КПП', () => {
     expect(reinforcements).toBe(0);
   });
 
-  test('часовой КПП погиб — возрождается в Цитадели и бежит на свой пост', { timeout: 90_000 }, () => {
+  test('часовой КПП погиб — возрождается в казарме Нексуса и бежит на свой пост', { timeout: 90_000 }, () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
-    const gate = poiWorld(sim.ctx, 'nexus_gate')!;
     const post = f.points[1].posts[0];
     const spec = { kind: 'guard' as const, faction: 'cp' as const, profession: null, division: 'grid' as const, rank: 1, kit: 'cp_grid', front: 0, post, facing: 0 };
     const g0 = spawnRole(sim.ctx, spec, post)!;
@@ -165,7 +164,10 @@ describe('капт КПП', () => {
     const g = sim.entities.list.find((c) => c.alive && c.brain instanceof CpBrain && c.brain.guardPost === post)!;
     expect(g).toBeTruthy();
     expect(g.name).toBe(g0.name);
-    expect(Math.hypot(g.x - gate.x, g.y - gate.y)).toBeLessThan(260);
+    // Появился в казарме Нексуса (у нар) и уже бежит оттуда.
+    const ts = sim.map.tileSize;
+    const bunkD = Math.min(...sim.map.poisOf('bunk').map((b) => Math.hypot(g.x - (b.x + 0.5) * ts, g.y - (b.y + 0.5) * ts)));
+    expect(bunkD).toBeLessThan(260);
     for (let t = 0; t < 90 * 60 && Math.hypot(g.x - post.x, g.y - post.y) > 30; t++) sim.step();
     expect(Math.hypot(g.x - post.x, g.y - post.y)).toBeLessThan(30);
   });

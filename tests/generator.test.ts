@@ -103,15 +103,16 @@ describe('генератор переулочного города', () => {
         }
       });
 
-      test('есть узкие проходы (только один персонаж), переулки, дворы, арки, подъезды', () => {
+      test('есть узкие проходы (только один персонаж), переулки, дворы, арки, жилые дома', () => {
         const map = get(seed);
         const nav = new NavGrid(map);
         const narrow = nav.walkable.filter((i) => nav.cost[i] > 1).length;
         expect(narrow).toBeGreaterThan(200);
         const s = map.stats!;
         expect(s.courtyards).toBeGreaterThanOrEqual(8);
-        expect(s.arches).toBeGreaterThan(5);
-        expect(s.passages).toBeGreaterThan(5);
+        // Подъезды-коридоры заменены домиками: жилые дома с комнатой и дверью на переулок.
+        expect(s.arches).toBeGreaterThanOrEqual(3);
+        expect(map.poisOf('home').length).toBeGreaterThan(30);
         expect(s.deadEnds).toBeGreaterThan(15);
         let doors = 0;
         for (const t of map.tiles) if (t === T.DOOR) doors++;

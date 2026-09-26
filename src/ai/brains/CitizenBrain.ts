@@ -34,7 +34,8 @@ type Job =
   | { kind: 'scavenge'; pile: TrashPile; left: number }
   | { kind: 'heal'; patient: Character; repath: number }
   | { kind: 'pickpocket'; victim: Character; left: number; until: number; repath: number }
-  | { kind: 'rob'; victim: Character; left: number; until: number; repath: number; threatened: boolean };
+  | { kind: 'rob'; victim: Character; left: number; until: number; repath: number; threatened: boolean }
+  | { kind: 'paper'; desk: Vec2; until: number; nextPay: number };
 
 /** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
 export interface StreetProfile {
@@ -307,6 +308,14 @@ export class CitizenBrain implements Brain {
     const { ctx, self } = this;
     const eco = ctx.economy;
     const labor = ctx.labor;
+    // Лоялист — бумажная работа для Администратора в канцелярии Нексуса (за столом, за плату).
+    const PW = LABOR.paperwork;
+    // Идёт раздача, а паёк не получен — сначала очередь.
+    const rationsFirst = eco.open && !eco.hasBeenServed(self);
+    if (self.faction === 'citizen' && self.profession === 'citizen' && self.loyalty >= PW.minLoyalty && !rationsFirst && !ctx.war.curfew && labor.desks.length && ctx.rng.chance(PW.chance)) {
+      const desk = labor.claimDesk(self);
+      if (desk) return { kind: 'paper', desk, until: ctx.law.now + ctx.rng.range(PW.time[0], PW.time[1]), nextPay: ctx.law.now + PW.payEvery };
+    }
     switch (self.profession) {
       case 'cook': {
         if (eco.open && (!eco.dispenser || eco.dispenser === self) && eco.claimDispenser(self)) return { kind: 'dispense' };
@@ -588,7 +597,11 @@ const WORK: State<CitizenBrain> = {
     } else if (job.kind === 'clean' || job.kind === 'scavenge') b.goToPoint(job.pile);
     else if (job.kind === 'heal') b.goToPoint(job.patient);
     else if (job.kind === 'pickpocket') b.goToPoint(job.victim);
-    else if (eco.shopCounter) b.goToPoint(eco.shopCounter);
+    else if (job.kind === 'paper') {
+      // В Нексус жителю обычно не нужно (избегает), в канцелярию — можно.
+      b.mover.avoidZones = undefined;
+      b.goToPoint(job.desk);
+    } else if (eco.shopCounter) b.goToPoint(eco.shopCounter);
   },
   update(b, dt) {
     const job = b.job;
@@ -599,6 +612,8 @@ const WORK: State<CitizenBrain> = {
       if (job?.kind === 'repair' && job.spot.worker === b.self) job.spot.worker = null;
       if (job?.kind === 'clean' && job.pile.worker === b.self) job.pile.worker = null;
       if (job?.kind === 'pack') labor.stopPacking(b.self);
+      if (job?.kind === 'paper') labor.releaseDesk(b.self);
+      b.mover.avoidZones = b.avoid;
       b.mover.speed = b.walkSpeed;
       b.job = null;
       b.idleLeft = b.ctx.rng.range(1, 4);
@@ -634,6 +649,21 @@ const WORK: State<CitizenBrain> = {
         if (b.ctx.law.now > job.until || !eco.shopCounter || toWindow) return done();
         if (st === 'arrived') b.mover.stop();
         if (b.fsm.time % 10 < dt) eco.markWorked(b.self);
+        return;
+      }
+      case 'paper': {
+        const now = b.ctx.law.now;
+        if (now > job.until || b.ctx.war.curfew) return done();
+        const d = job.desk;
+        if (Math.hypot(d.x - b.self.x, d.y - b.self.y) < 14) {
+          b.mover.stop();
+          faceTowards(b.self, d.x, d.y - 16, dt);
+          if (now >= job.nextPay) {
+            job.nextPay = now + LABOR.paperwork.payEvery;
+            labor.payPaperwork(b.self);
+            if (b.ctx.rng.chance(0.4)) b.self.say(b.ctx.rng.pick(['Форма 7-Б… подпись…', 'Рапорт о лояльности квартала.', 'Отчёт для Администратора готов.', 'Штамп. Следующий.']), now, 2.5);
+          }
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(d);
         return;
       }
       case 'pack': {

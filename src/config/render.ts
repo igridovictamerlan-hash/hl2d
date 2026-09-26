@@ -3,9 +3,20 @@ export const RENDER = {
   background: '#07090b',
   tiles: {
     /** Крыши: hue/sat/light — у каждого дома свой оттенок в этих пределах. */
-    roof: { hues: [210, 25, 200, 215, 35] as readonly number[], sat: [5, 11] as const, light: [8, 13] as const },
-    roofEdge: 'rgba(170,180,190,0.22)',
-    roofSeam: 'rgba(0,0,0,0.45)',
+    roof: { hues: [12, 20, 28, 205, 215, 150, 35] as readonly number[], sat: [10, 24] as const, light: [20, 30] as const },
+    /** Скаты крыши дома: светлый (к свету) и тёмный, конёк — светлее и с линией. */
+    roofSlope: { light: 4, dark: -5, ridge: 7 },
+    roofRidge: 'rgba(255,240,220,0.18)',
+    /** Карниз у края крыши (тень под свесом) и швы между соседними домами. */
+    roofEdge: 'rgba(0,0,0,0.35)',
+    roofSeam: 'rgba(0,0,0,0.55)',
+    /** Черепица/шифер — штрихи вдоль ската. */
+    roofTile: 'rgba(0,0,0,0.12)',
+    chimney: '#3a3431',
+    chimneyTop: '#1d1917',
+    /** Стены жилых домов (вокруг комнаты): штукатурка и контур. */
+    houseWall: { h: 32, s: 12, l: 46, noise: 2 },
+    houseWallLine: 'rgba(0,0,0,0.45)',
     metal: '#1a2735',
     metalLine: 'rgba(90,150,210,0.22)',
     floor: { h: 38, s: 6, l: 28, noise: 2.4 },
@@ -85,6 +96,13 @@ export const RENDER = {
     flash: 'rgba(255,240,180,0.9)',
     bloodHit: 'rgba(190,20,20,0.95)',
     spark: 'rgba(255,230,160,0.9)',
+    /** Мебель: кровать (рама, одеяло, подушка), стол со стульями, стол канцелярии, шкаф OTA. */
+    furniture: {
+      bedFrame: '#3e2a1c', blanket: ['#5b6b7a', '#6d5a48', '#4f6a55', '#7a5a5a'] as readonly string[], pillow: '#d8d2c4',
+      table: '#5a3f28', tableTop: '#6e4e33', chair: '#3b2a1d',
+      desk: '#4a4f57', deskTop: '#5d646e', paper: '#e9e5da', lamp: '#ffd36b',
+      locker: '#2c3440', lockerLine: '#46566a', rifle: '#15191e', outline: 'rgba(0,0,0,0.55)',
+    },
     /** Бочка с огнём (уличная жизнь): корпус, обод, ржавчина, пламя, отсвет (radius px мира). */
     barrel: { body: '#3b3a36', rim: '#6d6a60', rust: '#6b3f22', fire: ['#ffd36b', '#ff8a2a', '#e04a1a'], glow: '255,140,50', glowRadius: 70, r: 7 },
     /** Следы на земле: гильза, лужица крови, копоть взрыва, выбоина у стены. */

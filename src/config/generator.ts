@@ -100,8 +100,9 @@ export const GENERATOR = {
 
   residential: { quarters: 4 },
 
-  courtyards: { count: 16, size: [5, 8] as const, margin: 2, maxLink: 8, secondLinkChance: 0.35 },
-  passages: { count: 26, archChance: 0.45, maxLength: 9, minDetour: 45 },
+  courtyards: { count: 10, size: [5, 8] as const, margin: 2, maxLink: 8, secondLinkChance: 0.35 },
+  /** Срезки сквозь застройку — только арки (подъезды-коридоры с дверями путали: «непонятные комнаты»). */
+  passages: { count: 20, archChance: 1, maxLength: 9, minDetour: 45 },
   deadEnds: { count: 22, length: [4, 9] as const },
   /** Выходы из штампов (Нексус, КПП) прокапываются наружу не дальше этого. */
   connectorMax: 16,
@@ -113,7 +114,19 @@ export const GENERATOR = {
   },
 
   validation: {
-    buildingRatio: [0.64, 0.78] as const,
+    buildingRatio: [0.55, 0.78] as const,
     attempts: 32,
   },
+} as const;
+
+/**
+ * Городок с домиками. Сплошная застройка между переулками режется на участки-дома (lot: сторона от
+ * min до max тайлов, длиннее split — режется ещё) — у каждого своя крыша (MapRenderer). Часть
+ * прямоугольных участков у переулка (homes.share) — жилые дома: стены в тайл, комната, дверь в
+ * 2 тайла на переулок; внутри мебель (POI home).
+ */
+export const HOUSES = {
+  lot: { min: 4, max: 11, split: 8 },
+  /** Меньшая сторона ≥ minSide, площадь ≥ minArea (комната хотя бы 3×2), не больше max. */
+  homes: { share: 0.6, minSide: 4, minArea: 20, max: [12, 11] as const },
 } as const;

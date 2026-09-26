@@ -11,6 +11,7 @@ import { GenGrid } from './GenGrid';
 import { planLayout, avenueOffsetAt, avenueRects } from './layout';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked } from './stamps';
+import { addHomes } from './homes';
 import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, rotateTemplate, mirrorTemplate, checkpointSection } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
@@ -72,7 +73,7 @@ export function validateMap(map: GameMap): string[] {
   const [lo, hi] = GENERATOR.validation.buildingRatio;
   if (s.buildingRatio < lo || s.buildingRatio > hi) out.push(`доля зданий ${(s.buildingRatio * 100).toFixed(1)}%`);
   const need: [Poi['type'], number][] = [
-    ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 4], ['restricted_gate', 1],
+    ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 7], ['bunk', 10], ['clerk_desk', 6], ['ota_spot', 6], ['restricted_gate', 1],
     ['checkpoint_post', 10], ['gate_post', 4], ['outlands_exit', 2], ['shop_counter', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
@@ -253,6 +254,9 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     isIndustrial: (x, y) => g.zones[y * W + x] === zInd,
     pois,
   });
+
+  // 5б. Городок: часть участков застройки у переулков — жилые дома с комнатой и дверью.
+  addHomes(g, rng.fork(10), seed + attempt, (x, y) => zoneKindAt(x, y) === 'residential', pois);
 
   // 6. Связность.
   const center = pois.find((p) => p.type === 'plaza_center')!;

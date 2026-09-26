@@ -46,7 +46,9 @@ export class LaborSystem {
   private time = 0;
   private lastEmptyNotice = -1e9;
   /** Счётчики (тесты, отладка). */
-  stats = { packed: 0, delivered: 0, cleaned: 0, searched: 0, healed: 0 };
+  stats = { packed: 0, delivered: 0, cleaned: 0, searched: 0, healed: 0, paperwork: 0 };
+  /** Столы канцелярии Нексуса (бумажная работа лоялистов) и кто за каким сидит. */
+  readonly desks: { x: number; y: number; who: Character | null }[] = [];
   /** Крематор (синтет, сжигает тела) и когда выпустить следующего из Нексуса. */
   cremator: Character | null = null;
   private crematorAt = 0;
@@ -54,6 +56,11 @@ export class LaborSystem {
   constructor(private readonly ctx: AiContext) {
     const { map, nav, rng } = ctx;
     const ts = map.tileSize;
+    for (const d of map.poisOf('clerk_desk')) {
+      // Место за столом — клетка под ним (стол нарисован на тайле POI и чуть ниже).
+      const a = nav.nearestWalkable((d.x + 0.5) * ts, (d.y + 1.5) * ts, 2);
+      if (a >= 0) this.desks.push({ x: nav.worldX(a), y: nav.worldY(a), who: null });
+    }
     const yard = map.poisOf('industrial_yard')[0];
     if (yard) {
       const a = nav.nearestWalkable((yard.x + 0.5) * ts, (yard.y + 0.5) * ts, 6);
@@ -270,5 +277,27 @@ export class LaborSystem {
     }
     for (const c of this.packing.keys()) if (!c.alive || !this.factory || Math.hypot(c.x - this.factory.x, c.y - this.factory.y) > 48) this.packing.delete(c);
     // Курьер погиб или задержан с коробкой — коробка пропала.
+  }
+
+  /** Занять свободный стол канцелярии (или null). */
+  claimDesk(c: Character): { x: number; y: number } | null {
+    // Занят — только если сидящий жив и всё ещё на бумажной работе (прервали — стол свободен).
+    const busy = (who: Character | null) => !!who && who !== c && who.alive && (who.isPlayer || (who.brain as { job?: { kind?: string } | null } | null)?.job?.kind === 'paper');
+    const d = this.desks.find((k) => !busy(k.who));
+    if (!d) return null;
+    d.who = c;
+    return d;
+  }
+
+  releaseDesk(c: Character): void {
+    for (const d of this.desks) if (d.who === c) d.who = null;
+  }
+
+  /** Отработал очередной отрезок бумажной работы: оплата и лояльность. */
+  payPaperwork(c: Character): void {
+    const P = LABOR.paperwork;
+    c.money += P.pay;
+    adjustLoyalty(c, P.loyalty, 'бумажная работа для Администрации', c.isPlayer ? this.ctx.bus : undefined);
+    this.stats.paperwork++;
   }
 }

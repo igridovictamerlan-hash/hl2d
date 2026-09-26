@@ -29,6 +29,9 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   P: T.BUNKER,
   R: T.BUNKER,
   T: T.INTERIOR,
+  b: T.INTERIOR,
+  w: T.INTERIOR,
+  q: T.INTERIOR,
 };
 
 export interface StampResult {
@@ -60,6 +63,9 @@ export function stampTemplate(
       if (ch === 'P') pois.push({ type: 'checkpoint_post', x: x0 + x, y: y0 + y });
       if (ch === 'R') pois.push({ type: 'gate_post', x: x0 + x, y: y0 + y });
       if (ch === 'T') pois.push({ type: 'code_terminal', x: x0 + x, y: y0 + y });
+      if (ch === 'b') pois.push({ type: 'bunk', x: x0 + x, y: y0 + y });
+      if (ch === 'w') pois.push({ type: 'clerk_desk', x: x0 + x, y: y0 + y });
+      if (ch === 'q') pois.push({ type: 'ota_spot', x: x0 + x, y: y0 + y });
     }
   }
   g.lockRect({ x: x0, y: y0, w, h });

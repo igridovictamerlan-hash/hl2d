@@ -3,6 +3,7 @@ import type { View } from '../core/Camera';
 import { T, SOLID } from './tiles';
 import { hash2, hash01 } from '../core/rng';
 import { RENDER } from '../config/render';
+import { computeLots, type Lot } from './houses';
 
 /**
  * Цвет HSL → '#rrggbb'. Цвета тайлов считаются один раз при загрузке, а разбираются браузером при
@@ -28,7 +29,13 @@ export class MapRenderer {
   private readonly color: string[];
   /** Для стен — биты соседей-пола (N=1,E=2,S=4,W=8); для пола — биты соседей-стен (+16 = стена по диагонали СЗ). */
   private readonly edges: Uint8Array;
+  /** Участок-дом на тайл (computeLots) и сами участки — у каждого своя крыша. */
   private readonly parcel: Int32Array;
+  private readonly lots: Lot[];
+  /** Часть крыши: 0 — нет, 1 — светлый скат, 2 — тёмный, 3 — конёк, 4 — стена жилого дома; бит 8 — конёк вдоль x. */
+  private readonly roofPart: Uint8Array;
+  /** Трубы на крышах (тайлы). */
+  private readonly chimney: Uint8Array;
   private readonly noise: Uint32Array;
   private xs = new Float64Array(0);
   private ys = new Float64Array(0);
@@ -38,10 +45,14 @@ export class MapRenderer {
     const n = w * h;
     this.color = new Array<string>(n);
     this.edges = new Uint8Array(n);
-    this.parcel = new Int32Array(n);
+    const lots = computeLots(w, h, map.tiles, map.seed | 0);
+    this.parcel = lots.lot;
+    this.lots = lots.lots;
+    this.roofPart = new Uint8Array(n);
+    this.chimney = new Uint8Array(n);
     this.noise = new Uint32Array(n);
     const seed = map.seed | 0;
-    this.buildParcels(seed);
+    this.placeChimneys(seed);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.computeTile(x, y);
   }
 
@@ -83,6 +94,14 @@ export class MapRenderer {
     const tone = (c: { h: number; s: number; l: number; noise: number }) => hsl(c.h, c.s, c.l + jit * c.noise);
     switch (t) {
       case T.WALL: {
+        // Стена жилого дома (рядом с комнатой) — штукатурка, не крыша.
+        let houseWall = false;
+        for (let dy = -1; dy <= 1 && !houseWall; dy++) for (let dx = -1; dx <= 1; dx++) if (map.tileAt(x + dx, y + dy) === T.INTERIOR && map.zoneAtTile(x + dx, y + dy)?.kind === 'residential') houseWall = true;
+        if (houseWall) {
+          this.roofPart[i] = 4;
+          this.color[i] = tone(P.houseWall);
+          break;
+        }
         const p = this.parcel[i];
         let rc = this.roofColor.get(p);
         if (!rc) {
@@ -93,7 +112,19 @@ export class MapRenderer {
           rc = [R.hues[Math.floor(r1 * R.hues.length)], R.sat[0] + r2 * (R.sat[1] - R.sat[0]), R.light[0] + r3 * (R.light[1] - R.light[0])];
           this.roofColor.set(p, rc);
         }
-        this.color[i] = hsl(rc[0], rc[1], rc[2] + jit * 0.8);
+        // Двускатная крыша: конёк вдоль длинной стороны участка.
+        const lot = p >= 0 ? this.lots[p] : null;
+        let shade = 0;
+        if (lot && lot.tiles >= 6) {
+          const alongX = lot.x1 - lot.x0 >= lot.y1 - lot.y0;
+          const a = alongX ? y : x;
+          const mid = alongX ? (lot.y0 + lot.y1) / 2 : (lot.x0 + lot.x1) / 2;
+          const S = P.roofSlope;
+          const part = Math.abs(a - mid) < 0.6 ? 3 : a < mid ? 1 : 2;
+          shade = part === 3 ? S.ridge : part === 1 ? S.light : S.dark;
+          this.roofPart[i] = part | (alongX ? 8 : 0);
+        }
+        this.color[i] = hsl(rc[0], rc[1], rc[2] + shade + jit * 0.8);
         break;
       }
       case T.METAL: this.color[i] = P.metal; break;
@@ -116,28 +147,17 @@ export class MapRenderer {
     }
   }
 
-  /** Разбивка застройки на «дома»: полосы по вертикали, внутри — нарезка по горизонтали. */
-  private buildParcels(seed: number): void {
-    const { width: w, height: h } = this.map;
-    let y = 0;
-    let band = 0;
-    while (y < h) {
-      const bh = 5 + (hash2(band, 7, seed) % 5);
-      let x = 0;
-      let cut = 0;
-      while (x < w) {
-        const cw = 4 + (hash2(band, cut + 100, seed) % 6);
-        const id = band * 1000 + cut;
-        for (let yy = y; yy < Math.min(h, y + bh); yy++) {
-          for (let xx = x; xx < Math.min(w, x + cw); xx++) this.parcel[yy * w + xx] = id;
-        }
-        x += cw;
-        cut++;
-      }
-      y += bh;
-      band++;
+  /** Трубы: на каждом крупном доме одна, на скате, не на краю. */
+  private placeChimneys(seed: number): void {
+    const w = this.map.width;
+    for (const l of this.lots) {
+      if (l.tiles < 12 || hash2(l.id, 5, seed) % 3 === 0) continue;
+      const x = l.x0 + 1 + (hash2(l.id, 6, seed) % Math.max(1, l.x1 - l.x0 - 1));
+      const y = l.y0 + 1 + (hash2(l.id, 7, seed) % Math.max(1, l.y1 - l.y0 - 1));
+      if (this.parcel[y * w + x] === l.id) this.chimney[y * w + x] = 1;
     }
   }
+
 
   draw(ctx: CanvasRenderingContext2D, v: View): void {
     const map = this.map;
@@ -191,7 +211,37 @@ export class MapRenderer {
         const ch = y1 - y0;
         switch (t) {
           case T.WALL: {
-            // Швы между домами и светлый парапет у края крыши.
+            const part = this.roofPart[i];
+            if ((part & 7) === 4) {
+              // Стена жилого дома: контур со стороны улицы и комнаты.
+              if (e) {
+                ctx.fillStyle = P.houseWallLine;
+                if (e & 1) ctx.fillRect(x0, y0, cw, line);
+                if (e & 4) ctx.fillRect(x0, y1 - line, cw, line);
+                if (e & 8) ctx.fillRect(x0, y0, line, ch);
+                if (e & 2) ctx.fillRect(x1 - line, y0, line, ch);
+              }
+              continue;
+            }
+            // Черепица: штрихи поперёк ската; конёк — светлая линия.
+            if (part) {
+              const alongX = (part & 8) !== 0;
+              ctx.fillStyle = P.roofTile;
+              if (alongX) ctx.fillRect(x0 + (cw >> 1), y0, line, ch);
+              else ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+              if ((part & 7) === 3) {
+                ctx.fillStyle = P.roofRidge;
+                if (alongX) ctx.fillRect(x0, y0 + (ch >> 1) - line, cw, line * 2);
+                else ctx.fillRect(x0 + (cw >> 1) - line, y0, line * 2, ch);
+              }
+            }
+            if (this.chimney[i]) {
+              ctx.fillStyle = P.chimney;
+              ctx.fillRect(x0 + (cw >> 2), y0 + (ch >> 2), cw >> 1, ch >> 1);
+              ctx.fillStyle = P.chimneyTop;
+              ctx.fillRect(x0 + (cw >> 2) + line, y0 + (ch >> 2) + line, (cw >> 1) - line * 2, (ch >> 1) - line * 2);
+            }
+            // Швы между домами и карниз у края крыши.
             ctx.fillStyle = P.roofSeam;
             if (tx + 1 < w && map.tiles[i + 1] === T.WALL && this.parcel[i + 1] !== this.parcel[i]) ctx.fillRect(x1 - line, y0, line, ch);
             if (ty + 1 < map.height && map.tiles[i + w] === T.WALL && this.parcel[i + w] !== this.parcel[i]) ctx.fillRect(x0, y1 - line, cw, line);

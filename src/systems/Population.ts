@@ -103,6 +103,8 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
       c.law.hasCid = false;
       c.law.wanted = true;
     }
+    // Часть обычных граждан — лоялисты (ходят в канцелярию Нексуса на бумажную работу).
+    if (prof === 'citizen' && ctx.rng.chance(P.loyalistShare)) c.loyalty = Math.round(ctx.rng.range(P.loyalistLoyalty[0], P.loyalistLoyalty[1]));
     if (c.role) c.role.loyalty = c.loyalty;
   }
   const factory = ctx.labor?.factory;

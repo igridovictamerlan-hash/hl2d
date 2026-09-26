@@ -59,10 +59,16 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'patrol':
     case 'guard':
     case 'gate':
-    case 'medic':
+    case 'medic': {
+      // ГО — из казармы Нексуса (нары), нет казармы — у ворот.
+      const n = ctx.map.poisOf('bunk').length;
+      const p = n ? poiWorld(ctx, 'bunk', Math.floor(ctx.rng.next() * n)) : poiWorld(ctx, 'nexus_gate');
+      return p ? spotNear(ctx, p, 2) : null;
+    }
     case 'ota': {
-      const gate = poiWorld(ctx, 'nexus_gate');
-      return gate ? spotNear(ctx, gate, 3) : null;
+      const n = ctx.map.poisOf('ota_spot').length;
+      const p = n ? poiWorld(ctx, 'ota_spot', Math.floor(ctx.rng.next() * n)) : poiWorld(ctx, 'nexus_gate');
+      return p ? spotNear(ctx, p, 2) : null;
     }
     case 'army':
     case 'leader':

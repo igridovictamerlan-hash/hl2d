@@ -7,6 +7,12 @@ import type { ItemId } from './items';
  * отбросы и воры в нём роются. Медик ГСР лечит за плату.
  */
 export const LABOR = {
+  /**
+   * Бумажная работа для Администратора: лоялисты (лояльность ≥ minLoyalty) ходят в канцелярию
+   * Нексуса за свободный стол (POI clerk_desk) на time с; раз в payEvery с — pay токенов и +loyalty.
+   * Игрок-лоялист — E у стола (workTime с).
+   */
+  paperwork: { chance: 0.5, minLoyalty: 40, time: [45, 90] as const, payEvery: 15, pay: 6, loyalty: 1, workTime: 12, reach: 30 },
   factory: {
     /** Сколько собирать одну коробку и сколько в ней рационов. */
     packTime: 5,
