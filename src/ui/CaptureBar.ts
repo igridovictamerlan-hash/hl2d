@@ -1,7 +1,7 @@
 import type { WarSystem } from '../systems/WarSystem';
 import { WAR } from '../config/war';
 
-/** Табло капта КПП: счёт убийств, сколько осталось времени и нужно для захвата; захваченные КПП. */
+/** Табло капта точек КПП: счёт убийств, время, гарнизон; какие точки D у повстанцев. */
 export class CaptureBar {
   private readonly el: HTMLElement;
   private last = '';
@@ -25,10 +25,14 @@ export class CaptureBar {
         const alive = c.defenders.filter((d) => d.alive).length;
         const attackers = f.squad.filter((r) => r.alive).length;
         rows.push(
-          `<div class="cap-row"><b>КАПТ · ${name}</b> <span class="cap-rebel">Повстанцы ${c.rebelKills}</span> : <span class="cap-cp">${c.cpKills} Альянс</span> · ${mmss} · штурмуют ${attackers} · гарнизон ${alive}/${c.defenders.length} · до захвата ${Math.max(0, WAR.capture.killsToWin - c.rebelKills)} уб.</div>`,
+          `<div class="cap-row"><b>КАПТ · ${name} · ${f.points[c.point]?.name ?? ''}</b> <span class="cap-rebel">Повстанцы ${c.rebelKills}</span> : <span class="cap-cp">${c.cpKills} Альянс</span> · ${mmss} · штурмуют ${attackers} · гарнизон ${alive}/${c.defenders.length} · до захвата ${Math.max(0, WAR.capture.killsToWin - c.rebelKills)} уб.</div>`,
         );
-      } else if (f.owner === 'rebels') rows.push(`<div class="cap-row"><b>${name}</b> <span class="cap-rebel">в руках повстанцев</span></div>`);
+      } else if (f.held > 0) {
+        const pts = f.points.map((p, k) => `<span class="${k < f.held ? 'cap-rebel' : 'cap-cp'}">${p.name}</span>`).join(' – ');
+        rows.push(`<div class="cap-row"><b>${name}</b> ${pts} · ${f.owner === 'rebels' ? '<span class="cap-rebel">КПП прорван</span>' : 'точка у повстанцев'}</div>`);
+      }
     }
+    if (war.cityPush) rows.push('<div class="cap-row"><span class="cap-rebel">Все точки D у повстанцев — они выходят в город</span></div>');
     const html = rows.join('');
     if (html === this.last) return;
     this.last = html;

@@ -114,7 +114,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
   const none = new Set<number>();
-  const patrolDivisions: DivisionId[] = ['union', 'union', 'jury', 'helix', 'tech', 'jury'];
+  const patrolDivisions: DivisionId[] = ['union', 'union', 'jury', 'union', 'helix', 'tech', 'union', 'jury'];
   for (let k = 0; k < P.cpPatrol; k++) {
     const division = patrolDivisions[k % patrolDivisions.length];
     const c = add('cp', freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, none), cpKit(division), randomRank(ctx, 'cp', 6));
@@ -123,7 +123,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
       c.brain = new CpBrain(c, ctx);
     }
   }
-  // Гарнизоны КПП: часовые GRID на постах лицом к пустошам + медик HELIX в бункере.
+  // Гарнизоны КПП: часовые GRID на постах обеих точек тамбура лицом к пустошам + медик HELIX в бункере.
   for (const f of ctx.war.fronts) {
     f.posts.slice(0, P.cpPerCheckpoint).forEach((post) => {
       const facing = Math.atan2(f.exit.y - post.y, f.exit.x - post.x);

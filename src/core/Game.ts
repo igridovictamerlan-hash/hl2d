@@ -128,6 +128,13 @@ export class Game {
       (a) => this.render(a),
     );
     window.addEventListener('resize', () => this.resize());
+    // Игрок примкнул к повстанцам у прорванного КПП — новая роль (сохраняется).
+    this.bus.on('defected', ({ who }) => {
+      if (who !== this.player) return;
+      this.role = { faction: 'rebel', rank: 0, division: null, profession: 'rebel_soldier' };
+      this.bus.emit('announce', { text: 'Вы примкнули к сопротивлению' });
+      this.save();
+    });
     // Esc: закрыть открытую панель или открыть меню паузы (перехват до остальных обработчиков).
     window.addEventListener('keydown', (e) => this.onEscape(e), true);
     // Сохранить при закрытии/сворачивании вкладки.
@@ -601,6 +608,7 @@ export class Game {
     this.drawTerminal(v);
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
+    this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     this.effects.drawShots(ctx, v, this.combat);

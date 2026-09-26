@@ -1,9 +1,14 @@
 /** Параметры ИИ NPC. Время — в секундах, расстояния — в px, если не сказано иное. */
 export const AI = {
   /** Население при старте. citizens меняется параметром ?npcs=. */
-  citizens: 20,
+  citizens: 45,
   population: {
-    cpPatrol: 6, cpPerCheckpoint: 3, rebels: 3, admin: 1,
+    /**
+     * ГО — самая многочисленная вооружённая сила (патрули + по посту на каждый пост обеих точек
+     * тамбура обоих КПП + медики), граждан — большинство населения; повстанцы — отряды на пустошах
+     * (WAR.maxRebels на КПП), гарнизон убежища и пара подпольщиков в городе.
+     */
+    cpPatrol: 14, cpPerCheckpoint: 5, rebels: 2, admin: 1,
     /** ГСР по профессиям (config/professions.ts): повара на раздаче, фасовщик, курьер, уборщики, медик. */
     cwuProfessions: ['cook', 'cook', 'packer', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic'] as const,
     /** Доля воров и отбросов среди граждан. */

@@ -230,6 +230,12 @@ export class PlayerController {
       const n = eco.refillAmmo(p, INSURGENCY.cacheMags);
       return this.say(n > 0 ? `Тайник: +${n} патронов.` : 'Тайник: патронов вам хватает.', 'world');
     }
+    // Прорванный КПП: гражданин (или ГСР) в коридоре может примкнуть к повстанцам.
+    const front = ctx.war.frontAt(p.x, p.y);
+    if (front && front.owner === 'rebels' && (p.faction === 'citizen' || p.faction === 'cwu') && ctx.war.pointAt(front, p.x, p.y) >= 0) {
+      ctx.war.defect(p, front);
+      return this.say('Вы примкнули к сопротивлению! Оружие выдали — держите КПП.', 'world');
+    }
     const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
     // Наблюдатель OBS сначала сканирует тело (найти убийцу), потом можно обыскать.
     if (corpse && p.faction === 'cp' && p.division === 'jury' && !corpse.scanned) {

@@ -312,7 +312,7 @@ export class MapView {
       for (const n of economy.nodes) if (n.broken) dot(n.x, n.y, 2.5, C.nodeBroken);
       for (const h of map.hatches) if (player.faction === 'rebel' || this.hatches.has(h.id)) dot(h.city.x, h.city.y, 2, C.hatch, true);
       for (const f of war.fronts) {
-        const color = f.capture || f.owner === 'rebels' ? C.capture : war.active(f) ? C.fight : C.front;
+        const color = f.capture || f.held > 0 ? C.capture : war.active(f) ? C.fight : C.front;
         dot(f.innerGate.x, f.innerGate.y, 3.5, color);
         if (f.capture) dot(f.innerGate.x, f.innerGate.y, 5 + pulse * 3, color, true);
       }

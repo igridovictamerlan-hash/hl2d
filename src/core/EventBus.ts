@@ -19,6 +19,8 @@ export interface GameEvents {
   'law:checkResult': { target: Character; verdict: Verdict };
   /** Панель проверки закрыта (решение принято или задержанный ушёл). */
   'law:checkClosed': { target: Character };
+  /** Персонаж (игрок) перешёл к повстанцам у прорванного КПП. */
+  defected: { who: Character };
 }
 
 type Handler<T> = (payload: T) => void;

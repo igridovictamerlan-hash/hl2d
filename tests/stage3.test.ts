@@ -184,7 +184,10 @@ describe('война на границе', () => {
     console.log(`выстрелов: ${sim.combat.shotsFired}, попаданий: ${sim.combat.hits}, убитых: ${sim.combat.kills}`);
     expect(sim.combat.shotsFired).toBeGreaterThan(200);
     expect(sim.combat.hits).toBeGreaterThan(20);
-    for (const f of sim.war.fronts) expect(f.posts.length).toBe(3);
+    for (const f of sim.war.fronts) {
+      expect(f.posts.length).toBe(5);
+      expect(f.points.map((p) => p.posts.length)).toEqual([2, 3]);
+    }
   });
 
   test('прорыв в город → красный код, комендантский час, OTA; зачистка → зелёный', { timeout: 120_000 }, () => {

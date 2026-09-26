@@ -113,6 +113,10 @@ export const RENDER = {
     scannerRim: '#2c323a',
     scannerLens: '#9fe0ff',
     scannerLight: 'rgba(170,220,255,0.12)',
+    /** Разметка точек D на полу тамбура КПП: у Альянса, у повстанцев, идёт капт. */
+    pointCombine: 'rgba(130,180,245,0.75)',
+    pointRebel: 'rgba(250,155,60,0.85)',
+    pointCapture: 'rgba(255,225,120,0.85)',
     scannerFlash: 'rgba(255,255,255,0.85)',
   },
   /**

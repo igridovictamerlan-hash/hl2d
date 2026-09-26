@@ -10,7 +10,7 @@ export const UNDERGROUND = {
 
 export const INSURGENCY = {
   /** Гарнизон убежища: сколько бойцов, пополнение раз в… */
-  garrison: 6,
+  garrison: 5,
   recruitEvery: 50,
   /** Операции из убежища: первая через…, потом раз в… */
   firstOp: [20, 40] as const,

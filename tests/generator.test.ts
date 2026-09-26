@@ -82,7 +82,7 @@ describe('генератор переулочного города', () => {
         }
         expect(map.poisOf('cell').length).toBeGreaterThanOrEqual(4);
         expect(map.poisOf('ration_window').length).toBe(1);
-        expect(map.poisOf('checkpoint_post').length).toBe(6);
+        expect(map.poisOf('checkpoint_post').length).toBe(10);
         expect(map.poisOf('outlands_exit').length).toBe(2);
         expect(map.zones.filter((z) => z.kind === 'checkpoint')).toHaveLength(2);
       });

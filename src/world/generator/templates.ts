@@ -46,8 +46,9 @@ export function rotateTemplate(rows: readonly string[], rot: 0 | 180): string[] 
  * Пограничный КПП (каноническая ориентация: пустошь на западе, город на востоке).
  * Пустошь 14 тайлов в глубину с завалами-укрытиями (B) — «ничейная земля», где держатся
  * отряды повстанцев. Длинный коридор 4 тайла с шахматными укрытиями — место «коридорной рубки»;
- * ворота с обеих сторон, бункеры ГО сверху и снизу с дверями в коридор.
- * Посты часовых (P): передний — за вторым блоком коридора, два задних — у внутренних ворот.
+ * ворота с обеих сторон, бункеры ГО сверху и снизу с дверями в коридор. Средние ворота делят
+ * коридор на тамбур из двух точек (как D3–D4 / D5–D6 на UnionRP): внешняя камера и внутренняя.
+ * Посты часовых (P): два во внешней камере (за блоками), три во внутренней (у средних и внутренних ворот).
  */
 export const CHECKPOINT_TEMPLATE: readonly string[] = [
   'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
@@ -58,10 +59,10 @@ export const CHECKPOINT_TEMPLATE: readonly string[] = [
   'oooooooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'ooooooBoooooooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'ooooooBoooooooMM####dd#########dd####MMMMMMM',
-  'ooBoooooooooBoggkkkBkkkkkkkBPkkkkPkkggkkkkkk',
-  'ooBoooooooooBoggkkkBkkkkkkkBkkkkkkkkggkkkkkk',
-  'ooooooooBoooooggkkkkkkkBkkkkkkkBkkkkggkkkkkk',
-  'ooooooooBoooooggkkkkkkkBkkkkkkkBkPkkggkkkkkk',
+  'ooBoooooooooBoggkkkBkPkkkggBPkkkkPkkggkkkkkk',
+  'ooBoooooooooBoggkkkBkkkkkggBkkkkkkkkggkkkkkk',
+  'ooooooooBoooooggkkkkkkkBkggkkkkBkkkkggkkkkkk',
+  'ooooooooBoooooggkkkkkkkBPggkkkkBkPkkggkkkkkk',
   'ooooBoooooooooMM###dd###########dd##MMMMMMMM',
   'ooooBooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',
   'oooooooooooBooMM,,,,,,,,,,#,,,,,,,,,MMMMMMMM',

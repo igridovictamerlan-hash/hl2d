@@ -316,6 +316,31 @@ export class EffectsRenderer {
   }
 
   /** Сканеры Альянса: тень на земле, пятно света, парящий корпус с линзой, вспышка при «фото». */
+  /** Разметка точек D на полу камер тамбура: имя точки цветом того, кто её держит. */
+  drawPoints(ctx: CanvasRenderingContext2D, v: View, war: WarSystem, now: number): void {
+    const s = v.scale;
+    const E = RENDER.effects;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold ${Math.round(22 * s)}px sans-serif`;
+    for (const f of war.fronts) {
+      const ends = [f.outerGate, f.midGate, f.innerGate];
+      f.points.forEach((pt, k) => {
+        const a = ends[k];
+        const b = ends[k + 1];
+        const x = ((a.x + b.x) / 2 - v.left) * s;
+        const y = ((a.y + b.y) / 2 - v.top) * s;
+        if (x < -80 || y < -80 || x > v.width + 80 || y > v.height + 80) return;
+        const capturing = f.capture?.point === k;
+        ctx.globalAlpha = capturing ? 0.6 + 0.4 * Math.abs(Math.sin(now * 4)) : 1;
+        ctx.fillStyle = capturing ? E.pointCapture : k < f.held ? E.pointRebel : E.pointCombine;
+        ctx.fillText(pt.name, x, y);
+      });
+    }
+    ctx.restore();
+  }
+
   drawScanners(ctx: CanvasRenderingContext2D, v: View, list: readonly Scanner[], alpha: number, now: number): void {
     const s = v.scale;
     const E = RENDER.effects;
@@ -476,8 +501,11 @@ export class EffectsRenderer {
       ctx.closePath();
       ctx.fill();
       const meters = Math.round((Math.hypot(f.innerGate.x - player.x, f.innerGate.y - player.y) / 16) * M.metersPerTile);
-      const state = f.capture ? ` · капт ${f.capture.rebelKills}:${f.capture.cpKills}` : f.owner === 'rebels' ? ' · захвачен' : fight ? ' · бой' : '';
-      const label = `${f.name.replace('Пограничный ', '')} · ${meters} м${state}`;
+      const pts = f.points.map((p) => p.name).join('–');
+      const state = f.capture
+        ? ` · капт ${f.points[f.capture.point]?.name ?? ''} ${f.capture.rebelKills}:${f.capture.cpKills}`
+        : f.owner === 'rebels' ? ' · прорван' : f.held > 0 ? ` · ${f.points[0].name} у повстанцев` : fight ? ' · бой' : '';
+      const label = `${pts} ${f.name.replace('Пограничный ', '')} · ${meters} м${state}`;
       const w = ctx.measureText(label).width;
       // Подпись — внутрь экрана от стрелки.
       const tx = Math.max(6 * dpr + w / 2, Math.min(v.width - 6 * dpr - w / 2, x - Math.cos(ang) * (w / 2 + 16 * dpr)));

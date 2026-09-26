@@ -320,10 +320,16 @@ const POST: State<CpBrain> = {
   },
 };
 
+/** Пост далеко (подкрепление из Цитадели) — к нему бегом. */
+function guardSpeed(b: CpBrain): number {
+  const p = b.guardPost!;
+  return dist(b.self.x, b.self.y, p.x, p.y) > LAW.cpRunToPost ? LAW.cpRunSpeed : LAW.cpWalkSpeed;
+}
+
 const GUARD: State<CpBrain> = {
   name: 'guard',
   enter(b) {
-    b.mover.speed = LAW.cpWalkSpeed;
+    b.mover.speed = guardSpeed(b);
     const p = b.guardPost!;
     const a = b.ctx.nav.nearestWalkable(p.x, p.y, 3);
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
@@ -333,9 +339,12 @@ const GUARD: State<CpBrain> = {
     if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, p.x, p.y) < 12) {
       b.mover.stop();
       turnTowards(b.self, b.guardFacing, dt, 3);
-    } else if (b.mover.status === 'failed' || b.mover.status === 'idle') {
-      const a = b.ctx.nav.nearestWalkable(p.x, p.y, 3);
-      if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    } else {
+      b.mover.speed = guardSpeed(b);
+      if (b.mover.status === 'failed' || b.mover.status === 'idle') {
+        const a = b.ctx.nav.nearestWalkable(p.x, p.y, 3);
+        if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+      }
     }
   },
 };

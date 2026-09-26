@@ -32,6 +32,8 @@ export const LAW = {
   catchDistance: 30,
   cpWalkSpeed: 78,
   cpRunSpeed: 150,
+  /** Подкрепление из Цитадели: до поста дальше этого (px) — бегом. */
+  cpRunToPost: 200,
   /** Посты ГО на узких местах. */
   postTime: [8, 25] as const,
   postChance: 0.4,

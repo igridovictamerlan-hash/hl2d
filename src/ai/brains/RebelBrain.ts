@@ -64,7 +64,17 @@ export class RebelBrain implements Brain {
     return `${this.mode}${this.gunner.target ? ' · бой' : ''}`;
   }
 
+  /** Пост, который держит (режим hold). */
+  get post(): { x: number; y: number } | null {
+    return this.mode === 'hold' ? this.holdPost : null;
+  }
+
   orderAssault(): void {
+    if (this.mode === 'hold' || this.mode === 'capture') {
+      this.mode = 'assault';
+      this.goal = -1;
+      return;
+    }
     if (this.mode === 'gather') this.mode = 'raid';
     if (this.mode === 'raid') this.assaultAt = 0;
   }
@@ -87,7 +97,7 @@ export class RebelBrain implements Brain {
     this.phaseLeft = 0;
   }
 
-  /** Якорь коридора на доле пути t (0 — внешние ворота, 1 — посты), по возможности — за блоком. */
+  /** Якорь коридора на доле пути t (0 — внешние ворота, 1 — внутренние), по возможности — за блоком. */
   private coverAt(f: NonNullable<AiContext['war']['fronts'][number]>, t: number): number {
     const { ctx } = this;
     const n = f.corridor.length;
@@ -338,8 +348,10 @@ export class RebelBrain implements Brain {
       case 'capture': {
         if (!f) break;
         const C = WAR.capture;
-        // Цель — укрытие в коридоре на доле пути this.advance; дошли и продержались — дальше.
-        if (this.goal < 0 || this.mover.status === 'failed') this.go(this.coverAt(f, this.advance));
+        // Цель — укрытие в камере штурмуемой точки на доле пути this.advance; дошли и продержались — дальше.
+        const [lo, hi] = ctx.war.captureSpan(f);
+        const at = (t: number) => this.coverAt(f, lo + (hi - lo) * t);
+        if (this.goal < 0 || this.mover.status === 'failed') this.go(at(this.advance));
         const arrived = this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) < 14;
         if (arrived) {
           this.mover.stop();
@@ -347,7 +359,7 @@ export class RebelBrain implements Brain {
           if (this.coverLeft <= 0 && this.advance < 1) {
             this.advance = Math.min(1, this.advance + C.advanceStep);
             this.coverLeft = ctx.rng.range(C.coverWait[0], C.coverWait[1]);
-            this.go(this.coverAt(f, this.advance));
+            this.go(at(this.advance));
           }
           break;
         }
