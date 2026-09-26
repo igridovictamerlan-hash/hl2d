@@ -74,7 +74,6 @@ export const RENDER = {
     brokenB: '#ffd36b',
     progress: '#8fd6b0',
     blood: 'rgba(110,10,10,0.55)',
-    corpseX: 'rgba(20,20,20,0.9)',
     loot: '#ffd36b',
     tracerCombine: 'rgba(140,200,255,0.95)',
     tracerRebel: 'rgba(255,190,90,0.95)',

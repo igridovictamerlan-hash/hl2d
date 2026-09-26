@@ -2,30 +2,33 @@ import type { Character } from './Character';
 import type { WeaponId } from '../config/items';
 import { WEAPON_SPRITES, WEAPON_POSE } from '../config/weaponSprites';
 
-/** Поза оружия в системе персонажа: сдвиг (x вперёд, y вправо) и доворот, рад. */
+/**
+ * Поза оружия: рукоять (мир, px), угол ствола и отражение (целится влево — модель отражена по
+ * вертикали, чтобы магазин и рукоять оставались снизу).
+ */
 export interface Pose {
   x: number;
   y: number;
   ang: number;
+  flip: boolean;
 }
 
-/** Как сейчас держит оружие: у бедра / в прицеле, отведено на перезарядке, откат от отдачи. */
-export function weaponPose(c: Character, id: WeaponId, reloading: boolean): Pose {
-  const sp = WEAPON_SPRITES[id];
-  const P = WEAPON_POSE[sp.hold];
-  const aimed = c.aiming || c.aim > 0.5;
-  const base = aimed ? P.aim : P.hip;
+export function weaponPose(c: Character, reloading: boolean): Pose {
+  const flip = Math.cos(c.facing) < 0;
   const kick = Math.min(WEAPON_POSE.kickMax, c.recoil * WEAPON_POSE.kickPerDeg);
-  return { x: base.x - kick, y: base.y, ang: reloading ? WEAPON_POSE.reloadTilt : 0 };
+  const d = WEAPON_POSE.hold - kick;
+  // Перезарядка — ствол опущен (к низу экрана с той стороны, куда смотрит).
+  const tilt = reloading ? (flip ? -WEAPON_POSE.reloadTilt : WEAPON_POSE.reloadTilt) : 0;
+  return { x: c.x + Math.cos(c.facing) * d, y: c.y + WEAPON_POSE.y + Math.sin(c.facing) * d, ang: c.facing + tilt, flip };
 }
 
 /** Дульный срез в мире (для трассера и вспышки). */
 export function muzzleWorld(c: Character, id: WeaponId, reloading = false): { x: number; y: number } {
-  const p = weaponPose(c, id, reloading);
-  const m = WEAPON_SPRITES[id].muzzle * WEAPON_POSE.scale;
-  const lx = p.x + Math.cos(p.ang) * m;
-  const ly = p.y + Math.sin(p.ang) * m;
-  const cf = Math.cos(c.facing);
-  const sf = Math.sin(c.facing);
-  return { x: c.x + cf * lx - sf * ly, y: c.y + sf * lx + cf * ly };
+  const p = weaponPose(c, reloading);
+  const [mx, my0] = WEAPON_SPRITES[id].muzzle;
+  const k = WEAPON_POSE.scale;
+  const my = (p.flip ? -my0 : my0) * k;
+  const cs = Math.cos(p.ang);
+  const sn = Math.sin(p.ang);
+  return { x: p.x + cs * mx * k - sn * my, y: p.y + sn * mx * k + cs * my };
 }

@@ -4,6 +4,8 @@ import { FACTIONS, colorsOf, rankOf } from '../config/factions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
+import { drawPawn, drawPawnShadow, lookSeed, pawnDir } from './PawnRenderer';
+import { PAWN } from '../config/pawns';
 
 /** Подпись роли: ГО и повстанцы — с рангом, жители — с номером CID. */
 export function roleLabel(c: Character): string {
@@ -25,64 +27,59 @@ export function roleLabel(c: Character): string {
 export class EntityRenderer {
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
     const s = v.scale;
+    // Пешки сверху вниз по экрану: нижняя перекрывает верхнюю (как в RimWorld).
+    const shown = drawOrder;
+    shown.length = 0;
     for (const c of list) {
       if (!c.alive || (!c.visible && !showAll)) continue;
       const x = (lerp(c.prevX, c.x, alpha) - v.left) * s;
       const y = (lerp(c.prevY, c.y, alpha) - v.top) * s;
-      const r = c.radius * s;
-      if (x < -r * 3 || y < -r * 3 || x > v.width + r * 3 || y > v.height + r * 3) continue;
-      const col = colorsOf(c.faction, c.rank);
+      const m = 30 * s;
+      if (x < -m || y < -m || x > v.width + m || y > v.height + m) continue;
+      shown.push({ c, x, y });
+    }
+    shown.sort((a, b) => a.y - b.y);
+    for (const { c, x, y } of shown) {
       ctx.globalAlpha = c.visible ? 1 : 0.4;
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.beginPath();
-      ctx.arc(x + r * 0.18, y + r * 0.22, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = col.color;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.lineWidth = Math.max(1, s * 1.5);
-      ctx.strokeStyle = col.outline;
-      ctx.stroke();
-      // Нос-треугольник: куда смотрит (у вооружённого взгляд и так видно по стволу — нос меньше).
-      const cf = Math.cos(c.facing);
-      const sf = Math.sin(c.facing);
-      const nose = c.weapon ? 0.75 : 1;
-      ctx.fillStyle = col.outline;
-      ctx.beginPath();
-      ctx.moveTo(x + cf * r * (0.72 + 0.6 * nose), y + sf * r * (0.72 + 0.6 * nose));
-      ctx.lineTo(x + cf * r * 0.72 - sf * r * 0.42 * nose, y + sf * r * 0.72 + cf * r * 0.42 * nose);
-      ctx.lineTo(x + cf * r * 0.72 + sf * r * 0.42 * nose, y + sf * r * 0.72 - cf * r * 0.42 * nose);
-      ctx.closePath();
-      ctx.fill();
-      // Оружие в руках: рисунок по модели (вид сверху) и кисти рук.
-      drawWeapon(ctx, c, x, y, s, c.reloadUntil > now);
-      // Оглушён дубинкой — голубые искры.
+      const dir = pawnDir(c.facing);
+      const look = { faction: c.faction, rank: c.rank, color: colorsOf(c.faction, c.rank).color, seed: lookSeed(c.id) };
+      const reloading = c.reloadUntil > now;
+      if (c.isPlayer) {
+        // Выделение игрока — эллипс у ног.
+        ctx.strokeStyle = PAWN.playerRing;
+        ctx.lineWidth = Math.max(1, s * 1.3);
+        ctx.beginPath();
+        ctx.ellipse(x, y + PAWN.shadow.y * s, (PAWN.shadow.rx + 3) * s, (PAWN.shadow.ry + 1.8) * s, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      drawPawnShadow(ctx, x, y, s);
+      // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
+      if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading);
+      drawPawn(ctx, look, x, y, s, dir);
+      if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading);
+      // Оглушён дубинкой — голубые искры вокруг головы.
       if (c.stunUntil > now) {
+        const hy = y + PAWN.head.y * s;
         ctx.strokeStyle = RENDER.entity.stun;
         ctx.lineWidth = Math.max(1, s * 1.2);
         ctx.beginPath();
         for (let k = 0; k < 3; k++) {
           const a = now * 9 + (k * Math.PI * 2) / 3;
-          ctx.moveTo(x + Math.cos(a) * r * 1.1, y + Math.sin(a) * r * 1.1);
-          ctx.lineTo(x + Math.cos(a + 0.5) * r * 1.35, y + Math.sin(a + 0.5) * r * 1.35);
+          const r = PAWN.head.r * s;
+          ctx.moveTo(x + Math.cos(a) * r * 1.2, hy + Math.sin(a) * r * 0.6);
+          ctx.lineTo(x + Math.cos(a + 0.5) * r * 1.45, hy + Math.sin(a + 0.5) * r * 0.75);
         }
         ctx.stroke();
       }
-      // Наручники.
+      // Наручники — кольца на поясе.
       if (c.law.phase === 'cuffed' || c.law.phase === 'entering') {
-        ctx.strokeStyle = 'rgba(230,230,230,0.9)';
-        ctx.lineWidth = Math.max(1, s);
-        ctx.beginPath();
-        ctx.arc(x, y, r * 0.45, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      if (c.isPlayer) {
-        ctx.strokeStyle = RENDER.entity.playerRing;
+        ctx.strokeStyle = 'rgba(230,230,230,0.95)';
         ctx.lineWidth = Math.max(1, s * 1.1);
-        ctx.beginPath();
-        ctx.arc(x, y, r + s * 3, 0, Math.PI * 2);
-        ctx.stroke();
+        for (const dx of [-2.2, 2.2]) {
+          ctx.beginPath();
+          ctx.arc(x + dx * s, y + 6 * s, 2 * s, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       }
     }
     ctx.globalAlpha = 1;
@@ -97,24 +94,27 @@ export class EntityRenderer {
     for (const c of list) {
       if (!c.alive || (!c.visible && !showAll)) continue;
       const x = (lerp(c.prevX, c.x, alpha) - v.left) * s;
-      const y = (lerp(c.prevY, c.y, alpha) - v.top) * s - c.radius * s - 4 * dpr;
-      if (x < -200 || y < -60 || x > v.width + 200 || y > v.height + 60) continue;
+      const cy = (lerp(c.prevY, c.y, alpha) - v.top) * s;
+      // Как в RimWorld: имя под ногами, роль под именем; реплика — над головой.
+      const feet = cy + PAWN.body.bottom * s;
+      if (x < -200 || cy < -80 || x > v.width + 200 || cy > v.height + 80) continue;
       const f = FACTIONS[c.faction];
       const r = rankOf(c.faction, c.rank);
       ctx.globalAlpha = c.visible ? 1 : 0.5;
-      ctx.font = scaleFont(E.roleFont, dpr);
       ctx.lineWidth = 3 * dpr;
       ctx.strokeStyle = E.labelShadow;
-      const role = roleLabel(c);
-      ctx.strokeText(role, x, y);
-      ctx.fillStyle = r ? r.color : f.label;
-      ctx.fillText(role, x, y);
       ctx.font = scaleFont(E.nameFont, dpr);
-      const ny = y - 11 * dpr;
+      const ny = feet + 12 * dpr;
       ctx.strokeText(c.name, x, ny);
       ctx.fillStyle = c.isPlayer ? E.playerNameColor : E.nameColor;
       ctx.fillText(c.name, x, ny);
-      if (c.speech && c.speech.until > now) this.bubble(ctx, c.speech.text, x, ny - 14 * dpr, dpr);
+      ctx.font = scaleFont(E.roleFont, dpr);
+      const role = roleLabel(c);
+      ctx.strokeText(role, x, ny + 10 * dpr);
+      ctx.fillStyle = r ? r.color : f.label;
+      ctx.fillText(role, x, ny + 10 * dpr);
+      const top = cy + (PAWN.head.y - PAWN.head.r) * s;
+      if (c.speech && c.speech.until > now) this.bubble(ctx, c.speech.text, x, top - 6 * dpr, dpr);
     }
     ctx.globalAlpha = 1;
   }
@@ -129,6 +129,8 @@ export class EntityRenderer {
     ctx.fillText(text, x, y);
   }
 }
+
+const drawOrder: { c: Character; x: number; y: number }[] = [];
 
 const fontCache = new Map<string, string>();
 /** «600 11px Font» → с учётом devicePixelRatio. */
