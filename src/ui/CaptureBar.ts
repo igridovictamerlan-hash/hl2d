@@ -32,6 +32,13 @@ export class CaptureBar {
         rows.push(`<div class="cap-row"><b>${name}</b> ${pts} · ${f.owner === 'rebels' ? '<span class="cap-rebel">КПП прорван</span>' : 'точка у повстанцев'}</div>`);
       }
     }
+    const n = war.nexus;
+    if (n.fallen) {
+      const left = Math.max(0, Math.ceil(WAR.nexus.holdToWin - (war.now - n.fallenAt)));
+      rows.push(`<div class="cap-row"><b class="cap-rebel">НЕКСУС ЗАХВАЧЕН</b> · удержать ещё ${left} с · повстанцев ${n.rebels} · защитников ${n.defenders}</div>`);
+    } else if (n.progress > 0 || n.rebels > 0) {
+      rows.push(`<div class="cap-row"><b>ШТУРМ НЕКСУСА</b> · захват ${Math.floor((100 * n.progress) / WAR.nexus.captureTime)}% · <span class="cap-rebel">повстанцев ${n.rebels}</span> : <span class="cap-cp">${n.defenders} защитников</span></div>`);
+    }
     if (war.cityPush) rows.push('<div class="cap-row"><span class="cap-rebel">Все точки D у повстанцев — они выходят в город</span></div>');
     const html = rows.join('');
     if (html === this.last) return;

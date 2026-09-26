@@ -140,7 +140,9 @@ export class WarSystem {
   /** Сколько граждан ещё может уйти за текущий прорыв; граждан было в начале. */
   private defectLeft = 0;
   private citizensAtStart = -1;
-  readonly stats = { defected: 0, counterattacks: 0 };
+  readonly stats = { defected: 0, counterattacks: 0, nexusFalls: 0, victories: 0 };
+  /** Штурм Нексуса: накопленный захват (с), захвачен ли и когда, объявлен ли штурм. */
+  readonly nexus = { progress: 0, fallen: false, fallenAt: 0, rebels: 0, defenders: 0, wave: false, waveSince: 0, stagedSince: -1 };
   /** Командование сопротивления: армия в лагере, цель главы, клич. */
   readonly command: RebelCommand;
 
@@ -721,6 +723,98 @@ export class WarSystem {
     if (n) this.ctx.law.log(`Надзор: отряд OTA (${n}) выходит из Цитадели.`, 'radio');
   }
 
+  /**
+   * Штурм Нексуса: повстанцев в зоне Нексуса ≥ WAR.nexus.minAttackers и больше, чем защитников, —
+   * захват копится; захвачен и удержан holdToWin с — победа восстания (раунд заново).
+   */
+  private updateNexus(dt: number): void {
+    const N = WAR.nexus;
+    const n = this.nexus;
+    const { map, entities } = this.ctx;
+    let rebels = 0;
+    let defenders = 0;
+    let stormers = 0;
+    let staged = 0;
+    for (const c of entities.list) {
+      if (!c.alive) continue;
+      const b = rebelBrain(c);
+      if (b?.mode === 'storm' || (b?.mode === 'assault' && this.cityPush)) {
+        stormers++;
+        if (b.staged) staged++;
+      }
+      if (map.zoneAtWorld(c.x, c.y)?.kind !== 'nexus') continue;
+      // Штурмующие — бойцы в режиме штурма и игрок-повстанец (не отпущенные из КПЗ).
+      if (c.faction === 'rebel' && c.law.phase === 'none' && (c.isPlayer || b?.mode === 'storm')) rebels++;
+      else if (c.faction === 'cp' || c.faction === 'ota') defenders++;
+    }
+    n.rebels = rebels;
+    n.defenders = defenders;
+    // Волна: собрались у Нексуса (или ждали достаточно) — все разом; штурмующих не осталось — конец.
+    if (stormers === 0 || (n.wave && !n.fallen && this.time - n.waveSince > N.waveMax)) {
+      // Волна выдохлась — Цитадель снова высылает силы; уцелевшие собираются на новую.
+      if (n.wave && stormers > 0) for (const c of entities.list) if (c.alive && rebelBrain(c)?.mode === 'assault') rebelBrain(c)!.staged = false;
+      n.wave = false;
+      n.stagedSince = -1;
+    } else if (!n.wave) {
+      if (staged > 0 && n.stagedSince < 0) n.stagedSince = this.time;
+      if (staged >= N.waveSize || (staged > 0 && this.time - n.stagedSince >= N.stageMax)) {
+        n.wave = true;
+        n.waveSince = this.time;
+        this.ctx.law.log(`Надзор: повстанцы (${stormers}) штурмуют Нексус! Всем юнитам — к Нексусу!`, 'radio');
+        this.ctx.bus.emit('announce', { text: 'Штурм Нексуса' });
+      }
+    }
+    if (!n.fallen) {
+      if (rebels >= N.minAttackers && rebels >= defenders) n.progress = Math.min(N.captureTime, n.progress + dt);
+      else n.progress = Math.max(0, n.progress - dt * N.decay);
+      if (n.progress >= N.captureTime) {
+        n.fallen = true;
+        n.fallenAt = this.time;
+        this.stats.nexusFalls++;
+        this.ctx.law.log(`Администрация: НЕКСУС ЗАХВАЧЕН повстанцами! Удержат ${N.holdToWin} с — город падёт. Всем силам Альянса — отбить Нексус!`, 'world');
+        this.ctx.bus.emit('announce', { text: 'Нексус захвачен повстанцами' });
+      }
+      return;
+    }
+    if (rebels === 0) {
+      n.fallen = false;
+      n.progress = 0;
+      this.ctx.law.log('Надзор: Нексус отбит. Повстанцы выбиты из Цитадели.', 'radio');
+      this.ctx.bus.emit('announce', { text: 'Нексус отбит' });
+      return;
+    }
+    if (this.time - n.fallenAt >= N.holdToWin) this.rebelVictory();
+  }
+
+  /** Нексус удержан: победа восстания. Альянс отводит силы и начинает заново — раунд сначала. */
+  private rebelVictory(): void {
+    this.stats.victories++;
+    const n = this.nexus;
+    n.progress = 0;
+    n.fallen = false;
+    n.wave = false;
+    n.stagedSince = -1;
+    this.ctx.law.log('Сопротивление: НЕКСУС УДЕРЖАН — ВОССТАНИЕ ПОБЕДИЛО! Альянс перебрасывает свежие силы; повстанцы уходят в лагерь с трофеями.', 'world');
+    this.ctx.bus.emit('announce', { text: 'Победа восстания · Нексус удержан' });
+    for (const c of this.ctx.entities.list) {
+      if (!c.alive || c.faction !== 'rebel') continue;
+      if (c.isPlayer) c.money += WAR.nexus.reward;
+      rebelBrain(c)?.withdraw();
+    }
+    for (const f of this.fronts) {
+      f.held = 0;
+      f.owner = 'combine';
+      f.capture = null;
+      f.squad = [];
+      f.nextCaptureAt = this.time + WAR.capture.cooldown;
+    }
+    this.infiltrators.clear();
+    this.lastKnown.clear();
+    this.cityPush = false;
+    this.declareGreen('Альянс восстановил контроль');
+    this.command.pickTarget('новый штурм');
+  }
+
   /** Не нашли за отведённое время: прорвавшиеся прячут оружие и живут как подпольщики. */
   private goUnderground(): void {
     for (const r of this.infiltrators) {
@@ -903,9 +997,12 @@ export class WarSystem {
         }
         if (b.mode !== 'assault' && !this.cityPush) continue;
         f.squad.splice(f.squad.indexOf(r), 1);
+        if (b.mode === 'storm' || b.mode === 'infiltrate') continue;
         this.infiltrators.add(r);
         this.lastKnown.set(r, { x: r.x, y: r.y });
-        b.infiltrate();
+        // Все точки D наши — не прятаться, а штурмовать Нексус.
+        if (this.cityPush) b.storm();
+        else b.infiltrate();
         if (this.code !== 'red') this.declareRed(f.name);
       }
       this.updateCapture(f, dt);
@@ -923,6 +1020,7 @@ export class WarSystem {
     }
 
     this.updateCityPush();
+    this.updateNexus(dt);
     this.updateDefection(dt);
 
     // Прорвавшиеся: живые и не задержанные.
@@ -960,7 +1058,8 @@ export class WarSystem {
       // Красный код держится, пока есть прорвавшиеся или КПП в руках повстанцев.
       this.calm = this.infiltrators.size === 0 && this.fronts.every((f) => f.held === 0) ? this.calm + dt : 0;
       const long = this.time - this.redSince;
-      if (long > WAR.redMaxTime && this.infiltrators.size > 0) this.goUnderground();
+      const storming = [...this.infiltrators].some((r) => rebelBrain(r)?.mode === 'storm');
+      if (long > WAR.redMaxTime && this.infiltrators.size > 0 && !storming) this.goUnderground();
       const held = this.fronts.some((f) => f.held > 0);
       if ((this.calm >= WAR.calmToGreen && long >= WAR.redMinTime) || (long > WAR.redMaxTime && !held)) this.declareGreen();
     }

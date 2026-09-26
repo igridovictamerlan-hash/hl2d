@@ -252,14 +252,15 @@ export class RebelCommand {
       }
       if (this.started && !this.paused && c.health >= c.maxHealth * COMMAND.readyHealth) b.march(this.diversion.has(c) ? 'raid' : 'gather');
     }
-    // Отряды фронтов — бойцы армии, идущие туда или уже там (не в лагере и не на отходе).
+    // Отряды фронтов — бойцы армии, идущие туда или уже там (не в лагере, не на отходе и не прорвавшиеся
+    // в город: иначе прорвавшийся снова попадал в отряд и каждый тик заново получал приказ — стоял на месте).
     for (const f of war.fronts) {
       const keep = f.squad.filter((r) => r.alive && !this.army.includes(r));
       f.squad = [
         ...keep,
         ...this.army.filter((c) => {
           const b = c.brain;
-          return b instanceof RebelBrain && b.front === f.index && b.mode !== 'camp' && b.mode !== 'retreat';
+          return b instanceof RebelBrain && b.front === f.index && b.mode !== 'camp' && b.mode !== 'retreat' && b.mode !== 'storm' && b.mode !== 'infiltrate';
         }),
       ];
     }

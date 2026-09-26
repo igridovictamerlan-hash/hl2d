@@ -9,7 +9,7 @@ import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { ROSTER, COMMAND } from '../src/config/roster';
 import { ELECTION } from '../src/config/election';
 import { AI } from '../src/config/ai';
-import { randomAnchorAround } from '../src/ai/destinations';
+import { randomAnchorAround, randomAnchorInZone } from '../src/ai/destinations';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { WAR } from '../src/config/war';
 import { lineOfSight } from '../src/world/visibility';
@@ -332,5 +332,51 @@ describe('штурм звеньями и терминал кодов', () => {
     admin.alive = false;
     run(sim, 90);
     expect(sim.war.code).toBe('green');
+  });
+});
+
+describe('штурм Нексуса', () => {
+  test('все точки D у повстанцев — волна из внутреннего двора доходит до Нексуса и начинает захват', { timeout: 240_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 45);
+    run(sim, 90);
+    for (const f of sim.war.fronts) {
+      f.held = f.points.length;
+      f.owner = 'rebels';
+      f.capture = null;
+    }
+    let wave = false;
+    let inside = 0;
+    let progress = 0;
+    run(sim, 240, () => {
+      wave ||= sim.war.nexus.wave;
+      inside = Math.max(inside, sim.war.nexus.rebels);
+      progress = Math.max(progress, sim.war.nexus.progress);
+      return sim.war.stats.nexusFalls > 0;
+    });
+    console.log(`штурм Нексуса: ${JSON.stringify(sim.war.stats)}, в Нексусе максимум ${inside}, захват ${progress.toFixed(0)} с`);
+    expect(wave).toBe(true);
+    // Прорвавшиеся не топчутся у проходной — доходят до Нексуса и захват идёт.
+    expect(inside).toBeGreaterThanOrEqual(WAR.nexus.minAttackers);
+    expect(progress).toBeGreaterThan(0);
+  });
+
+  test('Нексус удержан — победа восстания: КПП у Альянса, армия уходит в лагерь, отбой', () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 20);
+    for (const f of sim.war.fronts) {
+      f.held = f.points.length;
+      f.owner = 'rebels';
+    }
+    const a = randomAnchorInZone(sim.ctx, 'nexus');
+    const r = spawnRole(sim.ctx, armySpec('rebel_soldier', 'rebel_raider', 0), { x: sim.nav.worldX(a), y: sim.nav.worldY(a) })!;
+    (r.brain as RebelBrain).storm();
+    sim.war.nexus.fallen = true;
+    sim.war.nexus.fallenAt = sim.war.now - WAR.nexus.holdToWin;
+    sim.step();
+    expect(sim.war.stats.victories).toBe(1);
+    expect(sim.war.fronts.every((f) => f.held === 0 && f.owner === 'combine')).toBe(true);
+    expect(sim.war.code).toBe('green');
+    expect((r.brain as RebelBrain).mode).toBe('retreat');
   });
 });

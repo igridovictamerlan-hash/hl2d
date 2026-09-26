@@ -5,7 +5,7 @@ import type { Character } from '../../entities/Character';
 import { Mover } from '../Mover';
 import { Gunner } from '../Gunner';
 import { faceMovement, faceTowards } from '../facing';
-import { randomAnchorAround, zoneIds } from '../destinations';
+import { randomAnchorAround, randomAnchorInZone, zoneIds } from '../destinations';
 import { canSeeCircle } from '../../world/visibility';
 import { COMBAT } from '../../config/combat';
 import { WAR } from '../../config/war';
@@ -18,7 +18,7 @@ import type { Front } from '../../systems/WarSystem';
 
 const nearRebels: Character[] = [];
 
-export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 'retreat' | 'capture' | 'hold';
+export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 'storm' | 'retreat' | 'capture' | 'hold';
 
 /**
  * Боец армии сопротивления (лагерь в пустоши, штурм КПП).
@@ -27,6 +27,7 @@ export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 
  *  raid — занимает позицию на пустоши с видом на ворота КПП и перестреливается с часовыми;
  *  assault — идёт на прорыв через коридор КПП в город (стреляет по пути);
  *  infiltrate — прорвался: прячется в кварталах, отстреливается, если нашли;
+ *  storm — все точки D наши: штурм Нексуса (перебежками к зоне Нексуса и держать её);
  *  retreat — ранен или без патронов: уходит тропой в лагерь (там — camp);
  *  capture — идёт капт КПП: занимает позиции в передней части коридора и у внешних ворот;
  *  hold — КПП захвачен: держит пост часового.
@@ -292,6 +293,19 @@ export class RebelBrain implements Brain {
     return best;
   }
 
+  /** Сколько штурмующих Нексус стоит или идёт ближе WAR.capture.spacing к точке. */
+  private crowdNear(x: number, y: number): number {
+    let n = 0;
+    const r = WAR.capture.spacing;
+    for (const o of this.ctx.entities.near(x, y, r * 2, nearRebels)) {
+      if (o === this.self || !o.alive || o.faction !== 'rebel') continue;
+      const b = o.brain;
+      const g = b instanceof RebelBrain ? b.goalAnchor : -1;
+      if (Math.hypot(o.x - x, o.y - y) < r || (g >= 0 && Math.hypot(this.ctx.nav.worldX(g) - x, this.ctx.nav.worldY(g) - y) < r)) n++;
+    }
+    return n;
+  }
+
   /** Сколько своих стоит или идёт ближе WAR.capture.spacing к точке (сбор — не кучей). */
   private crowdAt(f: Front, x: number, y: number): number {
     let n = 0;
@@ -303,6 +317,29 @@ export class RebelBrain implements Brain {
       if (Math.hypot(o.x - x, o.y - y) < r || (g >= 0 && Math.hypot(this.ctx.nav.worldX(g) - x, this.ctx.nav.worldY(g) - y) < r)) n++;
     }
     return n;
+  }
+
+  /** Выход в город: дошёл до сбора волны во внутреннем дворе и ждёт; точка сбора выбрана. */
+  staged = false;
+  private stageSpot = false;
+
+  /** Штурм Нексуса (выход в город при всех точках D). */
+  storm(): void {
+    this.mode = 'storm';
+    this.staged = false;
+    this.stageSpot = false;
+    this.goal = -1;
+    this.team = -1;
+    this.shooting = false;
+    this.phaseLeft = 0;
+  }
+
+  /** Раунд окончен (Нексус удержан): все бойцы уходят в лагерь. */
+  withdraw(): void {
+    if (this.mode === 'camp') return;
+    this.mode = 'retreat';
+    this.goal = -1;
+    this.team = -1;
   }
 
   infiltrate(): void {
@@ -431,7 +468,7 @@ export class RebelBrain implements Brain {
     const f = ctx.war.fronts[this.front];
     const outOfAmmo = ctx.combat.maxRange(self) <= 0;
     // В капте раненые не уходят — дерутся до конца (без патронов — уходят).
-    const stays = this.mode === 'capture' && !outOfAmmo;
+    const stays = (this.mode === 'capture' || this.mode === 'storm' || (this.mode === 'assault' && ctx.war.cityPush)) && !outOfAmmo;
     if (this.mode !== 'infiltrate' && this.mode !== 'retreat' && this.mode !== 'camp' && !stays && (self.health < self.maxHealth * COMBAT.woundedFraction || outOfAmmo)) {
       this.mode = 'retreat';
       this.goal = -1;
@@ -539,7 +576,38 @@ export class RebelBrain implements Brain {
       }
       case 'assault': {
         if (!f) break;
-        if (this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived') {
+        // Все точки D наши — сначала сбор волны во внутреннем дворе (он наш), потом все разом на Нексус.
+        if (ctx.war.cityPush && !ctx.war.nexus.wave) {
+          const yard = f.points[f.points.length - 1]?.floor ?? [];
+          if (!this.stageSpot && yard.length) {
+            let best = -1;
+            let bestScore = Infinity;
+            for (let k = 0; k < 12; k++) {
+              const a = yard[Math.floor(ctx.rng.next() * yard.length)];
+              const x = ctx.nav.worldX(a);
+              const y = ctx.nav.worldY(a);
+              // Ближе к выходу в город (проходной), не кучей.
+              const score = Math.hypot(x - f.apron.x, y - f.apron.y) + 80 * this.crowdNear(x, y);
+              if (score < bestScore) {
+                bestScore = score;
+                best = a;
+              }
+            }
+            this.stageSpot = true;
+            this.go(best);
+          }
+          if (this.mover.status === 'arrived' || (this.stageSpot && this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) < 20)) {
+            this.staged = true;
+            this.mover.stop();
+          } else if (this.mover.status === 'failed' || (this.mover.status === 'idle' && !fighting)) this.stageSpot = false;
+          this.mover.speed = fighting ? 55 : CHARACTER.runSpeed * 0.7;
+          if (fighting && this.gunner.target) this.mover.stop();
+          break;
+        }
+        if (ctx.war.cityPush && (this.stageSpot || this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived')) {
+          this.stageSpot = false;
+          this.go(randomAnchorInZone(ctx, 'nexus'));
+        } else if (this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived') {
           // Цель — за внутренними воротами, в город.
           const beyond = { x: f.apron.x + (f.apron.x - f.outerGate.x) * 0.6, y: f.apron.y + (f.apron.y - f.outerGate.y) * 0.6 };
           this.go(ctx.nav.nearestWalkable(beyond.x, beyond.y, 8));
@@ -621,6 +689,40 @@ export class RebelBrain implements Brain {
         if (this.goal < 0 || this.mover.status === 'failed') this.go(ctx.nav.nearestWalkable(p.x, p.y, 3));
         if (fighting && this.gunner.target) this.mover.stop();
         else if (this.mover.status === 'idle' && Math.hypot(p.x - self.x, p.y - self.y) > 20) this.go(this.goal);
+        break;
+      }
+      case 'storm': {
+        // Перебежками к Нексусу; внутри — меняет позицию, держит зону.
+        const N = WAR.nexus;
+        const C = WAR.capture;
+        const inside = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'nexus';
+        if (this.goal < 0 || this.mover.status === 'failed' || (this.mover.status === 'arrived' && (!inside || this.relocate <= 0))) {
+          this.relocate = ctx.rng.range(N.relocate[0], N.relocate[1]);
+          // Из нескольких точек Нексуса — где меньше своих (не толпой).
+          let best = -1;
+          let bestN = Infinity;
+          for (let k = 0; k < 5; k++) {
+            const a = randomAnchorInZone(ctx, 'nexus');
+            if (a < 0) continue;
+            const n = this.crowdNear(ctx.nav.worldX(a), ctx.nav.worldY(a)) + ctx.rng.range(0, 0.5);
+            if (n < bestN) {
+              bestN = n;
+              best = a;
+            }
+          }
+          this.go(best);
+        }
+        this.phaseLeft -= dt;
+        if (fighting && this.gunner.target) {
+          if (this.phaseLeft <= 0) {
+            this.shooting = !this.shooting;
+            this.phaseLeft = this.shooting ? ctx.rng.range(C.shootStop[0], C.shootStop[1]) : ctx.rng.range(C.dash[0], C.dash[1]);
+            if (!this.shooting) bark(self, 'advance', ctx.combat.now, ctx.rng);
+          }
+        } else this.shooting = false;
+        this.mover.speed = CHARACTER.runSpeed * 0.75;
+        if (this.shooting || (this.mover.status === 'arrived' && inside)) this.mover.stop();
+        else if (this.mover.status === 'idle' && this.goal >= 0) this.go(this.goal);
         break;
       }
       case 'infiltrate': {

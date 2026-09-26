@@ -187,6 +187,14 @@ export class RosterSystem {
     for (let i = this.queue.length - 1; i >= 0; i--) {
       const q = this.queue[i];
       if (this.time < q.at) continue;
+      // Штурм Нексуса (идёт волна повстанцев) — ГО и OTA из Цитадели не выходят, как в капте; Нексус
+      // пал — выходят снова, отбивать его.
+      const combine = q.spec.faction === 'cp' || q.spec.faction === 'ota';
+      const nexus = this.ctx.war.nexus;
+      if (combine && nexus.wave && !nexus.fallen) {
+        q.at = this.time + 2;
+        continue;
+      }
       // Во время капта часовые и медики этого КПП ждут в Цитадели.
       const f = q.spec.front !== undefined ? this.ctx.war.fronts[q.spec.front] : null;
       if (f?.capture && (q.spec.kind === 'guard' || q.spec.kind === 'medic')) {
