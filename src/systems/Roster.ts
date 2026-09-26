@@ -17,7 +17,7 @@ import { randomAnchorAround, randomAnchorInZone } from '../ai/destinations';
 /** Вид роли — от него зависят спавн, мозг и время возрождения. */
 export type RoleKind =
   | 'citizen' | 'cwu' | 'vort'
-  | 'patrol' | 'guard' | 'medic' | 'ota'
+  | 'patrol' | 'guard' | 'gate' | 'medic' | 'ota'
   | 'army' | 'leader' | 'hydra' | 'partisan'
   | 'trader' | 'admin';
 
@@ -34,7 +34,7 @@ export interface RoleSpec {
   kit: string;
   name?: string;
   loyalty?: number;
-  /** Часовой / медик КПП: фронт, пост и взгляд, место медика. */
+  /** Часовой / RCT проходной / медик КПП: фронт, пост и взгляд, место медика. */
   front?: number;
   post?: Vec2;
   facing?: number;
@@ -58,6 +58,7 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
   switch (spec.kind) {
     case 'patrol':
     case 'guard':
+    case 'gate':
     case 'medic':
     case 'ota': {
       const gate = poiWorld(ctx, 'nexus_gate');
@@ -104,6 +105,7 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
       c.brain = new CpBrain(c, ctx);
       break;
     case 'guard':
+    case 'gate':
       c.brain = new CpBrain(c, ctx, { front: spec.front, post: spec.post, facing: spec.facing });
       break;
     case 'medic':

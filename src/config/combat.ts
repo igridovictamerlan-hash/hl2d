@@ -38,7 +38,7 @@ export const COMBAT = {
    * копоть от взрыва; время жизни, с; всего не больше max (старые уходят).
    */
   decals: {
-    max: 700,
+    max: 450,
     casingTime: 25,
     bloodTime: 70,
     bloodChance: 0.6,

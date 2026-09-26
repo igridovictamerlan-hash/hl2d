@@ -87,8 +87,10 @@ describe('генератор переулочного города', () => {
         expect(map.poisOf('cell').length).toBeGreaterThanOrEqual(4);
         expect(map.poisOf('ration_window').length).toBe(1);
         expect(map.poisOf('checkpoint_post').length).toBe(10);
+        expect(map.poisOf('gate_post').length).toBe(4);
         expect(map.poisOf('outlands_exit').length).toBe(2);
-        expect(map.zones.filter((z) => z.kind === 'checkpoint')).toHaveLength(8);
+        // У КПП по 5 зон: D-дворы, шорт, лонг и проходная.
+        expect(map.zones.filter((z) => z.kind === 'checkpoint')).toHaveLength(10);
       });
 
       test('открытые пространства ≤ 300×300 px: площадь и двор Нексуса', () => {

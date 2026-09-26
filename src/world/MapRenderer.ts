@@ -4,7 +4,20 @@ import { T, SOLID } from './tiles';
 import { hash2, hash01 } from '../core/rng';
 import { RENDER } from '../config/render';
 
-const hsl = (h: number, s: number, l: number) => `hsl(${h.toFixed(0)},${s.toFixed(1)}%,${l.toFixed(1)}%)`;
+/**
+ * Цвет HSL → '#rrggbb'. Цвета тайлов считаются один раз при загрузке, а разбираются браузером при
+ * каждой заливке (тысячи раз за кадр) — короткий hex разбирается заметно быстрее строки hsl().
+ */
+const hsl = (h: number, s: number, l: number): string => {
+  const S = Math.max(0, Math.min(100, s)) / 100;
+  const L = Math.max(0, Math.min(100, l)) / 100;
+  const a = S * Math.min(L, 1 - L);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return Math.round(255 * (L - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  return '#' + [f(0), f(8), f(4)].map((c) => c.toString(16).padStart(2, '0')).join('');
+};
 
 /**
  * Отрисовка тайлов. Каждый кадр рисуются только видимые тайлы (~52×35 при масштабе 820×550),

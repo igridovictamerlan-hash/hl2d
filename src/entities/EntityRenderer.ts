@@ -5,7 +5,8 @@ import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
-import { drawPawn, drawPawnShadow, lookSeed, pawnDir } from './PawnRenderer';
+import { drawPawnShadow, lookSeed, pawnDir } from './PawnRenderer';
+import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
 
 /** Подпись роли: ГО и повстанцы — с рангом, жители — с номером CID. */
@@ -66,7 +67,7 @@ export class EntityRenderer {
       drawPawnShadow(ctx, x, y, ps);
       // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
       if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading);
-      drawPawn(ctx, look, x, y, ps, dir);
+      drawPawnCached(ctx, look, x, y, ps, dir);
       if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading);
       // Курьер несёт коробку перед собой.
       if (c.carrying) {

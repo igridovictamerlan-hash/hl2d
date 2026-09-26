@@ -73,7 +73,7 @@ export function validateMap(map: GameMap): string[] {
   if (s.buildingRatio < lo || s.buildingRatio > hi) out.push(`доля зданий ${(s.buildingRatio * 100).toFixed(1)}%`);
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 4], ['restricted_gate', 1],
-    ['checkpoint_post', 10], ['outlands_exit', 2], ['shop_counter', 1],
+    ['checkpoint_post', 10], ['gate_post', 4], ['outlands_exit', 2], ['shop_counter', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -157,7 +157,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const zCells = addZone('cells', ZONE_NAMES.cells, 'K');
   const zInd = addZone('industrial', ZONE_NAMES.industrial, 'I');
   const zRes = addZone('restricted', ZONE_NAMES.restricted, 'R');
-  // У каждого КПП — четыре зоны: внешний двор, шорт, лонг, внутренний двор (названия точек D — в имени).
+  // У каждого КПП — пять зон: внешний двор, шорт, лонг, внутренний двор (названия точек D — в имени), проходная.
   const zCheckpoints = layout.checkpoints.map((_, k) => {
     const base = ZONE_NAMES.checkpoints[k];
     const [pOut, pIn] = ZONE_NAMES.checkpointPoints[k];
@@ -167,6 +167,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
       short: addZone('checkpoint', `${base} · шорт`, chars[1]),
       long: addZone('checkpoint', `${base} · лонг`, chars[2]),
       inner: addZone('checkpoint', `${base} · ${pIn}`, chars[3]),
+      gatehouse: addZone('checkpoint', `${base} · ${ZONE_NAMES.gatehouse}`, chars[4]),
     };
   });
   const zOut = addZone('outlands', ZONE_NAMES.outlands, 'O');

@@ -5,6 +5,7 @@ import { WAR } from '../config/war';
 import { ALARM } from '../config/underground';
 import { FACTIONS } from '../config/factions';
 import { T } from '../world/tiles';
+import { ZONE_NAMES } from '../config/names';
 import { equipKit } from './Population';
 import { RebelBrain } from '../ai/brains/RebelBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
@@ -66,6 +67,9 @@ export interface Front {
   longZone: number;
   apron: Vec2;
   posts: Vec2[];
+  /** Проходная со стороны города (зона, -1 — нет) и её посты RCT. */
+  gatehouse: number;
+  gatePosts: Vec2[];
   /** Якоря пустоши у этого КПП и укрытия бункера. */
   outlands: number[];
   bunker: number[];
@@ -185,7 +189,10 @@ export class WarSystem {
     const avg = (list: Vec2[]) => ({ x: list.reduce((s, p) => s + p.x, 0) / list.length, y: list.reduce((s, p) => s + p.y, 0) / list.length });
     const posts = map.poisOf('checkpoint_post').map((p) => ({ x: (p.x + 0.5) * ts, y: (p.y + 0.5) * ts }));
     exits.forEach((exit, index) => {
-      const zonesHere = [...zoneAnchors.keys()].filter((z) => nearestExit(centroid(zoneAnchors.get(z)!)) === index);
+      const allHere = [...zoneAnchors.keys()].filter((z) => nearestExit(centroid(zoneAnchors.get(z)!)) === index);
+      // Проходная — не часть «войны на D»: её ворота-дверь и посты RCT отдельно.
+      const gatehouse = allHere.find((z) => map.zones[z]?.name.endsWith(ZONE_NAMES.gatehouse)) ?? -1;
+      const zonesHere = allHere.filter((z) => z !== gatehouse);
       const myPosts = posts.filter((p) => nearestExit(p) === index);
       const dExit = (p: Vec2) => Math.hypot(p.x - exit.x, p.y - exit.y);
       // Ворота: группа ближе к пустоши — внешние, дальше — внутренние (к проспекту).
@@ -217,7 +224,18 @@ export class WarSystem {
       const longZone = links[1] ?? -1;
       const anchorsOf = (z: number) => zoneAnchors.get(z) ?? [];
       const floor = (z: number) => anchorsOf(z).filter((a) => map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1) !== T.INTERIOR);
-      const apron = { x: innerGate.x + ((innerGate.x - outerGate.x) / dl) * 56, y: innerGate.y + ((innerGate.y - outerGate.y) / dl) * 56 };
+      // Точка за КПП со стороны города: за дверью проходной (нет проходной — за внутренними воротами).
+      const doors: Vec2[] = [];
+      if (gatehouse >= 0) {
+        for (let y = 0; y < map.height; y++) {
+          for (let x = 0; x < map.width; x++) {
+            if (map.zoneGrid[y * map.width + x] === gatehouse && map.tileAt(x, y) === T.DOOR) doors.push({ x: (x + 0.5) * ts, y: (y + 0.5) * ts });
+          }
+        }
+      }
+      const cityDoor = doors.length ? avg(doors) : innerGate;
+      const apron = { x: cityDoor.x + ((innerGate.x - outerGate.x) / dl) * 56, y: cityDoor.y + ((innerGate.y - outerGate.y) / dl) * 56 };
+      const gatePosts = map.poisOf('gate_post').map((p) => ({ x: (p.x + 0.5) * ts, y: (p.y + 0.5) * ts })).filter((p) => nearestExit(p) === index);
       const outlands: number[] = [];
       for (const a of nav.walkable) {
         if (map.zones[nav.zone[a]]?.kind === 'outlands' && dExit({ x: nav.worldX(a), y: nav.worldY(a) }) < 14 * ts) outlands.push(a);
@@ -239,7 +257,7 @@ export class WarSystem {
       const baseName = (map.zones[outerZone]?.name ?? `КПП ${index + 1}`).replace(/ · .*$/, '');
       this.fronts.push({
         index, name: baseName, exit, outerGate, midGate: shortFloor.length ? centroid(shortFloor) : avg([outerGate, innerGate]), innerGate, apron,
-        posts: myPosts, outlands, bunker, short: shortFloor, long: longFloor, shortZone, longZone,
+        posts: myPosts, gatehouse, gatePosts, outlands, bunker, short: shortFloor, long: longFloor, shortZone, longZone,
         squad: [],
         lastShot: -1e9, reinforceAt: 0, medicAt: 0, assaultAnnounced: false, corridor, points, held: 0,
         owner: 'combine', capture: null, nextCaptureAt: WAR.capture.firstAfter + rng.range(0, 10), heldSince: 0, rebelFree: 0, retakeAt: 0,

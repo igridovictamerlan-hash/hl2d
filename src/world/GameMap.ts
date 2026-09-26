@@ -42,6 +42,7 @@ export type PoiType =
   | 'restricted_gate'
   | 'industrial_yard'
   | 'checkpoint_post'
+  | 'gate_post'
   | 'outlands_exit'
   | 'recruit_terminal'
   | 'shop_counter'

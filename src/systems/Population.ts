@@ -127,12 +127,17 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const at = freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, patrolAvoid);
     put({ kind: 'patrol', faction: 'cp', profession: null, division, rank: randomRank(ctx, 'cp', 6), kit: cpKit(division) }, at);
   }
-  // Гарнизоны КПП: часовые GRID на всех постах обоих дворов лицом к пустоши + медик HELIX в бункере.
+  // Гарнизоны КПП: часовые GRID на всех постах обоих дворов лицом к пустоши, RCT в проходной, медик HELIX в бункере.
   for (const f of ctx.war.fronts) {
     f.posts.slice(0, P.cpPerCheckpoint).forEach((post) => {
       const facing = Math.atan2(f.exit.y - post.y, f.exit.x - post.x);
       put({ kind: 'guard', faction: 'cp', profession: null, division: 'grid', rank: randomRank(ctx, 'cp', 5), kit: 'cp_grid', front: f.index, post, facing }, freeSpot(ctx, post, 0, 0, none, 20));
     });
+    // Проходная со стороны города: RCT (рядовые UNION) на постах лицом к КПП — проверяют входящих.
+    for (const post of f.gatePosts) {
+      const facing = Math.atan2(f.innerGate.y - post.y, f.innerGate.x - post.x);
+      put({ kind: 'gate', faction: 'cp', profession: null, division: 'union', rank: 0, kit: cpKit('union'), front: f.index, post, facing }, freeSpot(ctx, post, 0, 0, none, 20));
+    }
     if (f.bunker.length) {
       const a = ctx.rng.pick(f.bunker);
       const st = { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) };

@@ -36,6 +36,8 @@ export const ROSTER = {
     vort: 40,
     patrol: 25,
     guard: 20,
+    /** RCT проходной КПП (возвращаются и во время капта: проходная — не часть точки D). */
+    gate: 20,
     medic: 25,
     ota: 45,
     army: 25,

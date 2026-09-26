@@ -9,7 +9,8 @@ import type { Character } from '../entities/Character';
 import type { WarSystem } from '../systems/WarSystem';
 import type { GameMap } from './GameMap';
 import { colorsOf } from '../config/factions';
-import { drawPawn, lookSeed } from '../entities/PawnRenderer';
+import { lookSeed } from '../entities/PawnRenderer';
+import { drawPawnCached } from '../entities/PawnCache';
 import { PAWN } from '../config/pawns';
 import { RENDER } from '../config/render';
 import { COMBAT, GRENADE } from '../config/combat';
@@ -111,27 +112,28 @@ export class EffectsRenderer {
         ctx.fillRect(x - 8 * s, y - 9 * s, 16 * s * Math.min(1, r.progress / 5), 2 * s);
       }
     }
-    // Следы: копоть, кровь, выбоины, гильзы (исчезают к концу жизни).
+    // Следы: копоть, кровь, выбоины, гильзы (исчезают к концу жизни). Прозрачность — globalAlpha,
+    // гильза — повёрнутый прямоугольник через setTransform: без save/restore и новых строк цвета.
     for (const d of combat.decals) {
       const x = (d.x - v.left) * s;
       const y = (d.y - v.top) * s;
       if (!onScreen(x, y, 40)) continue;
-      const left = d.until - now;
-      const a = Math.min(1, left / 8);
+      const a = Math.min(1, (d.until - now) / 8);
+      if (a <= 0) continue;
       if (d.kind === 'casing') {
         ctx.globalAlpha = a;
         ctx.fillStyle = E.casing;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(d.ang);
+        const c = Math.cos(d.ang);
+        const n = Math.sin(d.ang);
+        ctx.setTransform(c, n, -n, c, x, y);
         ctx.fillRect(-1.5 * s, -0.7 * s, 3 * s, 1.4 * s);
-        ctx.restore();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
       } else if (d.kind === 'blood') {
-        ctx.fillStyle = `rgba(${E.bloodDecal},${0.55 * a})`;
+        ctx.globalAlpha = 0.55 * a;
+        ctx.fillStyle = E.bloodDecalColor;
         ctx.beginPath();
         ctx.ellipse(x, y, 5 * d.size * s, 3 * d.size * s, d.ang, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(d.ang) * 6 * s + 1.4 * s, y + Math.sin(d.ang) * 6 * s);
         ctx.arc(x + Math.cos(d.ang) * 6 * s, y + Math.sin(d.ang) * 6 * s, 1.4 * s, 0, Math.PI * 2);
         ctx.fill();
       } else if (d.kind === 'scorch') {
@@ -147,8 +149,8 @@ export class EffectsRenderer {
         ctx.fillStyle = E.chip;
         ctx.fillRect(x - 1 * d.size * s, y - 1 * d.size * s, 2 * d.size * s, 2 * d.size * s);
       }
-      ctx.globalAlpha = 1;
     }
+    ctx.globalAlpha = 1;
     // Тела.
     for (const c of combat.corpses) {
       const x = (c.x - v.left) * s;
@@ -165,7 +167,7 @@ export class EffectsRenderer {
       ctx.translate(x, y);
       ctx.rotate(seed % 2 ? Math.PI / 2 : -Math.PI / 2);
       ctx.globalAlpha = PAWN.corpseAlpha;
-      drawPawn(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession }, 0, -2 * s, s * PAWN.scale, 'S');
+      drawPawnCached(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession }, 0, -2 * s, s * PAWN.scale, 'S');
       ctx.restore();
       ctx.globalAlpha = 1;
       if (c.loot.length) {

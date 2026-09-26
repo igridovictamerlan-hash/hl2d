@@ -10,6 +10,8 @@ import { ROSTER, COMMAND } from '../src/config/roster';
 import { ELECTION } from '../src/config/election';
 import { AI } from '../src/config/ai';
 import { randomAnchorAround } from '../src/ai/destinations';
+import { CpBrain } from '../src/ai/brains/CpBrain';
+import { lineOfSight } from '../src/world/visibility';
 
 type Sim = ReturnType<typeof makeSim>;
 
@@ -175,5 +177,60 @@ describe('бандиты', () => {
     run(sim, 240, () => sim.crime.stats.robberies > 0);
     expect(sim.crime.stats.robberies).toBeGreaterThan(0);
     expect(AI.population.banditShare).toBeGreaterThan(0);
+  });
+});
+
+describe('проходная КПП', () => {
+  test('между двором D и проспектом — проходная: ни прямой видимости, ни прострела даже при открытой двери', () => {
+    const sim = makeSim(12345);
+    const { map, nav } = sim;
+    const astar = new AStar(nav);
+    const nexus = nav.nearestWalkable(poiWorld(sim.ctx, 'nexus_gate')!.x, poiWorld(sim.ctx, 'nexus_gate')!.y, 6);
+    // Двери настежь: остаётся только «зигзаг» стены.
+    map.doorClosed.fill(0);
+    for (const f of sim.war.fronts) {
+      expect(f.gatehouse).toBeGreaterThanOrEqual(0);
+      expect(map.zones[f.gatehouse].kind).toBe('checkpoint');
+      expect([f.shortZone, f.longZone, ...f.points.map((p) => p.zone)]).not.toContain(f.gatehouse);
+      expect(f.gatePosts).toHaveLength(2);
+      for (const p of f.gatePosts) expect(sim.war.frontAt(p.x, p.y)).toBe(f);
+      // За проходной — город.
+      expect(zoneKind(sim, f.apron.x, f.apron.y)).not.toBe('checkpoint');
+      // Проспект за дверью (в 10 тайлах) не виден ни из одной точки внутреннего двора.
+      const city = nav.walkable.filter((a) => {
+        const x = nav.worldX(a), y = nav.worldY(a);
+        return zoneKind(sim, x, y) === 'avenue' && Math.hypot(x - f.apron.x, y - f.apron.y) < 160;
+      });
+      expect(city.length).toBeGreaterThan(5);
+      expect(f.points[1].floor.length).toBeGreaterThan(20);
+      for (const a of f.points[1].floor) {
+        for (const b of city) expect(lineOfSight(map, nav.worldX(a), nav.worldY(a), nav.worldX(b), nav.worldY(b))).toBe(false);
+      }
+      // Из Цитадели к постам КПП — через проходную.
+      expect(astar.find(nexus, f.points[1].floor[0])).not.toBeNull();
+    }
+  });
+
+  test('в проходной стоят RCT и возвращаются после гибели', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 20);
+    sim.war.command.paused = true;
+    const rct = sim.entities.list.filter((c) => c.role?.kind === 'gate');
+    expect(rct).toHaveLength(sim.war.fronts.length * 2);
+    for (const c of rct) {
+      expect(c.faction).toBe('cp');
+      expect(c.rank).toBe(0);
+      expect(c.brain).toBeInstanceOf(CpBrain);
+    }
+    run(sim, 5);
+    for (const c of rct) {
+      const post = (c.brain as CpBrain).guardPost!;
+      expect(Math.hypot(c.x - post.x, c.y - post.y)).toBeLessThan(40);
+    }
+    const name = rct[0].name;
+    sim.combat.damage(rct[0], 1000, null);
+    run(sim, ROSTER.respawn.gate + 1);
+    const back = sim.entities.list.find((c) => c.alive && c.name === name);
+    expect(back?.role?.kind).toBe('gate');
   });
 });
