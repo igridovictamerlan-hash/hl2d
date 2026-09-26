@@ -82,6 +82,8 @@ export const COMMAND = {
   campHeal: 6,
   campMags: 4,
   readyHealth: 0.85,
+  /** По тропе через пустошь армия идёт быстрым шагом: доля скорости бега. */
+  trailSpeed: 0.7,
   /** HYDRA держится не дальше этого от главы (px). */
   escortRange: 90,
 } as const;

@@ -38,6 +38,7 @@ import { LaborSystem } from '../systems/LaborSystem';
 import { CrimeSystem } from '../systems/CrimeSystem';
 import { ScannerSystem } from '../systems/ScannerSystem';
 import { RosterSystem } from '../systems/Roster';
+import { ElectionSystem } from '../systems/ElectionSystem';
 import { ROSTER } from '../config/roster';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
@@ -130,6 +131,12 @@ export class Game {
       (a) => this.render(a),
     );
     window.addEventListener('resize', () => this.resize());
+    // Игрок избран Администратором — новая роль (сохраняется).
+    this.bus.on('elected', ({ who }) => {
+      if (who !== this.player) return;
+      this.role = { faction: 'admin', rank: 0, division: null, profession: null };
+      this.save();
+    });
     // Игрок примкнул к повстанцам у прорванного КПП — новая роль (сохраняется).
     this.bus.on('defected', ({ who }) => {
       if (who !== this.player) return;
@@ -193,6 +200,7 @@ export class Game {
       crime: null as unknown as CrimeSystem,
       scanners: null as unknown as ScannerSystem,
       roster: null as unknown as RosterSystem,
+      elections: null as unknown as ElectionSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -203,6 +211,7 @@ export class Game {
     this.ai.crime = new CrimeSystem(this.ai);
     this.ai.scanners = new ScannerSystem(this.ai);
     this.ai.roster = new RosterSystem(this.ai);
+    this.ai.elections = new ElectionSystem(this.ai);
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
@@ -261,7 +270,9 @@ export class Game {
     this.economy.leaveQueue(p);
     this.economy.releaseDispenser(p);
     p.faction = faction;
-    p.rank = rank;
+    // У армейских профессий (глава, HYDRA, ветеран) звание — по профессии, не ниже выбранного.
+    const profRank = profession ? ROSTER.rank[profession] : undefined;
+    p.rank = profRank !== undefined ? Math.max(rank, profRank) : rank;
     p.division = faction === 'cp' ? division : null;
     p.profession = profession && PROFESSIONS[profession]?.faction === faction ? profession : DEFAULT_PROFESSION[faction] ?? null;
     p.disguised = false;
@@ -561,6 +572,7 @@ export class Game {
     this.labor.update(dt);
     this.ai.scanners.update(dt);
     this.ai.roster.update(dt);
+    this.ai.elections.update(dt);
     if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside

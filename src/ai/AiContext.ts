@@ -17,6 +17,7 @@ import type { LaborSystem } from '../systems/LaborSystem';
 import type { CrimeSystem } from '../systems/CrimeSystem';
 import type { ScannerSystem } from '../systems/ScannerSystem';
 import type { RosterSystem } from '../systems/Roster';
+import type { ElectionSystem } from '../systems/ElectionSystem';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -48,4 +49,6 @@ export interface AiContext {
   scanners: ScannerSystem;
   /** Постоянный состав: возрождение погибших. */
   roster: RosterSystem;
+  /** Выборы Администратора после его гибели. */
+  elections: ElectionSystem;
 }

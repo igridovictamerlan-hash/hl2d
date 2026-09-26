@@ -40,7 +40,7 @@ export class PlayerController {
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
   private packing = false;
-  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'scan'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse } | null = null;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse } | null = null;
   private healCooldown = 0;
 
   constructor(
@@ -248,6 +248,18 @@ export class PlayerController {
       const n = ctx.combat.loot(p, corpse);
       return this.say(n > 0 ? `Обыскали тело: ${corpse.name}.` : 'Инвентарь полон.');
     }
+    // Бандит: гоп-стоп лицом к лицу в подворотне, со стволом в руках.
+    if (p.profession === 'bandit') {
+      const victim = this.facingTarget(p, ctx, CRIME.rob.reach, (o) => ctx.crime.victimOk(p, o));
+      if (victim) {
+        if (!ctx.crime.robOk(p, victim)) return this.say('Не здесь — только в подворотне, подальше от проспектов.');
+        if (!p.weapon && p.inventory.has('rebel_pistol')) ctx.combat.equip(p, 'rebel_pistol');
+        if (!p.weapon) return this.say('Без ствола никто не отдаст — возьмите оружие в руки.');
+        this.task = { kind: 'rob', x: victim.x, y: victim.y, left: CRIME.rob.time, total: CRIME.rob.time, victim };
+        p.say('Гони токены!', ctx.law.now, 2);
+        return this.say('Гоп-стоп… держите ствол, пока не отдаст.', 'world');
+      }
+    }
     // Вор (и отброс): карманная кража — встать за спиной; вор с отмычкой — взлом раздатчика.
     if (p.profession === 'thief' || p.profession === 'outcast') {
       const victim = this.facingTarget(p, ctx, CRIME.pickpocket.reach, (o) => ctx.crime.victimOk(p, o));
@@ -339,7 +351,7 @@ export class PlayerController {
   private updateTask(p: Character, ctx: AiContext, dt: number): void {
     const t = this.task!;
     const at = t.victim ?? t;
-    if (Math.hypot(at.x - p.x, at.y - p.y) > (t.kind === 'pick' ? 40 : 34)) {
+    if (Math.hypot(at.x - p.x, at.y - p.y) > (t.kind === 'pick' || t.kind === 'rob' ? 50 : 34)) {
       this.task = null;
       if (t.kind === 'clean' && t.pile?.worker === p) t.pile.worker = null;
       return this.say('Прервано — отошли слишком далеко.');
@@ -360,6 +372,10 @@ export class PlayerController {
 
   /** Завершение особых действий (кража, взлом, сканирование) — задают профессии. */
   private finishTask(p: Character, ctx: AiContext, t: NonNullable<PlayerController['task']>): void {
+    if (t.kind === 'rob' && t.victim) {
+      if (ctx.crime.rob(p, t.victim) <= 0) this.say('У него ни гроша.');
+      return;
+    }
     if (t.kind === 'pick' && t.victim) {
       if (!ctx.crime.behind(p, t.victim)) return this.say('Жертва обернулась — кража сорвалась.');
       if (ctx.crime.pickpocket(p, t.victim) <= 0) this.say('Карманы пусты.');

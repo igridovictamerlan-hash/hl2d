@@ -20,6 +20,7 @@ import { LaborSystem } from '../src/systems/LaborSystem';
 import { CrimeSystem } from '../src/systems/CrimeSystem';
 import { ScannerSystem } from '../src/systems/ScannerSystem';
 import { RosterSystem } from '../src/systems/Roster';
+import { ElectionSystem } from '../src/systems/ElectionSystem';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
 export function makeSim(seedOrMap: number | GameMap) {
@@ -55,6 +56,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     crime: null as unknown as CrimeSystem,
     scanners: null as unknown as ScannerSystem,
     roster: null as unknown as RosterSystem,
+    elections: null as unknown as ElectionSystem,
   };
   const war = new WarSystem(ctx);
   ctx.war = war;
@@ -68,6 +70,8 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.scanners = scanners;
   const roster = new RosterSystem(ctx);
   ctx.roster = roster;
+  const elections = new ElectionSystem(ctx);
+  ctx.elections = elections;
   economy.onEmpty = () => labor.noticeEmpty();
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;
@@ -84,6 +88,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     labor.update(dt);
     scanners.update(dt);
     roster.update(dt);
+    elections.update(dt);
   };
-  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster };
+  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections };
 }

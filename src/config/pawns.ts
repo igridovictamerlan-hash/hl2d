@@ -63,6 +63,20 @@ export const PAWN = {
     outcast: { base: '#6b5d48', patch: '#4d4234', zip: false, collar: false },
     rebel_medic: { armband: '#f2f2f2', armbandCross: '#c93030' },
     pyro: { goggles: '#ff8a3a' },
+    // Армия сопротивления: глава — красный берет и повязка; подрывник — патронташ с гранатами.
+    rebel_leader: { head: 'beret', beret: '#8e1b1b', armband: '#b3261e' },
+    demolitionist: { bandolier: '#8a6a36', nade: '#6f9a4a' },
+    // HYDRA (как SAS): чёрная форма и балаклава, бронежилет с первого ранга, противогаз с круглыми
+    // линзами и фильтром; нашивка на плече — капитан золотом, офицеры серебром.
+    hydra_captain: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false, armband: '#c9a53e' },
+    hydra_officer: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false, armband: '#b8bcc2' },
+    hydra_soldier: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false },
+    // Бандит — тёмная куртка и платок на лице; беглец — оранжевая роба.
+    bandit: { base: '#2c2623', facemask: '#1d1d1f', collar: '#3a322d', zip: false },
+    fugitive: { base: '#c8692a', patch: '#8f4a1e', collar: false, zip: false },
+    // OTA: солдаты — серо-синяя броня и голубой глаз, элита — белая броня и красный глаз.
+    ota_soldier: { armor: '#6b7781', helmet: '#5c6873', trim: '#39424a', eye: '#58d0ff' },
+    ota_elite: { armor: '#eceae2', helmet: '#f1efe8', trim: '#9e1d18', eye: '#ff2a1a' },
     cremator: { style: 'cremator', coat: '#3a3833', skin: '#d8cfc4', mask: '#57544d', tank: '#6d7176', eye: '#b8e04a' },
   } as Partial<Record<ProfessionId, Record<string, string | boolean | number>>>,
 } as const;

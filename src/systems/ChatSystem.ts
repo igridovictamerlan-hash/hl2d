@@ -19,6 +19,8 @@ export const CHAT_HELP: [string, string][] = [
   ['/донос', 'сообщить ГО о подозрительном, кого видите (+лояльность; ложный — минус)'],
   ['/поощрить', 'ГО: поднять лояльность гражданину перед собой'],
   ['/охрана', 'доверенный лоялист: два юнита ГО сопровождают вас'],
+  ['/выборы', 'ход выборов Администратора (после его гибели)'],
+  ['/голос N', 'проголосовать за кандидата номер N (граждане и ГСР)'],
   ['/помощь', 'список команд'],
 ];
 
@@ -70,6 +72,14 @@ export class ChatSystem {
         const status = l.wanted ? 'в розыске' : l.hasCid ? 'чистая' : 'недействительна';
         const loy = hasLoyalty(p) ? ` · лояльность ${p.loyalty} (${loyaltyTier(p).name})` : '';
         return this.log(`CID #${p.cid}: ${status}${loy}`);
+      }
+      case 'выборы':
+      case 'election':
+        return this.log(this.ctx.elections.status());
+      case 'голос':
+      case 'vote': {
+        const err = this.ctx.elections.vote(p, Number(rest) - 1);
+        return this.log(err ?? `Ваш голос учтён. ${this.ctx.elections.status()}`);
       }
       case 'донос':
       case 'report':

@@ -40,6 +40,8 @@ export class RebelBrain implements Brain {
   restocked = false;
   /** Шёл за главой по кличу в прошлом тике. */
   private following = false;
+  /** Обычный шаг (на тропе через пустошь — быстрее). */
+  private readonly baseSpeed: number;
   private relocate = 0;
   private goal = -1;
   private suppressIn = 0;
@@ -69,7 +71,8 @@ export class RebelBrain implements Brain {
     /** Когда отряд пойдёт на штурм (Infinity — не пойдёт). */
     private assaultAt: number,
   ) {
-    this.mover = new Mover(ctx.rng.range(75, 90));
+    this.baseSpeed = ctx.rng.range(75, 90);
+    this.mover = new Mover(this.baseSpeed);
     this.gunner = new Gunner(ctx.rng);
   }
 
@@ -405,6 +408,10 @@ export class RebelBrain implements Brain {
       if (lb) this.advance = Math.max(this.advance, lb.progress);
     }
 
+    // Сбор и перестрелка: по тропе через пустошь — быстрым шагом, у КПП — обычным.
+    if (this.mode === 'gather' || this.mode === 'raid') {
+      this.mover.speed = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'wasteland' ? CHARACTER.runSpeed * COMMAND.trailSpeed : this.baseSpeed;
+    }
     switch (this.mode) {
       case 'camp': {
         const camp = poiWorld(ctx, 'rebel_camp');

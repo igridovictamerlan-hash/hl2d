@@ -130,7 +130,7 @@ export class UI {
       const where = economy.hasBeenServed(player) ? 'вы получили' : i >= 0 ? `вы ${i + 1}-й в очереди` : `в очереди ${economy.queue.length}`;
       ration = `Раздача рационов открыта (${mmss(economy.timer)}) · ${where}`;
     } else ration = `Раздача рационов через ${mmss(economy.timer)}`;
-    this.hud.update(player, now, weapon, ration);
+    this.hud.update(player, now, weapon, ration, this.host.war.command.rallyCooldown);
     // Журнал событий — над HUD, какой бы высоты тот ни был.
     const h = this.hud.el.offsetHeight;
     if (h !== this.hudHeight) {

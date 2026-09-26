@@ -45,7 +45,7 @@ export const LAW = {
     noCidChance: 0.08,
     wantedChance: 0.04,
     /** Шанс, что NPC побежит, когда ГО приказал стоять. */
-    fleeChance: { citizen: 0.12, cwu: 0.05, rebel: 0.8, thief: 0.6 } as Record<string, number>,
+    fleeChance: { citizen: 0.12, cwu: 0.05, rebel: 0.8, thief: 0.6, bandit: 0.55, fugitive: 0.85 } as Record<string, number>,
     /** Шанс нарушить при выборе новой цели: зайти в запретную зону / побежать. */
     trespassChance: { citizen: 0.03, cwu: 0.01, rebel: 0.12 } as Record<string, number>,
     runChance: { citizen: 0.06, cwu: 0.03, rebel: 0.15 } as Record<string, number>,

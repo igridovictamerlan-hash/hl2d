@@ -17,6 +17,12 @@ export const CRIME = {
     cryRange: 320,
   },
   hack: { time: 6, rations: 3, lockpickBreak: 0.5 },
+  /**
+   * Гоп-стоп (бандит): лицом к лицу в подворотне (жилые кварталы, промзона), ствол в руках, выдержка
+   * time с — жертва отдаёт amount токенов и кричит с шансом cryChance. NPC-бандит выходит на дело
+   * с шансом npcChance, ищет жертву в seek px, когда ГО не видно.
+   */
+  rob: { time: 1.4, reach: 46, amount: [10, 24] as const, cryChance: 0.75, npcChance: 0.6, seek: 220, zones: ['residential', 'industrial'] as const },
   seenFor: 5,
   /** NPC-вор: шанс пойти на дело, где искать жертву, у жертвы должно быть не меньше minMoney. */
   npc: { chance: 0.5, seek: 260, minMoney: 6, giveUp: 18 },

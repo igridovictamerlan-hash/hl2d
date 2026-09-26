@@ -65,10 +65,8 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     }
     case 'army':
     case 'leader':
-    case 'hydra': {
-      const camp = poiWorld(ctx, 'rebel_camp');
-      return camp ? spotNear(ctx, camp, 6) : null;
-    }
+    case 'hydra':
+      return inZone(ctx, 'rebel_camp') ?? poiWorld(ctx, 'rebel_camp');
     case 'partisan':
       return inZone(ctx, 'rebel_base');
     case 'trader': {

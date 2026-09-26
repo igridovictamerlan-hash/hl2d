@@ -21,6 +21,8 @@ export interface GameEvents {
   'law:checkClosed': { target: Character };
   /** Персонаж (игрок) перешёл к повстанцам у прорванного КПП. */
   defected: { who: Character };
+  /** Игрок избран Администратором города. */
+  elected: { who: Character };
 }
 
 type Handler<T> = (payload: T) => void;

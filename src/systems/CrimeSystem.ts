@@ -15,7 +15,7 @@ const DEG = Math.PI / 180;
  */
 export class CrimeSystem {
   /** Счётчики (тесты, отладка). */
-  stats = { pickpockets: 0, stolen: 0, hacks: 0, cries: 0 };
+  stats = { pickpockets: 0, robberies: 0, stolen: 0, hacks: 0, cries: 0 };
 
   constructor(private readonly ctx: AiContext) {}
 
@@ -47,6 +47,36 @@ export class CrimeSystem {
     if (thief.isPlayer) this.ctx.bus.emit('log', { text: `Вы вытащили у прохожего ${amount} токенов. Не попадитесь ГО на глаза ${CRIME.seenFor} с.`, kind: 'world' });
     if (victim.isPlayer) this.ctx.bus.emit('log', { text: `У вас вытащили ${amount} токенов!`, kind: 'law' });
     else if (rng.chance(P.noticeChance)) this.cry(victim, thief);
+    return amount;
+  }
+
+  /** Можно ли ограбить: как для кражи, и жертва — в подворотне (жилые кварталы, промзона). */
+  robOk(bandit: Character, v: Character): boolean {
+    const kind = this.ctx.map.zoneAtWorld(v.x, v.y)?.kind;
+    return this.victimOk(bandit, v) && !!kind && (CRIME.rob.zones as readonly string[]).includes(kind);
+  }
+
+  /** Гоп-стоп (после выдержки CRIME.rob.time со стволом в руках). Возвращает, сколько отдали. */
+  rob(bandit: Character, victim: Character): number {
+    const R = CRIME.rob;
+    const rng = this.ctx.rng;
+    if (!this.victimOk(bandit, victim)) return 0;
+    const amount = Math.min(victim.money, Math.round(rng.range(R.amount[0], R.amount[1])));
+    victim.money -= amount;
+    bandit.money += amount;
+    this.stats.robberies++;
+    this.stats.stolen += amount;
+    this.flag(bandit);
+    if (bandit.isPlayer) this.ctx.bus.emit('log', { text: `Прохожий отдал ${amount} токенов. Уходите, пока не прибежали ГО.`, kind: 'world' });
+    if (victim.isPlayer) this.ctx.bus.emit('log', { text: `Вас ограбили на ${amount} токенов!`, kind: 'law' });
+    else {
+      victim.say(rng.pick(['Не стреляй! Бери всё!', 'Ладно, ладно, забирай…']), this.ctx.law.now, 2);
+      if (rng.chance(R.cryChance)) {
+        const now = this.ctx.law.now;
+        victim.say(rng.pick(['Грабят!', 'Помогите! Грабят!', 'ГО! Бандит!']), now + 1.2, 2.5);
+        this.cry(victim, bandit, false);
+      }
+    }
     return amount;
   }
 
@@ -94,9 +124,9 @@ export class CrimeSystem {
   }
 
   /** Жертва кричит «Держи вора!» — ближайший свободный патрульный идёт разбираться. */
-  cry(victim: Character, thief: Character): void {
+  cry(victim: Character, thief: Character, shout = true): void {
     const now = this.ctx.law.now;
-    victim.say(this.ctx.rng.pick(['Держи вора!', 'Эй! Мой кошелёк!', 'Вор! Помогите!']), now, 2.5);
+    if (shout) victim.say(this.ctx.rng.pick(['Держи вора!', 'Эй! Мой кошелёк!', 'Вор! Помогите!']), now, 2.5);
     this.stats.cries++;
     for (const o of this.ctx.entities.near(victim.x, victim.y, CRIME.pickpocket.cryRange, near)) {
       if (!(o.brain instanceof CpBrain) || o.brain.target || o.brain.guardPost || !o.alive) continue;

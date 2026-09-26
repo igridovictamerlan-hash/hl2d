@@ -46,7 +46,8 @@ export class Hud {
     this.loyaltyEl = this.el.querySelector('[data-loyalty]')!;
   }
 
-  update(p: Character, now: number, weapon: string, ration: string): void {
+  /** rallyCooldown — до готовности клича главы восстания, с (-1 — не глава). */
+  update(p: Character, now: number, weapon: string, ration: string, rallyCooldown = -1): void {
     const status = lawStatus(p, now);
     const hunger = Math.ceil(p.hunger);
     const key = `${Math.ceil(p.health)}|${p.maxHealth}|${p.money}|${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${status}|${hunger}|${weapon}|${ration}|${p.loyalty}`;
@@ -70,7 +71,10 @@ export class Hud {
     const prof = p.profession ? PROFESSIONS[p.profession] : null;
     const pname = prof && prof.id !== DEFAULT_PROFESSION[p.faction] ? ` · ${prof.name}` : '';
     const mask = p.disguised ? ' · в маскировке' : '';
-    this.role.textContent = r ? `${f.role} · ${r.name}${div}${pname}${mask}` : `${prof && pname ? prof.name : f.role} · CID #${p.cid}`;
+    // Глава восстания: готовность клича.
+    const cd = p.profession === 'rebel_leader' && p.faction === 'rebel' ? rallyCooldown : -1;
+    const rally = cd < 0 ? '' : cd > 0 ? ` · клич через ${Math.ceil(cd)} с` : ' · клич готов (G)';
+    this.role.textContent = r ? `${f.role} · ${r.name}${div}${pname}${mask}${rally}` : `${prof && pname ? prof.name : f.role} · CID #${p.cid}`;
     this.role.style.color = r ? r.color : f.label;
     const loyal = hasLoyalty(p);
     this.loyaltyEl.hidden = !loyal;

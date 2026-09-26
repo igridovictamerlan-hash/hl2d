@@ -78,7 +78,7 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   const vest = !!armor && O.vest !== false && look.rank >= ((O.vestFromRank as number | undefined) ?? 99);
   let head = O.head as string;
   if (head === 'bandana' && !vest) head = 'hair';
-  const hairy = head === 'hair' || head === 'bandana' || head === 'cap' || head === 'chef';
+  const hairy = head === 'hair' || head === 'bandana' || head === 'cap' || head === 'chef' || head === 'beret';
   const style: HairStyle = hairy ? hairStyleOf(look.seed) : 'bald';
   const skin = pick(PAWN.skins, look.seed, 3);
   const hair = pick(PAWN.hairs, look.seed, 11);
@@ -123,9 +123,10 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   if (vest && armor) shoulderPads(ctx, d, armor);
   professionBody(ctx, d, O);
 
-  // Голова.
+  // Голова (у HYDRA — чёрная балаклава вместо лица).
+  const masked = head === 'respirator';
   headPath(ctx, d, hx);
-  ctx.fillStyle = skin;
+  ctx.fillStyle = masked ? (O.mask as string) : skin;
   ctx.fill();
   ctx.save();
   headPath(ctx, d, hx);
@@ -137,8 +138,11 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   stroke(ctx, PAWN.outlineWidth);
 
   // Лицо, причёска, головной убор.
-  if (d !== 'N') face(ctx, d, hx);
+  if (d !== 'N' && !masked) face(ctx, d, hx);
   if (hairy) frontHair(ctx, d, style, hair, hx);
+  if (masked) respirator(ctx, d, O, hx);
+  if (head === 'beret') beret(ctx, d, O.beret as string, hx);
+  if (O.facemask && d !== 'N') faceMask(ctx, d, O.facemask as string, hx);
   if (head === 'bandana') bandana(ctx, d, O.cloth as string, hx);
   if (head === 'cap') cap(ctx, d, O.cap as string, hx);
   if (head === 'chef') chefHat(ctx, d, O.chef as string, hx);
@@ -920,6 +924,22 @@ function professionBody(ctx: Ctx, d: PawnDir, O: Outfit): void {
     else roundRect(ctx, 3.4, 6.6, 5.4, 4.6, 1.2);
     fillStroke(ctx, O.bag as string, PAWN.outlineWidth * 0.8);
   }
+  if (O.bandolier && d !== 'N') {
+    // Патронташ подрывника: ремень через грудь с гранатами.
+    ctx.beginPath();
+    ctx.moveTo(side ? -3 : -6, B.top + 0.8);
+    ctx.lineTo(side ? 4 : 6, 9);
+    stroke(ctx, 2.2, O.bandolier as string);
+    const n = side ? 2 : 3;
+    for (let k = 0; k < n; k++) {
+      const t = (k + 1) / (n + 1);
+      const gx = (side ? -3 : -6) + ((side ? 4 : 6) - (side ? -3 : -6)) * t;
+      const gy = B.top + 0.8 + (9 - B.top - 0.8) * t;
+      ctx.beginPath();
+      ctx.arc(gx, gy, 1.5, 0, Math.PI * 2);
+      fillStroke(ctx, O.nade as string, 0.6);
+    }
+  }
   if (O.armband && d !== 'N') {
     ctx.beginPath();
     const ax = side ? 0.2 : -PAWN.body.shoulder - 0.2;
@@ -931,6 +951,93 @@ function professionBody(ctx: Ctx, d: PawnDir, O: Outfit): void {
       ctx.fillRect(ax - 1.1, B.top + 5.3, 2.2, 0.8);
     }
   }
+}
+
+/**
+ * Противогаз HYDRA (как у SAS): две круглые линзы с бликом, резиновая маска и фильтр сбоку,
+ * ремни на затылке; сверху — чёрная балаклава (голова уже залита цветом маски).
+ */
+function respirator(ctx: Ctx, d: PawnDir, O: Outfit, hx: number): void {
+  const H = PAWN.head;
+  const cy = H.y;
+  const rubber = O.rubber as string;
+  const lens = O.lens as string;
+  if (d === 'N') {
+    // Затылок: ремни маски крест-накрест.
+    ctx.beginPath();
+    ctx.moveTo(-H.r + 1, cy - 1);
+    ctx.lineTo(H.r - 1, cy + 3);
+    ctx.moveTo(H.r - 1, cy - 1);
+    ctx.lineTo(-H.r + 1, cy + 3);
+    stroke(ctx, 1, rubber);
+    return;
+  }
+  const side = d === 'E';
+  // Резиновая маска на лице.
+  ctx.beginPath();
+  if (side) ctx.ellipse(hx + 3.2, cy + 1, 4.6, 5.2, 0, 0, Math.PI * 2);
+  else ctx.ellipse(0, cy + 1.2, 6.2, 5.6, 0, 0, Math.PI * 2);
+  fillStroke(ctx, rubber, PAWN.outlineWidth * 0.8);
+  // Линзы.
+  const lensAt = side ? [[hx + 4.4, cy - 0.6]] : [[-2.8, cy - 0.4], [2.8, cy - 0.4]];
+  for (const [lx, ly] of lensAt) {
+    ctx.beginPath();
+    ctx.arc(lx, ly, side ? 2 : 2.3, 0, Math.PI * 2);
+    fillStroke(ctx, lens, 0.9);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillRect(lx - 1.1, ly - 1.3, 0.9, 0.9);
+  }
+  // Фильтр: спереди-сбоку (S) или впереди (профиль).
+  ctx.beginPath();
+  if (side) ctx.ellipse(hx + 7.2, cy + 3.6, 2, 2.4, 0, 0, Math.PI * 2);
+  else ctx.ellipse(3.8, cy + 4.6, 2.4, 2, 0, 0, Math.PI * 2);
+  fillStroke(ctx, O.filter as string, 0.8);
+  ctx.beginPath();
+  if (side) ctx.moveTo(hx + 6.2, cy + 3.6), ctx.lineTo(hx + 8.2, cy + 3.6);
+  else ctx.moveTo(2.6, cy + 4.6), ctx.lineTo(5, cy + 4.6);
+  stroke(ctx, 0.5, 'rgba(0,0,0,0.6)');
+}
+
+/** Берет главы восстания (набок). */
+function beret(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
+  const H = PAWN.head;
+  const cy = H.y;
+  const r = H.r;
+  const cx = d === 'E' ? hx - 0.6 : 0;
+  ctx.beginPath();
+  ctx.ellipse(cx - (d === 'S' ? 1.4 : 0), cy - r + 1.6, r + 1.6, 3.6, d === 'S' ? -0.18 : 0, 0, Math.PI * 2);
+  fillStroke(ctx, color, PAWN.outlineWidth);
+  ctx.beginPath();
+  ctx.moveTo(cx - r + 0.4, cy - r + 3.6);
+  ctx.lineTo(cx + r - 0.6, cy - r + 3.6);
+  stroke(ctx, 1.1, tint(color, -0.35));
+  if (d === 'S') {
+    ctx.fillStyle = '#e8c34a';
+    ctx.beginPath();
+    ctx.arc(cx + 2.4, cy - r + 1.8, 0.9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** Платок на нижней половине лица (бандит). */
+function faceMask(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
+  const H = PAWN.head;
+  const cy = H.y;
+  ctx.beginPath();
+  if (d === 'E') {
+    ctx.moveTo(hx - 2, cy + 0.6);
+    ctx.lineTo(hx + H.r + 1.2, cy + 0.6);
+    ctx.lineTo(hx + H.r - 0.6, cy + 5.6);
+    ctx.lineTo(hx - 1, cy + H.r);
+  } else {
+    ctx.moveTo(-H.r + 0.4, cy + 0.4);
+    ctx.lineTo(H.r - 0.4, cy + 0.4);
+    ctx.lineTo(H.r * 0.5, cy + H.r + 0.4);
+    ctx.lineTo(0, cy + H.r + 2.2);
+    ctx.lineTo(-H.r * 0.5, cy + H.r + 0.4);
+  }
+  ctx.closePath();
+  fillStroke(ctx, color, PAWN.outlineWidth * 0.8);
 }
 
 /** Поварской колпак. */

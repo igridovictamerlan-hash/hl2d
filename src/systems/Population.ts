@@ -153,9 +153,10 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   // Армия сопротивления — в лагере в пустоши.
   const camp = poiWorld(ctx, 'rebel_camp');
   if (camp) {
+    const outsideCamp = new Set(ctx.map.zones.filter((z) => z.kind !== 'rebel_camp').map((z) => z.id));
     for (const [prof, n] of [...ROSTER.army, ...ROSTER.hydra]) {
       for (let k = 0; k < n; k++) {
-        put(armySpec(prof, armyKit(prof, ctx), ROSTER.rank[prof] ?? randomRank(ctx, 'rebel', 2)), freeSpot(ctx, camp, 0, 7, none, 20));
+        put(armySpec(prof, armyKit(prof, ctx), ROSTER.rank[prof] ?? randomRank(ctx, 'rebel', 2)), freeSpot(ctx, camp, 0, 9, outsideCamp, 20));
       }
     }
   }

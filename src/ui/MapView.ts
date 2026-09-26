@@ -65,7 +65,7 @@ export class MapView {
       [C.hatch, 'люк'],
       [C.nodeBroken, 'узел Альянса выведен из строя'],
       [C.alarm, 'тревога'],
-      [C.base, 'убежище'],
+      [C.base, 'лагерь / схрон'],
       [C.market, 'чёрный рынок'],
     ]
       .map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`)
@@ -312,7 +312,9 @@ export class MapView {
       for (const p of poi('ration_window')) dot(p.x, p.y, 3, economy.open ? C.ration : 'rgba(255,211,107,0.4)');
       for (const p of poi('shop_counter')) dot(p.x, p.y, 2.5, C.shop);
       for (const n of economy.nodes) if (n.broken) dot(n.x, n.y, 2.5, C.nodeBroken);
-      for (const h of map.hatches) if (player.faction === 'rebel' || this.hatches.has(h.id)) dot(h.city.x, h.city.y, 2, C.hatch, true);
+      for (const h of map.hatches) if (player.profession === 'partisan' || this.hatches.has(h.id)) dot(h.city.x, h.city.y, 2, C.hatch, true);
+      // Лагерь сопротивления в пустоши — своим.
+      if (player.faction === 'rebel') for (const p of poi('rebel_camp')) dot(p.x, p.y, 4, C.base);
       for (const f of war.fronts) {
         const color = f.capture || f.held > 0 ? C.capture : war.active(f) ? C.fight : C.front;
         dot(f.innerGate.x, f.innerGate.y, 3.5, color);

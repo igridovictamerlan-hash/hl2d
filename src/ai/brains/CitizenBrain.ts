@@ -30,7 +30,8 @@ type Job =
   | { kind: 'clean'; pile: TrashPile }
   | { kind: 'scavenge'; pile: TrashPile; left: number }
   | { kind: 'heal'; patient: Character; repath: number }
-  | { kind: 'pickpocket'; victim: Character; left: number; until: number; repath: number };
+  | { kind: 'pickpocket'; victim: Character; left: number; until: number; repath: number }
+  | { kind: 'rob'; victim: Character; left: number; until: number; repath: number; threatened: boolean };
 
 /** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
 export interface StreetProfile {
@@ -234,6 +235,21 @@ export class CitizenBrain implements Brain {
           }
         }
         return victim ? { kind: 'pickpocket', victim, left: CRIME.pickpocket.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0 } : null;
+      }
+      case 'bandit': {
+        // Гоп-стоп: жертва в подворотне, ГО рядом не видно.
+        if (!ctx.rng.chance(CRIME.rob.npcChance) || this.cpInSight(260)) return null;
+        let victim: Character | null = null;
+        let bestD = Infinity;
+        for (const o of ctx.entities.near(self.x, self.y, CRIME.rob.seek, near)) {
+          if (!ctx.crime.robOk(self, o) || o.money < CRIME.npc.minMoney || o.profession === 'bandit' || o.isPlayer) continue;
+          const d = Math.hypot(o.x - self.x, o.y - self.y);
+          if (d < bestD) {
+            bestD = d;
+            victim = o;
+          }
+        }
+        return victim ? { kind: 'rob', victim, left: CRIME.rob.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0, threatened: false } : null;
       }
       case 'outcast': {
         const pile = labor.trash.filter((p) => !p.searched).sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y))[0];
@@ -529,6 +545,43 @@ const WORK: State<CitizenBrain> = {
             return done();
           }
         } else if (st === 'idle' || st === 'arrived') b.goToPoint(job.pile);
+        return;
+      }
+      case 'rob': {
+        const v = job.victim;
+        const crime = b.ctx.crime;
+        const combat = b.ctx.combat;
+        const holster = () => {
+          if (b.self.weapon) combat.equip(b.self, null);
+        };
+        if (!crime.robOk(b.self, v) || b.ctx.law.now > job.until || b.cpInSight(220)) {
+          holster();
+          return done();
+        }
+        if (Math.hypot(v.x - b.self.x, v.y - b.self.y) < CRIME.rob.reach) {
+          b.mover.stop();
+          faceTowards(b.self, v.x, v.y, dt);
+          if (!job.threatened) {
+            job.threatened = true;
+            if (b.self.inventory.has('rebel_pistol')) combat.equip(b.self, 'rebel_pistol');
+            b.self.say(b.ctx.rng.pick(['Гони токены, быстро!', 'Стоять. Кошелёк сюда.', 'Тихо! Деньги давай.']), b.ctx.law.now, 2);
+          }
+          if ((job.left -= dt) <= 0) {
+            crime.rob(b.self, v);
+            holster();
+            const away = b.goalAwayFrom(v.x, v.y);
+            b.job = null;
+            b.mover.speed = b.walkSpeed * 1.3;
+            if (away >= 0) b.mover.goTo(b.self, b.ctx, away);
+            return 'walk';
+          }
+          return;
+        }
+        job.repath -= dt;
+        if (job.repath <= 0 || st === 'idle' || st === 'arrived') {
+          job.repath = 0.6;
+          b.goToPoint(v);
+        }
         return;
       }
       case 'pickpocket': {

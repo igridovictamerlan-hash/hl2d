@@ -743,7 +743,8 @@ export class WarSystem {
         c.loyalty < D.maxLoyalty && this.ctx.map.levelAt(c.x, c.y) === 'city' && !this.defectors.has(c),
     );
     if (!pool.length) return;
-    const c = rng.pick(pool);
+    // Беглецы бегут первыми — им в городе всё равно не жить.
+    const c = pool.find((o) => o.profession === 'fugitive') ?? rng.pick(pool);
     const f = open.reduce((best, o) => (Math.hypot(o.innerGate.x - c.x, o.innerGate.y - c.y) < Math.hypot(best.innerGate.x - c.x, best.innerGate.y - c.y) ? o : best));
     this.economy().leaveQueue(c);
     c.brain = new DefectorBrain(f.index, this.ctx);
