@@ -48,6 +48,8 @@ export const LAW = {
   patrolDistance: [15, 55] as const,
 
   jailTime: { player: 40, npc: 35 },
+  /** Общая камера КПЗ (граждане, ГСР, партизаны): мест не больше max, между местами spacing px. */
+  commonCell: { max: 10, spacing: 34 },
 
   npc: {
     noCidChance: 0.08,

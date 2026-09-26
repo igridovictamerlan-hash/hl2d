@@ -604,10 +604,12 @@ export class RebelBrain implements Brain {
           if (fighting && this.gunner.target) this.mover.stop();
           break;
         }
-        if (ctx.war.cityPush && (this.stageSpot || this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived')) {
+        // Остановился (перестрелка, уступил дорогу) — дальше к цели, иначе так и стоит в коридоре.
+        const stalled = this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived' || (this.mover.status === 'idle' && !(fighting && this.gunner.target));
+        if (ctx.war.cityPush && (this.stageSpot || stalled)) {
           this.stageSpot = false;
           this.go(randomAnchorInZone(ctx, 'nexus'));
-        } else if (this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived') {
+        } else if (stalled) {
           // Цель — за внутренними воротами, в город.
           const beyond = { x: f.apron.x + (f.apron.x - f.outerGate.x) * 0.6, y: f.apron.y + (f.apron.y - f.outerGate.y) * 0.6 };
           this.go(ctx.nav.nearestWalkable(beyond.x, beyond.y, 8));

@@ -18,6 +18,7 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   '#': T.WALL,
   ',': T.INTERIOR,
   c: T.INTERIOR,
+  C: T.INTERIOR,
   D: T.DOOR,
   d: T.DOOR,
   ':': T.PLAZA,
@@ -37,6 +38,8 @@ const TEMPLATE_TILES: Record<string, TileId> = {
 export interface StampResult {
   exits: Exit[];
   cells: Rect[];
+  /** Общие камеры (символ C). */
+  commonCells: Rect[];
 }
 
 /**
@@ -70,28 +73,33 @@ export function stampTemplate(
   }
   g.lockRect({ x: x0, y: y0, w, h });
 
-  // Камеры: связные области 'c'.
-  const cells: Rect[] = [];
-  const seen = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (rows[y][x] !== 'c' || seen[y * w + x]) continue;
-      let minX = x, maxX = x, minY = y, maxY = y;
-      const stack = [[x, y]];
-      seen[y * w + x] = 1;
-      while (stack.length) {
-        const [cx, cy] = stack.pop()!;
-        minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
-        minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
-        for (const [nx, ny] of [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]) {
-          if (nx < 0 || ny < 0 || nx >= w || ny >= h || seen[ny * w + nx] || rows[ny][nx] !== 'c') continue;
-          seen[ny * w + nx] = 1;
-          stack.push([nx, ny]);
+  // Камеры: связные области 'c' (одиночные) и 'C' (общие).
+  const regions = (mark: string): Rect[] => {
+    const out: Rect[] = [];
+    const seen = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (rows[y][x] !== mark || seen[y * w + x]) continue;
+        let minX = x, maxX = x, minY = y, maxY = y;
+        const stack = [[x, y]];
+        seen[y * w + x] = 1;
+        while (stack.length) {
+          const [cx, cy] = stack.pop()!;
+          minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
+          minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+          for (const [nx, ny] of [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]) {
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h || seen[ny * w + nx] || rows[ny][nx] !== mark) continue;
+            seen[ny * w + nx] = 1;
+            stack.push([nx, ny]);
+          }
         }
+        out.push({ x: x0 + minX, y: y0 + minY, w: maxX - minX + 1, h: maxY - minY + 1 });
       }
-      cells.push({ x: x0 + minX, y: y0 + minY, w: maxX - minX + 1, h: maxY - minY + 1 });
     }
-  }
+    return out;
+  };
+  const cells = regions('c');
+  const commonCells = regions('C');
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];
@@ -123,7 +131,7 @@ export function stampTemplate(
   scanSide(bottom, 0, 1);
   scanSide(left, -1, 0);
   scanSide(right, 1, 0);
-  return { exits, cells };
+  return { exits, cells, commonCells };
 }
 
 /**

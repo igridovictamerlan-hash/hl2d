@@ -40,6 +40,7 @@ export type PoiType =
   | 'code_terminal'
   | 'nexus_yard'
   | 'cell'
+  | 'common_cell'
   | 'restricted_gate'
   | 'industrial_yard'
   | 'checkpoint_post'

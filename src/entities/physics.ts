@@ -39,6 +39,9 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
         if (b.id <= a.id || !b.alive) continue;
         // Разбор затора: «призрак» проходит сквозь NPC, но не сквозь игрока.
         if ((a.ghost > 0 || b.ghost > 0) && !a.isPlayer && !b.isPlayer) continue;
+        // Конвоир и его задержанный не толкают друг друга: в переулке в 2 тайла задержанный иначе
+        // встаёт на пути конвоира, и оба стоят.
+        if (a.law.handler === b || b.law.handler === a) continue;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const minD = a.radius + b.radius;

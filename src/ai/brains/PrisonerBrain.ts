@@ -51,7 +51,7 @@ export class PrisonerBrain implements Brain {
       }
       case 'entering': {
         const cell = ctx.law.cells[law.cell];
-        if (cell) this.go(self, ctx, ctx.law.cellAnchor(cell));
+        if (cell) this.go(self, ctx, ctx.law.cellAnchor(cell, self));
         break;
       }
       case 'jailed':

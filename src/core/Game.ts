@@ -270,11 +270,7 @@ export class Game {
     const p = this.player;
     const law = p.law;
     // Если сидел — освобождаем камеру.
-    const cell = this.law.cells[law.cell];
-    if (cell && (cell.occupant === p || cell.reserved === p)) {
-      cell.occupant = cell.reserved = null;
-      if (cell.door) this.doors.setLocked(cell.door, false);
-    }
+    this.law.vacate(p);
     for (const o of this.entities.list) if (o.law.handler === p) this.law.clear(o);
     this.ui.check.hide();
     this.playerCtl.reset();
@@ -650,6 +646,7 @@ export class Game {
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
     this.effects.drawFurniture(ctx, v, this.furniture, this.map.tileSize);
+    this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches);
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);

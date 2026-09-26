@@ -1,6 +1,7 @@
 import type { Character } from './Character';
 import type { View } from '../core/Camera';
 import { FACTIONS, CP_DIVISIONS, colorsOf, rankOf } from '../config/factions';
+import { LOYALTY } from '../config/loyalty';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
@@ -54,7 +55,8 @@ export class EntityRenderer {
       // Партизан в маскировке выглядит как гражданин.
       const faction = c.disguised ? 'citizen' : c.faction;
       const rank = c.disguised ? 0 : c.rank;
-      const look = { faction, rank, color: colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? null : c.profession };
+      const loyalist = isLoyalistUniform(c);
+      const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? null : c.profession };
       const reloading = c.reloadUntil > now;
       if (c.isPlayer) {
         // Выделение игрока — эллипс у ног.
@@ -135,7 +137,7 @@ export class EntityRenderer {
       ctx.font = scaleFont(E.roleFont, dpr);
       const role = roleLabel(c);
       ctx.strokeText(role, x, ny + 10 * dpr);
-      ctx.fillStyle = r ? r.color : f.label;
+      ctx.fillStyle = isLoyalistUniform(c) ? LOYALTY.uniform.label : r ? r.color : f.label;
       ctx.fillText(role, x, ny + 10 * dpr);
       const top = cy + (PAWN.head.y - PAWN.head.r) * s * PAWN.scale;
       if (c.speech && c.speech.until > now) this.bubble(ctx, c.speech.text, x, top - 6 * dpr, dpr);
@@ -166,4 +168,9 @@ function scaleFont(font: string, dpr: number): string {
     fontCache.set(key, f);
   }
   return f;
+}
+
+/** Гражданин-лоялист (не партизан в маскировке) — в светло-фиолетовой форме. */
+export function isLoyalistUniform(c: Character): boolean {
+  return c.faction === 'citizen' && !c.disguised && c.loyalty >= LOYALTY.uniform.min;
 }

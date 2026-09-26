@@ -35,8 +35,23 @@ export interface Cell {
   frontY: number;
   door: DoorGroup | null;
   bounds: { x0: number; y0: number; x1: number; y1: number };
+  /** Общая камера (много мест) — для граждан и партизан. */
+  common: boolean;
+  /** Места: у одиночной — одно в центре, у общей — по площади. */
+  slots: CellSlot[];
+}
+
+export interface CellSlot {
+  x: number;
+  y: number;
   occupant: Character | null;
   reserved: Character | null;
+}
+
+/** Кого сажают в общую камеру: граждан, ГСР, вортигонтов и партизан (не бойцов армии). */
+function belongsInCommon(c: Character): boolean {
+  if (c.faction === 'citizen' || c.faction === 'cwu' || c.faction === 'vort') return true;
+  return c.faction === 'rebel' && (c.role?.kind === 'partisan' || c.disguised === true);
 }
 
 /**
@@ -66,7 +81,8 @@ export class LawSystem {
   private buildCells(): void {
     const map = this.map;
     const ts = map.tileSize;
-    map.poisOf('cell').forEach((poi, index) => {
+    const pois = [...map.poisOf('cell').map((p) => ({ p, common: false })), ...map.poisOf('common_cell').map((p) => ({ p, common: true }))];
+    pois.forEach(({ p: poi, common }, index) => {
       // Камера — связная область пола в зоне КПЗ вокруг точки.
       const zone = map.zoneAtTile(poi.x, poi.y);
       let x0 = poi.x, y0 = poi.y, x1 = poi.x, y1 = poi.y;
@@ -97,7 +113,24 @@ export class LawSystem {
         fx = door.x + (dx / d) * 36;
         fy = door.y + (dy / d) * 36;
       }
-      this.cells.push({ index, x: cx, y: cy, frontX: fx, frontY: fy, door, bounds: { x0, y0, x1, y1 }, occupant: null, reserved: null });
+      const slots: CellSlot[] = [];
+      if (common) {
+        // Места — центры якорей внутри камеры, не ближе spacing друг к другу и не у самой двери.
+        const C = LAW.commonCell;
+        const nav = this.nav;
+        for (let ay = y0; ay < y1 && slots.length < C.max; ay++) {
+          for (let ax = x0; ax < x1 && slots.length < C.max; ax++) {
+            if (!nav.isWalkable(ax, ay)) continue;
+            const x = (ax + 1) * ts;
+            const y = (ay + 1) * ts;
+            if (door && Math.hypot(door.x - x, door.y - y) < C.spacing * 1.5) continue;
+            if (slots.some((s) => Math.hypot(s.x - x, s.y - y) < C.spacing)) continue;
+            slots.push({ x, y, occupant: null, reserved: null });
+          }
+        }
+      }
+      if (!slots.length) slots.push({ x: cx, y: cy, occupant: null, reserved: null });
+      this.cells.push({ index, x: cx, y: cy, frontX: fx, frontY: fy, door, bounds: { x0, y0, x1, y1 }, common, slots });
     });
   }
 
@@ -272,13 +305,34 @@ export class LawSystem {
     if (wasPlayerCheck) this.bus.emit('law:checkClosed', { target });
   }
 
-  /** Свободная камера (не занята и не зарезервирована) — ближайшая к точке. */
-  freeCell(x: number, y: number): Cell | null {
+  /** Свободное место (не занято и не зарезервировано) в камере или -1. */
+  private freeSlot(cell: Cell): number {
+    return cell.slots.findIndex((s) => !s.occupant && !s.reserved);
+  }
+
+  /** Место персонажа в камере (занятое или зарезервированное) или null. */
+  slotOf(cell: Cell, c: Character): CellSlot | null {
+    return cell.slots.find((s) => s.occupant === c || s.reserved === c) ?? null;
+  }
+
+  /** Сколько сидит в камере. */
+  occupants(cell: Cell): Character[] {
+    const out: Character[] = [];
+    for (const s of cell.slots) if (s.occupant) out.push(s.occupant);
+    return out;
+  }
+
+  /**
+   * Камера со свободным местом — ближайшая к точке. Граждан и партизан (prisoner) — сперва в
+   * общую, остальных — сперва в одиночные; нет места — в любую.
+   */
+  freeCell(x: number, y: number, prisoner: Character | null = null): Cell | null {
+    const wantCommon = prisoner ? belongsInCommon(prisoner) : false;
     let best: Cell | null = null;
     let bestD = Infinity;
     for (const c of this.cells) {
-      if (c.occupant || c.reserved) continue;
-      const d = Math.hypot(c.frontX - x, c.frontY - y);
+      if (this.freeSlot(c) < 0) continue;
+      const d = Math.hypot(c.frontX - x, c.frontY - y) + (c.common === wantCommon ? 0 : 1e6);
       if (d < bestD) {
         bestD = d;
         best = c;
@@ -288,7 +342,14 @@ export class LawSystem {
   }
 
   reserve(cell: Cell, prisoner: Character): void {
-    cell.reserved = prisoner;
+    if (this.slotOf(cell, prisoner)) return;
+    const k = this.freeSlot(cell);
+    if (k >= 0) cell.slots[k].reserved = prisoner;
+  }
+
+  /** Снять бронь места (конвой сорвался). */
+  unreserve(cell: Cell, prisoner: Character): void {
+    for (const s of cell.slots) if (s.reserved === prisoner) s.reserved = null;
   }
 
   /** Конвоир у двери камеры: открыть, завести. */
@@ -296,21 +357,29 @@ export class LawSystem {
     const law = prisoner.law;
     law.phase = 'entering';
     law.cell = cell.index;
-    cell.reserved = prisoner;
+    this.reserve(cell, prisoner);
     if (cell.door) {
       this.doors.setLocked(cell.door, false);
       this.doors.open(cell.door);
     }
   }
 
+  /** Освободить место персонажа во всех камерах (дверь запрёт update, если там ещё кто-то сидит). */
+  vacate(c: Character): void {
+    for (const cell of this.cells) {
+      for (const s of cell.slots) {
+        if (s.occupant === c || s.reserved === c) {
+          s.occupant = null;
+          s.reserved = null;
+          if (cell.door) this.doors.setLocked(cell.door, false);
+        }
+      }
+    }
+  }
+
   /** Снять с персонажа любые процедуры (гибель, смена роли): освободить камеру, вернуть мозг. */
   release(c: Character): void {
-    const cell = this.cells[c.law.cell];
-    if (cell) {
-      if (cell.occupant === c) cell.occupant = null;
-      if (cell.door) this.doors.setLocked(cell.door, false);
-    }
-    for (const cl of this.cells) if (cl.reserved === c) cl.reserved = null;
+    this.vacate(c);
     c.law.cell = -1;
     if (c.law.savedBrain || c.brain instanceof PrisonerBrain) this.restoreBrain(c);
     this.clear(c);
@@ -370,23 +439,23 @@ export class LawSystem {
           }
           // Игрок-ГО привёл задержанного к свободной камере — заводим.
           if (h.isPlayer) {
-            const cell = this.freeCell(h.x, h.y);
+            const cell = this.freeCell(h.x, h.y, c);
             if (cell && Math.hypot(h.x - cell.frontX, h.y - cell.frontY) < 56) this.putInCell(c, cell);
           }
           break;
         }
         case 'entering': {
           const cell = this.cells[law.cell];
-          if (cell && this.inside(cell, c.x, c.y) && Math.hypot(c.x - cell.x, c.y - cell.y) < 20) {
-            cell.occupant = c;
-            cell.reserved = null;
-            if (cell.door) this.doors.setLocked(cell.door, true);
+          const slot = cell ? this.slotOf(cell, c) : null;
+          if (cell && slot && this.inside(cell, c.x, c.y) && Math.hypot(c.x - slot.x, c.y - slot.y) < 20) {
+            slot.occupant = c;
+            slot.reserved = null;
             law.phase = 'jailed';
             law.jailUntil = this.time + (c.isPlayer ? LAW.jailTime.player : LAW.jailTime.npc);
             law.wanted = false;
             law.hasCid = true;
             law.handler = null;
-            this.log(`${who(c, true)} помещён в КПЗ на ${Math.round(law.jailUntil - this.time)} с`, 'law');
+            this.log(`${who(c, true)} помещён в ${cell.common ? 'общую камеру' : 'КПЗ'} на ${Math.round(law.jailUntil - this.time)} с`, 'law');
           } else if (this.time - law.since > 25) {
             // Застрял на входе — всё равно считаем посаженным.
             law.since = this.time;
@@ -397,7 +466,8 @@ export class LawSystem {
           if (this.time >= law.jailUntil) {
             const cell = this.cells[law.cell];
             if (cell) {
-              cell.occupant = null;
+              const slot = this.slotOf(cell, c);
+              if (slot) slot.occupant = null;
               if (cell.door) {
                 this.doors.setLocked(cell.door, false);
                 this.doors.open(cell.door);
@@ -425,7 +495,37 @@ export class LawSystem {
           break;
       }
     }
+    this.lockCells();
     void player;
+  }
+
+  /**
+   * Дверь камеры заперта, пока там кто-то сидит и никто не входит и не выходит: в общей камере
+   * новичка заводят и отпускают отсидевшего, не выпуская остальных.
+   */
+  private lockCells(): void {
+    for (const cell of this.cells) {
+      if (!cell.door) continue;
+      let seated = false;
+      let moving = false;
+      for (const s of cell.slots) {
+        if (s.occupant) seated = true;
+        if (s.reserved && s.reserved.law.phase === 'entering') moving = true;
+      }
+      if (!seated || moving) continue;
+      if (!cell.common) {
+        this.doors.setLocked(cell.door, true);
+        continue;
+      }
+      // Отпущенный ещё внутри — не запирать, пока не выйдет.
+      for (const o of this.entities.list) {
+        if (o.law.phase === 'releasing' && this.inside(cell, o.x, o.y)) {
+          moving = true;
+          break;
+        }
+      }
+      if (!moving) this.doors.setLocked(cell.door, true);
+    }
   }
 
   log(text: string, kind: 'law' | 'radio' | 'world' = 'law'): void {
@@ -437,8 +537,10 @@ export class LawSystem {
     return this.nav.nearestWalkable(cell.frontX, cell.frontY, 4);
   }
 
-  cellAnchor(cell: Cell): number {
-    return this.nav.nearestWalkable(cell.x, cell.y, 3);
+  /** Якорь места персонажа в камере (без брони — центр камеры). */
+  cellAnchor(cell: Cell, c: Character | null = null): number {
+    const slot = c ? this.slotOf(cell, c) : null;
+    return this.nav.nearestWalkable(slot?.x ?? cell.x, slot?.y ?? cell.y, 3);
   }
 }
 

@@ -11,7 +11,7 @@ import type { GameMap } from './GameMap';
 import { colorsOf } from '../config/factions';
 import { lookSeed } from '../entities/PawnRenderer';
 import { drawPawnCached } from '../entities/PawnCache';
-import type { Barrel } from '../systems/StreetLife';
+import type { Barrel, Bench, Lamp } from '../systems/StreetLife';
 import type { Poi } from './GameMap';
 import { PAWN } from '../config/pawns';
 import { RENDER } from '../config/render';
@@ -254,6 +254,83 @@ export class EffectsRenderer {
   }
 
   /** Бочки с огнём: отсвет на земле, ржавая бочка, мерцающие языки пламени и искры. */
+  /** Пятно света фонаря — спрайт (градиент рисуется один раз, дальше drawImage). */
+  private lampGlow: HTMLCanvasElement | null = null;
+
+  /** Скамейки и фонари главного проспекта (под персонажами). */
+  drawAvenue(ctx: CanvasRenderingContext2D, v: View, lamps: readonly Lamp[], benches: readonly Bench[]): void {
+    const s = v.scale;
+    const L = RENDER.effects.lamp;
+    const B = RENDER.effects.bench;
+    const pad = (L.glowRadius + 8) * s;
+    for (let k = 0; k < benches.length; k++) {
+      const b = benches[k];
+      const x = (b.x - v.left) * s;
+      const y = (b.y - v.top) * s;
+      if (x < -pad || y < -pad || x > v.width + pad || y > v.height + pad) continue;
+      // Вдоль стены — длина, от стены — глубина; спинка у стены.
+      const along = b.ny !== 0;
+      const w = (along ? B.length : B.depth) * s;
+      const h = (along ? B.depth : B.length) * s;
+      ctx.fillStyle = B.leg;
+      ctx.fillRect(x - w / 2 - s, y - h / 2 - s, w + 2 * s, h + 2 * s);
+      ctx.fillStyle = B.wood;
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      // Щели между досками и спинка.
+      ctx.fillStyle = B.dark;
+      if (along) {
+        ctx.fillRect(x - w / 2, y - 0.5 * s, w, s);
+        ctx.fillRect(x - w / 2, b.ny > 0 ? y - h / 2 - 2 * s : y + h / 2, w, 2.5 * s);
+      } else {
+        ctx.fillRect(x - 0.5 * s, y - h / 2, s, h);
+        ctx.fillRect(b.nx > 0 ? x - w / 2 - 2 * s : x + w / 2, y - h / 2, 2.5 * s, h);
+      }
+    }
+    if (!this.lampGlow) {
+      const r = 64;
+      const c = document.createElement('canvas');
+      c.width = c.height = r * 2;
+      const g = c.getContext('2d')!;
+      const grad = g.createRadialGradient(r, r, 0, r, r, r);
+      grad.addColorStop(0, `rgba(${L.glow},1)`);
+      grad.addColorStop(1, `rgba(${L.glow},0)`);
+      g.fillStyle = grad;
+      g.fillRect(0, 0, r * 2, r * 2);
+      this.lampGlow = c;
+    }
+    const gr = L.glowRadius * s;
+    for (let k = 0; k < lamps.length; k++) {
+      const l = lamps[k];
+      const x = (l.x - v.left) * s;
+      const y = (l.y - v.top) * s;
+      if (x < -pad || y < -pad || x > v.width + pad || y > v.height + pad) continue;
+      // Плафон на кронштейне над улицей, свет — пятном под ним.
+      const hx = x + l.nx * 12 * s;
+      const hy = y + l.ny * 12 * s;
+      ctx.globalAlpha = L.glowAlpha;
+      ctx.drawImage(this.lampGlow, hx - gr, hy - gr, gr * 2, gr * 2);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = L.arm;
+      ctx.lineWidth = Math.max(1, 2 * s);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
+      ctx.fillStyle = L.post;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = L.rim;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 4.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = L.head;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 3 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   drawBarrels(ctx: CanvasRenderingContext2D, v: View, barrels: readonly Barrel[], now: number): void {
     const s = v.scale;
     const B = RENDER.effects.barrel;

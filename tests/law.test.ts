@@ -93,14 +93,16 @@ describe('ГО: проверка, арест, КПЗ', () => {
     const jailedAt = run(sim, 150, () => t.law.phase === 'jailed');
     expect(t.law.phase).toBe('jailed');
     const cell = law.cells[t.law.cell];
-    expect(cell.occupant).toBe(t);
+    // Гражданина сажают в общую камеру.
+    expect(cell.common).toBe(true);
+    expect(law.occupants(cell)).toContain(t);
     expect(cell.door?.locked).toBe(true);
     expect(sim.log.some((l) => l.includes('задержал'))).toBe(true);
     console.log(`в камере через ${jailedAt.toFixed(1)} с`);
     run(sim, 80, () => t.law.phase === 'none');
     expect(t.law.phase).toBe('none');
     expect(t.brain).toBeInstanceOf(CitizenBrain);
-    expect(cell.occupant).toBeNull();
+    expect(law.occupants(cell)).not.toContain(t);
     expect(t.law.wanted).toBe(false);
   });
 
@@ -175,6 +177,6 @@ describe('живой город со всеми фракциями', () => {
     console.log(`максимум в одной фазе процедуры: ${worstStuck.toFixed(1)} с`);
     expect(checks.length).toBeGreaterThan(0);
     expect(worstStuck).toBeLessThan(60);
-    for (const cell of sim.law.cells) if (cell.occupant) expect(cell.occupant.law.phase).toBe('jailed');
+    for (const cell of sim.law.cells) for (const o of sim.law.occupants(cell)) expect(o.law.phase).toBe('jailed');
   });
 });

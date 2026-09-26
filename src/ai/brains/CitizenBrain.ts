@@ -20,7 +20,7 @@ import { LABOR } from '../../config/labor';
 import { CRIME } from '../../config/crime';
 import type { Vec2 } from '../../core/math';
 import { STREET } from '../../config/street';
-import type { Barrel } from '../../systems/StreetLife';
+import type { Barrel, Bench } from '../../systems/StreetLife';
 import { lineOfSight } from '../../world/visibility';
 
 /** Работа по профессии (ГСР, вортигонт, отброс общества). */
@@ -56,7 +56,7 @@ const PROFILES: Record<'citizen' | 'cwu' | 'rebel' | 'vort', StreetProfile> = {
 const near: Character[] = [];
 
 /** Состояния, в которых мозг сам решает, куда смотреть (не «по ходу движения»). */
-const SELF_FACING = new Set(['stopped', 'chat', 'barrel', 'listen']);
+const SELF_FACING = new Set(['stopped', 'chat', 'barrel', 'listen', 'bench']);
 
 /**
  * Житель города (гражданин, ГСР, повстанец): стоит → идёт → стоит. Иногда нарушает:
@@ -87,6 +87,8 @@ export class CitizenBrain implements Brain {
   lastChat = -1e9;
   /** Место у бочки, сколько стоять (у бочки, дома, на обращении). */
   barrel: { barrel: Barrel; slot: number } | null = null;
+  /** Место на скамейке проспекта. */
+  bench: { bench: Bench; seat: number } | null = null;
   stayUntil = 0;
   /** На какое обращение Администратора уже решали, идти ли. */
   heardBroadcast = 0;
@@ -106,7 +108,7 @@ export class CitizenBrain implements Brain {
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
-    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN], 'idle');
+    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
   }
@@ -210,9 +212,12 @@ export class CitizenBrain implements Brain {
     const hustler = this.self.profession === 'thief' || this.self.profession === 'bandit';
     if (!this.street || hustler || ctx.war.code === 'red' || !ctx.street || !ctx.rng.chance(STREET.activityChance)) return null;
     const W = STREET.weights;
-    let r = ctx.rng.range(0, W.chat + W.barrel + W.home);
+    // Скамейки проспекта — только при зелёном коде.
+    const bench = ctx.war.code === 'green' && ctx.street.benches.length ? W.bench : 0;
+    let r = ctx.rng.range(0, W.chat + W.barrel + W.home + bench);
     if ((r -= W.chat) < 0) return this.startChat() ? 'chat' : null;
     if ((r -= W.barrel) < 0) return 'barrel';
+    if ((r -= bench) < 0) return 'bench';
     return 'home';
   }
 
@@ -966,6 +971,75 @@ const BARREL: State<CitizenBrain> = {
   exit(b) {
     b.ctx.street.releaseBarrelSlot(b.self);
     b.barrel = null;
+  },
+};
+
+/** Посидеть на скамейке проспекта (зелёный код); сосед по скамейке — беседа, ведёт младший по id. */
+const BENCH: State<CitizenBrain> = {
+  name: 'bench',
+  enter(b) {
+    b.stayUntil = 0;
+    b.chatPair = null;
+    b.chatLine = 0;
+    b.meetUntil = b.ctx.law.now + 70;
+    b.bench = b.ctx.street.takeBenchSeat(b.self);
+    if (!b.bench || !b.goToPoint(b.bench.bench.seats[b.bench.seat])) b.idleLeft = 0.5;
+  },
+  update(b, dt) {
+    const B = STREET.bench;
+    const { ctx, self } = b;
+    const now = ctx.law.now;
+    const r = b.bench;
+    if (!r) return 'idle';
+    const bench = r.bench;
+    const seat = bench.seats[r.seat];
+    // Код сменился — встаём и уходим.
+    if (ctx.war.code !== 'green') return 'idle';
+    const st = b.mover.status;
+    if (!b.stayUntil) {
+      if (st === 'failed' || now > b.meetUntil) return 'idle';
+      if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
+        b.mover.stop();
+        b.stayUntil = now + ctx.rng.range(B.time[0], B.time[1]);
+        b.nextLine = now + ctx.rng.range(1, 2.5);
+      } else if (st === 'idle') b.goToPoint(seat);
+      return;
+    }
+    b.mover.stop();
+    const n = bench.taken[1 - r.seat];
+    const nb = n && n.alive && n.brain instanceof CitizenBrain && n.brain.fsm.current === 'bench' && n.brain.stayUntil > 0 ? n.brain : null;
+    if (nb && n) {
+      // Сидят вдвоём — повернулись друг к другу вполоборота (к улице и к соседу).
+      faceTowards(self, (n.x + seat.x) / 2 + bench.nx * 40, (n.y + seat.y) / 2 + bench.ny * 40, dt);
+      if (self.id < n.id && now >= b.nextLine) {
+        if (!b.chatPair || b.chatLine >= 2) {
+          b.chatPair = ctx.rng.pick(STREET.dialogues);
+          b.chatLine = 0;
+          ctx.street.stats.benchTalks++;
+        }
+        const who = b.chatLine === 0 ? self : n;
+        who.say(b.chatPair[b.chatLine], now, 2.6);
+        b.chatLine++;
+        b.nextLine = now + ctx.rng.range(B.lineEvery[0], B.lineEvery[1]);
+      }
+      // Досидеть вместе: собеседник не уходит раньше ведущего.
+      if (self.id < n.id) nb.stayUntil = Math.max(nb.stayUntil, b.stayUntil);
+    } else {
+      faceTowards(self, seat.x + bench.nx * 60, seat.y + bench.ny * 60, dt);
+      if (now >= b.nextLine) {
+        b.nextLine = now + ctx.rng.range(B.soloLineEvery[0], B.soloLineEvery[1]);
+        if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.benchLines), now, 2.6);
+      }
+    }
+    if (now >= b.stayUntil) {
+      b.idleLeft = ctx.rng.range(1, 3);
+      return 'idle';
+    }
+  },
+  exit(b) {
+    b.ctx.street.releaseBenchSeat(b.self);
+    b.bench = null;
+    b.stayUntil = 0;
   },
 };
 

@@ -8,6 +8,8 @@ import { createCharacter } from '../src/entities/factory';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { LABOR } from '../src/config/labor';
+import { LOYALTY } from '../src/config/loyalty';
+import { isLoyalistUniform } from '../src/entities/EntityRenderer';
 
 type Sim = ReturnType<typeof makeSim>;
 const run = (sim: Sim, secs: number, until?: () => boolean) => {
@@ -82,5 +84,87 @@ describe('городок с домиками', () => {
     expect(c.money).toBeGreaterThanOrEqual(money + LABOR.paperwork.pay);
     expect(c.loyalty).toBeGreaterThan(loyalty);
     expect(sim.map.zoneAtWorld(c.x, c.y)?.kind).toBe('nexus');
+  });
+});
+
+describe('Нексус: общая камера, лоялисты, проспект', () => {
+  test('общая камера вмещает нескольких граждан и партизана; дверь заперта, пока там сидят', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    const { law, entities, ctx } = sim;
+    const common = law.cells.find((c) => c.common)!;
+    expect(common).toBeTruthy();
+    expect(common.slots.length).toBeGreaterThanOrEqual(6);
+    expect(law.cells.filter((c) => !c.common)).toHaveLength(7);
+    const cp = createCharacter(entities, ctx.rng, 'cp', common.frontX, common.frontY - 40);
+    const partisan = createCharacter(entities, ctx.rng, 'rebel', common.frontX, common.frontY);
+    partisan.role = { kind: 'partisan', faction: 'rebel', profession: null, division: null, rank: 0, kit: 'rebel' };
+    const prisoners = [0, 1, 2].map((k) => createCharacter(entities, ctx.rng, 'citizen', common.frontX + (k - 1) * 30, common.frontY + 20));
+    prisoners.push(partisan);
+    // Граждан и партизан — в общую камеру; солдата армии — в одиночную.
+    for (const p of prisoners) expect(law.freeCell(cp.x, cp.y, p)?.common).toBe(true);
+    const soldier = createCharacter(entities, ctx.rng, 'rebel', cp.x, cp.y);
+    expect(law.freeCell(cp.x, cp.y, soldier)?.common).toBe(false);
+    soldier.alive = false;
+    for (const p of prisoners) {
+      law.arrest(cp, p, 'running');
+      law.putInCell(p, common);
+    }
+    run(sim, 30, () => prisoners.every((p) => p.law.phase === 'jailed'));
+    for (const p of prisoners) expect(p.law.phase).toBe('jailed');
+    expect(law.occupants(common)).toHaveLength(prisoners.length);
+    // Каждый — на своём месте.
+    const slots = new Set(prisoners.map((p) => law.slotOf(common, p)));
+    expect(slots.size).toBe(prisoners.length);
+    expect(common.door?.locked).toBe(true);
+    // Одного отпускают: дверь открывается, он выходит — и дверь снова запирается за ним.
+    const out = prisoners[0];
+    out.law.jailUntil = law.now;
+    run(sim, 1);
+    expect(out.law.phase).toBe('releasing');
+    expect(common.door?.locked).toBe(false);
+    run(sim, 20, () => out.law.phase === 'none' && !!common.door?.locked);
+    expect(law.occupants(common)).toHaveLength(prisoners.length - 1);
+    expect(common.door?.locked).toBe(true);
+    for (const p of prisoners.slice(1)) expect(p.law.phase).toBe('jailed');
+  });
+
+  test('лоялисты — в светло-фиолетовой форме', () => {
+    const sim = makeSim(12345);
+    const c = createCharacter(sim.entities, sim.ctx.rng, 'citizen', 100, 100);
+    c.loyalty = 10;
+    expect(isLoyalistUniform(c)).toBe(false);
+    c.loyalty = LOYALTY.uniform.min;
+    expect(isLoyalistUniform(c)).toBe(true);
+    const w = createCharacter(sim.entities, sim.ctx.rng, 'cwu', 100, 100);
+    w.loyalty = 90;
+    expect(isLoyalistUniform(w)).toBe(false);
+  });
+
+  test('на главном проспекте фонари и скамейки; при зелёном коде жители садятся и беседуют', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    const { map, ctx } = sim;
+    const street = ctx.street;
+    expect(street.lamps.length).toBeGreaterThanOrEqual(5);
+    expect(street.benches.length).toBeGreaterThanOrEqual(3);
+    for (const b of street.benches) {
+      for (const s of b.seats) {
+        expect(map.zoneAtWorld(s.x, s.y)?.kind).toBe('avenue');
+        expect(sim.nav.isWalkable(Math.floor(s.x / 16) - 1, Math.floor(s.y / 16) - 1)).toBe(true);
+      }
+    }
+    spawnPopulation(ctx, 40);
+    sim.war.command.paused = true;
+    let seated = 0;
+    run(sim, 240, () => {
+      seated = Math.max(seated, sim.entities.list.filter((c) => c.brain instanceof CitizenBrain && c.brain.fsm.current === 'bench' && c.brain.stayUntil > 0).length);
+      return street.stats.benchTalks > 0 && seated >= 3;
+    });
+    console.log(`скамейки: ${street.benches.length}, фонари: ${street.lamps.length}, сидели максимум ${seated}, бесед ${street.stats.benchTalks}`);
+    expect(seated).toBeGreaterThanOrEqual(2);
+    expect(street.stats.benchTalks).toBeGreaterThan(0);
+    // Красный код — со скамеек встают.
+    sim.war.code = 'red';
+    run(sim, 1);
+    expect(sim.entities.list.some((c) => c.brain instanceof CitizenBrain && c.brain.fsm.current === 'bench')).toBe(false);
   });
 });

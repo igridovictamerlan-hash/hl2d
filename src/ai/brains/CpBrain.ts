@@ -480,7 +480,7 @@ const ESCORT: State<CpBrain> = {
     const t = b.target;
     if (!t) return;
     const law = b.ctx.law;
-    const cell = law.freeCell(b.self.x, b.self.y);
+    const cell = law.freeCell(b.self.x, b.self.y, t);
     if (!cell) {
       law.releaseNoCell(b.self, t);
       b.target = null;
@@ -498,7 +498,7 @@ const ESCORT: State<CpBrain> = {
     const phase = t.law.phase;
     if (phase === 'jailed') return b.drop();
     if (phase !== 'cuffed' && phase !== 'entering') {
-      if (cell.reserved === t) cell.reserved = null;
+      b.ctx.law.unreserve(cell, t);
       return b.drop();
     }
     if (phase === 'entering') {

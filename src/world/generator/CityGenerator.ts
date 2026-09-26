@@ -73,7 +73,7 @@ export function validateMap(map: GameMap): string[] {
   const [lo, hi] = GENERATOR.validation.buildingRatio;
   if (s.buildingRatio < lo || s.buildingRatio > hi) out.push(`доля зданий ${(s.buildingRatio * 100).toFixed(1)}%`);
   const need: [Poi['type'], number][] = [
-    ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 7], ['bunk', 10], ['clerk_desk', 6], ['ota_spot', 6], ['restricted_gate', 1],
+    ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 7], ['common_cell', 1], ['bunk', 10], ['clerk_desk', 6], ['ota_spot', 6], ['restricted_gate', 1],
     ['checkpoint_post', 10], ['gate_post', 4], ['outlands_exit', 2], ['shop_counter', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
@@ -203,7 +203,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   stampPlaza(g, layout.plaza, layout.plazaSide, zPlaza, pois);
 
   const nexusRows = rotateTemplate(NEXUS_TEMPLATE, layout.nexusRot);
-  const nexus = stampTemplate(g, nexusRows, layout.nexus.x, layout.nexus.y, (ch) => (ch === 'c' || ch === 'D' ? zCells : zNexus), pois);
+  const nexus = stampTemplate(g, nexusRows, layout.nexus.x, layout.nexus.y, (ch) => (ch === 'c' || ch === 'C' || ch === 'D' ? zCells : zNexus), pois);
   for (const exit of nexus.exits) {
     const isGate = exit.tiles.some((t) => g.get(t.x, t.y) === T.GATE);
     if (carveConnectorChecked(g, exit, G.connectorMax)) {
@@ -216,6 +216,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     }
   }
   for (const c of nexus.cells) pois.push({ type: 'cell', x: c.x + (c.w >> 1), y: c.y + (c.h >> 1) });
+  for (const c of nexus.commonCells) pois.push({ type: 'common_cell', x: c.x + (c.w >> 1), y: c.y + (c.h >> 1), w: c.w, h: c.h });
   let yx0 = Infinity, yy0 = Infinity, yx1 = -Infinity, yy1 = -Infinity;
   for (let y = 0; y < nexusRows.length; y++) {
     for (let x = 0; x < nexusRows[0].length; x++) {

@@ -757,7 +757,11 @@ export class WarSystem {
       n.stagedSince = -1;
     } else if (!n.wave) {
       if (staged > 0 && n.stagedSince < 0) n.stagedSince = this.time;
-      if (staged >= N.waveSize || (staged > 0 && this.time - n.stagedSince >= N.stageMax)) {
+      // По таймеру — только если собралась хотя бы треть (иначе двое уходят на верную смерть),
+      // но не дольше stageHardMax.
+      const waited = this.time - n.stagedSince;
+      const part = Math.min(N.waveSize, Math.ceil(stormers / 3));
+      if (staged >= N.waveSize || (staged >= part && waited >= N.stageMax) || (staged > 0 && waited >= N.stageHardMax)) {
         n.wave = true;
         n.waveSince = this.time;
         this.ctx.law.log(`Надзор: повстанцы (${stormers}) штурмуют Нексус! Всем юнитам — к Нексусу!`, 'radio');
