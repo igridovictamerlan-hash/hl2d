@@ -14,13 +14,14 @@ export interface Pose {
   flip: boolean;
 }
 
-export function weaponPose(c: Character, reloading: boolean): Pose {
-  const flip = Math.cos(c.facing) < 0;
+/** ang — куда держит ствол (по умолчанию — куда смотрит; на ходу без прицела — по ходу). */
+export function weaponPose(c: Character, reloading: boolean, ang: number = c.facing): Pose {
+  const flip = Math.cos(ang) < 0;
   const kick = Math.min(WEAPON_POSE.kickMax, c.recoil * WEAPON_POSE.kickPerDeg);
   const d = (WEAPON_POSE.hold - kick) * PAWN.scale;
   // Перезарядка — ствол опущен (к низу экрана с той стороны, куда смотрит).
   const tilt = reloading ? (flip ? -WEAPON_POSE.reloadTilt : WEAPON_POSE.reloadTilt) : 0;
-  return { x: c.x + Math.cos(c.facing) * d, y: c.y + WEAPON_POSE.y * PAWN.scale + Math.sin(c.facing) * d, ang: c.facing + tilt, flip };
+  return { x: c.x + Math.cos(ang) * d, y: c.y + WEAPON_POSE.y * PAWN.scale + Math.sin(ang) * d, ang: ang + tilt, flip };
 }
 
 /** Дульный срез в мире (для трассера и вспышки). */

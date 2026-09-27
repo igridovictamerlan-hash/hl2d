@@ -2,6 +2,7 @@ import type { EntityManager } from './EntityManager';
 import type { GameMap } from '../world/GameMap';
 import { resolveCircleVsTiles } from '../world/collision';
 import type { Character } from './Character';
+import { updateGait } from './gait';
 
 const tmp: Character[] = [];
 
@@ -72,6 +73,7 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
     const mx = c.x - c.prevX;
     const my = c.y - c.prevY;
     c.moveSpeed = Math.hypot(mx, my) / dt;
+    updateGait(c, mx, my, dt);
     // Упёрлись — гасим скорость, чтобы не «разгоняться в стену».
     if (c.moveSpeed < Math.hypot(c.vx, c.vy) * 0.5) {
       c.vx = mx / dt;

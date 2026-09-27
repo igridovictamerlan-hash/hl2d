@@ -7,7 +7,9 @@ import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
-import { drawPawnShadow, lookSeed, pawnDir } from './PawnRenderer';
+import { bootColor, drawPawnShadow, lookSeed, pawnDir } from './PawnRenderer';
+import { isWalking } from './gait';
+import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
 
@@ -52,9 +54,11 @@ export class EntityRenderer {
       shown.push({ c, x, y });
     }
     shown.sort((a, b) => a.y - b.y);
-    for (const { c, x, y } of shown) {
+    const W = PAWN.walk;
+    for (const { c, x: gx, y: gy } of shown) {
       ctx.globalAlpha = c.visible ? 1 : 0.4;
-      const dir = pawnDir(c.facing);
+      // Сторона — по походке (идёт — по ходу, боком — профилем; целится или стоит — куда смотрит).
+      const dir = c.bodyDir;
       // Партизан в маскировке выглядит как гражданин.
       const faction = c.disguised ? 'citizen' : c.faction;
       const rank = c.disguised ? 0 : c.rank;
@@ -67,18 +71,39 @@ export class EntityRenderer {
         ctx.strokeStyle = PAWN.playerRing;
         ctx.lineWidth = Math.max(1, s * 1.3);
         ctx.beginPath();
-        ctx.ellipse(x, y + PAWN.shadow.y * ps, (PAWN.shadow.rx + 3) * ps, (PAWN.shadow.ry + 1.8) * ps, 0, 0, Math.PI * 2);
+        ctx.ellipse(gx, gy + PAWN.shadow.y * ps, (PAWN.shadow.rx + 3) * ps, (PAWN.shadow.ry + 1.8) * ps, 0, 0, Math.PI * 2);
         ctx.stroke();
       }
-      drawPawnShadow(ctx, x, y, ps);
+      drawPawnShadow(ctx, gx, gy, ps);
+      // Шаг: фаза по пройденному пути (полупериод синуса — один шаг), корпус подпрыгивает на каждом
+      // шаге; наклон в сторону движения по горизонтали, при ходьбе вверх/вниз — покачивание в такт.
+      const walking = isWalking(c);
+      const speed = Math.hypot(c.gaitVx, c.gaitVy);
+      const amt = walking ? Math.min(1, speed / CHARACTER.walkSpeed) : 0;
+      const phase = (c.stride / W.stride) * Math.PI;
+      const sn = Math.sin(phase);
+      const bob = Math.abs(sn) * W.bob * amt;
+      const horiz = speed > 0 ? Math.abs(c.gaitVx) / speed : 0;
+      const lean = walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) : 0;
+      // Поворот вокруг точки у ног: ступни на земле, корпус наклоняется.
+      const footY = W.foot.y * ps;
+      const cs = Math.cos(lean);
+      const si = Math.sin(lean);
+      ctx.setTransform(cs, si, -si, cs, gx, gy + footY);
+      // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
+      const x = 0;
+      const y = -footY - bob * ps;
+      this.feet(ctx, dir, look, ps, walking ? phase : null, amt);
+      // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу.
+      const hold = pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
       // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
-      if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading);
+      if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading, hold);
       drawPawnCached(ctx, look, x, y, ps, dir);
-      if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading);
+      if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold);
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
-        const bx = x + Math.cos(c.facing) * 6 * ps;
-        const by = y + 4 * ps + Math.sin(c.facing) * 3 * ps;
+        const bx = x + Math.cos(hold) * 6 * ps;
+        const by = y + 4 * ps + Math.sin(hold) * 3 * ps;
         ctx.fillStyle = RENDER.effects.box;
         ctx.strokeStyle = PAWN.outline;
         ctx.lineWidth = Math.max(1, 1.1 * ps);
@@ -111,8 +136,35 @@ export class EntityRenderer {
           ctx.stroke();
         }
       }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     ctx.globalAlpha = 1;
+  }
+
+  /**
+   * Ступни у земли (до пешки — корпус их перекрывает сверху): спереди и сзади — рядом, шагающая
+   * приподнята; в профиль — одна впереди, другая позади, выносится вперёд по фазе шага. phase —
+   * фаза шага (null — стоит), amt — доля шага от скорости.
+   */
+  private feet(ctx: CanvasRenderingContext2D, dir: string, look: PawnLookLite, ps: number, phase: number | null, amt: number): void {
+    const F = PAWN.walk.foot;
+    const sn = phase === null ? 0 : Math.sin(phase);
+    const cs = phase === null ? 1 : Math.cos(phase);
+    ctx.fillStyle = bootColor(look);
+    ctx.strokeStyle = PAWN.outline;
+    ctx.lineWidth = Math.max(1, PAWN.outlineWidth * 0.8 * ps);
+    const side = dir === 'E' || dir === 'W';
+    const fwd = dir === 'W' ? -1 : 1;
+    for (let i = 0; i < 2; i++) {
+      // Ступня 0 опорная в первом шаге (уходит назад), 1 — переносится вперёд и приподнята.
+      const k = i === 0 ? 1 : -1;
+      const lift = Math.max(0, -k * sn) * F.lift * amt;
+      const fx = side ? (phase === null ? (i === 0 ? 1.2 : -1.2) : k * cs * F.swing * amt) * fwd : (i === 0 ? -F.dx : F.dx);
+      ctx.beginPath();
+      ctx.ellipse(fx * ps, -lift * ps, F.rx * ps, F.ry * ps, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
   drawLabels(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, dpr: number, now: number, showAll: boolean): void {
@@ -162,6 +214,8 @@ export class EntityRenderer {
 }
 
 const drawOrder: { c: Character; x: number; y: number }[] = [];
+
+type PawnLookLite = Parameters<typeof bootColor>[0];
 
 const fontCache = new Map<string, string>();
 /** «600 11px Font» → с учётом devicePixelRatio. */

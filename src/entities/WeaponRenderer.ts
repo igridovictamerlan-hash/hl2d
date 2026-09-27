@@ -7,10 +7,10 @@ import { PAWN } from '../config/pawns';
  * Оружие в руках пешки (стиль RimWorld): плоская модель сбоку с тёмным контуром, повёрнута за
  * прицелом, влево — отражена. v — вид (left, top, scale) для перевода мира в экран.
  */
-export function drawWeapon(ctx: CanvasRenderingContext2D, c: Character, ox: number, oy: number, s: number, reloading: boolean): void {
+export function drawWeapon(ctx: CanvasRenderingContext2D, c: Character, ox: number, oy: number, s: number, reloading: boolean, ang: number = c.facing): void {
   if (!c.weapon) return;
   const sp = WEAPON_SPRITES[c.weapon];
-  const pose = weaponPose(c, reloading);
+  const pose = weaponPose(c, reloading, ang);
   ctx.save();
   // ox, oy — экранная позиция центра персонажа (с интерполяцией); поза считается от c.x, c.y.
   ctx.translate(ox + (pose.x - c.x) * s, oy + (pose.y - c.y) * s);

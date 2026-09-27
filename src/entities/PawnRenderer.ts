@@ -1,6 +1,11 @@
 import type { FactionId } from '../config/factions';
 import { PAWN } from '../config/pawns';
+import { cpUnit } from '../config/factions';
+import { accBack, accBody, accTop, accessoriesOf, flakBody, flakHelmet, gasMaskHead, peakedCap, reconBody, reconHelmet } from './pawnArmor';
 import type { ProfessionId } from '../config/professions';
+import { bodyPath, fillStroke, headPath, roundRect, stroke, tint } from './pawnShapes';
+
+export { tint };
 
 export type PawnDir = 'S' | 'N' | 'E' | 'W';
 
@@ -21,11 +26,18 @@ type Outfit = Record<string, string | boolean | number>;
 
 /** Одежда пешки: фракционная, поля профессии перекрывают. */
 function outfitOf(look: PawnLook): Outfit {
-  const base = PAWN.outfits[look.faction] ?? PAWN.outfits.citizen;
+  let base = PAWN.outfits[look.faction] ?? PAWN.outfits.citizen;
+  // ГО — снаряжение по юниту (каска и жилет PCU, рекон-броня SU, силовая броня главы).
+  if (look.faction === 'cp') base = { ...base, ...PAWN.cpUnits[cpUnit(look.rank).unit] };
   const prof = look.profession ? PAWN.professionOutfits[look.profession] : undefined;
   const o = prof ? { ...base, ...prof } : base;
   // Повязка семьи — если своей (медик, глава) нет.
   return look.band && !o.armband ? { ...o, armband: look.band } : o;
+}
+
+/** Цвет обуви (ступни при ходьбе) по фракции — без сборки одежды: зовётся каждый кадр. */
+export function bootColor(look: Pick<PawnLook, 'faction'>): string {
+  return PAWN.boots[look.faction] ?? PAWN.gear.boot;
 }
 
 type HairStyle = keyof typeof PAWN.hairStyles;
@@ -59,12 +71,6 @@ function hairStyleOf(seed: number): HairStyle {
   return 'short';
 }
 
-/** Светлее (k > 0) или темнее (k < 0) цвета #rrggbb. */
-export function tint(hex: string, k: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  const f = (c: number) => Math.round(k >= 0 ? c + (255 - c) * k : c * (1 + k));
-  return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`;
-}
 
 /**
  * Пешка в стиле RimWorld. x, y — экран (центр персонажа), s — пикселей экрана на px мира.
@@ -91,11 +97,23 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   const H = PAWN.head;
   const hx = d === 'E' ? H.sideShift : 0;
 
-  // ГО и OTA — силовая броня и закрытый шлем (лица не видно).
-  if (O.style === 'marine') {
+  // Силовой блок и OTA: броня по эскизам RimWorld, аксессуары за спиной, на туловище и поверх головы.
+  if (O.style === 'marine' || O.style === 'flak' || O.style === 'recon') {
     const trim = O.trim === 'rank' ? look.color : (O.trim as string);
-    marineBody(ctx, d, O, trim);
-    marineHelmet(ctx, d, O, trim, hx);
+    const acc = accessoriesOf(O, look.seed);
+    accBack(ctx, d, O, acc);
+    if (O.style === 'marine') marineBody(ctx, d, O, trim, acc.has('bigPads'));
+    else if (O.style === 'flak') flakBody(ctx, d, O, trim, acc);
+    else reconBody(ctx, d, O, trim, acc);
+    accBody(ctx, d, O, trim, acc);
+    if (O.head === 'helmet') marineHelmet(ctx, d, O, trim, hx);
+    else if (O.head === 'recon') reconHelmet(ctx, d, O, trim, hx);
+    else {
+      gasMaskHead(ctx, d, hx);
+      if (O.head === 'peaked') peakedCap(ctx, d, trim, hx);
+      else flakHelmet(ctx, d, trim, hx);
+    }
+    accTop(ctx, d, acc);
     ctx.restore();
     return;
   }
@@ -157,34 +175,8 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   ctx.restore();
 }
 
-function stroke(ctx: Ctx, w: number, color: string = PAWN.outline): void {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = w;
-  ctx.stroke();
-}
 
-function fillStroke(ctx: Ctx, fill: string, w: number = PAWN.seamWidth): void {
-  ctx.fillStyle = fill;
-  ctx.fill();
-  stroke(ctx, w);
-}
 
-/** Туловище: округлые плечи, расширение к поясу, круглый низ; в профиле — уже. */
-function bodyPath(ctx: Ctx, d: PawnDir): void {
-  const B = PAWN.body;
-  const side = d === 'E';
-  const sh = side ? B.shoulder * 0.78 : B.shoulder;
-  const wa = side ? B.waist * 0.84 : B.waist;
-  const dx = side ? 0.4 : 0;
-  ctx.beginPath();
-  ctx.moveTo(dx - sh, B.top + 3);
-  ctx.quadraticCurveTo(dx - sh, B.top, dx - sh + 3, B.top);
-  ctx.lineTo(dx + sh - 3, B.top);
-  ctx.quadraticCurveTo(dx + sh, B.top, dx + sh, B.top + 3);
-  ctx.bezierCurveTo(dx + wa, B.bottom - 7, dx + wa, B.bottom, dx, B.bottom);
-  ctx.bezierCurveTo(dx - wa, B.bottom, dx - wa, B.bottom - 7, dx - sh, B.top + 3);
-  ctx.closePath();
-}
 
 /** Одежда под бронёй и сама броня (внутри контура туловища — клип уже стоит). */
 function clothes(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, base: string, armor: string | undefined, vest: boolean): void {
@@ -355,29 +347,6 @@ function shoulderPads(ctx: Ctx, d: PawnDir, armor: string): void {
   }
 }
 
-/** Голова: спереди/сзади — круг с заострённым подбородком, в профиле — с носом и подбородком. */
-function headPath(ctx: Ctx, d: PawnDir, hx: number): void {
-  const H = PAWN.head;
-  const r = H.r;
-  const cy = H.y;
-  ctx.beginPath();
-  if (d === 'E') {
-    const cx = hx;
-    ctx.moveTo(cx - r, cy);
-    ctx.arc(cx, cy, r, Math.PI, 0);
-    ctx.bezierCurveTo(cx + r + 0.2, cy + 1.2, cx + r + 1.5, cy + 1.8, cx + r + 0.7, cy + 2.9);
-    ctx.bezierCurveTo(cx + r, cy + 3.5, cx + r - 0.2, cy + 4.2, cx + r - 0.9, cy + 5);
-    ctx.bezierCurveTo(cx + r - 1.6, cy + r + H.chin, cx + 1, cy + r + H.chin, cx - 1.5, cy + r - 0.4);
-    ctx.bezierCurveTo(cx - r + 1, cy + r - 2, cx - r, cy + 3, cx - r, cy);
-  } else {
-    const chin = d === 'N' ? 0.3 : H.chin;
-    ctx.moveTo(-r, cy);
-    ctx.arc(0, cy, r, Math.PI, 0);
-    ctx.bezierCurveTo(r, cy + r * 0.6, r * 0.45, cy + r + chin, 0, cy + r + chin);
-    ctx.bezierCurveTo(-r * 0.45, cy + r + chin, -r, cy + r * 0.6, -r, cy);
-  }
-  ctx.closePath();
-}
 
 /** Глаза с тяжёлыми веками и рот (как у пешек RimWorld). */
 function face(ctx: Ctx, d: PawnDir, hx: number): void {
@@ -599,7 +568,7 @@ function cap(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
  * Силовая броня (как у пехотинцев RimWorld): тёмный комбинезон, кираса с грудными пластинами и
  * бликом, горжет, пояс с подсумками, набедренники, ранец за спиной, большие наплечники с полосой.
  */
-function marineBody(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: string): void {
+function marineBody(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: string, big = false): void {
   const B = PAWN.body;
   const top = B.top;
   const armor = O.armor as string;
@@ -735,23 +704,26 @@ function marineBody(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: stri
     fillStroke(ctx, lo, PAWN.outlineWidth * 0.8);
   }
   // Наплечники: большие, с бликом и полосой цвета ранга.
-  const pads = side ? [0.4] : [-(B.shoulder + 0.9), B.shoulder + 0.9];
+  // Катафракт (big) — наплечники ещё крупнее.
+  const out = big ? 1.6 : 0.9;
+  const pads = side ? [0.4] : [-(B.shoulder + out), B.shoulder + out];
+  const ry = big ? 4.7 : 4;
   for (const px of pads) {
-    const rx = side ? 4.3 : 4.2;
+    const rx = (side ? 4.3 : 4.2) + (big ? 0.9 : 0);
     ctx.beginPath();
-    ctx.ellipse(px, top + 2.4, rx, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, top + 2.4, rx, ry, 0, 0, Math.PI * 2);
     fillStroke(ctx, armor, PAWN.outlineWidth);
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(px, top + 2.4, rx, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, top + 2.4, rx, ry, 0, 0, Math.PI * 2);
     ctx.clip();
     ctx.fillStyle = trim;
-    ctx.fillRect(px - 6, top + 4.2, 12, 1.5);
+    ctx.fillRect(px - 6, top + ry + 0.2, 14, 1.5);
     ctx.fillStyle = PAWN.shade;
-    ctx.fillRect(px - 6, top + 5.7, 12, 4);
+    ctx.fillRect(px - 6, top + ry + 1.7, 14, 4);
     ctx.restore();
     ctx.beginPath();
-    ctx.ellipse(px, top + 2.4, rx, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, top + 2.4, rx, ry, 0, 0, Math.PI * 2);
     stroke(ctx, PAWN.outlineWidth);
     ctx.beginPath();
     ctx.arc(px - 0.6, top + 2, 2.4, Math.PI * 1.05, Math.PI * 1.6);
@@ -759,14 +731,6 @@ function marineBody(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: stri
   }
 }
 
-function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number): void {
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
 
 /** Контур закрытого шлема: крупнее головы, с нащёчниками и подбородником. */
 function helmetPath(ctx: Ctx, d: PawnDir, hx: number): void {
@@ -816,25 +780,49 @@ function marineHelmet(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: st
     ctx.quadraticCurveTo(0, cy + 5.4, r, cy + 3.4);
     stroke(ctx, PAWN.seamWidth);
   } else {
-    // Визор — тёмная полоса без лица.
-    ctx.beginPath();
-    if (d === 'E') roundRect(ctx, hx + 1, cy - 2.6, r + 3, 4, 1.4);
-    else roundRect(ctx, -r + 1.6, cy - 2.4, (r - 1.6) * 2, 4, 1.8);
-    fillStroke(ctx, O.visor as string, PAWN.seamWidth);
-    // Подбородник с решёткой.
+    // Т-образный визор (как у шлема пехотинца RimWorld): полоса на глазах и прорезь вниз.
     ctx.beginPath();
     if (d === 'E') {
-      for (let k = 0; k < 3; k++) {
-        ctx.moveTo(hx + r - 3.4, cy + 3 + k * 1.1);
-        ctx.lineTo(hx + r, cy + 3 + k * 1.1);
-      }
+      ctx.moveTo(hx + 1, cy - 2.6);
+      ctx.lineTo(hx + r + 2.2, cy - 2.6);
+      ctx.lineTo(hx + r + 2.2, cy + 0.8);
+      ctx.lineTo(hx + r + 1.2, cy + 0.8);
+      ctx.lineTo(hx + r + 1, cy + 3.4);
+      ctx.lineTo(hx + r - 0.6, cy + 3.4);
+      ctx.lineTo(hx + r - 0.6, cy + 0.8);
+      ctx.lineTo(hx + 1, cy + 0.8);
     } else {
-      for (let k = 0; k < 3; k++) {
-        ctx.moveTo(-2.2, cy + 4 + k * 1.1);
-        ctx.lineTo(2.2, cy + 4 + k * 1.1);
-      }
+      const L = -r + 1.6;
+      ctx.moveTo(L + 1.2, cy - 2.6);
+      ctx.lineTo(-L - 1.2, cy - 2.6);
+      ctx.quadraticCurveTo(-L, cy - 2.6, -L, cy - 1.4);
+      ctx.lineTo(-L, cy);
+      ctx.quadraticCurveTo(-L, cy + 0.8, -L - 1, cy + 0.8);
+      ctx.lineTo(1.3, cy + 0.8);
+      ctx.lineTo(1.1, cy + 3.8);
+      ctx.lineTo(-1.1, cy + 3.8);
+      ctx.lineTo(-1.3, cy + 0.8);
+      ctx.lineTo(L + 1, cy + 0.8);
+      ctx.quadraticCurveTo(L, cy + 0.8, L, cy);
+      ctx.lineTo(L, cy - 1.4);
+      ctx.quadraticCurveTo(L, cy - 2.6, L + 1.2, cy - 2.6);
     }
-    stroke(ctx, 0.6, lo);
+    ctx.closePath();
+    fillStroke(ctx, O.visor as string, PAWN.seamWidth);
+    // Решётка дыхательного фильтра в светлой рамке.
+    ctx.beginPath();
+    if (d === 'E') roundRect(ctx, hx + r - 2.6, cy + 4.2, 3.4, 2.6, 0.8);
+    else roundRect(ctx, -2.9, cy + 4.5, 5.8, 2.7, 0.9);
+    ctx.fillStyle = O.visor as string;
+    ctx.fill();
+    stroke(ctx, 0.8, hi);
+    ctx.beginPath();
+    const gx = d === 'E' ? hx + r - 1.9 : -1.8;
+    for (let k = 0; k < (d === 'E' ? 2 : 4); k++) {
+      ctx.moveTo(gx + k * 1.2, cy + 4.9);
+      ctx.lineTo(gx + k * 1.2, cy + 6.6);
+    }
+    stroke(ctx, 0.5, lo);
   }
   ctx.restore();
   helmetPath(ctx, d, hx);
@@ -870,19 +858,22 @@ function marineHelmet(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: st
     ctx.lineTo(-r + 6, cy - 1.4);
   }
   stroke(ctx, 0.8, O.shine as string);
-  // OTA: красный огонёк в визоре.
+  // Огоньки глаз в визоре: у OTA.ALPHA — два голубых, у OTA.KING и главы — один.
   if (O.eye) {
-    const ex = d === 'E' ? hx + r - 0.6 : 2.6;
+    const eyes = d === 'E' ? [hx + r - 0.2] : O.eyes === 2 ? [-2.9, 2.9] : [2.8];
     ctx.save();
     ctx.fillStyle = O.eye as string;
-    ctx.globalAlpha *= 0.35;
-    ctx.beginPath();
-    ctx.arc(ex, cy - 0.4, 2.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha /= 0.35;
-    ctx.beginPath();
-    ctx.arc(ex, cy - 0.4, 1.05, 0, Math.PI * 2);
-    ctx.fill();
+    const a0 = ctx.globalAlpha;
+    for (const ex of eyes) {
+      ctx.globalAlpha = a0 * 0.35;
+      ctx.beginPath();
+      ctx.arc(ex, cy - 0.9, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = a0;
+      ctx.beginPath();
+      ctx.arc(ex, cy - 0.9, 0.95, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 }

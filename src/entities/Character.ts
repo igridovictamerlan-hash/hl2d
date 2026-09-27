@@ -93,6 +93,14 @@ export class Character {
   mass: number;
   /** Направление взгляда, радианы. */
   facing = 0;
+  /**
+   * Походка — только для отрисовки (entities/gait.ts): пройденный путь (фаза шага), сглаженная
+   * скорость и сторона пешки (идёт — по ходу, боком — профилем; целится или стоит — куда смотрит).
+   */
+  stride = 0;
+  gaitVx = 0;
+  gaitVy = 0;
+  bodyDir: 'S' | 'N' | 'E' | 'W' = 'S';
 
   health: number = CHARACTER.maxHealth;
   maxHealth: number = CHARACTER.maxHealth;
