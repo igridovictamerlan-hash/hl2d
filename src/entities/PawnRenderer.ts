@@ -4,6 +4,7 @@ import { cpUnit } from '../config/factions';
 import { accBack, accBody, accTop, accessoriesOf, flakBody, flakHelmet, gasMaskHead, peakedCap, reconBody, reconHelmet } from './pawnArmor';
 import type { ProfessionId } from '../config/professions';
 import { bodyPath, fillStroke, headPath, roundRect, stroke, tint } from './pawnShapes';
+import { balaclava, gasMaskS10, michHelmet, tacticalBody, tacticalFace } from './pawnTactical';
 
 export { tint };
 
@@ -130,6 +131,41 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
       if (O.head === 'peaked') peakedCap(ctx, d, trim, hx);
       else flakHelmet(ctx, d, trim, hx);
     }
+    accTop(ctx, d, acc);
+    ctx.restore();
+    return;
+  }
+  // Армия сопротивления и HYDRA: военная экипировка (pawnTactical).
+  if (O.style === 'tactical') {
+    const trim = (O.armband as string | undefined) ?? PAWN.tactical.lambda;
+    const acc = accessoriesOf(O, look.seed);
+    accBack(ctx, d, O, acc);
+    tacticalBody(ctx, d, O, look.seed);
+    accBody(ctx, d, O, trim, acc);
+    professionBody(ctx, d, O);
+    const f = tacticalFace(O, look.seed);
+    if (f === 'gasmask') gasMaskS10(ctx, d, O, hx);
+    else if (f === 'balaclava') {
+      balaclava(ctx, d, skin, O.mask as string, hx);
+      if (d !== 'N') face(ctx, d, hx);
+    } else {
+      headPath(ctx, d, hx);
+      ctx.fillStyle = skin;
+      ctx.fill();
+      ctx.save();
+      headPath(ctx, d, hx);
+      ctx.clip();
+      ctx.fillStyle = PAWN.shade;
+      ctx.fillRect(d === 'E' ? hx - 20 - 2 : 3, -40, 20, 60);
+      ctx.restore();
+      headPath(ctx, d, hx);
+      stroke(ctx, PAWN.outlineWidth);
+      if (d !== 'N') face(ctx, d, hx);
+      frontHair(ctx, d, O.head === 'helmet' ? 'bald' : 'short', hair, hx);
+    }
+    if (O.goggles && d !== 'N') goggles(ctx, d, O.goggles as string, hx);
+    if (O.head === 'helmet') michHelmet(ctx, d, O, hx, look.seed);
+    else if (O.head === 'cap') cap(ctx, d, O.cap as string, hx);
     accTop(ctx, d, acc);
     ctx.restore();
     return;

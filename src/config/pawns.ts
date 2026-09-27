@@ -134,6 +134,25 @@ export const PAWN = {
     tank: '#b9bcb6',
     boot: '#1b1e22',
   },
+  /**
+   * Военное снаряжение сопротивления (style: 'tactical', entities/pawnTactical.ts): пятна камуфляжа
+   * (доли ширины/высоты, радиусы px, поворот), доля бойцов в балаклаве у 'maybeMask', цвета деталей.
+   */
+  tactical: {
+    camoSpots: [
+      [0.15, 0.2, 3.2, 1.8, 0.4], [0.55, 0.12, 2.6, 1.5, -0.3], [0.85, 0.35, 3, 1.7, 0.8],
+      [0.3, 0.55, 2.8, 1.6, -0.6], [0.7, 0.62, 3.4, 1.8, 0.2], [0.1, 0.85, 2.4, 1.4, 1.1],
+      [0.5, 0.9, 3, 1.5, -0.2], [0.9, 0.82, 2.2, 1.3, 0.5],
+    ] as readonly (readonly [number, number, number, number, number])[],
+    maskChance: 0.45,
+    belt: '#2c2a24',
+    rail: '#1f2124',
+    strap: '#26282a',
+    nvg: '#1a1c1e',
+    lensShine: 'rgba(255,255,255,0.5)',
+    patch: '#2a2c2e',
+    lambda: '#e07a2a',
+  },
   /** Обувь по фракциям (ступни при ходьбе); нет в списке — gear.boot. */
   boots: { citizen: '#3b3029', cwu: '#35302a', rebel: '#3a2f22', admin: '#16171a', vort: '#6d8753', ota: '#2c2f33' } as Partial<Record<FactionId, string>>,
   /**
@@ -150,22 +169,31 @@ export const PAWN = {
     janitor: { cap: '#7d848c', hivis: '#e8e04a' },
     thief: { base: '#3a3d44', head: 'hood', hood: '#2e3137', zip: false, collar: false },
     outcast: { base: '#6b5d48', patch: '#4d4234', zip: false, collar: false },
-    rebel_medic: { armband: '#f2f2f2', armbandCross: '#c93030' },
-    pyro: { goggles: '#ff8a3a' },
+    /**
+     * Армия сопротивления — военная экипировка (style: 'tactical', поля — entities/pawnTactical.ts).
+     * Новобранец — полевая форма и кепи; солдат, пиро, подрывник — шлем и разгрузка; ветераны — камуфляж
+     * мультикам, плитник, шлем в чехле с очками, часть в балаклаве; HYDRA — как SAS: тёмный комбинезон,
+     * серый жилет, чёрный шлем с креплением ПНВ, противогаз S10 с синим фильтром.
+     */
+    rebel_recruit: { style: 'tactical', base: '#5d6443', head: 'cap', cap: '#4c5436', face: 'bare', lambda: '#e07a2a', acc: '', accMaybe: '' },
+    rebel_soldier: { style: 'tactical', base: '#56603f', camo: '#4a5336 #666f4c', rig: 'chest', rigColor: '#4a5234', head: 'helmet', helmet: '#555e41', face: 'bare', lambda: '#e07a2a', acc: '', accMaybe: 'pouches radio' },
+    rebel_medic: { style: 'tactical', base: '#8a7f5e', camo: '#6e6a45 #a8956a #5a4a34 #8f8a62', rig: 'plate', rigColor: '#7d6c4f', head: 'helmet', helmet: '#7d6c4f', helmetCamo: true, hgoggles: '#2e3a44', face: 'maybeMask', mask: '#3a3a30', lambda: '#e07a2a', acc: 'medic', accMaybe: 'radio' },
+    veteran: { style: 'tactical', base: '#8a7f5e', camo: '#6e6a45 #a8956a #5a4a34 #8f8a62', rig: 'plate', rigColor: '#7d6c4f', head: 'helmet', helmet: '#7d6c4f', helmetCamo: true, hgoggles: '#2e3a44', face: 'maybeMask', mask: '#3a3a30', lambda: '#e07a2a', acc: 'radio pouches', accMaybe: 'grenades lamp' },
+    pyro: { style: 'tactical', base: '#5a5a48', camo: '#4a4a3a #6a6852', rig: 'chest', rigColor: '#4c4a3a', head: 'helmet', helmet: '#555546', face: 'bare', goggles: '#ff8a3a', lambda: '#e07a2a', acc: 'grenades', accMaybe: 'pouches' },
     // Армия сопротивления: глава — красный берет и повязка; подрывник — патронташ с гранатами.
     // Глава восстания Патрик: спецброня как у OTA (оливковая, красные полосы), без шлема — красный берет.
     rebel_leader: { style: 'marine', head: 'beret', beret: '#a31a1a', base: '#2e3228', armor: '#6a6f52', helmet: '#6a6f52', belt: '#2a2a22', trim: '#b3261e', visor: '#15191e', shine: '#9fb3c4', acc: 'bigPads', accMaybe: '' },
-    // Коммандос HYDRA: элитная тёмная силовая броня, красные полосы, два оранжевых глаза.
-    commando: { style: 'marine', head: 'helmet', base: '#17181a', armor: '#2e2f33', helmet: '#26272b', belt: '#141416', trim: '#c0271c', visor: '#0c0d0f', shine: '#e07a60', eye: '#ff7a3a', eyes: 2, acc: 'bigPads grenades pack', accMaybe: '' },
+    // Коммандос HYDRA — SAS в полном снаряжении: гранаты, ранец, рация, красная нашивка.
+    commando: { style: 'tactical', base: '#262e3b', rig: 'plate', rigColor: '#44473f', head: 'helmet', helmet: '#1f2124', nvg: true, face: 'gasmask', mask: '#17181a', lens: '#2c3a46', filter: '#232629', filterRing: '#4d86b8', armband: '#c0271c', acc: 'grenades pack radio pouches', accMaybe: '' },
     // Спецагент (без маскировки): тёмный плащ.
     spec_agent: { base: '#2a2b2f', head: 'hood', hood: '#1f2024', zip: false, collar: false },
-    // Снайпер HYDRA — как бойцы HYDRA, с серебряной нашивкой.
-    hydra_sniper: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false, armband: '#8fb0c8' },
-    demolitionist: { bandolier: '#8a6a36', nade: '#6f9a4a' },
-    // HYDRA (как SAS): чёрная форма и балаклава, бронежилет с первого ранга, противогаз с круглыми
-    // линзами и фильтром; нашивка на плече — капитан золотом, офицеры серебром.
-    hydra_sergeant: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false, armband: '#b8bcc2' },
-    hydra_rct: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false },
+    // Снайпер HYDRA — SAS без жилета с подсумками, серебряная нашивка.
+    hydra_sniper: { style: 'tactical', base: '#283241', rig: 'chest', rigColor: '#3f423c', head: 'helmet', helmet: '#202225', face: 'gasmask', mask: '#17181a', lens: '#2c3a46', filter: '#232629', filterRing: '#4d86b8', armband: '#8fb0c8', acc: 'radio', accMaybe: '' },
+    demolitionist: { style: 'tactical', base: '#56603f', camo: '#4a5336 #666f4c', rig: 'chest', rigColor: '#4a5234', head: 'helmet', helmet: '#555e41', face: 'bare', bandolier: '#8a6a36', nade: '#6f9a4a', lambda: '#e07a2a', acc: 'grenades', accMaybe: 'radio' },
+    // HYDRA (как SAS): тёмно-синий комбинезон, серый жилет, чёрный шлем MICH с креплением ПНВ,
+    // противогаз S10; у сержанта — серебряная нашивка.
+    hydra_sergeant: { style: 'tactical', base: '#283241', rig: 'plate', rigColor: '#484b45', head: 'helmet', helmet: '#202225', nvg: true, face: 'gasmask', mask: '#17181a', lens: '#2c3a46', filter: '#232629', filterRing: '#4d86b8', armband: '#b8bcc2', acc: 'radio pouches', accMaybe: 'grenades' },
+    hydra_rct: { style: 'tactical', base: '#283241', rig: 'plate', rigColor: '#484b45', head: 'helmet', helmet: '#202225', nvg: true, face: 'gasmask', mask: '#17181a', lens: '#2c3a46', filter: '#232629', filterRing: '#4d86b8', acc: 'grenades', accMaybe: 'radio pouches' },
     // Бандит — тёмная куртка и платок на лице; беглец — оранжевая роба.
     bandit: { base: '#2c2623', facemask: '#1d1d1f', collar: '#3a322d', zip: false },
     fugitive: { base: '#c8692a', patch: '#8f4a1e', collar: false, zip: false },
