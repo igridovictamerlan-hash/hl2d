@@ -14,6 +14,8 @@ export const CONTROLS = {
   command: ['Slash'],
   roleAction: ['KeyF'],
   bigMap: ['KeyM'],
+  /** Масштаб камеры: следующий из CAMERA.zoomLevels. */
+  zoom: ['KeyV'],
   devPanel: ['F2'],
   debug: ['F3'],
   choice1: ['Digit1', 'Numpad1'],

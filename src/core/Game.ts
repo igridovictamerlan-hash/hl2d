@@ -629,6 +629,10 @@ export class Game {
     if (this.input.wasPressed('debug')) this.debug.enabled = !this.debug.enabled;
     if (this.input.wasPressed('devPanel')) this.ui.dev.toggle();
     if (this.input.wasPressed('bigMap')) this.ui.mapView.toggleBig();
+    if (this.input.wasPressed('zoom')) {
+      const k = this.camera.cycleZoom();
+      this.bus.emit('log', { text: `Масштаб камеры: ×${k}`, kind: 'world' });
+    }
     // Чат: Enter — открыть, «/» — открыть с командой.
     if (!this.ui.chat.isOpen && !this.ui.roles.isOpen && (this.input.wasPressed('chat') || this.input.wasPressed('command'))) {
       const slash = this.input.wasPressed('command');

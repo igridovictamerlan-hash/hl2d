@@ -15,4 +15,10 @@ export const CAMERA = {
   aimLookAheadMax: 230,
   aimZoom: 0.8,
   aimRate: 5,
+  /**
+   * Масштабы камеры по V (по кругу): множитель к базовому (1 — ~820×550 px мира, меньше — дальше,
+   * больше — ближе). zoomRate — скорость плавного перехода (1/с).
+   */
+  zoomLevels: [1, 0.75, 0.55, 1.35] as readonly number[],
+  zoomRate: 8,
 } as const;

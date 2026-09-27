@@ -27,6 +27,9 @@ export class Camera {
   private baseZoom = 1;
   /** Доля «прицельного» режима 0..1 (плавно). */
   private aimK = 0;
+  /** Выбранный масштаб (V): номер в CAMERA.zoomLevels и плавно догоняющий его множитель. */
+  zoomLevel = 0;
+  private userK = 1;
   dpr = 1;
   cssWidth = 1;
   cssHeight = 1;
@@ -36,7 +39,13 @@ export class Camera {
     this.cssHeight = Math.max(1, cssHeight);
     this.dpr = dpr;
     this.baseZoom = Math.min(this.cssWidth / CAMERA.viewWidth, this.cssHeight / CAMERA.viewHeight);
-    this.zoom = this.baseZoom * lerp(1, CAMERA.aimZoom, this.aimK);
+    this.zoom = this.baseZoom * this.userK * lerp(1, CAMERA.aimZoom, this.aimK);
+  }
+
+  /** Следующий масштаб по кругу (V). Возвращает множитель. */
+  cycleZoom(): number {
+    this.zoomLevel = (this.zoomLevel + 1) % CAMERA.zoomLevels.length;
+    return CAMERA.zoomLevels[this.zoomLevel];
   }
 
   /** Ширина/высота видимой области мира. */
@@ -58,7 +67,8 @@ export class Camera {
     this.prevX = this.x;
     this.prevY = this.y;
     this.aimK = damp(this.aimK, aiming ? 1 : 0, CAMERA.aimRate, dt);
-    this.zoom = this.baseZoom * lerp(1, CAMERA.aimZoom, this.aimK);
+    this.userK = damp(this.userK, CAMERA.zoomLevels[this.zoomLevel], CAMERA.zoomRate, dt);
+    this.zoom = this.baseZoom * this.userK * lerp(1, CAMERA.aimZoom, this.aimK);
     const factor = lerp(CAMERA.lookAheadFactor, CAMERA.aimLookAheadFactor, this.aimK);
     const max = lerp(CAMERA.lookAheadMax, CAMERA.aimLookAheadMax, this.aimK);
     let ox = (mouseWX - tx) * factor;
