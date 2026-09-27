@@ -41,6 +41,7 @@ import { ScannerSystem } from '../systems/ScannerSystem';
 import { RosterSystem } from '../systems/Roster';
 import { ElectionSystem } from '../systems/ElectionSystem';
 import { ROSTER } from '../config/roster';
+import { FamilySystem } from '../systems/Families';
 import { StreetLifeSystem } from '../systems/StreetLife';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
@@ -181,7 +182,7 @@ export class Game {
     this.map = map;
     this.nav = new NavGrid(map);
     this.mapRenderer = new MapRenderer(map);
-    this.furniture = map.pois.filter((p) => p.type === 'home' || p.type === 'bunk' || p.type === 'clerk_desk' || p.type === 'ota_spot');
+    this.furniture = map.pois.filter((p) => p.type === 'home' || p.type === 'bunk' || p.type === 'clerk_desk' || p.type === 'ota_spot' || p.type === 'dorm_table' || p.type === 'villa_living' || p.type === 'tree');
     this.rng = new Rng(map.seed ^ 0x51f15e);
     this.doors = new DoorSystem(map, this.nav);
     this.law = new LawSystem(map, this.nav, this.doors, this.entities, this.bus, this.rng);
@@ -211,6 +212,7 @@ export class Game {
       roster: null as unknown as RosterSystem,
       elections: null as unknown as ElectionSystem,
       street: null as unknown as StreetLifeSystem,
+      families: null as unknown as FamilySystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -223,6 +225,8 @@ export class Game {
     this.ai.roster = new RosterSystem(this.ai);
     this.ai.elections = new ElectionSystem(this.ai);
     this.ai.street = new StreetLifeSystem(this.ai);
+    this.ai.families = new FamilySystem(this.ai);
+    this.entityRenderer.families = this.ai.families;
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
@@ -646,10 +650,11 @@ export class Game {
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
     this.effects.drawFurniture(ctx, v, this.furniture, this.map.tileSize);
-    this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches);
+    this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards);
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
+    this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     this.effects.drawShots(ctx, v, this.combat);
     this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);

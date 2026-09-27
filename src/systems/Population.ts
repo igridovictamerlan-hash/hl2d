@@ -90,6 +90,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   for (const [prof, share] of [['thief', P.thiefShare], ['outcast', P.outcastShare], ['bandit', P.banditShare], ['fugitive', P.fugitiveShare]] as [ProfessionId, number][]) {
     for (let k = 0; k < Math.round(citizens * share); k++) special.push(prof);
   }
+  const residents: Character[] = [];
   for (let k = 0; k < citizens; k++) {
     const spot = k < nearPlaza ? freeSpot(ctx, plaza, 3, 22, civAvoid) : freeSpot(ctx, anywhere, 0, 110, civAvoid);
     const j = k - (citizens - special.length);
@@ -106,12 +107,15 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     // Часть обычных граждан — лоялисты (ходят в канцелярию Нексуса на бумажную работу).
     if (prof === 'citizen' && ctx.rng.chance(P.loyalistShare)) c.loyalty = Math.round(ctx.rng.range(P.loyalistLoyalty[0], P.loyalistLoyalty[1]));
     if (c.role) c.role.loyalty = c.loyalty;
+    if (prof !== 'fugitive') residents.push(c);
   }
   const factory = ctx.labor?.factory;
   for (const prof of P.cwuProfessions) {
     const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : freeSpot(ctx, plaza, 3, 30, civAvoid);
     put({ kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'cwu' }, at);
   }
+  // Жители — семьями: фамилия, цвет повязки, дом (общежитие или особняк). Рабочие ГСР — на работе.
+  ctx.families?.assign(residents);
   for (let k = 0; k < P.vorts; k++) {
     put({ kind: 'vort', faction: 'vort', profession: 'vort_slave', division: null, rank: 0, kit: 'vort' }, freeSpot(ctx, anywhere, 10, 110, civAvoid));
   }

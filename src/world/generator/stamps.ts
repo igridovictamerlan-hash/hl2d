@@ -33,6 +33,12 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   b: T.INTERIOR,
   w: T.INTERIOR,
   q: T.INTERIOR,
+  r: T.INTERIOR,
+  m: T.INTERIOR,
+  x: T.INTERIOR,
+  v: T.GARDEN,
+  h: T.HEDGE,
+  t: T.GARDEN,
 };
 
 export interface StampResult {
@@ -40,6 +46,9 @@ export interface StampResult {
   cells: Rect[];
   /** Общие камеры (символ C). */
   commonCells: Rect[];
+  /** Жилые комнаты (r) и общие комнаты / гостиные (m). */
+  rooms: Rect[];
+  commons: Rect[];
 }
 
 /**
@@ -69,6 +78,8 @@ export function stampTemplate(
       if (ch === 'b') pois.push({ type: 'bunk', x: x0 + x, y: y0 + y });
       if (ch === 'w') pois.push({ type: 'clerk_desk', x: x0 + x, y: y0 + y });
       if (ch === 'q') pois.push({ type: 'ota_spot', x: x0 + x, y: y0 + y });
+      if (ch === 'x') pois.push({ type: 'dorm_table', x: x0 + x, y: y0 + y });
+      if (ch === 't') pois.push({ type: 'tree', x: x0 + x, y: y0 + y });
     }
   }
   g.lockRect({ x: x0, y: y0, w, h });
@@ -100,6 +111,8 @@ export function stampTemplate(
   };
   const cells = regions('c');
   const commonCells = regions('C');
+  const rooms = regions('r');
+  const commons = regions('m');
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];
@@ -131,7 +144,7 @@ export function stampTemplate(
   scanSide(bottom, 0, 1);
   scanSide(left, -1, 0);
   scanSide(right, 1, 0);
-  return { exits, cells, commonCells };
+  return { exits, cells, commonCells, rooms, commons };
 }
 
 /**

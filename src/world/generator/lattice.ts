@@ -37,6 +37,8 @@ export interface LEdge {
   /** Координата излома: x для горизонтальных рёбер, y — для вертикальных. */
   kink: number;
   district: District;
+  /** Ребро улицы-артерии (ширина задана заранее, асфальт). */
+  artery?: boolean;
 }
 
 export class Lattice {
@@ -131,7 +133,7 @@ export class Lattice {
   }
 
   /** Прямоугольник, который может занять ребро (оба квадрата узлов + излом). */
-  edgeBounds(e: LEdge, w = GENERATOR.alley.mainWidth): Rect {
+  edgeBounds(e: LEdge, w: number = GENERATOR.alley.mainWidth): Rect {
     const A = this.nodes[e.a];
     const B = this.nodes[e.b];
     const x0 = Math.min(A.x, B.x);
@@ -200,7 +202,7 @@ export function finalizeEdges(lat: Lattice, rng: Rng): void {
   const G = GENERATOR;
   const maxStraight = G.alley.maxStraight;
   for (const e of lat.edges) {
-    if (!e.carved) continue;
+    if (!e.carved || e.artery) continue;
     const touchesAvenue = lat.nodes[e.a].onAvenue || lat.nodes[e.b].onAvenue;
     e.width = !touchesAvenue && rng.chance(G.districts[e.district].narrowChance) ? G.alley.narrowWidth : G.alley.mainWidth;
   }

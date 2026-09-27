@@ -12,7 +12,8 @@ import { planLayout, avenueOffsetAt, avenueRects } from './layout';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked } from './stamps';
 import { addHomes } from './homes';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, rotateTemplate, mirrorTemplate, checkpointSection } from './templates';
+import { planStreets, carveArteries } from './streets';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
@@ -74,7 +75,7 @@ export function validateMap(map: GameMap): string[] {
   if (s.buildingRatio < lo || s.buildingRatio > hi) out.push(`доля зданий ${(s.buildingRatio * 100).toFixed(1)}%`);
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 7], ['common_cell', 1], ['bunk', 10], ['clerk_desk', 6], ['ota_spot', 6], ['restricted_gate', 1],
-    ['checkpoint_post', 10], ['gate_post', 4], ['outlands_exit', 2], ['shop_counter', 1],
+    ['checkpoint_post', 10], ['gate_post', 4], ['dorm', 2], ['villa', 2], ['outlands_exit', 2], ['shop_counter', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -113,8 +114,13 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     voids: [layout.nexus, ...layout.checkpoints.map((c) => c.rect)],
     industrial: layout.industrial,
   });
+  // Улицы-артерии от проспекта и места под общежития и особняки (до лабиринта: он их обходит).
+  const streetBlocked = [layout.restricted, layout.industrial, layout.plaza, layout.nexus, layout.hAvenue.band, ...layout.checkpoints.map((c) => c.rect)];
+  if (layout.vAvenue) streetBlocked.push(layout.vAvenue.band);
+  const streets = planStreets(lat, rng.fork(11), layout.hLine, { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H);
   const starts: number[] = [];
   lat.nodes.forEach((n, k) => n.onAvenue && starts.push(k));
+  for (const a of streets.arteries) for (const n of a.nodes) if (!starts.includes(n)) starts.push(n);
   const gate = layout.restrictedGates[0];
   if (gate) {
     const gx = gate.side === 'N' || gate.side === 'S' ? gate.pos : layout.restricted.x + layout.restricted.w / 2;
@@ -139,6 +145,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const carve = carveLattice(g, lat);
   const avenues = [layout.hAvenue, ...(layout.vAvenue ? [layout.vAvenue] : [])];
   for (const av of avenues) for (const r of avenueRects(av)) g.fillRect(r, T.STREET);
+  const arteryRects = carveArteries(g, lat, streets);
   removeWallSpikes(g);
 
   // 4. Зоны.
@@ -198,6 +205,13 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     const inH = hRects.some((r) => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h);
     g.zones[i] = inH ? zHAv : zVAv;
   }
+  // Улицы-артерии — свои зоны (вид avenue: асфальт, фонари, туда выходят жители).
+  arteryRects.forEach((rects, k) => {
+    const z = addZone('avenue', ZONE_NAMES.streets[k % ZONE_NAMES.streets.length], String.fromCharCode(53 + k));
+    for (const r of rects) {
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (g.get(x, y) === T.STREET && !hRects.some((h) => x >= h.x && y >= h.y && x < h.x + h.w && y < h.y + h.h)) g.zones[y * W + x] = z;
+    }
+  });
 
   // Штампы.
   stampPlaza(g, layout.plaza, layout.plazaSide, zPlaza, pois);
@@ -225,6 +239,23 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     }
   }
   pois.push({ type: 'nexus_yard', x: layout.nexus.x + ((yx0 + yx1) >> 1), y: layout.nexus.y + ((yy0 + yy1) >> 1) });
+
+  // Общежития и особняки лоялистов — вдоль артерий, входом на улицу.
+  const stampBuilding = (rows: string[], rect: Rect, zone: number, kind: 'dorm' | 'villa', id: number) => {
+    const res = stampTemplate(g, rows, rect.x, rect.y, () => zone, pois);
+    for (const exit of res.exits) if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
+    for (const r of res.rooms) pois.push({ type: 'home', x: r.x, y: r.y, w: r.w, h: r.h, kind, id });
+    for (const r of res.commons) pois.push({ type: kind === 'dorm' ? 'dorm_common' : 'villa_living', x: r.x, y: r.y, w: r.w, h: r.h, kind, id });
+    pois.push({ type: kind, x: rect.x, y: rect.y, w: rect.w, h: rect.h, id });
+  };
+  streets.dorms.forEach((p, k) => {
+    const z = addZone('residential', `${ZONE_NAMES.dorm} №${k + 1}`, String.fromCharCode(49 + k));
+    stampBuilding(faceTemplate(DORM_TEMPLATE, p.face), p.rect, z, 'dorm', k);
+  });
+  if (streets.villas.length) {
+    const z = addZone('residential', ZONE_NAMES.villas, 'Z');
+    streets.villas.forEach((p, k) => stampBuilding(faceTemplate(VILLA_TEMPLATE, p.face), p.rect, z, 'villa', k));
+  }
 
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);
 

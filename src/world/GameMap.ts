@@ -41,6 +41,12 @@ export type PoiType =
   | 'nexus_yard'
   | 'cell'
   | 'common_cell'
+  | 'dorm'
+  | 'dorm_common'
+  | 'dorm_table'
+  | 'villa'
+  | 'villa_living'
+  | 'tree'
   | 'restricted_gate'
   | 'industrial_yard'
   | 'checkpoint_post'
@@ -74,6 +80,8 @@ export interface Poi {
   /** Комната (дом): ширина и высота пола в тайлах — для мебели. */
   w?: number;
   h?: number;
+  /** Жилая комната: в общежитии или в особняке (id — номер здания), иначе — отдельный дом. */
+  kind?: 'dorm' | 'villa';
 }
 
 export interface Rect {

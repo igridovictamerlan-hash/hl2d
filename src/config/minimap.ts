@@ -28,6 +28,8 @@ export const MINIMAP = {
     [T.SEWER_WATER]: [38, 84, 66],
     [T.SEWER_WALL]: [12, 11, 10],
     [T.ROCK]: [44, 38, 30],
+    [T.GARDEN]: [64, 100, 56],
+    [T.HEDGE]: [36, 72, 36],
   } as Record<number, readonly [number, number, number]>,
   colors: {
     player: '#ffd36b',

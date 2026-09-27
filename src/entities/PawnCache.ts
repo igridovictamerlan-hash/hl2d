@@ -13,7 +13,7 @@ const cache = new Map<string, HTMLCanvasElement>();
 export function drawPawnCached(ctx: CanvasRenderingContext2D, look: PawnLook, x: number, y: number, s: number, dir: PawnDir): void {
   const C = PAWN.cache;
   const q = Math.max(C.step, Math.round(s / C.step) * C.step);
-  const key = `${look.faction}|${look.rank}|${look.color}|${look.seed}|${look.profession ?? ''}|${dir}|${q}`;
+  const key = `${look.faction}|${look.rank}|${look.color}|${look.seed}|${look.profession ?? ''}|${look.kin ?? ''}|${look.band ?? ''}|${dir}|${q}`;
   let sprite = cache.get(key);
   if (!sprite) {
     if (cache.size >= C.max) cache.clear();

@@ -112,7 +112,7 @@ export const WAR = {
    * заново (КПП у Альянса, армия — в лагерь, код зелёный), живым повстанцам-игрокам — reward токенов.
    * В Нексусе не осталось повстанцев — отбит.
    */
-  nexus: { minAttackers: 3, captureTime: 40, decay: 0.5, holdToWin: 45, reward: 150, relocate: [5, 10] as const, waveSize: 6, stageMax: 40, stageHardMax: 100, waveMax: 120 },
+  nexus: { minAttackers: 3, captureTime: 40, decay: 0.5, holdToWin: 45, reward: 150, relocate: [5, 10] as const, waveSize: 8, stageMax: 60, stageHardMax: 120, waveMax: 150 },
   /** Бой у КПП «идёт», если там стреляли за последние… секунд (маркеры на экране, звук). */
   activeWindow: 3,
 } as const;

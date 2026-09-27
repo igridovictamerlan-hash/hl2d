@@ -143,6 +143,8 @@ export class MapRenderer {
       case T.SEWER_WATER: this.color[i] = tone(P.sewerWater); break;
       case T.SEWER_WALL: this.color[i] = tone(P.sewerWall); break;
       case T.ROCK: this.color[i] = tone(P.rock); break;
+      case T.GARDEN: this.color[i] = tone(P.garden); break;
+      case T.HEDGE: this.color[i] = tone(P.hedge); break;
       default: this.color[i] = '#f0f';
     }
   }
@@ -272,6 +274,20 @@ export class MapRenderer {
             ctx.fillRect(x0, y0, b, ch);
             continue;
           }
+          case T.HEDGE: {
+            // Листва: пятна светлее и темнее, тень снизу.
+            ctx.fillStyle = P.hedgeLeaf;
+            ctx.fillRect(x0 + px((hv & 7) + 2), y0 + px(((hv >> 3) & 7) + 2), px(5), px(4));
+            ctx.fillRect(x0 + px(((hv >> 6) & 7) + 1), y0 + px(((hv >> 9) & 7) + 4), px(4), px(4));
+            ctx.fillStyle = P.hedgeShade;
+            ctx.fillRect(x0, y1 - px(2), cw, px(2));
+            continue;
+          }
+          case T.GARDEN:
+            ctx.fillStyle = P.gardenBlade;
+            ctx.fillRect(x0 + px((hv & 15) * 0.8), y0 + px(((hv >> 4) & 15) * 0.8), px(1), px(3));
+            ctx.fillRect(x0 + px(((hv >> 8) & 15) * 0.8), y0 + px(((hv >> 12) & 15) * 0.8), px(1), px(2));
+            break;
           case T.SEWER_WALL:
             // Кирпичная кладка со смещением рядов; кромка у прохода.
             ctx.fillStyle = P.sewerBrick;

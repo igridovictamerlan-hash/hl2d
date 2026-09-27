@@ -9,6 +9,8 @@
  *   o — пустошь за городом (B на пустоши — обломки-укрытия для отрядов повстанцев)
  *   T — терминал кодов тревоги в кабинете Администратора (пол + точка интереса)
  *   b — нары казармы ГО, w — стол канцелярии (лоялисты), q — место OTA (пол + точка интереса)
+ *   r — пол жилой комнаты (POI home), m — пол общей комнаты / гостиной, x — стол (POI dorm_table)
+ *   v — сад, h — живая изгородь, t — дерево в саду (сад + POI tree)
  * Проходимые клетки на краю шаблона — выходы: генератор прокапывает от них проход наружу.
  */
 export const NEXUS_TEMPLATE: readonly string[] = [
@@ -43,6 +45,67 @@ export const NEXUS_TEMPLATE: readonly string[] = [
   'M::::::::::::::#,,,,#,,q,,,q,,,q,,,M',
   'MMMMMggggggMMMMMMddMMMMMMMMMMMMMMMMM',
 ];
+
+/**
+ * Общежитие для граждан (каноническая ориентация — вход внизу): планировка как в Нексусе —
+ * Т-образный коридор (поперечный в 3 тайла с выходами по бокам и «ножка» к входу), по сторонам
+ * комнаты r (POI home — каждая комната для одной семьи), общая комната m со столом x (карты).
+ */
+export const DORM_TEMPLATE: readonly string[] = [
+  '#####################',
+  '#rrrr#rrrr#rrrr#rrrr#',
+  '#rrrr#rrrr#rrrr#rrrr#',
+  '#rrrr#rrrr#rrrr#rrrr#',
+  '##dd###dd###dd###dd##',
+  '#,,,,,,,,,,,,,,,,,,,#',
+  'd,,,,,,,,,,,,,,,,,,,d',
+  'd,,,,,,,,,,,,,,,,,,,d',
+  '###dd####,,,####dd###',
+  '#rrrrrrr#,,,#rrrrrrr#',
+  '#rrrrrrr#,,,#rrrrrrr#',
+  '#rrrrrrr#,,,#rrrrrrr#',
+  '#########,,,#########',
+  '#mmmmmmm#,,,#rrrrrrr#',
+  '#mmmxmmmd,,,drrrrrrr#',
+  '#mmmmmmmd,,,drrrrrrr#',
+  '#########ddd#########',
+];
+
+/**
+ * Особняк богатого лоялиста (вход внизу): живая изгородь h, сад v с деревьями t, дом — спальня r
+ * (POI home) и гостиная m (POI villa_living: ковёр, диван), парадная дверь в сад, калитка в изгороди.
+ */
+export const VILLA_TEMPLATE: readonly string[] = [
+  'hhhhhhhhhhhhhhhh',
+  'hvvvvvtvvvvtvvvh',
+  'hvvvvvvvvvvvvvvh',
+  'hvv##########vvh',
+  'hvv#rrr#mmmm#vvh',
+  'hvv#rrrdmmmm#vvh',
+  'hvv#rrrdmmmm#vvh',
+  'hvv#rrr#mmmm#vvh',
+  'hvv######dd##vvh',
+  'hvvvvvvvvvvvvvvh',
+  'hvtvvvvvvvvvvvvh',
+  'hvvvvvvvvvvvvtvh',
+  'hvvvvvvvvvvvvvvh',
+  'hhhhhhvvvvhhhhhh',
+];
+
+/**
+ * Шаблон со входом (канонически внизу) в сторону face: S — как есть, N — поворот на 180°,
+ * W — по часовой стрелке, E — против часовой.
+ */
+export function faceTemplate(rows: readonly string[], face: 'N' | 'S' | 'E' | 'W'): string[] {
+  const h = rows.length;
+  const w = rows[0].length;
+  if (face === 'S') return [...rows];
+  if (face === 'N') return rotateTemplate(rows, 180);
+  const out: string[] = [];
+  if (face === 'W') for (let x = 0; x < w; x++) out.push(Array.from({ length: h }, (_, y) => rows[h - 1 - y][x]).join(''));
+  else for (let x = w - 1; x >= 0; x--) out.push(Array.from({ length: h }, (_, y) => rows[y][x]).join(''));
+  return out;
+}
 
 export function rotateTemplate(rows: readonly string[], rot: 0 | 180): string[] {
   if (rot === 0) return [...rows];

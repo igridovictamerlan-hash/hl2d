@@ -3,7 +3,6 @@ import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
 import { STREET } from '../config/street';
 import { T, SOLID } from '../world/tiles';
-import { ZONE_NAMES } from '../config/names';
 import { poiWorld } from './Population';
 
 /** Бочка с огнём: где стоит и кто занял места вокруг. */
@@ -32,6 +31,23 @@ export interface Bench {
   taken: (Character | null)[];
 }
 
+/** Стол для карт в общей комнате общежития: места вокруг и кто сел. */
+export interface CardTable {
+  x: number;
+  y: number;
+  seats: Vec2[];
+  taken: (Character | null)[];
+}
+
+/** Доска объявлений у стены улицы: где висит, нормаль от стены, где стоит читающий. */
+export interface NoticeBoard {
+  x: number;
+  y: number;
+  nx: number;
+  ny: number;
+  stand: Vec2;
+}
+
 /**
  * Уличная жизнь города: бочки с огнём во дворах (у них греются компании), «дома» — якоря в
  * подъездах и квартирах жилых кварталов, обращения Администратора на площади по таймеру.
@@ -42,6 +58,9 @@ export class StreetLifeSystem {
   /** Фонари и скамейки главного проспекта. */
   readonly lamps: Lamp[] = [];
   readonly benches: Bench[] = [];
+  /** Столы для карт в общежитиях и доски объявлений на улицах. */
+  readonly tables: CardTable[] = [];
+  readonly boards: NoticeBoard[] = [];
   /** Якоря в помещениях жилых кварталов (подъезды, квартиры). */
   readonly homes: number[] = [];
   /** Идёт ли обращение и его номер (слушатель решает идти один раз на обращение). */
@@ -54,12 +73,13 @@ export class StreetLifeSystem {
   private nextLine = 0;
   private line = 0;
   /** Сколько бесед и сборов у бочек было (для тестов и отладки). */
-  readonly stats = { chats: 0, barrels: 0, homes: 0, listeners: 0, benches: 0, benchTalks: 0 };
+  readonly stats = { chats: 0, barrels: 0, homes: 0, listeners: 0, benches: 0, benchTalks: 0, family: 0, cards: 0, smokes: 0, notices: 0 };
 
   constructor(private readonly ctx: AiContext) {
     this.plaza = poiWorld(ctx, 'plaza_center');
     this.placeBarrels();
     this.placeAvenue();
+    this.placeTables();
     const { map, nav } = ctx;
     for (const a of nav.walkable) {
       if (map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1) !== T.INTERIOR) continue;
@@ -123,10 +143,11 @@ export class StreetLifeSystem {
     const A = STREET.avenue;
     const { map, nav } = this.ctx;
     const ts = map.tileSize;
-    const zone = map.zones.findIndex((z) => z.kind === 'avenue' && z.name === ZONE_NAMES.avenue[0]);
-    if (zone < 0) return;
+    // Проспект и улицы-артерии (все зоны вида avenue).
+    const streetZones = new Set(map.zones.filter((z) => z.kind === 'avenue').map((z) => z.id));
+    if (!streetZones.size) return;
     const gates = map.poisOf('gate_post').map((p) => ({ x: (p.x + 0.5) * ts, y: (p.y + 0.5) * ts }));
-    const street = (x: number, y: number) => map.tileAt(x, y) === T.STREET && map.zoneGrid[y * map.width + x] === zone;
+    const street = (x: number, y: number) => map.tileAt(x, y) === T.STREET && streetZones.has(map.zoneGrid[y * map.width + x]);
     const solid = (x: number, y: number) => x < 0 || y < 0 || x >= map.width || y >= map.height || SOLID[map.tileAt(x, y)] === 1;
     const nearDoor = (ax: number, ay: number) => {
       for (let y = ay - A.avoidDoor; y <= ay + 1 + A.avoidDoor; y++) for (let x = ax - A.avoidDoor; x <= ax + 1 + A.avoidDoor; x++) if (map.tileAt(x, y) === T.DOOR) return true;
@@ -173,11 +194,87 @@ export class StreetLifeSystem {
       const side = sides.findIndex((sd) => sd.nx === sp.nx && sd.ny === sp.ny);
       const other = key.get(((sp.ay + ty) * map.width + sp.ax + tx) * 4 + side);
       if (!other) continue;
+      // Перед скамейкой ещё 2 тайла улицы (ширина ≥ 4): сидящие не перекрывают проход.
+      const front = (d: number) => {
+        const fx = sp.nx > 0 ? sp.ax + 1 + d : sp.nx < 0 ? sp.ax - d : sp.ax;
+        const fy = sp.ny > 0 ? sp.ay + 1 + d : sp.ny < 0 ? sp.ay - d : sp.ay;
+        return street(fx, fy) && street(fx + Math.abs(sp.ny), fy + Math.abs(sp.nx));
+      };
+      if (!front(1) || !front(2)) continue;
       const x = (sp.x + other.x) / 2 - sp.nx * (ts - 6);
       const y = (sp.y + other.y) / 2 - sp.ny * (ts - 6);
       if (!far(this.benches, x, y, A.benchEvery) || !far(this.lamps, x, y, A.gap)) continue;
       this.benches.push({ x, y, nx: sp.nx, ny: sp.ny, seats: [{ x: sp.x, y: sp.y }, { x: other.x, y: other.y }], taken: [null, null] });
     }
+    // Доски объявлений — на стенах улиц, между фонарями и скамейками.
+    const N = STREET.notice;
+    for (const sp of spots) {
+      if (this.boards.length >= N.max) break;
+      const x = sp.x - sp.nx * (ts - 3);
+      const y = sp.y - sp.ny * (ts - 3);
+      if (!far(this.boards.map((b) => ({ x: b.x, y: b.y })), x, y, N.every) || !far(this.lamps, x, y, A.gap) || !far(this.benches, x, y, A.gap)) continue;
+      this.boards.push({ x, y, nx: sp.nx, ny: sp.ny, stand: { x: sp.x, y: sp.y } });
+    }
+  }
+
+  /** Столы для карт: места вокруг каждого стола общей комнаты общежития. */
+  private placeTables(): void {
+    const C = STREET.cards;
+    const { map, nav } = this.ctx;
+    const ts = map.tileSize;
+    for (const p of map.poisOf('dorm_table')) {
+      const x = (p.x + 0.5) * ts;
+      const y = (p.y + 0.5) * ts;
+      const seats: Vec2[] = [];
+      for (let k = 0; k < C.seats; k++) {
+        const ang = (k / C.seats) * Math.PI * 2;
+        const a = nav.nearestWalkable(x + Math.cos(ang) * C.radius, y + Math.sin(ang) * C.radius, 1);
+        if (a < 0) continue;
+        const s = { x: nav.worldX(a), y: nav.worldY(a) };
+        if (!seats.some((o) => o.x === s.x && o.y === s.y)) seats.push(s);
+      }
+      if (seats.length >= 2) this.tables.push({ x, y, seats, taken: seats.map(() => null) });
+    }
+  }
+
+  /** Сесть за карты: ближайший стол со свободным местом (где уже играют — привлекательнее). */
+  takeTableSeat(c: Character): { table: CardTable; seat: number } | null {
+    const C = STREET.cards;
+    let best: CardTable | null = null;
+    let bestScore = Infinity;
+    for (const t of this.tables) {
+      const d = Math.hypot(t.x - c.x, t.y - c.y);
+      const busy = t.taken.filter((o) => o && o.alive).length;
+      if (d > C.seek || busy >= t.seats.length) continue;
+      const score = d - busy * 300;
+      if (score < bestScore) {
+        bestScore = score;
+        best = t;
+      }
+    }
+    if (!best) return null;
+    const seat = best.taken.findIndex((o) => !o || !o.alive);
+    best.taken[seat] = c;
+    this.stats.cards++;
+    return { table: best, seat };
+  }
+
+  releaseTableSeat(c: Character): void {
+    for (const t of this.tables) t.taken.forEach((o, k) => o === c && (t.taken[k] = null));
+  }
+
+  /** Ближайшая доска объявлений в пределах seek или null. */
+  boardNear(c: Character): NoticeBoard | null {
+    let best: NoticeBoard | null = null;
+    let bestD: number = STREET.notice.seek;
+    for (const b of this.boards) {
+      const d = Math.hypot(b.stand.x - c.x, b.stand.y - c.y);
+      if (d < bestD) {
+        bestD = d;
+        best = b;
+      }
+    }
+    return best;
   }
 
   /** Сесть на скамейку: ближайшая со свободным местом (где уже сидят — привлекательнее). */

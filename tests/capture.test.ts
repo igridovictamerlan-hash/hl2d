@@ -195,7 +195,7 @@ describe('капт КПП', () => {
     expect(sim.entities.list.some((c) => c.faction === 'citizen' && c.brain instanceof CitizenBrain)).toBe(true);
   });
 
-  test('все точки D у повстанцев — они выходят в город (красный код)', { timeout: 60_000 }, () => {
+  test('все точки D у повстанцев — они выходят в город (красный код)', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     for (const f of sim.war.fronts) {
       f.retakeAt = Infinity;
@@ -224,7 +224,8 @@ describe('капт КПП', () => {
       expect(modes.filter((m) => m === 'hold').length).toBe(WAR.holdKeep);
       expect(modes.filter((m) => m === 'assault').length).toBe(2);
     }
-    for (let t = 0; t < 60 * 60 && sim.war.code !== 'red'; t++) sim.step();
+    // Сначала сбор волны во внутреннем дворе (до WAR.nexus.stageMax), потом — в город.
+    for (let t = 0; t < 150 * 60 && sim.war.code !== 'red'; t++) sim.step();
     expect(sim.war.code).toBe('red');
   });
 });

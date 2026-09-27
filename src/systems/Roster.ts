@@ -34,6 +34,8 @@ export interface RoleSpec {
   kit: string;
   name?: string;
   loyalty?: number;
+  /** Семья жителя (возрождается в ней же). */
+  family?: number;
   /** Часовой / RCT проходной / медик КПП: фронт, пост и взгляд, место медика. */
   front?: number;
   post?: Vec2;
@@ -98,6 +100,7 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   c.profession = spec.profession;
   c.division = spec.division;
   if (spec.loyalty !== undefined) c.loyalty = spec.loyalty;
+  if (spec.family !== undefined) c.family = spec.family;
   c.facing = spec.facing ?? ctx.rng.range(0, Math.PI * 2);
   c.hunger = ctx.rng.range(40, 100);
   equipKit(c, spec.kit, ctx);

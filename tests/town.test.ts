@@ -9,6 +9,7 @@ import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { LABOR } from '../src/config/labor';
 import { LOYALTY } from '../src/config/loyalty';
+import { FAMILIES } from '../src/config/families';
 import { isLoyalistUniform } from '../src/entities/EntityRenderer';
 
 type Sim = ReturnType<typeof makeSim>;
@@ -80,7 +81,8 @@ describe('городок с домиками', () => {
     // Дошёл до стола в Нексусе и получил плату за отчёт.
     const money = c.money;
     const loyalty = c.loyalty;
-    run(sim, 120, () => c.money >= money + LABOR.paperwork.pay);
+    // Раздача может прервать работу (сперва паёк) — время с запасом.
+    run(sim, 240, () => c.money >= money + LABOR.paperwork.pay);
     expect(c.money).toBeGreaterThanOrEqual(money + LABOR.paperwork.pay);
     expect(c.loyalty).toBeGreaterThan(loyalty);
     expect(sim.map.zoneAtWorld(c.x, c.y)?.kind).toBe('nexus');
@@ -166,5 +168,94 @@ describe('Нексус: общая камера, лоялисты, проспе�
     sim.war.code = 'red';
     run(sim, 1);
     expect(sim.entities.list.some((c) => c.brain instanceof CitizenBrain && c.brain.fsm.current === 'bench')).toBe(false);
+  });
+});
+
+describe('улицы, общежития, особняки, семьи', () => {
+  test('от проспекта идут улицы-артерии; общежития с Т-коридором и комнатами, особняки с садом', () => {
+    const sim = makeSim(12345);
+    const { map, nav } = sim;
+    const streets = map.zones.filter((z) => z.kind === 'avenue' && z.name !== 'Главный проспект');
+    expect(streets.length).toBeGreaterThanOrEqual(2);
+    // Улицы узкие: не шире 4 тайлов поперёк (проверяем по строкам и столбцам асфальта артерий).
+    const ids = new Set(streets.map((z) => z.id));
+    let street = 0;
+    for (let i = 0; i < map.tiles.length; i++) if (map.tiles[i] === T.STREET && ids.has(map.zoneGrid[i])) street++;
+    expect(street).toBeGreaterThan(200);
+    const dorms = map.poisOf('dorm');
+    const villas = map.poisOf('villa');
+    expect(dorms.length).toBeGreaterThanOrEqual(2);
+    expect(villas.length).toBeGreaterThanOrEqual(2);
+    const rooms = map.poisOf('home').filter((h) => h.kind === 'dorm');
+    expect(rooms.length).toBeGreaterThanOrEqual(dorms.length * 7);
+    expect(map.poisOf('dorm_table').length).toBe(dorms.length);
+    // В каждую комнату общежития и спальню особняка можно зайти.
+    for (const h of map.poisOf('home').filter((p) => p.kind)) {
+      const a = nav.nearestWalkable((h.x + h.w! / 2) * 16, (h.y + h.h! / 2) * 16, 2);
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1)).toBe(T.INTERIOR);
+    }
+    // Сад особняка — газон за живой изгородью, с деревьями.
+    for (const v of villas) {
+      let garden = 0;
+      let hedge = 0;
+      for (let y = v.y; y < v.y + v.h!; y++) for (let x = v.x; x < v.x + v.w!; x++) {
+        if (map.tileAt(x, y) === T.GARDEN) garden++;
+        if (map.tileAt(x, y) === T.HEDGE) hedge++;
+      }
+      expect(garden).toBeGreaterThan(40);
+      expect(hedge).toBeGreaterThan(30);
+    }
+    expect(map.poisOf('tree').length).toBe(villas.length * 4);
+  });
+
+  test('жители живут семьями: общая фамилия, дом; богатые лоялисты — в особняках; семья сохраняется при возрождении', () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 45);
+    const F = sim.ctx.families;
+    expect(F.families.length).toBeGreaterThanOrEqual(8);
+    for (const fam of F.families) {
+      const members = sim.entities.list.filter((c) => c.family === fam.id);
+      expect(members.length).toBeGreaterThanOrEqual(FAMILIES.size[0]);
+      expect(members.length).toBeLessThanOrEqual(FAMILIES.size[1]);
+      const stem = fam.surname.replace(/(ов|ев|ин|ски)$/, '');
+      for (const c of members) {
+        expect(c.name.split(' ')[1].startsWith(stem)).toBe(true);
+        expect(c.role?.family).toBe(fam.id);
+      }
+      expect(fam.home).not.toBeNull();
+      expect(fam.homeAnchor).toBeGreaterThanOrEqual(0);
+      if (fam.rich) {
+        expect(fam.home!.kind).toBe('villa');
+        for (const c of members) expect(c.loyalty).toBeGreaterThanOrEqual(FAMILIES.richLoyalty);
+      }
+    }
+    expect(F.families.some((f) => f.rich)).toBe(true);
+    expect(F.families.some((f) => f.home?.kind === 'dorm')).toBe(true);
+    // Погиб — возрождается в той же семье, с той же фамилией.
+    const c = sim.entities.list.find((o) => o.family >= 0)!;
+    const again = spawnRole(sim.ctx, c.role!, { x: c.x, y: c.y })!;
+    expect(again.family).toBe(c.family);
+    expect(again.name).toBe(c.name);
+  });
+
+  test('уличная движуха: карты в общежитии, перекуры, доски объявлений, родня навещает друг друга', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 45);
+    sim.war.command.paused = true;
+    const st = sim.ctx.street;
+    expect(st.tables.length).toBeGreaterThan(0);
+    expect(st.boards.length).toBeGreaterThan(3);
+    let smoking = 0;
+    run(sim, 240, () => {
+      smoking = Math.max(smoking, sim.entities.list.filter((c) => c.smoking).length);
+      return false;
+    });
+    console.log(`движуха: ${JSON.stringify(st.stats)}, курили одновременно ${smoking}`);
+    expect(st.stats.cards).toBeGreaterThan(0);
+    expect(st.stats.smokes).toBeGreaterThan(0);
+    expect(st.stats.notices).toBeGreaterThan(0);
+    expect(st.stats.family).toBeGreaterThan(0);
+    expect(smoking).toBeGreaterThan(0);
   });
 });

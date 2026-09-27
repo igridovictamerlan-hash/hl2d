@@ -11,7 +11,7 @@ import type { GameMap } from './GameMap';
 import { colorsOf } from '../config/factions';
 import { lookSeed } from '../entities/PawnRenderer';
 import { drawPawnCached } from '../entities/PawnCache';
-import type { Barrel, Bench, Lamp } from '../systems/StreetLife';
+import type { Barrel, Bench, Lamp, NoticeBoard } from '../systems/StreetLife';
 import type { Poi } from './GameMap';
 import { PAWN } from '../config/pawns';
 import { RENDER } from '../config/render';
@@ -216,6 +216,9 @@ export class EffectsRenderer {
         case 'home': {
           // Кровать в углу, стол со стульями — в середине комнаты (если она не совсем крохотная).
           bed(x + 2 * s, y + 2 * s, p.x + p.y);
+          // Комната общежития — вторая койка у другой стены; в особняке — широкая кровать.
+          if (p.kind === 'dorm' && (p.w ?? 0) >= 3) bed(x + w - 14 * s, y + 2 * s, p.x + p.y + 1);
+          if (p.kind === 'villa') bed(x + 12 * s, y + 2 * s, p.x + p.y);
           if ((p.w ?? 0) >= 3 && (p.h ?? 0) >= 2) {
             const cx = x + w * 0.62;
             const cy = y + h * 0.5;
@@ -231,6 +234,50 @@ export class EffectsRenderer {
         case 'bunk':
           bed(x + 2 * s, y - 4 * s, k);
           break;
+        case 'dorm_table': {
+          // Стол для карт в общей комнате: табуреты вокруг, карты на столе.
+          ctx.fillStyle = F.chair;
+          ctx.fillRect(x - 10 * s, y + 5 * s, 6 * s, 6 * s);
+          ctx.fillRect(x + 20 * s, y + 5 * s, 6 * s, 6 * s);
+          ctx.fillRect(x + 5 * s, y - 10 * s, 6 * s, 6 * s);
+          ctx.fillRect(x + 5 * s, y + 20 * s, 6 * s, 6 * s);
+          box(x - 2 * s, y - 2 * s, 20 * s, 20 * s, F.table);
+          ctx.fillStyle = F.tableTop;
+          ctx.fillRect(x, y, 16 * s, 16 * s);
+          ctx.fillStyle = F.paper;
+          ctx.fillRect(x + 3 * s, y + 4 * s, 3 * s, 4 * s);
+          ctx.fillRect(x + 9 * s, y + 8 * s, 3 * s, 4 * s);
+          ctx.fillRect(x + 6 * s, y + 11 * s, 3 * s, 4 * s);
+          break;
+        }
+        case 'villa_living': {
+          // Гостиная особняка: ковёр, диван у стены, кресло.
+          ctx.fillStyle = F.rug;
+          ctx.fillRect(x + w * 0.15, y + h * 0.2, w * 0.7, h * 0.6);
+          box(x + 2 * s, y + 2 * s, w - 4 * s, 9 * s, F.sofa);
+          box(x + w - 14 * s, y + h - 14 * s, 12 * s, 12 * s, F.sofa);
+          break;
+        }
+        case 'tree': {
+          // Дерево в саду: тень, крона из трёх кругов, блик.
+          const cx = x + 8 * s;
+          const cy = y + 8 * s;
+          ctx.fillStyle = F.treeShade;
+          ctx.beginPath();
+          ctx.arc(cx + 3 * s, cy + 4 * s, 13 * s, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = F.tree[0];
+          ctx.beginPath();
+          ctx.arc(cx, cy, 12 * s, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = F.tree[1];
+          ctx.beginPath();
+          ctx.arc(cx - 4 * s, cy - 3 * s, 7 * s, 0, Math.PI * 2);
+          ctx.moveTo(cx + 11 * s, cy + 2 * s);
+          ctx.arc(cx + 5 * s, cy + 2 * s, 6 * s, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
         case 'clerk_desk':
           box(x - 4 * s, y + 2 * s, 24 * s, 12 * s, F.desk);
           ctx.fillStyle = F.deskTop;
@@ -258,7 +305,7 @@ export class EffectsRenderer {
   private lampGlow: HTMLCanvasElement | null = null;
 
   /** Скамейки и фонари главного проспекта (под персонажами). */
-  drawAvenue(ctx: CanvasRenderingContext2D, v: View, lamps: readonly Lamp[], benches: readonly Bench[]): void {
+  drawAvenue(ctx: CanvasRenderingContext2D, v: View, lamps: readonly Lamp[], benches: readonly Bench[], boards: readonly NoticeBoard[] = []): void {
     const s = v.scale;
     const L = RENDER.effects.lamp;
     const B = RENDER.effects.bench;
@@ -284,6 +331,25 @@ export class EffectsRenderer {
       } else {
         ctx.fillRect(x - 0.5 * s, y - h / 2, s, h);
         ctx.fillRect(b.nx > 0 ? x - w / 2 - 2 * s : x + w / 2, y - h / 2, 2.5 * s, h);
+      }
+    }
+    // Доски объявлений: рамка на стене, листки.
+    const N = RENDER.effects.board;
+    for (let k = 0; k < boards.length; k++) {
+      const b = boards[k];
+      const x = (b.x - v.left) * s;
+      const y = (b.y - v.top) * s;
+      if (x < -pad || y < -pad || x > v.width + pad || y > v.height + pad) continue;
+      const along = b.ny !== 0;
+      const w = (along ? 22 : 5) * s;
+      const h = (along ? 5 : 22) * s;
+      ctx.fillStyle = N.frame;
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.fillStyle = N.paper;
+      for (let p = 0; p < 3; p++) {
+        const o = (p - 1) * 7 * s;
+        if (along) ctx.fillRect(x + o - 2.5 * s, y - 1.5 * s, 5 * s, 3 * s);
+        else ctx.fillRect(x - 1.5 * s, y + o - 2.5 * s, 3 * s, 5 * s);
       }
     }
     if (!this.lampGlow) {
@@ -328,6 +394,30 @@ export class EffectsRenderer {
       ctx.beginPath();
       ctx.arc(hx, hy, 3 * s, 0, Math.PI * 2);
       ctx.fill();
+    }
+  }
+
+  /** Курящие: огонёк у руки и дымок, поднимающийся вверх (над пешкой). */
+  drawSmokers(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], now: number): void {
+    const s = v.scale;
+    const S = RENDER.effects.smoke;
+    for (let k = 0; k < list.length; k++) {
+      const c = list[k];
+      if (!c.smoking || !c.alive || !c.visible) continue;
+      const x = (c.x + Math.cos(c.facing) * 7 - v.left) * s;
+      const y = (c.y + Math.sin(c.facing) * 7 - v.top) * s;
+      if (x < -40 || y < -40 || x > v.width + 40 || y > v.height + 40) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(now * 3 + c.id);
+      ctx.fillStyle = pulse > 0.5 ? S.ember[0] : S.ember[1];
+      ctx.fillRect(x - s, y - s, 2 * s, 2 * s);
+      ctx.fillStyle = S.puff;
+      for (let p = 0; p < 3; p++) {
+        const t = (now * 0.5 + p / 3 + c.id * 0.13) % 1;
+        const r = (1.5 + t * 3) * s;
+        ctx.globalAlpha = 1 - t;
+        ctx.fillRect(x + Math.sin(t * 6 + p) * 3 * s - r / 2, y - t * 18 * s - r / 2, r, r);
+      }
+      ctx.globalAlpha = 1;
     }
   }
 

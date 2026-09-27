@@ -12,6 +12,9 @@ export interface PawnLook {
   seed: number;
   /** Профессия — своя одежда поверх фракционной (халат, колпак, капюшон…). */
   profession?: ProfessionId | null;
+  /** Семья: зерно общей внешности (кожа, волосы) и цвет повязки на рукаве. */
+  kin?: number;
+  band?: string;
 }
 
 type Outfit = Record<string, string | boolean | number>;
@@ -20,7 +23,9 @@ type Outfit = Record<string, string | boolean | number>;
 function outfitOf(look: PawnLook): Outfit {
   const base = PAWN.outfits[look.faction] ?? PAWN.outfits.citizen;
   const prof = look.profession ? PAWN.professionOutfits[look.profession] : undefined;
-  return prof ? { ...base, ...prof } : base;
+  const o = prof ? { ...base, ...prof } : base;
+  // Повязка семьи — если своей (медик, глава) нет.
+  return look.band && !o.armband ? { ...o, armband: look.band } : o;
 }
 
 type HairStyle = keyof typeof PAWN.hairStyles;
@@ -80,8 +85,9 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   if (head === 'bandana' && !vest) head = 'hair';
   const hairy = head === 'hair' || head === 'bandana' || head === 'cap' || head === 'chef' || head === 'beret';
   const style: HairStyle = hairy ? hairStyleOf(look.seed) : 'bald';
-  const skin = pick(PAWN.skins, look.seed, 3);
-  const hair = pick(PAWN.hairs, look.seed, 11);
+  // Родня похожа: кожа и цвет волос — от зерна семьи.
+  const skin = pick(PAWN.skins, look.kin ?? look.seed, 3);
+  const hair = pick(PAWN.hairs, look.kin ?? look.seed, 11);
   const H = PAWN.head;
   const hx = d === 'E' ? H.sideShift : 0;
 

@@ -1,3 +1,4 @@
+import type { FamilySystem } from '../systems/Families';
 import type { GameMap } from '../world/GameMap';
 import type { NavGrid } from '../world/NavGrid';
 import type { PathService } from './PathService';
@@ -54,4 +55,6 @@ export interface AiContext {
   elections: ElectionSystem;
   /** Уличная жизнь: бочки с огнём, дома, обращения Администратора. */
   street: StreetLifeSystem;
+  /** Семьи горожан: фамилия, повязка, дом. */
+  families: FamilySystem;
 }

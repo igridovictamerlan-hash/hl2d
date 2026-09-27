@@ -100,6 +100,10 @@ export class Character {
   money: number = CHARACTER.startMoney;
   /** Лояльность к Альянсу (очки; уровни — config/loyalty.ts). */
   loyalty = 0;
+  /** Семья (номер в FamilySystem) или -1. */
+  family = -1;
+  /** Курит (уличная жизнь) — огонёк и дымок у пешки. */
+  smoking = false;
 
   brain: Brain | null = null;
   alive = true;

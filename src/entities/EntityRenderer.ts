@@ -2,6 +2,7 @@ import type { Character } from './Character';
 import type { View } from '../core/Camera';
 import { FACTIONS, CP_DIVISIONS, colorsOf, rankOf } from '../config/factions';
 import { LOYALTY } from '../config/loyalty';
+import { familyTitle, type FamilySystem } from '../systems/Families';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
@@ -33,6 +34,9 @@ export function roleLabel(c: Character): string {
  * Невидимых игроку (c.visible = false) не рисуем, кроме режима отладки.
  */
 export class EntityRenderer {
+  /** Семьи горожан (повязка, общая внешность, подпись); задаёт Game. */
+  families: FamilySystem | null = null;
+
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
     const s = v.scale;
     // Пешка мельче круга столкновений (PAWN.scale) — как в RimWorld.
@@ -56,7 +60,8 @@ export class EntityRenderer {
       const faction = c.disguised ? 'citizen' : c.faction;
       const rank = c.disguised ? 0 : c.rank;
       const loyalist = isLoyalistUniform(c);
-      const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? null : c.profession };
+      const fam = !c.disguised ? this.families?.of(c) ?? null : null;
+      const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? null : c.profession, kin: fam?.seed, band: fam?.color };
       const reloading = c.reloadUntil > now;
       if (c.isPlayer) {
         // Выделение игрока — эллипс у ног.
@@ -135,7 +140,8 @@ export class EntityRenderer {
       ctx.fillStyle = c.isPlayer ? E.playerNameColor : E.nameColor;
       ctx.fillText(c.name, x, ny);
       ctx.font = scaleFont(E.roleFont, dpr);
-      const role = roleLabel(c);
+      const fam = !c.disguised ? this.families?.of(c) ?? null : null;
+      const role = fam ? `${roleLabel(c)} · ${familyTitle(fam.surname)}` : roleLabel(c);
       ctx.strokeText(role, x, ny + 10 * dpr);
       ctx.fillStyle = isLoyalistUniform(c) ? LOYALTY.uniform.label : r ? r.color : f.label;
       ctx.fillText(role, x, ny + 10 * dpr);

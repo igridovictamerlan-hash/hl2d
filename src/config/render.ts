@@ -41,6 +41,12 @@ export const RENDER = {
     bunker: { h: 200, s: 4, l: 30, noise: 1 },
     bunkerLine: 'rgba(0,0,0,0.28)',
     waste: { h: 45, s: 16, l: 22, noise: 3 },
+    /** Сад особняка и живая изгородь. */
+    garden: { h: 100, s: 22, l: 22, noise: 2.2 },
+    gardenBlade: 'rgba(140,190,110,0.35)',
+    hedge: { h: 115, s: 30, l: 17, noise: 2 },
+    hedgeLeaf: 'rgba(120,170,90,0.4)',
+    hedgeShade: 'rgba(0,0,0,0.35)',
     barrier: '#6d6f6c',
     barrierTop: 'rgba(255,255,255,0.18)',
     barrierEdge: 'rgba(0,0,0,0.55)',
@@ -105,9 +111,13 @@ export const RENDER = {
       table: '#5a3f28', tableTop: '#6e4e33', chair: '#3b2a1d',
       desk: '#4a4f57', deskTop: '#5d646e', paper: '#e9e5da', lamp: '#ffd36b',
       locker: '#2c3440', lockerLine: '#46566a', rifle: '#15191e', outline: 'rgba(0,0,0,0.55)',
+      rug: '#5a2f2a', sofa: '#6b4a5e', tree: ['#2f4a2a', '#3f6236'] as readonly string[], treeShade: 'rgba(0,0,0,0.3)',
     },
     /** Фонарь на проспекте: столб у стены, кронштейн, плафон и пятно света (спрайт). */
     lamp: { post: '#26292e', arm: '#3a3e45', head: '#f3ecc9', rim: '#15171a', glow: '255,232,170', glowRadius: 72, glowAlpha: 0.3 },
+    /** Доска объявлений на стене и дымок курящего. */
+    board: { frame: '#3b2f25', paper: '#d9d3c2' },
+    smoke: { ember: ['#ff9a3a', '#c9542a'] as readonly string[], puff: 'rgba(200,200,200,0.5)' },
     /** Скамейка: доски, спинка у стены, ножки. */
     bench: { wood: '#7a5a3a', dark: '#4e3924', leg: '#2a2b2e', length: 46, depth: 9 },
     /** Бочка с огнём (уличная жизнь): корпус, обод, ржавчина, пламя, отсвет (radius px мира). */

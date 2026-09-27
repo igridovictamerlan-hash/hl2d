@@ -20,7 +20,8 @@ import { LABOR } from '../../config/labor';
 import { CRIME } from '../../config/crime';
 import type { Vec2 } from '../../core/math';
 import { STREET } from '../../config/street';
-import type { Barrel, Bench } from '../../systems/StreetLife';
+import type { Barrel, Bench, CardTable, NoticeBoard } from '../../systems/StreetLife';
+import { FAMILIES } from '../../config/families';
 import { lineOfSight } from '../../world/visibility';
 
 /** Работа по профессии (ГСР, вортигонт, отброс общества). */
@@ -56,7 +57,7 @@ const PROFILES: Record<'citizen' | 'cwu' | 'rebel' | 'vort', StreetProfile> = {
 const near: Character[] = [];
 
 /** Состояния, в которых мозг сам решает, куда смотреть (не «по ходу движения»). */
-const SELF_FACING = new Set(['stopped', 'chat', 'barrel', 'listen', 'bench']);
+const SELF_FACING = new Set(['stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice']);
 
 /**
  * Житель города (гражданин, ГСР, повстанец): стоит → идёт → стоит. Иногда нарушает:
@@ -89,6 +90,9 @@ export class CitizenBrain implements Brain {
   barrel: { barrel: Barrel; slot: number } | null = null;
   /** Место на скамейке проспекта. */
   bench: { bench: Bench; seat: number } | null = null;
+  /** Место за столом для карт, доска объявлений. */
+  table: { table: CardTable; seat: number } | null = null;
+  board: NoticeBoard | null = null;
   stayUntil = 0;
   /** На какое обращение Администратора уже решали, идти ли. */
   heardBroadcast = 0;
@@ -108,7 +112,7 @@ export class CitizenBrain implements Brain {
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
-    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH], 'idle');
+    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
   }
@@ -195,6 +199,30 @@ export class CitizenBrain implements Brain {
       }
     }
     if (!best) return false;
+    return this.beginChat(best);
+  }
+
+  /** Семья: заговорить с родственником — даже далеко (идёт к нему через полгорода). */
+  private startFamilyChat(): boolean {
+    const { self, ctx } = this;
+    if (ctx.law.now - this.lastChat < STREET.chat.cooldown) return false;
+    let best: Character | null = null;
+    let bestD: number = FAMILIES.visitSeek;
+    for (const o of ctx.families.kin(self)) {
+      if (!this.chattable(o)) continue;
+      const d = Math.hypot(o.x - self.x, o.y - self.y);
+      if (d < bestD && ctx.map.levelAt(o.x, o.y) === ctx.map.levelAt(self.x, self.y)) {
+        best = o;
+        bestD = d;
+      }
+    }
+    if (!best) return false;
+    ctx.street.stats.family++;
+    return this.beginChat(best);
+  }
+
+  private beginChat(best: Character): boolean {
+    const { self, ctx } = this;
     const pb = best.brain as CitizenBrain;
     this.partner = best;
     this.chatLead = true;
@@ -212,12 +240,21 @@ export class CitizenBrain implements Brain {
     const hustler = this.self.profession === 'thief' || this.self.profession === 'bandit';
     if (!this.street || hustler || ctx.war.code === 'red' || !ctx.street || !ctx.rng.chance(STREET.activityChance)) return null;
     const W = STREET.weights;
-    // Скамейки проспекта — только при зелёном коде.
-    const bench = ctx.war.code === 'green' && ctx.street.benches.length ? W.bench : 0;
-    let r = ctx.rng.range(0, W.chat + W.barrel + W.home + bench);
+    const st = ctx.street;
+    // Скамейки — только при зелёном коде; родня — если есть семья; карты — в общежитиях.
+    const bench = ctx.war.code === 'green' && st.benches.length ? W.bench : 0;
+    const family = this.self.family >= 0 ? W.family : 0;
+    // Рабочим ГСР засиживаться за картами некогда.
+    const cards = st.tables.length && this.self.faction !== 'cwu' ? W.cards : 0;
+    const notice = st.boards.length ? W.notice : 0;
+    let r = ctx.rng.range(0, W.chat + W.barrel + W.home + bench + family + cards + W.smoke + notice);
     if ((r -= W.chat) < 0) return this.startChat() ? 'chat' : null;
     if ((r -= W.barrel) < 0) return 'barrel';
     if ((r -= bench) < 0) return 'bench';
+    if ((r -= family) < 0) return this.startFamilyChat() ? 'chat' : 'home';
+    if ((r -= cards) < 0) return 'cards';
+    if ((r -= W.smoke) < 0) return 'smoke';
+    if ((r -= notice) < 0) return 'notice';
     return 'home';
   }
 
@@ -875,7 +912,8 @@ const CHAT: State<CitizenBrain> = {
     b.chatUntil = 0;
     b.chatPair = null;
     b.chatLine = 0;
-    b.meetUntil = b.ctx.law.now + C.meetTimeout;
+    const kin = !!b.partner && b.partner.family >= 0 && b.partner.family === b.self.family;
+    b.meetUntil = b.ctx.law.now + (kin ? FAMILIES.meetTimeout : C.meetTimeout);
     if (!b.chatLead) b.mover.stop();
     else if (b.partner) b.goToPoint(b.partner);
   },
@@ -908,7 +946,8 @@ const CHAT: State<CitizenBrain> = {
     // Ведущий ведёт беседу: вопрос — ответ собеседника — новая пара.
     if (now >= b.nextLine) {
       if (!b.chatPair || b.chatLine >= 2) {
-        b.chatPair = ctx.rng.pick(STREET.dialogues);
+        const kin = p.family >= 0 && p.family === self.family;
+        b.chatPair = ctx.rng.pick(kin ? FAMILIES.dialogues : STREET.dialogues);
         b.chatLine = 0;
       }
       const who = b.chatLine === 0 ? self : p;
@@ -1048,7 +1087,11 @@ const HOME: State<CitizenBrain> = {
   name: 'home',
   enter(b) {
     b.stayUntil = 0;
-    const a = b.ctx.street.homeNear(b.self);
+    // Семья — к себе домой (комната общежития, особняк), иначе — в ближайший дом.
+    const fam = b.ctx.families.of(b.self);
+    const own = !!fam && fam.homeAnchor >= 0 && b.ctx.rng.chance(0.8);
+    const a = own ? fam!.homeAnchor : b.ctx.street.homeNear(b.self);
+    if (own) b.ctx.street.stats.homes++;
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
     else b.idleLeft = 0.5;
   },
@@ -1064,6 +1107,136 @@ const HOME: State<CitizenBrain> = {
       b.idleLeft = 0.5;
       return 'walk';
     }
+  },
+};
+
+/** Карты в общей комнате общежития: сесть за стол, играть; сидящий с меньшим id ведёт игру репликами. */
+const CARDS: State<CitizenBrain> = {
+  name: 'cards',
+  enter(b) {
+    b.stayUntil = 0;
+    b.meetUntil = b.ctx.law.now + 80;
+    b.table = b.ctx.street.takeTableSeat(b.self);
+    if (!b.table || !b.goToPoint(b.table.table.seats[b.table.seat])) b.idleLeft = 0.5;
+  },
+  update(b, dt) {
+    const C = STREET.cards;
+    const { ctx, self } = b;
+    const now = ctx.law.now;
+    const r = b.table;
+    if (!r) return 'idle';
+    const t = r.table;
+    const seat = t.seats[r.seat];
+    const st = b.mover.status;
+    if (!b.stayUntil) {
+      if (st === 'failed' || now > b.meetUntil) return 'idle';
+      if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
+        b.mover.stop();
+        b.stayUntil = now + ctx.rng.range(C.time[0], C.time[1]);
+        b.nextLine = now + ctx.rng.range(1, 3);
+      } else if (st === 'idle') b.goToPoint(seat);
+      return;
+    }
+    b.mover.stop();
+    faceTowards(self, t.x, t.y, dt);
+    // Играют, если за столом ещё кто-то сидит.
+    const others = t.taken.filter((o) => o && o !== self && o.alive && o.brain instanceof CitizenBrain && o.brain.fsm.current === 'cards' && o.brain.stayUntil > 0) as Character[];
+    if (others.length && now >= b.nextLine) {
+      b.nextLine = now + ctx.rng.range(C.lineEvery[0], C.lineEvery[1]);
+      if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.cardLines), now, 2.4);
+    }
+    if (now >= b.stayUntil) {
+      b.idleLeft = ctx.rng.range(1, 3);
+      return 'idle';
+    }
+  },
+  exit(b) {
+    b.ctx.street.releaseTableSeat(b.self);
+    b.table = null;
+    b.stayUntil = 0;
+  },
+};
+
+/** Перекур: отойти в сторонку, постоять с сигаретой (огонёк и дымок), пробормотать что-нибудь. */
+const SMOKE: State<CitizenBrain> = {
+  name: 'smoke',
+  enter(b) {
+    const S = STREET.smoke;
+    b.stayUntil = 0;
+    const a = randomAnchorAround(b.self, b.ctx, S.spot[0], S.spot[1], b.avoid);
+    if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    else b.idleLeft = 0.5;
+  },
+  update(b, dt) {
+    const S = STREET.smoke;
+    const { ctx, self } = b;
+    const now = ctx.law.now;
+    const st = b.mover.status;
+    if (!b.stayUntil) {
+      if (st === 'failed' || st === 'idle') return 'idle';
+      if (st === 'arrived') {
+        b.stayUntil = now + ctx.rng.range(S.time[0], S.time[1]);
+        b.nextLine = now + ctx.rng.range(2, 5);
+        b.glanceDir = ctx.rng.range(0, Math.PI * 2);
+        self.smoking = true;
+        ctx.street.stats.smokes++;
+      }
+      return;
+    }
+    turnTowards(self, b.glanceDir, dt);
+    if (now >= b.nextLine) {
+      b.nextLine = now + ctx.rng.range(S.lineEvery[0], S.lineEvery[1]);
+      if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.smokeLines), now, 2.4);
+    }
+    if (now >= b.stayUntil) {
+      b.idleLeft = ctx.rng.range(0.5, 2);
+      return 'walk';
+    }
+  },
+  exit(b) {
+    b.self.smoking = false;
+    b.stayUntil = 0;
+  },
+};
+
+/** Доска объявлений: подойти, прочитать, хмыкнуть. */
+const NOTICE: State<CitizenBrain> = {
+  name: 'notice',
+  enter(b) {
+    b.stayUntil = 0;
+    b.board = b.ctx.street.boardNear(b.self);
+    if (!b.board || !b.goToPoint(b.board.stand)) b.idleLeft = 0.5;
+  },
+  update(b, dt) {
+    const N = STREET.notice;
+    const { ctx, self } = b;
+    const now = ctx.law.now;
+    const board = b.board;
+    if (!board) return 'idle';
+    const st = b.mover.status;
+    if (!b.stayUntil) {
+      if (st === 'failed' || st === 'idle') return 'idle';
+      if (st === 'arrived' || Math.hypot(board.stand.x - self.x, board.stand.y - self.y) < 12) {
+        b.mover.stop();
+        b.stayUntil = now + ctx.rng.range(N.time[0], N.time[1]);
+        b.nextLine = now + ctx.rng.range(1.5, 3);
+        ctx.street.stats.notices++;
+      }
+      return;
+    }
+    faceTowards(self, board.x, board.y, dt);
+    if (b.nextLine > 0 && now >= b.nextLine) {
+      b.nextLine = 0;
+      if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.noticeLines), now, 2.6);
+    }
+    if (now >= b.stayUntil) {
+      b.idleLeft = ctx.rng.range(0.5, 2);
+      return 'walk';
+    }
+  },
+  exit(b) {
+    b.board = null;
+    b.stayUntil = 0;
   },
 };
 

@@ -21,6 +21,7 @@ import { CrimeSystem } from '../src/systems/CrimeSystem';
 import { ScannerSystem } from '../src/systems/ScannerSystem';
 import { RosterSystem } from '../src/systems/Roster';
 import { ElectionSystem } from '../src/systems/ElectionSystem';
+import { FamilySystem } from '../src/systems/Families';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
@@ -59,6 +60,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     roster: null as unknown as RosterSystem,
     elections: null as unknown as ElectionSystem,
     street: null as unknown as StreetLifeSystem,
+    families: null as unknown as FamilySystem,
   };
   const war = new WarSystem(ctx);
   ctx.war = war;
@@ -76,6 +78,7 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.elections = elections;
   const street = new StreetLifeSystem(ctx);
   ctx.street = street;
+  ctx.families = new FamilySystem(ctx);
   economy.onEmpty = () => labor.noticeEmpty();
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;

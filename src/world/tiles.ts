@@ -20,6 +20,8 @@ export const T = {
   SEWER_WATER: 14,
   SEWER_WALL: 15,
   ROCK: 16,
+  GARDEN: 17,
+  HEDGE: 18,
 } as const;
 
 export type TileId = (typeof T)[keyof typeof T];
@@ -54,6 +56,9 @@ export const TILE_DEFS: readonly TileDef[] = [
   { id: T.SEWER_WALL, key: 'sewer_wall', char: 'w', name: 'Кладка канализации', solid: true, opaque: true },
   // Пустошь вокруг города: скалы и завалы по сторонам тропы к лагерю повстанцев.
   { id: T.ROCK, key: 'rock', char: 'r', name: 'Скалы пустоши', solid: true, opaque: true },
+  // Особняки лоялистов: сад (газон) и живая изгородь — не пройти, но видно поверх.
+  { id: T.GARDEN, key: 'garden', char: 'v', name: 'Сад особняка', solid: false, opaque: false },
+  { id: T.HEDGE, key: 'hedge', char: 'h', name: 'Живая изгородь', solid: true, opaque: false },
 ];
 
 /** Быстрые таблицы: SOLID[tileId] === 1 — непроходим. */
