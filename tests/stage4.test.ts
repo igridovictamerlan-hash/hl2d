@@ -5,10 +5,11 @@ import { NavGrid } from '../src/world/NavGrid';
 import { serializeMap, parseMap } from '../src/world/mapIO';
 import { buildAnchorWalk, labelComponents } from '../src/world/connectivity';
 import { createCharacter } from '../src/entities/factory';
-import { spawnPopulation, equipKit, poiWorld } from '../src/systems/Population';
+import { equipKit, poiWorld } from '../src/systems/Population';
 import { randomAnchorAround } from '../src/ai/destinations';
 import { UndergroundBrain } from '../src/ai/brains/UndergroundBrain';
-import { CpBrain } from '../src/ai/brains/CpBrain';
+import { HiredGunBrain } from '../src/ai/brains/HiredGunBrain';
+import { spawnRole } from '../src/systems/Roster';
 import { ECONOMY } from '../src/config/economy';
 import { GENERATOR } from '../src/config/generator';
 import { ALARM } from '../src/config/underground';
@@ -126,18 +127,50 @@ describe('сопротивление в городе', () => {
     expect(sim.war.code).toBe('green');
   });
 
-  test('засада на патруль: нападение в городе поднимает тревогу, патрули стягиваются', { timeout: 120_000 }, () => {
+  test('оружие бандиту: подпольщик приносит ствол, бандит идёт на ГО чужими руками', { timeout: 180_000 }, () => {
     const sim = makeSim(12345);
-    spawnPopulation(sim.ctx, 10);
-    run(sim, 5);
-    const op = sim.insurgency.startOperation('ambush')!;
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    sim.insurgency.populate();
+    sim.insurgency.paused = true;
+    // Бандит у люка (чтобы партизану было недалеко).
+    const h = sim.map.hatches[0];
+    const a = randomAnchorAround(h.city, sim.ctx, 3, 10, new Set());
+    const bandit = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, { x: sim.nav.worldX(a), y: sim.nav.worldY(a) })!;
+    const op = sim.insurgency.startOperation('arm')!;
     expect(op).not.toBeNull();
-    const t = run(sim, 150, () => sim.war.code !== 'green');
-    console.log(`тревога через ${t.toFixed(0)} с после выхода засады (${op.where})`);
-    expect(sim.war.code).not.toBe('green');
-    const hunting = () => sim.entities.list.filter((c) => c.brain instanceof CpBrain && c.brain.fsm.current === 'hunt').length;
-    run(sim, 20, () => hunting() > 0);
-    expect(hunting()).toBeGreaterThan(0);
+    expect(op.team.length).toBe(1);
+    // Подпольщик в личине: ГО его не узнаёт.
+    expect(op.team[0].disguised).toBe(true);
+    const t = run(sim, 170, () => sim.insurgency.stats.armed > 0);
+    console.log(`ствол передан через ${t.toFixed(0)} с (${op.where})`);
+    expect(sim.insurgency.stats.armed).toBeGreaterThan(0);
+    expect(bandit.inventory.has('rebel_smg')).toBe(true);
+    // Подпольщик возвращается вниз, огня не открывал.
+    run(sim, 200, () => op.team.every((c) => !c.alive || (c.brain as UndergroundBrain).mode === 'base'));
+    for (const c of op.team) if (c.alive) expect(sim.map.levelAt(c.x, c.y)).toBe('sewer');
+  });
+
+  test('бандит со стволом от партизан идёт на патрульного ГО и стреляет', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    const p = poiWorld(sim.ctx, 'plaza_center')!;
+    const at = (r0: number, r1: number) => {
+      const a = randomAnchorAround(p, sim.ctx, r0, r1, new Set());
+      return { x: sim.nav.worldX(a), y: sim.nav.worldY(a) };
+    };
+    const cp = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: 2, kit: 'cp' }, at(0, 3))!;
+    const bandit = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, at(12, 18))!;
+    const partisan = createCharacter(sim.entities, sim.ctx.rng, 'rebel', bandit.x, bandit.y, false);
+    expect(sim.insurgency.armBandit(partisan, bandit)).toBe(true);
+    partisan.alive = false;
+    const hired = bandit.brain as HiredGunBrain;
+    expect(hired).toBeInstanceOf(HiredGunBrain);
+    run(sim, 40, () => cp.health < cp.maxHealth || !cp.alive);
+    expect(hired.engaged).toBe(true);
+    expect(bandit.law.wanted).toBe(true);
+    expect(cp.health < cp.maxHealth || !cp.alive).toBe(true);
   });
 
   test('тревога: жёлтый код, отбой без нападавших через calmToGreen', () => {
@@ -168,9 +201,9 @@ describe('жизнь убежища', () => {
       }
     }
     console.log(`вылазок: ${sim.insurgency.outings}, спусков и подъёмов по люкам: ${climbs}`);
-    // Партизан в схроне трое (постоянный состав), люков два — у края города.
-    expect(sim.insurgency.outings).toBeGreaterThan(5);
-    expect(climbs).toBeGreaterThan(4);
+    // Подпольщиков в схроне двое (постоянный состав), люков два — у края города.
+    expect(sim.insurgency.outings).toBeGreaterThan(3);
+    expect(climbs).toBeGreaterThan(2);
     // В убежище всегда кто-то остаётся.
     expect(sim.insurgency.garrison.some((c) => sim.map.zoneAtWorld(c.x, c.y)?.kind === 'rebel_base' || sim.map.levelAt(c.x, c.y) === 'sewer')).toBe(true);
   });

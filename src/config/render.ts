@@ -119,6 +119,8 @@ export const RENDER = {
     lamp: { post: '#26292e', arm: '#3a3e45', head: '#f3ecc9', rim: '#15171a', glow: '255,232,170', glowRadius: 72, glowAlpha: 0.3 },
     /** Доска объявлений на стене и дымок курящего. */
     board: { frame: '#3b2f25', paper: '#d9d3c2' },
+    /** Клетка для партизан в кабинете Администратора: рама, прутья (шаг px мира), вскрытая — дверца настежь. */
+    cage: { frame: '#2c2f33', bar: '#5b6068', floor: 'rgba(20,22,26,0.35)', size: 34, step: 5 },
     smoke: { ember: ['#ff9a3a', '#c9542a'] as readonly string[], puff: 'rgba(200,200,200,0.5)' },
     /** Скамейка: доски, спинка у стены, ножки. */
     bench: { wood: '#7a5a3a', dark: '#4e3924', leg: '#2a2b2e', length: 46, depth: 9 },

@@ -8,7 +8,7 @@ import { PlayerController } from './PlayerController';
 import { RENDER } from '../config/render';
 import { VISION } from '../config/vision';
 import { CHARACTER } from '../config/entities';
-import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, cpUnit } from '../config/factions';
+import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, rebelUnitOf } from '../config/factions';
 import type { GameMap, Level } from '../world/GameMap';
 import { NavGrid } from '../world/NavGrid';
 import type { Poi } from '../world/GameMap';
@@ -38,9 +38,8 @@ import { InsurgencySystem } from '../systems/InsurgencySystem';
 import { LaborSystem } from '../systems/LaborSystem';
 import { CrimeSystem } from '../systems/CrimeSystem';
 import { ScannerSystem } from '../systems/ScannerSystem';
-import { RosterSystem } from '../systems/Roster';
+import { RosterSystem, roleHp } from '../systems/Roster';
 import { ElectionSystem } from '../systems/ElectionSystem';
-import { ROSTER } from '../config/roster';
 import { FamilySystem } from '../systems/Families';
 import { SecuritySystem } from '../systems/Security';
 import { CwuHqSystem } from '../systems/CwuHq';
@@ -55,7 +54,7 @@ import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION, type ProfessionId } from '../config/professions';
-import { ITEMS, REBEL_OFFICER_RANK, type ItemId, type WeaponId } from '../config/items';
+import { ITEMS, type ItemId, type WeaponId } from '../config/items';
 import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
 import type { CheckChoice } from '../ui/CheckPanel';
@@ -299,13 +298,13 @@ export class Game {
     this.economy.leaveQueue(p);
     this.economy.releaseDispenser(p);
     p.faction = faction;
-    // У армейских профессий (глава, HYDRA, ветеран) звание — по профессии, не ниже выбранного.
-    const profRank = profession ? ROSTER.rank[profession] : undefined;
-    p.rank = profRank !== undefined ? Math.max(rank, profRank) : rank;
+    // У сопротивления юнит — по профессии (config/factions.ts, REBEL_RANKS).
+    p.rank = faction === 'rebel' ? rebelUnitOf(profession)?.rank ?? 0 : rank;
     p.division = faction === 'cp' ? cpGroup(p.rank) : null;
     void division;
     p.profession = profession && PROFESSIONS[profession]?.faction === faction ? profession : DEFAULT_PROFESSION[faction] ?? null;
     p.disguised = false;
+    p.cover = null;
     p.carrying = false;
     p.burnUntil = 0;
     p.alive = true;
@@ -316,23 +315,26 @@ export class Game {
     // Новая роль — лояльность с чистого листа (при возрождении сохраняется).
     if (announce) p.loyalty = faction === 'cwu' ? LOYALTY.playerStart.cwu : LOYALTY.playerStart.citizen;
     const profKit = p.profession ? PROFESSIONS[p.profession].kit : undefined;
-    const kit = faction === 'cp' ? cpKit(p.rank) : profKit ?? (faction === 'rebel' && rank >= REBEL_OFFICER_RANK ? 'rebel_officer' : faction);
+    const kit = faction === 'cp' ? cpKit(p.rank) : profKit ?? faction;
     equipKit(p, kit, this.ai);
     // Жителям оружие на виду ни к чему; повстанец начинает в убежище — с оружием в руках (Q/H — убрать).
     if (faction !== 'cp' && faction !== 'rebel') this.combat.equip(p, null);
     // Партизан выходит в маскировке, без оружия в руках.
-    if (p.profession === 'partisan') this.combat.equip(p, null);
+    const underground = p.profession === 'partisan' || p.profession === 'spec_agent';
+    if (underground) this.combat.equip(p, null);
     p.name = faction === 'cp' ? nameFor(this.rng, 'cp') : this.civilName || randomName(this.rng);
     p.money = CHARACTER.roleMoney[faction] ?? CHARACTER.startMoney;
     p.brain = null;
     Object.assign(law, {
-      hasCid: true, wanted: faction === 'rebel', phase: 'none', handler: null, reason: null,
+      hasCid: true, wanted: faction === 'rebel' && !underground, phase: 'none', handler: null, reason: null,
       cell: -1, jailUntil: 0, savedBrain: null, lastCheck: this.law.now,
     });
+    // Подпольщик и спецагент выходят под личиной горожанина или ГСР.
+    if (underground) this.insurgency.giveCover(p);
     const spot = roleSpawn(this.ai, faction, p.profession);
     // Глава восстания один: выбрал игрок — NPC-глава становится ветераном.
     if (faction === 'rebel' && p.profession === 'rebel_leader') this.war.command.demoteNpcLeader();
-    const hp = faction === 'cp' ? cpUnit(p.rank).hp : p.profession ? ROSTER.hp[p.profession] : undefined;
+    const hp = roleHp(faction, p.rank, p.profession);
     p.maxHealth = hp ?? CHARACTER.maxHealth;
     p.health = p.maxHealth;
     p.x = p.prevX = spot.x;
@@ -681,6 +683,7 @@ export class Game {
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
+    this.effects.drawCages(ctx, v, this.law.cells, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     this.effects.drawShots(ctx, v, this.combat);
     this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);

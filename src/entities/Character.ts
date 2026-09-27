@@ -39,6 +39,19 @@ export interface LawState {
   savedBrain: Brain | null;
   /** До этого времени — «только что украл»: увидевший ГО задерживает за кражу. */
   crimeUntil?: number;
+  /** До этого времени — участник бунта: увидевший ГО задерживает (нарушение 'riot'). */
+  riotUntil?: number;
+}
+
+/**
+ * Личина в маскировке (Character.cover): под кого одет — фракция, ранг, профессия, имя на подписи.
+ * Партизан — гражданин или рабочий ГСР; спецагент — убитый (с его тела) или OTA (шкаф казармы).
+ */
+export interface Cover {
+  faction: FactionId;
+  rank: number;
+  profession: ProfessionId | null;
+  name: string | null;
 }
 
 export interface CharacterInit {
@@ -66,6 +79,8 @@ export class Character {
   profession: ProfessionId | null = null;
   /** Партизан в маскировке: выглядит и считается гражданином, пока не выдаст себя. */
   disguised = false;
+  /** Под кого одет в маскировке (null — просто гражданин). */
+  cover: Cover | null = null;
   /** Горит (пиротехник): до этого времени, урон в секунду и кто поджёг. */
   burnUntil = 0;
   burnBy: Character | null = null;

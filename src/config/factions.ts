@@ -1,3 +1,5 @@
+import type { ProfessionId } from './professions';
+
 export type FactionId = 'citizen' | 'cp' | 'cwu' | 'rebel' | 'ota' | 'admin' | 'vort';
 
 /** Ранг внутри фракции: у ГО и повстанцев цвет кружка зависит от ранга. */
@@ -92,14 +94,57 @@ export function isCpUnit(c: { faction: FactionId; rank: number }, unit: CpUnitId
   return c.faction === 'cp' && cpUnit(c.rank).unit === unit;
 }
 
-/** Повстанцы: от оранжевого новобранца до жёлто-золотого командира. */
-const REBEL_RANKS: readonly RankDef[] = [
-  { id: 'recruit', name: 'Новобранец', short: 'Новобранец', color: '#d4561c', outline: '#6e2708' },
-  { id: 'fighter', name: 'Боец', short: 'Боец', color: '#e5712a', outline: '#7a3710' },
-  { id: 'veteran', name: 'Ветеран', short: 'Ветеран', color: '#ee8e30', outline: '#7d4812' },
-  { id: 'sergeant', name: 'Сержант', short: 'Сержант', color: '#f3ac36', outline: '#7f5a14' },
-  { id: 'commander', name: 'Командир', short: 'Командир', color: '#f7cb40', outline: '#7d6515' },
+/** Юниты сопротивления: армия (жёлтые ники), глава и спецотряд HYDRA (красные), партизаны. */
+export type RebelUnitId =
+  | 'recruit' | 'soldier' | 'veteran' | 'medic' | 'demo' | 'pyro' | 'leader'
+  | 'hydra_rct' | 'hydra_sergeant' | 'hydra_sniper' | 'commando'
+  | 'partisan' | 'agent';
+
+export interface RebelUnitDef extends RankDef {
+  unit: RebelUnitId;
+  profession: ProfessionId;
+  hp: number;
+  /** Спецотряд HYDRA и глава — красный ник. */
+  elite: boolean;
+  desc: string;
+}
+
+const YELLOW = { color: '#f2d34a', outline: '#6e5a10' };
+const RED = { color: '#ff5a48', outline: '#6e1a12' };
+
+/**
+ * Сопротивление — юниты как на сервере. Номер в списке — Character.rank у фракции rebel (по
+ * профессии, rebelUnitOf): армия — новобранец 75 HP (пистолет), солдат 90 (пистолет, MP7), ветеран
+ * 110 (MP7, пистолет), ветеран-медик 100 (лечит всех нуждающихся, на рожон не лезет), подрывник и
+ * пиротехник 130; глава восстания Патрик 250 (броня как у OTA, без шлема, красный берет).
+ * HYDRA (красные ники): RCT 150 (MP7, пистолет, гранат больше), сержант 170 (энерговинтовка,
+ * пистолеты), снайпер 110 (оружие — после обновления боевой системы), коммандос 200 (один на
+ * сервер, при Патрике — ответ OTA). Партизаны (2) и спецагент (1) — под личиной, ники скрыты.
+ */
+export const REBEL_RANKS: readonly RebelUnitDef[] = [
+  { id: 'recruit', unit: 'recruit', profession: 'rebel_recruit', name: 'Новобранец', short: 'Новобранец', hp: 75, elite: false, ...YELLOW, desc: 'Пистолет. Учится воевать.' },
+  { id: 'soldier', unit: 'soldier', profession: 'rebel_soldier', name: 'Солдат', short: 'Солдат', hp: 90, elite: false, ...YELLOW, desc: 'Пистолет и MP7.' },
+  { id: 'veteran', unit: 'veteran', profession: 'veteran', name: 'Ветеран', short: 'Ветеран', hp: 110, elite: false, ...YELLOW, desc: 'MP7 и пистолет, опыт.' },
+  { id: 'medic', unit: 'medic', profession: 'rebel_medic', name: 'Ветеран-медик', short: 'Медик', hp: 100, elite: false, ...YELLOW, desc: 'Лечит всех нуждающихся, на рожон не лезет.' },
+  { id: 'demo', unit: 'demo', profession: 'demolitionist', name: 'Подрывник', short: 'Подрывник', hp: 130, elite: false, ...YELLOW, desc: 'Много гранат.' },
+  { id: 'pyro', unit: 'pyro', profession: 'pyro', name: 'Пиротехник', short: 'Пиро', hp: 130, elite: false, ...YELLOW, desc: 'Огонь: поджигающие гранаты и болты.' },
+  { id: 'leader', unit: 'leader', profession: 'rebel_leader', name: 'Глава восстания', short: 'Глава', hp: 250, elite: true, ...RED, desc: 'Патрик: броня как у OTA, красный берет.' },
+  { id: 'hydra_rct', unit: 'hydra_rct', profession: 'hydra_rct', name: 'RCT HYDRA', short: 'RCT HYDRA', hp: 150, elite: true, ...RED, desc: 'MP7, пистолет, гранат больше, чем у бойцов.' },
+  { id: 'hydra_sergeant', unit: 'hydra_sergeant', profession: 'hydra_sergeant', name: 'Сержант HYDRA', short: 'Сержант HYDRA', hp: 170, elite: true, ...RED, desc: 'Энерговинтовка и пистолеты.' },
+  { id: 'hydra_sniper', unit: 'hydra_sniper', profession: 'hydra_sniper', name: 'Снайпер HYDRA', short: 'Снайпер HYDRA', hp: 110, elite: true, ...RED, desc: 'Пока с пистолетом: винтовка — после обновления боевой системы.' },
+  { id: 'commando', unit: 'commando', profession: 'commando', name: 'Коммандос HYDRA', short: 'Коммандос', hp: 200, elite: true, ...RED, desc: 'Один на сервер: при Патрике, ответ OTA.' },
+  { id: 'partisan', unit: 'partisan', profession: 'partisan', name: 'Партизан', short: 'Партизан', hp: 100, elite: false, ...YELLOW, desc: 'Под видом гражданина или ГСР.' },
+  { id: 'agent', unit: 'agent', profession: 'spec_agent', name: 'Спецагент', short: 'Спецагент', hp: 120, elite: false, ...YELLOW, desc: 'Переодевается в убитых и OTA.' },
 ];
+
+/** Номер юнита сопротивления по id. */
+export const REBEL_UNIT = Object.fromEntries(REBEL_RANKS.map((r, k) => [r.unit, k])) as Record<RebelUnitId, number>;
+
+/** Юнит сопротивления по профессии (ранг = номер юнита); не армейская профессия — null. */
+export function rebelUnitOf(profession: ProfessionId | null | undefined): { rank: number; def: RebelUnitDef } | null {
+  const k = REBEL_RANKS.findIndex((r) => r.profession === profession);
+  return k >= 0 ? { rank: k, def: REBEL_RANKS[k] } : null;
+}
 
 export const FACTIONS: Record<FactionId, FactionDef> = {
   citizen: {
@@ -114,7 +159,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
   },
   rebel: {
     id: 'rebel', role: 'Повстанец', plural: 'Повстанцы',
-    color: REBEL_RANKS[0].color, outline: REBEL_RANKS[0].outline, label: '#f5a860', yieldPriority: 1,
+    color: YELLOW.color, outline: YELLOW.outline, label: YELLOW.color, yieldPriority: 1,
     authority: false, selectable: true,
     description: 'В розыске: при проверке CID арест. Прячьтесь от патрулей ГО.',
     ranks: REBEL_RANKS,

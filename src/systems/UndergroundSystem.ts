@@ -34,7 +34,7 @@ export class UndergroundSystem {
 
   /** Люками пользуются только партизаны (остальным они заварены). */
   canUse(c: Character): boolean {
-    return c.profession === 'partisan';
+    return c.profession === 'partisan' || c.profession === 'spec_agent';
   }
 
   /** Люк в радиусе r от точки (на её уровне). */

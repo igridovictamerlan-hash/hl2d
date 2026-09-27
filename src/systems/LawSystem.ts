@@ -14,8 +14,10 @@ import { loyalistPerk } from './Loyalty';
 import { FACTIONS, cpHas } from '../config/factions';
 import { LINES, fill } from '../config/lines';
 import { T } from '../world/tiles';
+import { coverAuthority } from '../entities/cover';
 import { PrisonerBrain } from '../ai/brains/PrisonerBrain';
 import { CHARACTER } from '../config/entities';
+import { PARTISANS } from '../config/underground';
 
 const PRISONER_MASS = 0.4;
 
@@ -39,6 +41,10 @@ export interface Cell {
   common: boolean;
   /** Места: у одиночной — одно в центре, у общей — по площади. */
   slots: CellSlot[];
+  /** Клетка в кабинете Администратора (без двери): для пойманных партизан — допрос CMD.EPU. */
+  cage: boolean;
+  /** Дверь выбита спецагентом: до этого времени не запирается. */
+  brokenUntil: number;
 }
 
 export interface CellSlot {
@@ -48,10 +54,14 @@ export interface CellSlot {
   reserved: Character | null;
 }
 
-/** Кого сажают в общую камеру: граждан, ГСР, вортигонтов и партизан (не бойцов армии). */
+/** Партизан или спецагент — их сажают в клетки у Администратора на допрос. */
+export function isUnderground(c: Character): boolean {
+  return c.faction === 'rebel' && (c.profession === 'partisan' || c.profession === 'spec_agent');
+}
+
+/** Кого сажают в общую камеру: граждан, ГСР и вортигонтов (не бойцов армии). */
 function belongsInCommon(c: Character): boolean {
-  if (c.faction === 'citizen' || c.faction === 'cwu' || c.faction === 'vort') return true;
-  return c.faction === 'rebel' && (c.role?.kind === 'partisan' || c.disguised === true);
+  return c.faction === 'citizen' || c.faction === 'cwu' || c.faction === 'vort';
 }
 
 /**
@@ -130,8 +140,27 @@ export class LawSystem {
         }
       }
       if (!slots.length) slots.push({ x: cx, y: cy, occupant: null, reserved: null });
-      this.cells.push({ index, x: cx, y: cy, frontX: fx, frontY: fy, door, bounds: { x0, y0, x1, y1 }, common, slots });
+      this.cells.push({ index, x: cx, y: cy, frontX: fx, frontY: fy, door, bounds: { x0, y0, x1, y1 }, common, slots, cage: false, brokenUntil: 0 });
     });
+    // Клетки в кабинете Администратора (POI partisan_cage — якорь 2×2): без двери, одно место,
+    // перед клеткой — место допрашивающего.
+    for (const p of map.poisOf('partisan_cage')) {
+      // Нексус может быть повёрнут — якорь клетки ищем у тайла Z (он в любом случае внутри).
+      const a = this.nav.nearestWalkable((p.x + 0.5) * ts, (p.y + 0.5) * ts, 1);
+      if (a < 0) continue;
+      const cx = this.nav.worldX(a);
+      const cy = this.nav.worldY(a);
+      const ax = this.nav.ax(a);
+      const ay = this.nav.ay(a);
+      const f = this.nav.nearestWalkable(cx, cy + LAW.cageFront, 3);
+      const fx = f >= 0 ? this.nav.worldX(f) : cx;
+      const fy = f >= 0 ? this.nav.worldY(f) : cy;
+      this.cells.push({
+        index: this.cells.length, x: cx, y: cy, frontX: fx, frontY: fy, door: null,
+        bounds: { x0: ax, y0: ay, x1: ax + 1, y1: ay + 1 }, common: false,
+        slots: [{ x: cx, y: cy, occupant: null, reserved: null }], cage: true, brokenUntil: 0,
+      });
+    }
   }
 
   /** Может ли observer увидеть target: дальность, угол обзора, стены и закрытые двери. */
@@ -157,6 +186,8 @@ export class LawSystem {
   /** Нарушение, которое observer видит прямо сейчас, или null. */
   observe(observer: Character, target: Character): Violation | null {
     if (FACTIONS[target.faction].authority || target.law.phase !== 'none' || !target.alive) return null;
+    // Переодетый в сотрудника Альянса — «свой».
+    if (coverAuthority(target)) return null;
     // Вортигонтов-рабов Альянс не проверяет.
     if (target.faction === 'vort') return null;
     if (!this.canSee(observer, target)) return null;
@@ -164,6 +195,7 @@ export class LawSystem {
     if (target.faction === 'rebel' && !target.disguised) return 'rebel';
     // Только что украл — на глазах у ГО.
     if ((target.law.crimeUntil ?? -1) > this.time) return 'theft';
+    if ((target.law.riotUntil ?? -1) > this.time) return 'riot';
     if (target.weapon) return 'weapon';
     if (this.map.zoneAtWorld(target.x, target.y)?.kind === 'restricted') return 'restricted';
     if (this.curfewCheck(target)) return 'curfew';
@@ -175,7 +207,7 @@ export class LawSystem {
   /** Можно ли сейчас устроить плановую проверку. */
   checkable(target: Character): boolean {
     return (
-      !FACTIONS[target.faction].authority && target.faction !== 'vort' && target.law.phase === 'none' && target.alive &&
+      !FACTIONS[target.faction].authority && !coverAuthority(target) && target.faction !== 'vort' && target.law.phase === 'none' && target.alive &&
       this.time - target.law.lastCheck > LAW.recheckCooldown
     );
   }
@@ -198,7 +230,8 @@ export class LawSystem {
       : LINES.cpOrder;
     handler.say(this.rng.pick(lines), this.time);
     if (!target.isPlayer) {
-      const flee = LAW.npc.fleeChance[target.profession ?? ''] ?? LAW.npc.fleeChance[target.faction] ?? 0.1;
+      // Подпольщик под личиной не бежит: бег выдал бы его.
+      const flee = target.disguised ? 0 : LAW.npc.fleeChance[target.profession ?? ''] ?? LAW.npc.fleeChance[target.faction] ?? 0.1;
       const guilty = law.wanted || !law.hasCid;
       if (this.rng.chance(guilty ? Math.max(flee, 0.5) : flee)) this.startFlee(target);
       else target.say(this.rng.pick(LINES.comply), this.time, 2);
@@ -231,13 +264,16 @@ export class LawSystem {
   judge(target: Character): Verdict {
     const law = target.law;
     let reason: Violation = law.reason ?? 'routine';
-    // Проверка CID раскрывает партизана в маскировке.
-    if (target.faction === 'rebel') {
+    // Подпольщик под личиной показывает поддельную CID: раскрывают с шансом (в розыске — всегда).
+    const fake = target.faction === 'rebel' && target.disguised && !law.wanted && !this.rng.chance(PARTISANS.checkReveal);
+    if (target.faction === 'rebel' && !fake) {
       target.disguised = false;
+      target.cover = null;
       reason = 'rebel';
     } else if ((target.law.crimeUntil ?? -1) > this.time) reason = 'theft';
+    else if ((target.law.riotUntil ?? -1) > this.time) reason = 'riot';
     else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
-    else if (!law.hasCid) reason = 'no_cid';
+    else if (!law.hasCid && !fake) reason = 'no_cid';
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };
     if (reason === 'running' || reason === 'restricted' || reason === 'insult') {
       return { kind: 'fine', reason, fine: LAW.fines[reason] };
@@ -296,6 +332,11 @@ export class LawSystem {
     law.since = this.time;
     law.savedBrain = target.brain;
     target.brain = new PrisonerBrain(target);
+    // Задержанный повстанец больше не под личиной.
+    if (target.faction === 'rebel') {
+      target.disguised = false;
+      target.cover = null;
+    }
     // В наручниках не упирается: конвоир и прохожие легко отталкивают.
     target.mass = PRISONER_MASS;
     target.wantX = target.wantY = 0;
@@ -328,10 +369,14 @@ export class LawSystem {
    */
   freeCell(x: number, y: number, prisoner: Character | null = null): Cell | null {
     const wantCommon = prisoner ? belongsInCommon(prisoner) : false;
+    // Партизаны и спецагент — в клетки у Администратора (мест нет — в обычную камеру); остальных в клетки не сажают.
+    const wantCage = prisoner ? isUnderground(prisoner) : false;
     let best: Cell | null = null;
     let bestD = Infinity;
     for (const c of this.cells) {
       if (this.freeSlot(c) < 0) continue;
+      if (c.cage && !wantCage) continue;
+      if (wantCage && !c.cage && this.cells.some((o) => o.cage && this.freeSlot(o) >= 0)) continue;
       const d = Math.hypot(c.frontX - x, c.frontY - y) + (c.common === wantCommon ? 0 : 1e6);
       if (d < bestD) {
         bestD = d;
@@ -451,11 +496,12 @@ export class LawSystem {
             slot.occupant = c;
             slot.reserved = null;
             law.phase = 'jailed';
-            law.jailUntil = this.time + (c.isPlayer ? LAW.jailTime.player : LAW.jailTime.npc);
+            const T = cell.cage ? LAW.cageTime : LAW.jailTime;
+            law.jailUntil = this.time + (c.isPlayer ? T.player : T.npc);
             law.wanted = false;
             law.hasCid = true;
             law.handler = null;
-            this.log(`${who(c, true)} помещён в ${cell.common ? 'общую камеру' : 'КПЗ'} на ${Math.round(law.jailUntil - this.time)} с`, 'law');
+            this.log(`${who(c, true)} помещён в ${cell.cage ? 'клетку в кабинете Администратора — на допрос' : cell.common ? 'общую камеру' : 'КПЗ'} на ${Math.round(law.jailUntil - this.time)} с`, 'law');
           } else if (this.time - law.since > 25) {
             // Застрял на входе — всё равно считаем посаженным.
             law.since = this.time;
@@ -505,7 +551,7 @@ export class LawSystem {
    */
   private lockCells(): void {
     for (const cell of this.cells) {
-      if (!cell.door) continue;
+      if (!cell.door || cell.brokenUntil > this.time) continue;
       let seated = false;
       let moving = false;
       for (const s of cell.slots) {
@@ -530,6 +576,43 @@ export class LawSystem {
 
   log(text: string, kind: 'law' | 'radio' | 'world' = 'law'): void {
     this.bus.emit('log', { text, kind });
+  }
+
+  /**
+   * Спецагент выбил дверь камеры (или открыл клетку): все, кто сидит, выходят — и в розыск;
+   * дверь не запирается LAW.brokenDoor с. Возвращает, сколько сбежало.
+   */
+  breakCell(cell: Cell): number {
+    let n = 0;
+    for (const s of cell.slots) {
+      const c = s.occupant ?? s.reserved;
+      s.occupant = null;
+      s.reserved = null;
+      if (!c || !c.alive) continue;
+      n++;
+      c.law.phase = 'releasing';
+      c.law.since = this.time;
+      c.law.cell = -1;
+      c.law.wanted = true;
+      if (c.isPlayer) {
+        this.restoreBrain(c);
+        this.clear(c);
+        c.law.wanted = true;
+      }
+    }
+    cell.brokenUntil = this.time + LAW.brokenDoor;
+    if (cell.door) {
+      this.doors.setLocked(cell.door, false);
+      this.doors.open(cell.door);
+    }
+    return n;
+  }
+
+  /** Кто сидит в клетках у Администратора. */
+  caged(): Character[] {
+    const out: Character[] = [];
+    for (const cell of this.cells) if (cell.cage) for (const s of cell.slots) if (s.occupant) out.push(s.occupant);
+    return out;
   }
 
   /** Ячейка НавГрида для точки перед камерой. */

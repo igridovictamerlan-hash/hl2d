@@ -9,7 +9,7 @@ export const AI = {
      * граждан — большинство населения;
      * армия сопротивления — в лагере (config/roster.ts), партизаны в схроне, пара подпольщиков.
      */
-    cpPerCheckpoint: 5, rebels: 2, admin: 1,
+    cpPerCheckpoint: 5, rebels: 0, admin: 1,
     /** ГСР по профессиям (config/professions.ts): повара на раздаче, фасовщик, курьер, уборщики, медик. */
     cwuProfessions: ['cook', 'cook', 'packer', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic'] as const,
     /** Доля воров и отбросов среди граждан. */

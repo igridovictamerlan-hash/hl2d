@@ -1,3 +1,4 @@
+import type { Cell } from '../systems/LawSystem';
 import type { View } from '../core/Camera';
 import type { CombatSystem } from '../systems/CombatSystem';
 import type { LaborSystem } from '../systems/LaborSystem';
@@ -312,6 +313,34 @@ export class EffectsRenderer {
       ctx.beginPath();
       ctx.arc(hx, hy, 3 * s, 0, Math.PI * 2);
       ctx.fill();
+    }
+  }
+
+  /** Клетки у Администратора: рама и прутья поверх пленного; вскрытая — без передней стенки. */
+  drawCages(ctx: CanvasRenderingContext2D, v: View, cells: readonly Cell[], now: number): void {
+    const s = v.scale;
+    const C = RENDER.effects.cage;
+    const h = (C.size / 2) * s;
+    for (let k = 0; k < cells.length; k++) {
+      const c = cells[k];
+      if (!c.cage) continue;
+      const x = Math.round((c.x - v.left) * s);
+      const y = Math.round((c.y - v.top) * s);
+      if (x < -h * 2 || y < -h * 2 || x > v.width + h * 2 || y > v.height + h * 2) continue;
+      const open = c.brokenUntil > now;
+      ctx.fillStyle = C.floor;
+      ctx.fillRect(x - h, y - h, h * 2, h * 2);
+      ctx.fillStyle = C.bar;
+      const w = Math.max(1, s);
+      for (let bx = -h; bx <= h; bx += C.step * s) {
+        ctx.fillRect(x + bx - w / 2, y - h, w, h * 2 * (open ? 0.35 : 1));
+      }
+      ctx.fillStyle = C.frame;
+      const t = Math.max(1.5, 2 * s);
+      ctx.fillRect(x - h, y - h, h * 2, t);
+      ctx.fillRect(x - h, y - h, t, h * 2);
+      ctx.fillRect(x + h - t, y - h, t, h * 2);
+      if (!open) ctx.fillRect(x - h, y + h - t, h * 2, t);
     }
   }
 

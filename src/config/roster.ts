@@ -7,22 +7,31 @@ import type { ProfessionId } from './professions';
  * в схроне в канализации, жители — в жилых кварталах) и возвращается к своему делу.
  */
 export const ROSTER = {
-  /** Армия сопротивления в лагере: глава, ветераны, солдаты, пиротехник, подрывник. */
+  /**
+   * Армия сопротивления в лагере (юниты и HP — config/factions.ts, REBEL_RANKS): глава Патрик,
+   * ветераны, ветераны-медики, солдаты, новобранцы, пиротехник, подрывник.
+   */
   army: [
     ['rebel_leader', 1],
-    ['veteran', 4],
-    ['rebel_soldier', 10],
+    ['veteran', 3],
+    ['rebel_medic', 2],
+    ['rebel_soldier', 6],
+    ['rebel_recruit', 4],
     ['pyro', 1],
     ['demolitionist', 1],
   ] as [ProfessionId, number][],
-  /** Спецотряд HYDRA (снаряжение как у SAS): помогает главе штурмовать точки. */
+  /** Имя главы восстания (NPC). */
+  leaderName: 'Патрик',
+  /** Спецотряд HYDRA (красные ники): коммандос (один на сервер), сержанты, RCT, снайпер — при главе. */
   hydra: [
-    ['hydra_captain', 1],
-    ['hydra_officer', 2],
-    ['hydra_soldier', 3],
+    ['commando', 1],
+    ['hydra_sergeant', 2],
+    ['hydra_rct', 3],
+    ['hydra_sniper', 1],
   ] as [ProfessionId, number][],
-  /** Партизаны в схроне под городом (ходят люками). */
-  partisans: 3,
+  /** Партизаны в схроне под городом (ходят люками): подпольщики и спецагент. */
+  partisans: 2,
+  agents: 1,
   /** OTA: командир OTA.KING и бойцы OTA.ALPHA (часть — с дробовиками). Воюют только на КПП. */
   ota: [
     ['ota_king', 1],
@@ -73,28 +82,14 @@ export const ROSTER = {
     leader: 50,
     hydra: 35,
     partisan: 40,
+    /** Спецагент — дольше: он один. */
+    agent: 90,
     trader: 60,
   },
-  /** Здоровье по профессии (остальным — CHARACTER.maxHealth). */
+  /** Здоровье по профессии (ГО — по юниту, сопротивление — REBEL_RANKS; остальным — CHARACTER.maxHealth). */
   hp: {
-    rebel_leader: 250,
-    veteran: 140,
-    demolitionist: 110,
-    hydra_captain: 170,
-    hydra_officer: 150,
-    hydra_soldier: 140,
     ota_alpha: 150,
     ota_king: 220,
-  } as Partial<Record<ProfessionId, number>>,
-  /** Ранг по профессии (цвет формы). */
-  rank: {
-    rebel_leader: 4,
-    veteran: 3,
-    demolitionist: 2,
-    pyro: 1,
-    hydra_captain: 4,
-    hydra_officer: 3,
-    hydra_soldier: 2,
   } as Partial<Record<ProfessionId, number>>,
 } as const;
 

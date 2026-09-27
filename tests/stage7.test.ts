@@ -59,11 +59,13 @@ describe('постоянный состав', () => {
     const army = sim.war.command.army;
     const count = (prof: string) => army.filter((c) => c.profession === prof).length;
     for (const [prof, n] of [...ROSTER.army, ...ROSTER.hydra]) expect(count(prof)).toBe(n);
-    expect(sim.war.command.leader?.maxHealth).toBe(ROSTER.hp.rebel_leader);
+    expect(sim.war.command.leader?.maxHealth).toBe(250);
+    expect(sim.war.command.leader?.name).toBe(ROSTER.leaderName);
     for (const c of army) expect(zoneKind(sim, c.x, c.y)).toBe('rebel_camp');
     expect(sim.war.ota).toHaveLength(ROSTER.ota.reduce((n, [, k]) => n + k, 0));
     expect(sim.insurgency.garrison.every((c) => c.profession === 'partisan')).toBe(true);
     expect(sim.insurgency.garrison).toHaveLength(ROSTER.partisans);
+    expect(sim.insurgency.agent?.profession).toBe('spec_agent');
     // У всех NPC — роль (по ней возвращаются после гибели).
     expect(sim.entities.list.filter((c) => !c.isPlayer && !c.role && c.profession !== 'cremator')).toHaveLength(0);
   });

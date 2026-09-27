@@ -52,7 +52,10 @@ export function createCharacter(
   isPlayer = false,
   rank = 0,
 ): Character {
-  const c = new Character({ id: entities.allocId(), faction, name: nameFor(rng, faction), cid: newCid(rng), x, y, isPlayer });
+  // Номера ГО и OTA не повторяются (по ним узнают в журнале и возвращают после гибели).
+  let name = nameFor(rng, faction);
+  if (faction === 'cp' || faction === 'ota') for (let k = 0; k < 20 && entities.list.some((o) => o.name === name); k++) name = nameFor(rng, faction);
+  const c = new Character({ id: entities.allocId(), faction, name, cid: newCid(rng), x, y, isPlayer });
   c.rank = rank;
   c.profession = DEFAULT_PROFESSION[faction] ?? null;
   c.money = CHARACTER.roleMoney[faction] ?? CHARACTER.startMoney;

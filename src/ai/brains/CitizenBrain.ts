@@ -24,6 +24,7 @@ import type { Barrel, Bench, CardTable, NoticeBoard } from '../../systems/Street
 import { FAMILIES } from '../../config/families';
 import { lineOfSight } from '../../world/visibility';
 import { CWU_HQ } from '../../config/cwuHq';
+import { PARTISANS } from '../../config/underground';
 
 /** Работа по профессии (ГСР, вортигонт, отброс общества). */
 type Job =
@@ -105,6 +106,9 @@ export class CitizenBrain implements Brain {
   glanceUntil = 0;
   glanceDir = 0;
   glanceGoal = -1;
+  /** Бунт (спецагент поднял): вокруг какой точки и до какого времени. */
+  riotAt: Vec2 | null = null;
+  riotUntil = 0;
 
   constructor(
     public self: Character,
@@ -117,7 +121,7 @@ export class CitizenBrain implements Brain {
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
-    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE], 'idle');
+    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
   }
@@ -161,6 +165,21 @@ export class CitizenBrain implements Brain {
     this.fsm.update(dt);
     this.mover.update(self, ctx, dt);
     if (!SELF_FACING.has(this.fsm.current) && this.glanceUntil <= ctx.law.now) faceMovement(self, ctx, dt);
+  }
+
+  /**
+   * Втянуть в бунт: бегать вокруг center и кричать лозунги до until (для ГО — нарушение 'riot').
+   * Занятых делом, задержанных и лоялистов не втягивает.
+   */
+  startRiot(self: Character, center: Vec2, until: number): boolean {
+    const cur = this.fsm.current;
+    if (this.job || self.law.phase !== 'none' || cur === 'panic' || cur === 'shelter' || cur === 'queue') return false;
+    if (self.loyalty >= PARTISANS.riot.maxLoyalty) return false;
+    this.riotAt = center;
+    this.riotUntil = until;
+    self.law.riotUntil = until;
+    this.fsm.change('riot');
+    return true;
   }
 
   /** Житель, у которого есть уличная жизнь (не вортигонт, не на работе). */
@@ -968,6 +987,34 @@ const SHELTER: State<CitizenBrain> = {
   exit(b) {
     b.mover.speed = b.walkSpeed;
     b.ctx.war.releaseShelter(b.self);
+  },
+};
+
+/** Бунт: бегать вокруг точки, кричать лозунги (PARTISANS.riot). */
+const RIOT: State<CitizenBrain> = {
+  name: 'riot',
+  enter(b) {
+    b.mover.speed = CHARACTER.walkSpeed * PARTISANS.riot.speed;
+    b.mover.stop();
+  },
+  update(b, dt) {
+    const { ctx, self } = b;
+    const now = ctx.law.now;
+    if (now >= b.riotUntil || !b.riotAt) {
+      b.idleLeft = ctx.rng.range(1, 3);
+      return 'idle';
+    }
+    const st = b.mover.status;
+    if (st !== 'moving' && st !== 'pending') {
+      const a = randomAnchorAround(b.riotAt, ctx, 0, PARTISANS.riot.spread, b.avoid);
+      if (a >= 0) b.mover.goTo(self, ctx, a);
+    }
+    if (ctx.rng.chance(PARTISANS.riot.shoutPerSec * dt) && !(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(PARTISANS.lines.riot), now, 2);
+  },
+  exit(b) {
+    b.mover.speed = b.walkSpeed;
+    b.riotAt = null;
+    b.self.law.riotUntil = 0;
   },
 };
 

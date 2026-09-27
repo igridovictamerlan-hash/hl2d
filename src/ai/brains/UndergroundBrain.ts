@@ -4,21 +4,22 @@ import type { Character } from '../../entities/Character';
 import type { Vec2 } from '../../core/math';
 import type { RepairSpot } from '../../systems/EconomySystem';
 import { Mover } from '../Mover';
+import { complyWithCp } from '../comply';
 import { Gunner } from '../Gunner';
 import { HatchTravel } from '../HatchTravel';
 import { faceMovement, faceTowards } from '../facing';
 import { randomAnchorInZone } from '../destinations';
 import { COMBAT } from '../../config/combat';
 import { CHARACTER } from '../../config/entities';
-import { INSURGENCY } from '../../config/underground';
+import { INSURGENCY, PARTISANS } from '../../config/underground';
 
-export type OpMode = 'base' | 'sabotage' | 'ambush' | 'return' | 'outing';
+export type OpMode = 'base' | 'sabotage' | 'arm' | 'return' | 'outing';
 
 /**
  * Боец убежища сопротивления в канализации.
  *  base — бродит по убежищу, защищает его;
  *  sabotage — через люк к узлу Альянса, возится INSURGENCY.sabotageTime с, уходит;
- *  ambush — через люк к патрулю ГО, бой INSURGENCY.ambushFight с, отход;
+ *  arm — через люк к бандиту, отдать ствол (он пойдёт на ГО — чужими руками), назад; огня не открывает;
  *  return — к ближайшему люку и вниз, в убежище (раненый — сразу сюда).
  */
 export class UndergroundBrain implements Brain {
@@ -26,11 +27,10 @@ export class UndergroundBrain implements Brain {
   readonly gunner: Gunner;
   readonly travel = new HatchTravel();
   mode: OpMode = 'base';
-  /** Цель операции: узел или сотрудник ГО. */
+  /** Цель операции: узел Альянса или бандит, которому несут ствол. */
   node: RepairSpot | null = null;
   prey: Character | null = null;
   private work = 0;
-  private fightUntil = 0;
   private idle = 0;
   private repath = 0;
   private outingWait = 0;
@@ -73,12 +73,12 @@ export class UndergroundBrain implements Brain {
     this.travel.start(self, ctx, this.mover, to);
   }
 
-  startAmbush(self: Character, ctx: AiContext, prey: Character): void {
-    this.mode = 'ambush';
-    this.prey = prey;
-    this.fightUntil = 0;
-    this.mover.speed = CHARACTER.walkSpeed * 1.1;
-    this.travel.start(self, ctx, this.mover, { x: prey.x, y: prey.y });
+  /** Отнести ствол бандиту (партизан скрытен: не стреляет, пока не ранят). */
+  startArm(self: Character, ctx: AiContext, bandit: Character): void {
+    this.mode = 'arm';
+    this.prey = bandit;
+    this.mover.speed = CHARACTER.walkSpeed;
+    this.travel.start(self, ctx, this.mover, { x: bandit.x, y: bandit.y });
   }
 
   private goHome(self: Character, ctx: AiContext): void {
@@ -95,8 +95,11 @@ export class UndergroundBrain implements Brain {
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
+    if (self.disguised && complyWithCp(self, this.mover, dt)) return;
     if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
+    // Под личиной ствол в кармане, пока не стреляет.
+    if (self.disguised && !this.gunner.target && self.weapon) ctx.combat.equip(self, null);
     const now = ctx.combat.now;
     this.repath -= dt;
     // Раненый — отход (если уже не в убежище).
@@ -141,21 +144,25 @@ export class UndergroundBrain implements Brain {
         }
         break;
       }
-      case 'ambush': {
-        const prey = this.prey;
-        if (fighting && this.gunner.target) {
-          if (this.fightUntil === 0) this.fightUntil = now + ctx.rng.range(INSURGENCY.ambushFight[0], INSURGENCY.ambushFight[1]);
-          if (!this.travel.climbing) this.mover.stop();
-        } else {
-          const st = this.travel.update(self, ctx, this.mover, dt);
-          // Поднялись в город: идём на патрульного (он ходит — цель обновляется).
-          if (prey?.alive && ctx.map.levelAt(self.x, self.y) === 'city' && this.repath <= 0 && !this.travel.climbing) {
-            this.repath = 2;
-            this.travel.start(self, ctx, this.mover, { x: prey.x, y: prey.y });
-          }
-          if (st === 'failed' || (!prey?.alive && this.fightUntil === 0 && ctx.map.levelAt(self.x, self.y) === 'city')) this.goHome(self, ctx);
+      case 'arm': {
+        const b = this.prey;
+        const hurt = now - self.lastHurt < INSURGENCY.returnFireFor;
+        this.gunner.holdFire = !hurt;
+        if (!b || !b.alive || b.law.phase !== 'none' || !ctx.insurgency.armable(b)) {
+          this.goHome(self, ctx);
+          break;
         }
-        if (this.fightUntil > 0 && (now > this.fightUntil || (!fighting && !prey?.alive))) this.goHome(self, ctx);
+        const st = this.travel.update(self, ctx, this.mover, dt);
+        const up = ctx.map.levelAt(self.x, self.y) === 'city';
+        if (up && Math.hypot(b.x - self.x, b.y - self.y) < PARTISANS.arm.reach) {
+          this.travel.stop(this.mover);
+          ctx.insurgency.armBandit(self, b);
+          this.goHome(self, ctx);
+        } else if (up && this.repath <= 0 && !this.travel.climbing) {
+          // Бандит ходит — цель обновляется.
+          this.repath = 2;
+          this.travel.start(self, ctx, this.mover, { x: b.x, y: b.y });
+        } else if (st === 'failed') this.goHome(self, ctx);
         break;
       }
       case 'outing': {

@@ -22,7 +22,8 @@ export class RoleMenu {
       .filter((id) => FACTIONS[id].selectable)
       .map((id) => {
         const f = FACTIONS[id];
-        const ranks = f.ranks
+        // У сопротивления юнит — это профессия (ранг выбирать не нужно).
+        const ranks = f.ranks && id !== 'rebel'
           ? `<label class="role-rank">${id === 'cp' ? 'Юнит' : 'Ранг'} <select id="rank-${id}">${f.ranks
               .map((r, i) => `<option value="${i}">${r.name}</option>`)
               .join('')}</select></label>`

@@ -6,7 +6,7 @@ import { AI } from '../config/ai';
 import { randomAnchorAround, randomAnchorInZone, zoneIds } from '../ai/destinations';
 import { dist } from '../core/math';
 import { KITS, ITEMS, type WeaponId } from '../config/items';
-import { cpUnit, CP_UNIT, type CpUnitId } from '../config/factions';
+import { cpUnit, CP_UNIT, rebelUnitOf, type CpUnitId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import { ROSTER } from '../config/roster';
 import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
@@ -60,14 +60,13 @@ function randomRank(ctx: AiContext, faction: FactionId, maxRank: number): number
 
 /** Роль бойца армии сопротивления по профессии (глава, HYDRA — свои виды). */
 export function armySpec(profession: ProfessionId, kit: string, rank: number): RoleSpec {
-  const kind: RoleKind = profession === 'rebel_leader' ? 'leader' : profession.startsWith('hydra') ? 'hydra' : 'army';
+  const kind: RoleKind = profession === 'rebel_leader' ? 'leader' : profession.startsWith('hydra') || profession === 'commando' ? 'hydra' : 'army';
   return { kind, faction: 'rebel', profession, division: null, rank, kit };
 }
 
 /** Набор бойца армии по профессии. */
-function armyKit(profession: ProfessionId, ctx: AiContext): string {
-  if (profession === 'rebel_soldier') return ctx.rng.chance(0.3) ? 'rebel_rifleman' : ctx.rng.chance(0.2) ? 'rebel_shotgunner' : 'rebel_raider';
-  return PROFESSIONS[profession].kit ?? 'rebel_raider';
+export function armyKit(profession: ProfessionId): string {
+  return PROFESSIONS[profession].kit ?? 'rebel_soldier';
 }
 
 /**
@@ -157,15 +156,19 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     if (at) put(cpSpec('post', 'rct', { post: at, facing: ctx.rng.range(0, Math.PI * 2) }), at);
   }
   // Патрульные группы: ведущий PCU.02 или сержант PCU.01, за ним PCU.03; следователи SU.01 — в группах.
+  const squadAt: ({ x: number; y: number } | null)[] = [];
   for (let s = 0; s < C.squads; s++) {
     const at = freeSpot(ctx, anywhere, 0, 110, patrolAvoid) ?? postSpot(plaza, 3, 12, cityAvoid);
+    squadAt.push(at);
     if (!at) continue;
     put(cpSpec('squad', s % 2 === 0 ? 'pcu2' : 'pcu1', { squad: s, lead: true }), at);
     for (let k = 0; k < C.squadFollowers; k++) put(cpSpec('squad', 'pcu3', { squad: s, lead: false }), freeSpot(ctx, at, 0, 3, patrolAvoid, 24));
   }
   for (let k = 0; k < C.investigators; k++) {
     const s = k % Math.max(1, C.squads);
-    put(cpSpec('squad', 'su1', { squad: s, lead: false }), freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
+    // Следователь — сразу при своей группе.
+    const at = squadAt[s];
+    put(cpSpec('squad', 'su1', { squad: s, lead: false }), at ? freeSpot(ctx, at, 0, 4, patrolAvoid, 24) : freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
   }
   for (let k = 0; k < C.technicians; k++) put(cpSpec('tech', 'su2'), freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
   // Командование в Нексусе: офицеры на плацу, инспекторы у канцелярии, охрана и глава — у кабинета.
@@ -212,7 +215,10 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const outsideCamp = new Set(ctx.map.zones.filter((z) => z.kind !== 'rebel_camp').map((z) => z.id));
     for (const [prof, n] of [...ROSTER.army, ...ROSTER.hydra]) {
       for (let k = 0; k < n; k++) {
-        put(armySpec(prof, armyKit(prof, ctx), ROSTER.rank[prof] ?? randomRank(ctx, 'rebel', 2)), freeSpot(ctx, camp, 0, 9, outsideCamp, 20));
+        const spec = armySpec(prof, armyKit(prof), rebelUnitOf(prof)?.rank ?? 0);
+        // Глава восстания — Патрик.
+        if (prof === 'rebel_leader') spec.name = ROSTER.leaderName;
+        put(spec, freeSpot(ctx, camp, 0, 9, outsideCamp, 20));
       }
     }
   }
@@ -230,7 +236,7 @@ export function roleSpawn(ctx: AiContext, faction: FactionId, profession: Profes
   if (faction === 'cp') {
     const desk = poiWorld(ctx, 'nexus_desk');
     if (desk) spot = freeSpot(ctx, desk, 1, 4, none, 30);
-  } else if (faction === 'rebel' && profession === 'partisan' && ctx.insurgency?.base) {
+  } else if (faction === 'rebel' && (profession === 'partisan' || profession === 'spec_agent') && ctx.insurgency?.base) {
     // Партизан начинает в схроне в канализации.
     spot = freeSpot(ctx, ctx.insurgency.base, 0, 6, none, 30);
   } else if (faction === 'rebel' && poiWorld(ctx, 'rebel_camp')) {

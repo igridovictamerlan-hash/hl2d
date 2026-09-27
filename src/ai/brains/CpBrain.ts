@@ -73,6 +73,8 @@ export class CpBrain implements Brain {
   readonly fsm: StateMachine<CpBrain>;
   readonly guardPost: Vec2 | null;
   readonly guardFacing: number;
+  /** Рейд на логово сопротивления: точка у лагеря вместо своего поста (InsurgencySystem.raid). */
+  raidPost: Vec2 | null = null;
   readonly front: number;
   readonly medicStation: Vec2 | null;
   target: Character | null = null;
@@ -317,8 +319,10 @@ export class CpBrain implements Brain {
     } else {
       // Глава и свободная охрана — у кабинета Администратора; глава на выходе — у цели выхода.
       const tour = this.duty === 'epu' ? ctx.security?.tourSpot : null;
+      // Глава: в клетке у Администратора сидит партизан — допрос (InsurgencySystem).
+      const cage = this.duty === 'epu' && !tour ? ctx.law.cells.find((c) => c.cage && c.slots.some((s) => s.occupant)) : null;
       const office = poiWorld(ctx, 'nexus_desk');
-      this.dutySpot = tour ?? (office ? { x: office.x + ctx.rng.range(-24, 24), y: office.y + ctx.rng.range(18, 40) } : null);
+      this.dutySpot = tour ?? (cage ? { x: cage.frontX, y: cage.frontY } : office ? { x: office.x + ctx.rng.range(-24, 24), y: office.y + ctx.rng.range(18, 40) } : null);
       if (tour) this.dutyLine = ctx.rng.pick(SECURITY.lines.tour);
       this.dutyUntil = now + ctx.rng.range(D.office[0], D.office[1]);
     }
@@ -522,8 +526,13 @@ const POST: State<CpBrain> = {
 };
 
 /** Пост далеко (подкрепление из Цитадели) — к нему бегом. */
+/** Где стоять часовому: на рейде — у лагеря, иначе — на своём посту. */
+function postOf(b: CpBrain): Vec2 {
+  return b.raidPost ?? b.guardPost!;
+}
+
 function guardSpeed(b: CpBrain): number {
-  const p = b.guardPost!;
+  const p = postOf(b);
   return dist(b.self.x, b.self.y, p.x, p.y) > LAW.cpRunToPost ? LAW.cpRunSpeed : LAW.cpWalkSpeed;
 }
 
@@ -531,12 +540,12 @@ const GUARD: State<CpBrain> = {
   name: 'guard',
   enter(b) {
     b.mover.speed = guardSpeed(b);
-    const p = b.guardPost!;
+    const p = postOf(b);
     const a = b.ctx.nav.nearestWalkable(p.x, p.y, 3);
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
   },
   update(b, dt) {
-    const p = b.guardPost!;
+    const p = postOf(b);
     if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, p.x, p.y) < 12) {
       b.mover.stop();
       turnTowards(b.self, b.guardFacing, dt, 3);
@@ -692,8 +701,9 @@ const FIGHT: State<CpBrain> = {
   update(b) {
     if (!b.gunner.target) return b.idleState;
     // Отошёл от поста — вернуться на пост (там укрытие).
-    if (b.guardPost && dist(b.self.x, b.self.y, b.guardPost.x, b.guardPost.y) > 24 && b.mover.status !== 'moving' && b.mover.status !== 'pending') {
-      const a = b.ctx.nav.nearestWalkable(b.guardPost.x, b.guardPost.y, 3);
+    const gp = b.guardPost ? postOf(b) : null;
+    if (gp && dist(b.self.x, b.self.y, gp.x, gp.y) > 24 && b.mover.status !== 'moving' && b.mover.status !== 'pending') {
+      const a = b.ctx.nav.nearestWalkable(gp.x, gp.y, 3);
       if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
     }
   },

@@ -314,7 +314,7 @@ export class MapView {
       for (const p of poi('shop_counter')) dot(p.x, p.y, 2.5, C.shop);
       for (const p of poi('cwu_hire')) dot(p.x, p.y, 3, C.cwuHq);
       for (const n of economy.nodes) if (n.broken) dot(n.x, n.y, 2.5, C.nodeBroken);
-      for (const h of map.hatches) if (player.profession === 'partisan' || this.hatches.has(h.id)) dot(h.city.x, h.city.y, 2, C.hatch, true);
+      for (const h of map.hatches) if (player.profession === 'partisan' || player.profession === 'spec_agent' || this.hatches.has(h.id)) dot(h.city.x, h.city.y, 2, C.hatch, true);
       // Лагерь сопротивления в пустоши — своим.
       if (player.faction === 'rebel') for (const p of poi('rebel_camp')) dot(p.x, p.y, 4, C.base);
       for (const f of war.fronts) {

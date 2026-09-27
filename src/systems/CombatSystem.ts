@@ -61,6 +61,8 @@ export interface Corpse {
   name: string;
   until: number;
   loot: Stack[];
+  /** Спецагент снял форму (переоделся в убитого) — второй раз нельзя. */
+  stripped?: boolean;
 }
 
 /** Граната в полёте или на земле. */
@@ -182,6 +184,7 @@ export class CombatSystem {
   reveal(c: Character, why: string): void {
     if (!c.disguised) return;
     c.disguised = false;
+    c.cover = null;
     if (c.isPlayer) this.bus.emit('log', { text: `Маскировка раскрыта: вы ${why}. Теперь ГО узнаёт вас в лицо.`, kind: 'law' });
   }
 

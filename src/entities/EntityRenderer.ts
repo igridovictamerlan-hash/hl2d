@@ -12,17 +12,26 @@ import { isWalking } from './gait';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
+import { apparentFaction, displayName } from './cover';
 
 /** Подпись роли: ГО и повстанцы — с рангом, жители — с номером CID. */
 export function roleLabel(c: Character): string {
-  // Партизан в маскировке подписан как гражданин.
-  if (c.disguised) return `${FACTIONS.citizen.role} · #${c.cid}`;
+  // Партизан в маскировке подписан по личине: гражданин, рабочий ГСР, сотрудник ГО или OTA.
+  if (c.disguised) {
+    const cv = c.cover;
+    if (!cv || cv.faction === 'citizen') return `${FACTIONS.citizen.role} · #${c.cid}`;
+    const cr = rankOf(cv.faction, cv.rank);
+    const cp = cv.profession ? PROFESSIONS[cv.profession] : null;
+    if (cv.faction === 'cp' && cr) return `${FACTIONS.cp.role} · ${cr.short}`;
+    return cp ? cp.name : `${FACTIONS[cv.faction].role} · #${c.cid}`;
+  }
   const f = FACTIONS[c.faction];
   const r = rankOf(c.faction, c.rank);
   const prof = c.profession ? PROFESSIONS[c.profession] : null;
   // Профессия вместо названия фракции там, где она своя (не «Гражданин»/«Солдат»).
   const role = prof && prof.id !== DEFAULT_PROFESSION[c.faction] ? prof.name : f.role;
-  let s = r ? `${role} · ${r.short}` : c.faction === 'admin' || c.faction === 'vort' ? role : `${role} · #${c.cid}`;
+  // Сопротивление: юнит и есть роль («Ветеран», «Сержант HYDRA»).
+  let s = c.faction === 'rebel' && r ? r.name : r ? `${role} · ${r.short}` : c.faction === 'admin' || c.faction === 'vort' ? role : `${role} · #${c.cid}`;
   const phase = c.law.phase;
   if (phase === 'cuffed' || phase === 'entering') s += ' · задержан';
   else if (phase === 'jailed') s += ' · в КПЗ';
@@ -59,12 +68,12 @@ export class EntityRenderer {
       ctx.globalAlpha = c.visible ? 1 : 0.4;
       // Сторона — по походке (идёт — по ходу, боком — профилем; целится или стоит — куда смотрит).
       const dir = c.bodyDir;
-      // Партизан в маскировке выглядит как гражданин.
-      const faction = c.disguised ? 'citizen' : c.faction;
-      const rank = c.disguised ? 0 : c.rank;
+      // Партизан в маскировке выглядит по личине (гражданин, ГСР, убитый сотрудник, OTA).
+      const faction = apparentFaction(c);
+      const rank = c.disguised ? c.cover?.rank ?? 0 : c.rank;
       const loyalist = isLoyalistUniform(c);
       const fam = !c.disguised ? this.families?.of(c) ?? null : null;
-      const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? null : c.profession, kin: fam?.seed, band: fam?.color };
+      const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: fam?.color };
       const reloading = c.reloadUntil > now;
       if (c.isPlayer) {
         // Выделение игрока — эллипс у ног.
@@ -187,9 +196,11 @@ export class EntityRenderer {
       ctx.strokeStyle = E.labelShadow;
       ctx.font = scaleFont(E.nameFont, dpr);
       const ny = feet + 12 * dpr;
-      ctx.strokeText(c.name, x, ny);
-      ctx.fillStyle = c.isPlayer ? E.playerNameColor : E.nameColor;
-      ctx.fillText(c.name, x, ny);
+      const shown = displayName(c);
+      ctx.strokeText(shown, x, ny);
+      // Ники сопротивления: армия — жёлтые, глава и HYDRA — красные (партизан в маскировке — как все).
+      ctx.fillStyle = c.faction === 'rebel' && !c.disguised && r ? r.color : c.isPlayer ? E.playerNameColor : E.nameColor;
+      ctx.fillText(shown, x, ny);
       ctx.font = scaleFont(E.roleFont, dpr);
       const fam = !c.disguised ? this.families?.of(c) ?? null : null;
       const role = fam ? `${roleLabel(c)} · ${familyTitle(fam.surname)}` : roleLabel(c);

@@ -11,7 +11,8 @@ import { LAW } from '../config/law';
 import { FACTIONS, cpHas, cpUnit } from '../config/factions';
 import { poiWorld, cpKit } from '../systems/Population';
 import { WEAPONS, KITS, ITEMS } from '../config/items';
-import { UNDERGROUND, INSURGENCY } from '../config/underground';
+import { UNDERGROUND, INSURGENCY, PARTISANS } from '../config/underground';
+import type { Cell } from '../systems/LawSystem';
 import { ECONOMY } from '../config/economy';
 import { COMBAT } from '../config/combat';
 import type { RepairSpot } from '../systems/EconomySystem';
@@ -43,7 +44,9 @@ export class PlayerController {
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
   private packing = false;
-  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse } | null = null;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'dressOta' | 'break'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell } | null = null;
+  /** Откат бунта у игрока-спецагента (G). */
+  private riotCooldown = 0;
   private healCooldown = 0;
 
   constructor(
@@ -97,6 +100,7 @@ export class PlayerController {
     this.playerRef = p;
     const law = p.law;
     this.healCooldown -= dt;
+    this.riotCooldown -= dt;
     if (!p.alive) {
       p.wantX = p.wantY = 0;
       return;
@@ -267,6 +271,32 @@ export class PlayerController {
       return this.say('Вы примкнули к сопротивлению! Оружие выдали — держите КПП.', 'world');
     }
     const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
+    // Спецагент: форма с убитого сотрудника Альянса, OTA из шкафа казармы, взлом камеры или клетки.
+    if (p.faction === 'rebel' && p.profession === 'spec_agent') {
+      const A = PARTISANS.agent;
+      if (corpse && (corpse.faction === 'cp' || corpse.faction === 'ota') && !corpse.stripped) {
+        this.task = { kind: 'dress', x: corpse.x, y: corpse.y, left: A.dress, total: A.dress, corpse };
+        return this.say(`Снимаете форму с тела: ${corpse.name}…`, 'world');
+      }
+      const locker = ctx.map.poisOf('ota_spot').map((_, k) => poiWorld(ctx, 'ota_spot', k)).find((q) => d(q) < REACH + 8);
+      if (locker) {
+        this.task = { kind: 'dressOta', x: locker.x, y: locker.y, left: A.dress, total: A.dress };
+        return this.say('Шкаф OTA: переодеваетесь…', 'world');
+      }
+      const cell = ctx.law.cells.find((c) => ctx.law.occupants(c).length > 0 && (d({ x: c.frontX, y: c.frontY }) < REACH + 8 || d(c) < REACH + 8));
+      if (cell) {
+        this.task = { kind: 'break', x: p.x, y: p.y, left: A.breakTime, total: A.breakTime, cell };
+        return this.say(cell.cage ? 'Вскрываете клетку…' : 'Выбиваете дверь камеры…', 'world');
+      }
+    }
+    // Партизан: передать ствол бандиту — пусть ГО получит своё чужими руками.
+    if (p.faction === 'rebel' && p.profession === 'partisan') {
+      const b = this.facingTarget(p, ctx, PARTISANS.arm.reach + 8, (o) => ctx.insurgency.armable(o));
+      if (b) {
+        ctx.insurgency.armBandit(p, b);
+        return this.say(`Вы передали ствол бандиту ${b.name}. Он пойдёт на ГО.`, 'world');
+      }
+    }
     // Наблюдатель OBS сначала сканирует тело (найти убийцу), потом можно обыскать.
     if (corpse && cpHas(p, 'investigate') && !corpse.scanned) {
       const T = CP_UNITS.obs.scanTime;
@@ -435,6 +465,19 @@ export class PlayerController {
       ctx.labor.releaseDesk(p);
       return this.say(`Отчёт сдан: +${LABOR.paperwork.pay} токенов.`, 'world');
     }
+    if (t.kind === 'dress' && t.corpse) {
+      if (t.corpse.stripped) return this.say('С тела уже сняли форму.');
+      ctx.insurgency.dressAs(p, t.corpse);
+      return this.say(`Вы в форме: ${t.corpse.name}. Для ГО — свой; выстрел или проверка выдадут.`, 'world');
+    }
+    if (t.kind === 'dressOta') {
+      ctx.insurgency.dressAsOta(p);
+      return this.say('Вы в броне OTA. Для ГО — свой; выстрел выдаст.', 'world');
+    }
+    if (t.kind === 'break' && t.cell) {
+      const n = ctx.insurgency.jailbreak(p, t.cell);
+      return this.say(n > 0 ? `Камера вскрыта: сбежали ${n}. Уходите!` : 'В камере уже никого.', 'world');
+    }
     if (t.kind === 'hack') {
       const n = ctx.crime.hackDispenser(p);
       return this.say(n > 0 ? `Раздатчик вскрыт: +${n} рационов. Уходите!` : 'Склад будки пуст — взлом впустую.', 'world');
@@ -488,16 +531,26 @@ export class PlayerController {
       const err = ctx.war.command.shout(p);
       return this.say(err ?? 'Клич! Бойцы рядом идут за вами.', err ? 'system' : 'world');
     }
-    // Партизан: маскировка под гражданина (без оружия в руках).
+    // Спецагент: бунт — горожане вокруг выходят на улицу (откат).
+    if (p.profession === 'spec_agent' && p.faction === 'rebel') {
+      if (this.riotCooldown > 0) return this.say(`Бунт готовится… ещё ${Math.ceil(this.riotCooldown)} с.`);
+      if (ctx.map.levelAt(p.x, p.y) !== 'city') return this.say('Бунт — в городе, среди горожан.');
+      const n = ctx.insurgency.startRiot(p, p.x, p.y);
+      if (n <= 0) return this.say('Рядом некого поднять — нужны горожане (не лоялисты).');
+      this.riotCooldown = PARTISANS.riot.cooldown;
+      return this.say(`Бунт! Поднялись ${n} горожан. ГО будет занято ими.`, 'world');
+    }
+    // Партизан: маскировка под гражданина или ГСР (без оружия в руках).
     if (p.profession === 'partisan') {
       if (p.disguised) {
         p.disguised = false;
+        p.cover = null;
         return this.say('Маскировка снята.', 'world');
       }
       if (p.weapon) return this.say('Уберите оружие (H), чтобы надеть маскировку.');
       if (ctx.combat.now - p.lastHurt < 10 || p.hostile) return this.say('Вас только что видели в бою — маскировка не поможет.');
-      p.disguised = true;
-      return this.say('Вы в маскировке: для ГО вы обычный гражданин. Оружие в руках или проверка CID выдадут вас.', 'world');
+      ctx.insurgency.giveCover(p);
+      return this.say(`Вы в маскировке: для ГО вы ${p.cover?.faction === 'cwu' ? 'рабочий ГСР' : 'обычный гражданин'}. Оружие в руках выдаст, проверка CID — может.`, 'world');
     }
     if (p.faction !== 'cp') return this.say('Умение (G) есть у ГО и у некоторых профессий (медики, партизан).');
     // SU.02 в городе (не у раненых) — сканер; иначе — лечение.

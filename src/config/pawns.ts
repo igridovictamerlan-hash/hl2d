@@ -63,7 +63,8 @@ export const PAWN = {
   outfits: {
     citizen: { base: 'rank', head: 'hair', vest: false, collar: '#4f5a66', zip: true },
     cwu: { base: 'rank', head: 'cap', vest: false, cap: '#c9a53e', armband: '#8a8f96' },
-    rebel: { base: 'rank', armor: '#5d6b3a', belt: '#3a2f22', head: 'bandana', cloth: '#7a4a2a', vestFromRank: 1 },
+    // Повстанцы: синяя рубаха (как в HL2), с солдата — бронежилет и бандана; новобранец — без жилета.
+    rebel: { base: '#4d6a86', armor: '#5d6b3a', belt: '#3a2f22', head: 'bandana', cloth: '#7a4a2a', vestFromRank: 1 },
     /**
      * ГО — по юнитам (cpUnits ниже: PCU — flak, SU — recon, CMD.EPU — marine). OTA — силовая броня
      * как у пехотинцев RimWorld (style: 'marine'): крупные наплечники, сегментная кираса, горжет, пояс
@@ -152,13 +153,19 @@ export const PAWN = {
     rebel_medic: { armband: '#f2f2f2', armbandCross: '#c93030' },
     pyro: { goggles: '#ff8a3a' },
     // Армия сопротивления: глава — красный берет и повязка; подрывник — патронташ с гранатами.
-    rebel_leader: { head: 'beret', beret: '#8e1b1b', armband: '#b3261e' },
+    // Глава восстания Патрик: спецброня как у OTA (оливковая, красные полосы), без шлема — красный берет.
+    rebel_leader: { style: 'marine', head: 'beret', beret: '#a31a1a', base: '#2e3228', armor: '#6a6f52', helmet: '#6a6f52', belt: '#2a2a22', trim: '#b3261e', visor: '#15191e', shine: '#9fb3c4', acc: 'bigPads', accMaybe: '' },
+    // Коммандос HYDRA: элитная тёмная силовая броня, красные полосы, два оранжевых глаза.
+    commando: { style: 'marine', head: 'helmet', base: '#17181a', armor: '#2e2f33', helmet: '#26272b', belt: '#141416', trim: '#c0271c', visor: '#0c0d0f', shine: '#e07a60', eye: '#ff7a3a', eyes: 2, acc: 'bigPads grenades pack', accMaybe: '' },
+    // Спецагент (без маскировки): тёмный плащ.
+    spec_agent: { base: '#2a2b2f', head: 'hood', hood: '#1f2024', zip: false, collar: false },
+    // Снайпер HYDRA — как бойцы HYDRA, с серебряной нашивкой.
+    hydra_sniper: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false, armband: '#8fb0c8' },
     demolitionist: { bandolier: '#8a6a36', nade: '#6f9a4a' },
     // HYDRA (как SAS): чёрная форма и балаклава, бронежилет с первого ранга, противогаз с круглыми
     // линзами и фильтром; нашивка на плече — капитан золотом, офицеры серебром.
-    hydra_captain: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false, armband: '#c9a53e' },
-    hydra_officer: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false, armband: '#b8bcc2' },
-    hydra_soldier: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false },
+    hydra_sergeant: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false, armband: '#b8bcc2' },
+    hydra_rct: { base: '#1c1e21', armor: '#2c2f2c', belt: '#151618', head: 'respirator', mask: '#16171a', rubber: '#26282b', lens: '#3c5560', filter: '#3a3d40', vestFromRank: 0, collar: false, zip: false },
     // Бандит — тёмная куртка и платок на лице; беглец — оранжевая роба.
     bandit: { base: '#2c2623', facemask: '#1d1d1f', collar: '#3a322d', zip: false },
     fugitive: { base: '#c8692a', patch: '#8f4a1e', collar: false, zip: false },

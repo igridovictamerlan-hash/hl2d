@@ -48,6 +48,7 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   H: T.INTERIOR,
   a: T.INTERIOR,
   J: T.INTERIOR,
+  Z: T.INTERIOR,
 };
 
 export interface StampResult {
@@ -91,6 +92,7 @@ export function stampTemplate(
       if (ch === 'q') pois.push({ type: 'ota_spot', x: x0 + x, y: y0 + y });
       if (ch === 'x') pois.push({ type: 'dorm_table', x: x0 + x, y: y0 + y });
       if (ch === 't') pois.push({ type: 'tree', x: x0 + x, y: y0 + y });
+      if (ch === 'Z') pois.push({ type: 'partisan_cage', x: x0 + x, y: y0 + y });
       if (ch === 'y') pois.push({ type: 'ration_line', x: x0 + x, y: y0 + y });
       if (ch === 'u') pois.push({ type: 'cwu_store', x: x0 + x, y: y0 + y });
       if (ch === 'H') pois.push({ type: 'cwu_head_desk', x: x0 + x, y: y0 + y });

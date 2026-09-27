@@ -9,10 +9,11 @@ import { equipKit, poiWorld } from './Population';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
-import { cpUnit } from '../config/factions';
+import { cpUnit, rebelUnitOf, type FactionId as Fid } from '../config/factions';
 import { RebelBrain } from '../ai/brains/RebelBrain';
 import { UndergroundBrain } from '../ai/brains/UndergroundBrain';
 import { PostBrain } from '../ai/brains/PostBrain';
+import { AgentBrain } from '../ai/brains/AgentBrain';
 import { randomAnchorAround, randomAnchorInZone } from '../ai/destinations';
 
 /** Вид роли — от него зависят спавн, мозг и время возрождения. */
@@ -20,7 +21,7 @@ export type RoleKind =
   | 'citizen' | 'cwu' | 'vort'
   | 'patrol' | 'guard' | 'gate' | 'medic' | 'ota'
   | 'post' | 'squad' | 'tech' | 'officer' | 'inspector' | 'bodyguard' | 'epu'
-  | 'army' | 'leader' | 'hydra' | 'partisan'
+  | 'army' | 'leader' | 'hydra' | 'partisan' | 'agent'
   | 'trader' | 'admin';
 
 /**
@@ -46,6 +47,13 @@ export interface RoleSpec {
   /** Патрульная группа ГО: номер и ведущий ли. */
   squad?: number;
   lead?: boolean;
+}
+
+/** Здоровье роли: ГО — по юниту, сопротивление — по юниту из профессии, остальные — ROSTER.hp. */
+export function roleHp(faction: Fid, rank: number, profession: ProfessionId | null | undefined): number | undefined {
+  if (faction === 'cp') return cpUnit(rank).hp;
+  if (faction === 'rebel') return rebelUnitOf(profession)?.def.hp;
+  return profession ? ROSTER.hp[profession] : undefined;
 }
 
 /** Точка рядом с p (радиус в якорях), проходимая, на уровне p. */
@@ -89,6 +97,7 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'hydra':
       return inZone(ctx, 'rebel_camp') ?? poiWorld(ctx, 'rebel_camp');
     case 'partisan':
+    case 'agent':
       return inZone(ctx, 'rebel_base');
     case 'trader': {
       const t = poiWorld(ctx, 'trader');
@@ -119,7 +128,7 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   // Жители оружие на виду не носят (бандит достаёт ствол только для грабежа).
   if (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'trader') ctx.combat.equip(c, null);
   // ГО — здоровье по юниту (RCT.PCU 75 … CMD.EPU 200), остальные — по профессии.
-  const hp = spec.faction === 'cp' ? cpUnit(spec.rank).hp : spec.profession ? ROSTER.hp[spec.profession] : undefined;
+  const hp = roleHp(spec.faction, spec.rank, spec.profession);
   if (hp) c.maxHealth = c.health = hp;
   if (spec.faction === 'cp') c.division = cpUnit(spec.rank).group;
   c.role = { ...spec, name: c.name };
@@ -161,6 +170,10 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
     case 'partisan':
       c.brain = new UndergroundBrain(c, ctx);
       ctx.insurgency.adopt(c);
+      break;
+    case 'agent':
+      c.brain = new AgentBrain(c, ctx);
+      ctx.insurgency.adoptAgent(c);
       break;
     case 'trader': {
       const counter = ctx.insurgency.market;

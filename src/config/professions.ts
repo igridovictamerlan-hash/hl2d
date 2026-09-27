@@ -20,17 +20,20 @@ export type ProfessionId =
   | 'cwu_medic'
   | 'cwu_head'
   // Сопротивление.
+  | 'rebel_recruit'
   | 'rebel_soldier'
   | 'rebel_medic'
   | 'pyro'
   | 'partisan'
+  | 'spec_agent'
   | 'rebel_leader'
   | 'veteran'
   | 'demolitionist'
   // HYDRA — спецотряд сопротивления.
-  | 'hydra_captain'
-  | 'hydra_officer'
-  | 'hydra_soldier'
+  | 'commando'
+  | 'hydra_sergeant'
+  | 'hydra_rct'
+  | 'hydra_sniper'
   // Вортигонты.
   | 'vort_slave'
   // Синтеты Альянса.
@@ -97,25 +100,35 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
     desc: 'Лечит граждан за токены, сотрудников ГО — бесплатно.',
     perks: ['G — вылечить того, кто перед вами (гражданин платит)', 'Аптечки в наборе, пополняются у прилавка магазина'],
   },
+  rebel_recruit: {
+    id: 'rebel_recruit', faction: 'rebel', name: 'Новобранец', kit: 'rebel_recruit', selectable: true,
+    desc: 'Только пришёл в лагерь: 75 HP, пистолет.',
+    perks: ['Пистолет и бинт', 'Идёт на КПП вместе с армией'],
+  },
   rebel_soldier: {
-    id: 'rebel_soldier', faction: 'rebel', name: 'Солдат', selectable: true,
-    desc: 'Выходит на захваты КПП, вылазки и засады.',
-    perks: ['Автомат, пистолет, граната'],
+    id: 'rebel_soldier', faction: 'rebel', name: 'Солдат', kit: 'rebel_soldier', selectable: true,
+    desc: 'Выходит на захваты КПП: 90 HP, пистолет и MP7.',
+    perks: ['Трофейный MP7, пистолет, граната'],
   },
   rebel_medic: {
-    id: 'rebel_medic', faction: 'rebel', name: 'Медик', kit: 'rebel_medic', selectable: true,
-    desc: 'Лечит своих бесплатно, ходит с отрядами на захваты.',
-    perks: ['G — вылечить повстанца перед собой', 'NPC-медики в отрядах сами лечат раненых'],
+    id: 'rebel_medic', faction: 'rebel', name: 'Ветеран-медик', kit: 'rebel_medic', selectable: true,
+    desc: 'Лечит всех нуждающихся (своих и мирных), на рожон не лезет: 100 HP.',
+    perks: ['G — вылечить раненого перед собой', 'NPC-медики сами идут к раненым и держатся позади штурма'],
   },
   pyro: {
     id: 'pyro', faction: 'rebel', name: 'Пиротехник', kit: 'rebel_pyro', selectable: true,
-    desc: 'Зажигательные гранаты и болты поджигают врагов.',
+    desc: 'Зажигательные гранаты и болты поджигают врагов: 130 HP.',
     perks: ['Гранаты оставляют огонь, горящие получают урон', 'Арбалет поджигает цель'],
   },
   partisan: {
     id: 'partisan', faction: 'rebel', name: 'Партизан', kit: 'rebel_partisan', selectable: true,
-    desc: 'Выходит в город под видом гражданина.',
-    perks: ['G — маскировка: ГО не узнаёт вас в лицо (оружие в руках выдаёт)', 'Проверка CID раскроет — вы в розыске', 'Тихий пистолет и отмычки'],
+    desc: 'Подпольщик под видом гражданина или рабочего ГСР. Раздаёт оружие бандитам — чтобы чужими руками бить ГО.',
+    perks: ['G — маскировка: ГО не узнаёт вас в лицо (оружие в руках выдаёт)', 'E перед бандитом — отдать ему ствол (он пойдёт на ГО)', 'Пойманного партизана сажают в клетку у Администратора на допрос'],
+  },
+  spec_agent: {
+    id: 'spec_agent', faction: 'rebel', name: 'Спецагент', kit: 'spec_agent', selectable: true,
+    desc: 'Один на сервер: переодевается в убитых и в OTA, убивает Администратора и высших чинов, устраивает диверсии в Нексусе и бунты.',
+    perks: ['E у тела — переодеться в убитого', 'E у шкафа в комнате OTA — переодеться в OTA', 'E у двери камеры КПЗ — взломать (все сбегают)', 'G — поднять бунт среди горожан рядом'],
   },
   vort_slave: {
     id: 'vort_slave', faction: 'vort', name: 'Вортигонт [Раб]', kit: 'vort', selectable: true,
@@ -134,33 +147,38 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
   },
   rebel_leader: {
     id: 'rebel_leader', faction: 'rebel', name: 'Глава восстания', kit: 'rebel_leader', selectable: true,
-    desc: 'Один на всё сопротивление: выбирает, какой КПП штурмовать, и ведёт армию в бой.',
+    desc: 'Патрик — один на всё сопротивление: 250 HP, броня как у OTA и красный берет. Выбирает КПП и ведёт армию.',
     perks: ['Повышенное здоровье', 'G — клич: бойцы рядом идут за вами на штурм', 'Армия идёт на тот КПП, к которому идёте вы'],
   },
   veteran: {
     id: 'veteran', faction: 'rebel', name: 'Ветеран', kit: 'rebel_veteran', selectable: true,
-    desc: 'Опытный боец: AR2, больше здоровья, держит фланг на отвлекающем КПП.',
-    perks: ['Трофейный AR2 и больше здоровья', 'Ведёт отвлекающую группу на второй КПП'],
+    desc: 'Опытный боец: 110 HP, MP7 и пистолет, держит фланг на отвлекающем КПП.',
+    perks: ['MP7, пистолет, гранаты', 'Ведёт отвлекающую группу на второй КПП'],
   },
   demolitionist: {
     id: 'demolitionist', faction: 'rebel', name: 'Подрывник', kit: 'rebel_demo', selectable: true,
-    desc: 'Гранаты для штурма: выкуривает часовых из-за блоков.',
+    desc: 'Гранаты для штурма: выкуривает часовых из-за блоков. 130 HP.',
     perks: ['Много гранат (T — к курсору)', 'Бросает гранаты чаще и дальше'],
   },
-  hydra_captain: {
-    id: 'hydra_captain', faction: 'rebel', name: 'Капитан HYDRA', kit: 'hydra_captain', selectable: true,
-    desc: 'Командир спецотряда HYDRA: снаряжение как у SAS, идёт рядом с главой на штурм точек.',
-    perks: ['Бронежилет и противогаз: больше здоровья', 'AR2, пистолет, гранаты', 'HYDRA держится рядом с главой восстания'],
+  commando: {
+    id: 'commando', faction: 'rebel', name: 'Коммандос HYDRA', kit: 'commando', selectable: true,
+    desc: 'Один на сервер: 200 HP, элитная броня, держится при Патрике — прямой ответ OTA.',
+    perks: ['Энерговинтовка, пистолет, много гранат', 'Идёт рядом с главой на штурм точек'],
   },
-  hydra_officer: {
-    id: 'hydra_officer', faction: 'rebel', name: 'Офицер HYDRA', kit: 'hydra_officer', selectable: true,
-    desc: 'Офицер спецотряда HYDRA.',
-    perks: ['Бронежилет: больше здоровья', 'AR2 и пистолет'],
+  hydra_sergeant: {
+    id: 'hydra_sergeant', faction: 'rebel', name: 'Сержант HYDRA', kit: 'hydra_sergeant', selectable: true,
+    desc: 'Сержант спецотряда HYDRA: 170 HP.',
+    perks: ['Энерговинтовка и два пистолета', 'Противогаз и бронежилет'],
   },
-  hydra_soldier: {
-    id: 'hydra_soldier', faction: 'rebel', name: 'Боец HYDRA', kit: 'hydra_soldier', selectable: true,
-    desc: 'Штурмовик спецотряда HYDRA.',
-    perks: ['Бронежилет: больше здоровья', 'MP7 и гранаты'],
+  hydra_rct: {
+    id: 'hydra_rct', faction: 'rebel', name: 'RCT HYDRA', kit: 'hydra_rct', selectable: true,
+    desc: 'Рекрут спецотряда HYDRA: 150 HP.',
+    perks: ['MP7 и пистолет', 'Гранат больше, чем у простых бойцов'],
+  },
+  hydra_sniper: {
+    id: 'hydra_sniper', faction: 'rebel', name: 'Снайпер HYDRA', kit: 'hydra_sniper', selectable: true,
+    desc: 'Снайпер спецотряда HYDRA: 110 HP. Снайперская винтовка появится после обновления боевой системы.',
+    perks: ['Пока — только пистолет'],
   },
   ota_alpha: {
     id: 'ota_alpha', faction: 'ota', name: 'OTA.ALPHA', selectable: false,

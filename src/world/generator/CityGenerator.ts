@@ -76,7 +76,7 @@ export function validateMap(map: GameMap): string[] {
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 7], ['common_cell', 1], ['bunk', 10], ['clerk_desk', 6], ['ota_spot', 6], ['restricted_gate', 1],
     ['checkpoint_post', 10], ['gate_post', 4], ['dorm', 2], ['villa', 2], ['outlands_exit', 2], ['shop_counter', 1],
-    ['cwu_hq', 1], ['cwu_hire', 1], ['cwu_head_desk', 1], ['ration_line', 3], ['cwu_store', 1],
+    ['cwu_hq', 1], ['partisan_cage', 2], ['cwu_hire', 1], ['cwu_head_desk', 1], ['ration_line', 3], ['cwu_store', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;

@@ -31,7 +31,7 @@ export const LAW = {
 
   fines: { running: 5, restricted: 15, insult: 12 },
   /** За что арест (иначе штраф). */
-  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft'] as readonly string[],
+  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot'] as readonly string[],
   /** Дознаватели JURY: проверка быстрее, штраф больше. */
   juryCheckMul: 0.5,
   juryFineMul: 2,
@@ -48,6 +48,11 @@ export const LAW = {
   patrolDistance: [15, 55] as const,
 
   jailTime: { player: 40, npc: 35 },
+  /** Пойманный партизан — в клетке у Администратора (допрос CMD.EPU): сидит дольше. */
+  cageTime: { player: 90, npc: 240 },
+  /** Место допрашивающего — перед клеткой на столько px (вниз), выбитая дверь не запирается brokenDoor с. */
+  cageFront: 36,
+  brokenDoor: 60,
   /** Общая камера КПЗ (граждане, ГСР, партизаны): мест не больше max, между местами spacing px. */
   commonCell: { max: 10, spacing: 34 },
 
@@ -55,7 +60,7 @@ export const LAW = {
     noCidChance: 0.08,
     wantedChance: 0.04,
     /** Шанс, что NPC побежит, когда ГО приказал стоять. */
-    fleeChance: { citizen: 0.12, cwu: 0.05, rebel: 0.8, thief: 0.6, bandit: 0.55, fugitive: 0.85 } as Record<string, number>,
+    fleeChance: { citizen: 0.12, cwu: 0.05, rebel: 0.8, thief: 0.3, bandit: 0.3, fugitive: 0.85 } as Record<string, number>,
     /** Шанс нарушить при выборе новой цели: зайти в запретную зону / побежать. */
     trespassChance: { citizen: 0.03, cwu: 0.01, rebel: 0.12 } as Record<string, number>,
     runChance: { citizen: 0.06, cwu: 0.03, rebel: 0.15 } as Record<string, number>,
@@ -73,7 +78,8 @@ export type Violation =
   | 'weapon'
   | 'curfew'
   | 'insult'
-  | 'theft';
+  | 'theft'
+  | 'riot';
 
 export const VIOLATION_NAMES: Record<Violation, string> = {
   running: 'бег',
@@ -87,4 +93,5 @@ export const VIOLATION_NAMES: Record<Violation, string> = {
   curfew: 'нарушение комендантского часа',
   insult: 'оскорбление сотрудника ГО',
   theft: 'кража',
+  riot: 'участие в беспорядках',
 };

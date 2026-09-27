@@ -153,10 +153,9 @@ describe('живой город со всеми фракциями', () => {
     expect(count('cp')).toBe(city + 2 * (5 + 2 + 1));
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['pcu', 'su', 'cmd']) expect(divisions.has(d as never)).toBe(true);
-    // Подпольщики в городе + гарнизон убежища в канализации.
-    // Армия в лагере + HYDRA + партизаны в схроне.
+    // Армия в лагере + HYDRA + подпольщики и спецагент в схроне.
     const army = [...ROSTER.army, ...ROSTER.hydra].reduce((n, [, k]) => n + k, 0);
-    expect(count('rebel')).toBe(AI.population.rebels + ROSTER.partisans + army);
+    expect(count('rebel')).toBe(AI.population.rebels + ROSTER.partisans + ROSTER.agents + army);
     expect(count('admin')).toBe(1);
     // «Застрял»: одна и та же фаза процедуры (приказ, проверка, заведение) дольше 60 с, конвой — дольше 80 с.
     const stuckSince = new Map<Character, [number, string]>();

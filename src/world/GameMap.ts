@@ -76,7 +76,8 @@ export type PoiType =
   | 'cwu_canteen'
   | 'cwu_office'
   | 'cwu_lobby'
-  | 'cwu_production';
+  | 'cwu_production'
+  | 'partisan_cage';
 
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)

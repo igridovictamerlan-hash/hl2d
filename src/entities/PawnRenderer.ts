@@ -107,6 +107,23 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
     else reconBody(ctx, d, O, trim, acc);
     accBody(ctx, d, O, trim, acc);
     if (O.head === 'helmet') marineHelmet(ctx, d, O, trim, hx);
+    else if (O.head === 'beret') {
+      // Глава восстания: броня как у OTA, но без шлема — лицо, короткая стрижка, красный берет.
+      headPath(ctx, d, hx);
+      ctx.fillStyle = skin;
+      ctx.fill();
+      ctx.save();
+      headPath(ctx, d, hx);
+      ctx.clip();
+      ctx.fillStyle = PAWN.shade;
+      ctx.fillRect(d === 'E' ? hx - 20 - 2 : 3, -40, 20, 60);
+      ctx.restore();
+      headPath(ctx, d, hx);
+      stroke(ctx, PAWN.outlineWidth);
+      if (d !== 'N') face(ctx, d, hx);
+      frontHair(ctx, d, 'short', hair, hx);
+      beret(ctx, d, O.beret as string, hx);
+    }
     else if (O.head === 'recon') reconHelmet(ctx, d, O, trim, hx);
     else {
       gasMaskHead(ctx, d, hx);
@@ -1009,7 +1026,7 @@ function beret(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
   ctx.lineTo(cx + r - 0.6, cy - r + 3.6);
   stroke(ctx, 1.1, tint(color, -0.35));
   if (d === 'S') {
-    ctx.fillStyle = '#e8c34a';
+    ctx.fillStyle = PAWN.gear.gold;
     ctx.beginPath();
     ctx.arc(cx + 2.4, cy - r + 1.8, 0.9, 0, Math.PI * 2);
     ctx.fill();

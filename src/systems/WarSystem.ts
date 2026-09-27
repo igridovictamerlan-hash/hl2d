@@ -1,3 +1,4 @@
+import { REBEL_UNIT } from '../config/factions';
 import { COMBAT } from '../config/combat';
 import type { Character } from '../entities/Character';
 import type { AiContext } from '../ai/AiContext';
@@ -350,7 +351,7 @@ export class WarSystem {
     if (!f) return;
     if (f.squad.length === 0 && f.outlands.length) {
       const a = this.ctx.rng.pick(f.outlands);
-      const c = spawnRole(this.ctx, armySpec('rebel_soldier', 'rebel_raider', 0), { x: this.ctx.nav.worldX(a), y: this.ctx.nav.worldY(a) });
+      const c = spawnRole(this.ctx, armySpec('rebel_soldier', 'rebel_soldier', REBEL_UNIT.soldier), { x: this.ctx.nav.worldX(a), y: this.ctx.nav.worldY(a) });
       const b = c ? rebelBrain(c) : null;
       if (c && b) {
         b.setFront(front);
@@ -930,14 +931,14 @@ export class WarSystem {
     const { rng } = this.ctx;
     this.defectors.delete(c);
     c.faction = 'rebel';
-    c.rank = 0;
+    c.rank = REBEL_UNIT.soldier;
     c.division = null;
     c.profession = 'rebel_soldier';
     c.disguised = false;
     c.carrying = false;
     c.law.wanted = true;
     this.ctx.law.clear(c);
-    equipKit(c, 'rebel_raider', this.ctx);
+    equipKit(c, 'rebel_soldier', this.ctx);
     this.stats.defected++;
     this.ctx.law.log(`${f.name}: ${c.isPlayer ? 'вы примкнули' : `${c.name} примкнул(а)`} к сопротивлению.`, 'radio');
     if (c.isPlayer) {
@@ -945,7 +946,7 @@ export class WarSystem {
       return;
     }
     // Теперь — боец армии сопротивления (погибнет — вернётся из лагеря).
-    c.role = { ...armySpec('rebel_soldier', 'rebel_raider', 0), name: c.name };
+    c.role = { ...armySpec('rebel_soldier', 'rebel_soldier', REBEL_UNIT.soldier), name: c.name };
     const b = new RebelBrain(c, this.ctx, f.index, Infinity);
     c.brain = b;
     const posts = f.posts.length ? f.posts : [f.midGate];

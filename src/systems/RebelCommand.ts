@@ -1,7 +1,8 @@
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { RebelBrain } from '../ai/brains/RebelBrain';
-import { COMMAND, ROSTER } from '../config/roster';
+import { COMMAND } from '../config/roster';
+import { rebelUnitOf } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { CHARACTER } from '../config/entities';
 import { armySpec, equipKit } from './Population';
@@ -61,10 +62,10 @@ export class RebelCommand {
   /** Сменить бойцу профессию (набор, здоровье, роль для возрождения). */
   private retire(c: Character, profession: ProfessionId, kit: string): void {
     c.profession = profession;
-    c.rank = ROSTER.rank[profession] ?? c.rank;
+    c.rank = rebelUnitOf(profession)?.rank ?? c.rank;
     c.role = { ...armySpec(profession, kit, c.rank), name: c.name };
     equipKit(c, kit, this.ctx);
-    c.maxHealth = ROSTER.hp[profession] ?? CHARACTER.maxHealth;
+    c.maxHealth = rebelUnitOf(profession)?.def.hp ?? CHARACTER.maxHealth;
     c.health = Math.min(c.health, c.maxHealth);
   }
 

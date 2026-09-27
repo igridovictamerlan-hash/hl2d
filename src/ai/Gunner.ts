@@ -177,7 +177,7 @@ export class Gunner {
     this.calm = 0;
     const d = Math.hypot(t.x - self.x, t.y - self.y);
     // Ствол под дистанцию (дубинку — на огнестрел, пустой — на заряженный).
-    if (!combat.reloading(self)) {
+    if (!combat.reloading(self) && !this.holdFire) {
       const best = combat.bestWeapon(self, d);
       if (best && best !== self.weapon) combat.equip(self, best);
     }

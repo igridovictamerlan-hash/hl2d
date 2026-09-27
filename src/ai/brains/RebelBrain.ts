@@ -92,7 +92,7 @@ export class RebelBrain implements Brain {
 
   /** Спецотряд HYDRA: держится рядом с главой. */
   get isHydra(): boolean {
-    return this.self.profession?.startsWith('hydra') ?? false;
+    return (this.self.profession?.startsWith('hydra') || this.self.profession === 'commando') ?? false;
   }
 
   /** Доля пути по двору в капте (HYDRA и клич подтягиваются к главе). */
@@ -425,7 +425,9 @@ export class RebelBrain implements Brain {
       if (!self.inventory.has('bandage') && !self.inventory.has('medkit')) return false;
       let bestD = 240;
       for (const o of ctx.entities.near(self.x, self.y, bestD, nearRebels)) {
-        if (o === self || o.faction !== 'rebel' || !o.alive || o.health >= o.maxHealth * 0.6) continue;
+        // Лечит всех нуждающихся: своих и мирных (не Альянс и не бандитов).
+        const friend = o.faction === 'rebel' || ((o.faction === 'citizen' || o.faction === 'cwu' || o.faction === 'vort') && !o.hostile);
+        if (o === self || !friend || !o.alive || o.health >= o.maxHealth * COMBAT.medicBelow) continue;
         const d = Math.hypot(o.x - self.x, o.y - self.y);
         if (d < bestD) {
           bestD = d;
@@ -448,7 +450,7 @@ export class RebelBrain implements Brain {
       ctx.combat.heal(p, COMBAT.healAmount);
       this.healCooldown = COMBAT.healCooldown;
       self.say('Держись, брат, латаю.', ctx.law.now, 1.5);
-      if (p.health >= p.maxHealth * 0.6) {
+      if (p.health >= p.maxHealth * COMBAT.medicBelow) {
         this.patient = null;
         this.goal = -1;
       }
@@ -669,7 +671,9 @@ export class RebelBrain implements Brain {
           this.goal = -1;
         }
         const at = (t: number) => (pt ? this.coverAt(pt.floor, pt.center, t, this.takenSpots(f)) : -1);
-        const target = () => (this.route.length ? this.route[0] : at(this.advance));
+        // Медик на рожон не лезет: держится позади своего звена.
+        const lag = self.profession === 'rebel_medic' ? WAR.capture.medicLag : 0;
+        const target = () => (this.route.length ? this.route[0] : at(Math.max(0, this.advance - lag)));
         if (this.goal < 0 || this.mover.status === 'failed') this.go(target());
         const arrived = this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) < (this.route.length ? 24 : 14);
         if (arrived && this.route.length) {
@@ -682,7 +686,7 @@ export class RebelBrain implements Brain {
           if (this.coverLeft <= 0 && this.advance < 1 && this.boundTurn(f)) {
             this.advance = Math.min(1, this.advance + C.advanceStep);
             this.coverLeft = ctx.rng.range(C.coverWait[0], C.coverWait[1]);
-            this.go(at(this.advance));
+            this.go(at(Math.max(0, this.advance - lag)));
           }
           break;
         }

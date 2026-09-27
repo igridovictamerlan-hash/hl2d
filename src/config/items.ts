@@ -196,8 +196,6 @@ export const KITS: Record<string, [ItemId, number][]> = {
   cwu_head: [['bread', 2], ['bandage', 1]],
   /** Повстанец-игрок: трофейный MP7 и пистолет про запас. */
   rebel: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['bandage', 1], ['grenade', 1]],
-  /** Повстанец-командир (ранг ≥ REBEL_OFFICER_RANK): трофейный AR2 и револьвер. */
-  rebel_officer: [['ar2', 1], ['ammo_ar2', 90], ['revolver', 1], ['ammo_357', 18], ['bandage', 1], ['grenade', 2]],
   cp: [['stunstick', 1], ['usp', 1], ['ammo_pistol', 54]],
   cp_grid: [['mp7', 1], ['ammo_smg', 135], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 1], ['grenade', 1]],
   cp_helix: [['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 2]],
@@ -231,15 +229,20 @@ export const KITS: Record<string, [ItemId, number][]> = {
   rebel_marksman: [['crossbow', 1], ['ammo_bolt', 12], ['rebel_smg', 1], ['ammo_smg', 90]],
   rebel_commander: [['ar2', 1], ['ammo_ar2', 90], ['revolver', 1], ['ammo_357', 18], ['grenade', 2]],
   /** Армия сопротивления: глава, ветераны, подрывник; HYDRA — спецотряд. */
+  rebel_recruit: [['rebel_pistol', 1], ['ammo_pistol', 36], ['bandage', 1]],
+  rebel_soldier: [['rebel_smg', 1], ['ammo_smg', 120], ['rebel_pistol', 1], ['ammo_pistol', 24], ['bandage', 1], ['grenade', 1]],
   rebel_leader: [['ar2', 1], ['ammo_ar2', 150], ['revolver', 1], ['ammo_357', 18], ['medkit', 2], ['grenade', 2]],
-  rebel_veteran: [['ar2', 1], ['ammo_ar2', 120], ['rebel_pistol', 1], ['ammo_pistol', 24], ['bandage', 2], ['grenade', 2]],
+  rebel_veteran: [['rebel_smg', 1], ['ammo_smg', 150], ['rebel_pistol', 1], ['ammo_pistol', 24], ['bandage', 2], ['grenade', 2]],
   rebel_demo: [['rebel_smg', 1], ['ammo_smg', 135], ['grenade', 8], ['bandage', 1]],
-  hydra_captain: [['ar2', 1], ['ammo_ar2', 150], ['usp', 1], ['ammo_pistol', 36], ['medkit', 1], ['grenade', 3]],
-  hydra_officer: [['ar2', 1], ['ammo_ar2', 120], ['usp', 1], ['ammo_pistol', 36], ['bandage', 2], ['grenade', 2]],
-  hydra_soldier: [['mp7', 1], ['ammo_smg', 180], ['usp', 1], ['ammo_pistol', 36], ['bandage', 1], ['grenade', 2]],
+  // HYDRA: RCT — MP7 и гранаты (больше, чем у бойцов), сержант — энерговинтовка и пистолеты,
+  // снайпер — пока пистолет, коммандос — энерговинтовка, пистолет, много гранат.
+  hydra_rct: [['mp7', 1], ['ammo_smg', 180], ['usp', 1], ['ammo_pistol', 36], ['bandage', 1], ['grenade', 4]],
+  hydra_sergeant: [['ar2', 1], ['ammo_ar2', 150], ['usp', 1], ['ammo_pistol', 36], ['revolver', 1], ['ammo_357', 18], ['bandage', 2], ['grenade', 2]],
+  hydra_sniper: [['usp', 1], ['ammo_pistol', 60], ['bandage', 2]],
+  commando: [['ar2', 1], ['ammo_ar2', 180], ['usp', 1], ['ammo_pistol', 36], ['medkit', 2], ['grenade', 5]],
+  // Спецагент: тихий пистолет, отмычки, аптечка.
+  spec_agent: [['usp', 1], ['ammo_pistol', 48], ['lockpick', 2], ['medkit', 1]],
   bandit: [['rebel_pistol', 1], ['ammo_pistol', 24], ['water', 1]],
   fugitive: [['bandage', 1]],
 };
 
-/** С какого ранга повстанец-игрок получает револьвер. */
-export const REBEL_OFFICER_RANK = 3;
