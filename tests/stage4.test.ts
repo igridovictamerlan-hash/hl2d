@@ -201,12 +201,12 @@ describe('жизнь убежища', () => {
         level.set(c.id, l);
       }
     }
-    console.log(`вылазок: ${sim.insurgency.outings}, спусков и подъёмов по люкам: ${climbs}`);
-    // Подпольщиков в схроне двое (постоянный состав), люков два — у края города.
-    expect(sim.insurgency.outings).toBeGreaterThan(3);
+    console.log(`вылазок: ${sim.insurgency.outings}, операций: ${sim.insurgency.operations}, спусков и подъёмов по люкам: ${climbs}`);
+    // Подпольщиков в схроне двое (постоянный состав), люков два — у края города; кто не на операции — на вылазке.
+    expect(sim.insurgency.outings + sim.insurgency.operations).toBeGreaterThan(3);
     expect(climbs).toBeGreaterThan(2);
-    // В убежище всегда кто-то остаётся.
-    expect(sim.insurgency.garrison.some((c) => sim.map.zoneAtWorld(c.x, c.y)?.kind === 'rebel_base' || sim.map.levelAt(c.x, c.y) === 'sewer')).toBe(true);
+    // На вылазку уходят, только пока кто-то остаётся в убежище; на операции (у каждого своя) — оба.
+    expect(sim.insurgency.garrison.some((c) => c.alive)).toBe(true);
   });
 });
 

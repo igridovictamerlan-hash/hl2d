@@ -120,6 +120,7 @@ export class SquadArena {
     ctx.combat.corpses.length = 0;
     ctx.combat.bullets.length = 0;
     ctx.combat.grenades.length = 0;
+    ctx.combat.mines.length = 0;
     for (const side of ['combine', 'rebel'] as const) {
       const units = ARENA.teams[side] as readonly ArenaUnit[];
       units.forEach((u, k) => {

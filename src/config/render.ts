@@ -121,6 +121,8 @@ export const RENDER = {
     board: { frame: '#3b2f25', paper: '#d9d3c2' },
     /** Клетка для партизан в кабинете Администратора: рама, прутья (шаг px мира), вскрытая — дверца настежь. */
     /** Оцепление места преступления: лента (жёлтая с чёрными полосами, толщина и шаг px мира), конусы. */
+    /** Растяжка: граната (осколочная / зажигательная), проволока, мигающий огонёк взведённой. */
+    mine: { frag: '#4a5238', fire: '#7a2a1c', rim: '#15171a', wire: 'rgba(210,210,200,0.7)', wireLen: 18, light: '#ff3b2e', r: 4.2 },
     scene: { tape: '#f2d23a', stripe: '#1c1c1c', width: 1.8, dash: 5, cone: '#ff7a1a', coneStripe: '#f4f4f4', coneDark: '#8a3a0a', coneSize: 5 },
     cage: { frame: '#2c2f33', bar: '#5b6068', floor: 'rgba(20,22,26,0.35)', size: 34, step: 5 },
     smoke: { ember: ['#ff9a3a', '#c9542a'] as readonly string[], puff: 'rgba(200,200,200,0.5)' },

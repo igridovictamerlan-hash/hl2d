@@ -2,13 +2,13 @@ import type { Character } from '../entities/Character';
 import type { AiContext } from '../ai/AiContext';
 import type { Vec2 } from '../core/math';
 import type { Corpse } from './CombatSystem';
-import type { Cell } from './LawSystem';
+import { isUnderground, type Cell } from './LawSystem';
 import { INSURGENCY, PARTISANS } from '../config/underground';
 import { AMMO_ITEM, WEAPONS } from '../config/items';
 import { poiWorld } from './Population';
 import { spawnRole } from './Roster';
 import { ROSTER } from '../config/roster';
-import { REBEL_UNIT } from '../config/factions';
+import { REBEL_UNIT, FACTIONS } from '../config/factions';
 import { UndergroundBrain } from '../ai/brains/UndergroundBrain';
 import { AgentBrain } from '../ai/brains/AgentBrain';
 import { HiredGunBrain } from '../ai/brains/HiredGunBrain';
@@ -19,7 +19,7 @@ import { randomAnchorAround, zoneIds } from '../ai/destinations';
 
 /** Текущая операция подпольщиков в городе. */
 export interface Operation {
-  kind: 'sabotage' | 'arm';
+  kind: 'sabotage' | 'arm' | 'jailbreak' | 'mine';
   team: Character[];
   where: string;
 }
@@ -46,6 +46,12 @@ export class InsurgencySystem {
   readonly garrison: Character[] = [];
   agent: Character | null = null;
   trader: Character | null = null;
+  /** Идущие операции (у каждого подпольщика — своя); op — последняя начатая. */
+  readonly ops: Operation[] = [];
+  /** Сколько операций начато (для тестов и отладки). */
+  operations = 0;
+  /** С какого времени подпольщику в схроне делают новые документы. */
+  private readonly papers = new Map<Character, number>();
   op: Operation | null = null;
   raid: Raid | null = null;
   /** Рейд ещё не было за этот раз (оба подпольщика в клетках). */
@@ -79,6 +85,8 @@ export class InsurgencySystem {
   /** Подпольщик (из постоянного состава) — в гарнизон схрона, в личине горожанина или ГСР. */
   adopt(c: Character): void {
     this.garrison.push(c);
+    // Под личиной — «чистые» поддельные документы: не в розыске.
+    c.law.wanted = false;
     this.giveCover(c);
   }
 
@@ -93,6 +101,7 @@ export class InsurgencySystem {
   /** Спецагент (из постоянного состава): в схроне, под видом горожанина. */
   adoptAgent(c: Character): void {
     this.agent = c;
+    c.law.wanted = false;
     c.disguised = true;
     c.cover = null;
     this.ctx.combat.equip(c, null);
@@ -164,31 +173,67 @@ export class InsurgencySystem {
   /** Начать операцию (или принудительно — для тестов и отладки). */
   startOperation(kind?: Operation['kind']): Operation | null {
     const { ctx } = this;
-    const free = this.idle();
+    // На дело — только под личиной и не в розыске (раскрытый ждёт в схроне новых документов).
+    const free = this.idle().filter((c) => c.disguised && !c.law.wanted);
     if (free.length < 1) return null;
-    const type = kind ?? (ctx.rng.chance(PARTISANS.armChance) ? 'arm' : 'sabotage');
-    if (type === 'sabotage') {
+    const c = free[0];
+    const brain = c.brain as UndergroundBrain;
+    // Сидящих нет — всё равно к общей камере: пока дойдёт, кого-нибудь приведут (подождёт jailWait с).
+    const cell = this.occupiedCell() ?? ctx.law.cells.reduce<Cell | null>((a, c) => (!a || c.slots.length > a.slots.length ? c : a), null);
+    const mineSpot = ctx.combat.mineKindOf(c) ? this.mineSpot() : null;
+    let type = kind;
+    // Свой в клетке — сперва вытащить его (с шансом PARTISANS.rescueChance).
+    if (!type && cell && this.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) type = 'jailbreak';
+    if (!type) {
+      // Доли операций; невозможные (некого освобождать, нечем минировать) — не выбираются.
+      const O = PARTISANS.ops;
+      const opts: [Operation['kind'], number][] = [['arm', O.arm], ['sabotage', O.sabotage], ['jailbreak', cell ? O.jailbreak : 0], ['mine', mineSpot ? O.mine : 0]];
+      let r = ctx.rng.next() * opts.reduce((n, [, w]) => n + w, 0);
+      type = 'sabotage';
+      for (const [k, w] of opts) {
+        if ((r -= w) <= 0 && w > 0) {
+          type = k;
+          break;
+        }
+      }
+    }
+    if (type === 'jailbreak') {
+      if (!cell) return null;
+      brain.startJailbreak(c, ctx, cell);
+      const where = cell.cage ? 'клетка у Администратора' : 'КПЗ Нексуса';
+      this.op = { kind: 'jailbreak', team: [c], where };
+      this.ops.push(this.op);
+      this.say(`подпольщик идёт вскрывать камеру — ${where}.`);
+    } else if (type === 'mine') {
+      if (!mineSpot) return null;
+      brain.startMine(c, ctx, mineSpot);
+      const where = ctx.map.zoneAtWorld(mineSpot.x, mineSpot.y)?.name ?? 'город';
+      this.op = { kind: 'mine', team: [c], where };
+      this.ops.push(this.op);
+      this.say(`подпольщик идёт ставить растяжку — ${where}.`);
+    } else if (type === 'sabotage') {
       const nodes = ctx.economy.nodes.filter((n) => !n.broken);
       if (!nodes.length) return null;
       const node = ctx.rng.pick(nodes);
       const n = Math.min(free.length, ctx.rng.int(INSURGENCY.sabotageTeam[0], INSURGENCY.sabotageTeam[1]));
       const team = free.slice(0, n);
-      for (const c of team) (c.brain as UndergroundBrain).startSabotage(c, ctx, node);
+      for (const m of team) (m.brain as UndergroundBrain).startSabotage(m, ctx, node);
       const where = ctx.map.zoneAtWorld(node.x, node.y)?.name ?? 'город';
       this.op = { kind: 'sabotage', team, where };
+      this.ops.push(this.op);
       this.say(`подпольщик вышел на саботаж узла Альянса — ${where}.`);
     } else {
       const bandits = ctx.entities.list.filter((b) => this.armable(b));
       if (!bandits.length) return null;
-      const c = free[0];
       bandits.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
       const target = bandits[0];
-      (c.brain as UndergroundBrain).startArm(c, ctx, target);
+      brain.startArm(c, ctx, target);
       const where = ctx.map.zoneAtWorld(target.x, target.y)?.name ?? 'город';
       this.op = { kind: 'arm', team: [c], where };
+      this.ops.push(this.op);
       this.say(`подпольщик несёт ствол бандиту — ${where}.`);
     }
-    this.opsStarted++;
+    this.operations++;
     return this.op;
   }
 
@@ -229,6 +274,58 @@ export class InsurgencySystem {
     return !this.paused;
   }
 
+  /** Сидит ли в камере или клетке подпольщик или спецагент. */
+  comradeCaged(): boolean {
+    return this.ctx.law.cells.some((c) => c.slots.some((s) => s.occupant && (s.occupant.profession === 'partisan' || s.occupant.profession === 'spec_agent')));
+  }
+
+  /** Занятая камера или клетка (клетки со своими — первыми). */
+  occupiedCell(): Cell | null {
+    const cells = this.ctx.law.cells;
+    const comrade = (c: Cell) => c.slots.some((s) => s.occupant && isUnderground(s.occupant));
+    // Свои в клетке или камере — первыми; иначе больше всего сидящих (общая КПЗ).
+    let best: Cell | null = null;
+    let bestScore = 0;
+    for (const c of cells) {
+      const n = c.slots.filter((s) => s.occupant).length;
+      if (!n) continue;
+      const score = n + (comrade(c) ? 100 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Куда поставить растяжку: свежее тело сотрудника Альянса в городе (не под оцеплением), у ворот
+   * Нексуса, у выхода проходной КПП в город или там, где сейчас патрульный ГО.
+   */
+  mineSpot(): Vec2 | null {
+    const { ctx } = this;
+    const out: Vec2[] = [];
+    for (const k of ctx.combat.corpses) {
+      if (!FACTIONS[k.faction].authority || k.burning || ctx.war.scenes.sealed(k) || ctx.map.levelAt(k.x, k.y) !== 'city') continue;
+      if (!ctx.combat.mines.some((m) => m.corpse === k)) out.push({ x: k.x, y: k.y });
+    }
+    const ring = (p: Vec2 | null) => {
+      if (!p) return;
+      const a = randomAnchorAround(p, ctx, PARTISANS.mineRing[0], PARTISANS.mineRing[1], new Set());
+      if (a >= 0 && ctx.map.levelAt(ctx.nav.worldX(a), ctx.nav.worldY(a)) === 'city') out.push({ x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) });
+    };
+    ring(poiWorld(ctx, 'nexus_gate'));
+    for (const f of ctx.war.fronts) ring(f.apron);
+    const cps = ctx.entities.list.filter((o) => o.alive && o.faction === 'cp' && ctx.map.levelAt(o.x, o.y) === 'city' && ctx.map.zoneAtWorld(o.x, o.y)?.kind !== 'nexus');
+    if (cps.length) ring(ctx.rng.pick(cps));
+    if (!out.length) return null;
+    // Идти через полгорода под личиной — много проверок: из двух случайных мест — ближнее к люку.
+    const hatch = (p: Vec2) => Math.min(...ctx.map.hatches.map((h) => Math.hypot(h.city.x - p.x, h.city.y - p.y)));
+    const a = ctx.rng.pick(out);
+    const b = ctx.rng.pick(out);
+    return ctx.map.hatches.length && hatch(b) < hatch(a) ? b : a;
+  }
+
   /** Переодеться в убитого (форма с тела). */
   dressAs(c: Character, corpse: Corpse): void {
     corpse.stripped = true;
@@ -262,7 +359,7 @@ export class InsurgencySystem {
     this.stats.jailbreaks++;
     ctx.law.log(`Нексус: ${cell.cage ? 'клетка у Администратора вскрыта' : 'дверь камеры КПЗ выбита'} — сбежали ${n}!`, 'radio');
     ctx.war.raiseAlarm(cell.x, cell.y, 'побег из КПЗ Нексуса');
-    this.say(`${by.isPlayer ? 'вы вскрыли' : 'спецагент вскрыл'} камеру — наши на свободе (${n}).`);
+    this.say(`${by.isPlayer ? 'вы вскрыли' : by.profession === 'partisan' ? 'подпольщик вскрыл' : 'спецагент вскрыл'} камеру — наши на свободе (${n}).`);
     return n;
   }
 
@@ -394,9 +491,24 @@ export class InsurgencySystem {
     for (let i = this.garrison.length - 1; i >= 0; i--) if (!this.garrison[i].alive) this.garrison.splice(i, 1);
     if (this.agent && !this.agent.alive) this.agent = null;
     this.interrogate(dt);
-    // Вернувшийся в схрон раскрытый подпольщик (не в розыске) — снова под личиной.
+    // Вернувшийся в схрон раскрытый подпольщик (не в розыске) — снова под личиной; тайник пополняет гранаты.
     for (const c of this.garrison) {
-      if (!c.disguised && !c.law.wanted && c.law.phase === 'none' && c.brain instanceof UndergroundBrain && c.brain.mode === 'base' && ctx.map.levelAt(c.x, c.y) === 'sewer') this.giveCover(c);
+      if (c.brain instanceof UndergroundBrain && c.brain.mode === 'base' && ctx.map.levelAt(c.x, c.y) === 'sewer') {
+        const need = PARTISANS.cacheGrenades - c.inventory.count('grenade');
+        if (need > 0) c.inventory.add('grenade', need);
+      }
+      // Раскрытый или в розыске — в схроне новые документы и личина (иначе в город его не выпустить).
+      // Документы делают не сразу: PARTISANS.newPapers с в схроне.
+      if ((!c.disguised || c.law.wanted) && c.law.phase === 'none' && c.brain instanceof UndergroundBrain && c.brain.mode === 'base' && ctx.map.levelAt(c.x, c.y) === 'sewer') {
+        const since = this.papers.get(c) ?? this.time;
+        this.papers.set(c, since);
+        if (this.time - since >= PARTISANS.newPapers) {
+          this.papers.delete(c);
+          c.law.wanted = false;
+          c.hostile = false;
+          this.giveCover(c);
+        }
+      } else this.papers.delete(c);
     }
     const ag = this.agent;
     // Спецагент в схроне — новые документы: снова чист и под личиной.
@@ -424,17 +536,18 @@ export class InsurgencySystem {
       if (b instanceof UndergroundBrain && b.mode === 'base') continue;
       if (!c.disguised && ctx.map.levelAt(c.x, c.y) === 'city' && ctx.war.code !== 'green') ctx.war.operatives.add(c);
     }
-    // Операция закончилась: все вернулись или погибли.
-    if (this.op) {
-      const active = this.op.team.filter((c) => c.alive && c.brain instanceof UndergroundBrain && c.brain.mode !== 'base');
-      if (active.length === 0) {
-        const alive = this.op.team.filter((c) => c.alive).length;
-        this.say(`подпольщик вернулся (${alive} из ${this.op.team.length}).`);
-        this.op = null;
-        this.nextOp = this.time + ctx.rng.range(INSURGENCY.opEvery[0], INSURGENCY.opEvery[1]);
-      }
-    } else if (this.time >= this.nextOp) {
-      if (!this.startOperation()) this.nextOp = this.time + 10;
+    // Операции кончаются, когда все вернулись или погибли; новая — когда подошёл срок и есть свободный.
+    for (let i = this.ops.length - 1; i >= 0; i--) {
+      const op = this.ops[i];
+      const active = op.team.filter((c) => c.alive && c.brain instanceof UndergroundBrain && c.brain.mode !== 'base');
+      if (active.length > 0) continue;
+      const alive = op.team.filter((c) => c.alive).length;
+      this.say(`подпольщик вернулся (${alive} из ${op.team.length}).`);
+      this.ops.splice(i, 1);
+      if (this.op === op) this.op = null;
+    }
+    if (this.time >= this.nextOp) {
+      this.nextOp = this.time + (this.startOperation() ? ctx.rng.range(INSURGENCY.opEvery[0], INSURGENCY.opEvery[1]) : 10);
     }
   }
 }

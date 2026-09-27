@@ -247,3 +247,37 @@ describe('спецагент', () => {
     expect(ROSTER.respawn.agent).toBeGreaterThan(ROSTER.respawn.partisan);
   });
 });
+
+describe('подполье: взлом и растяжки', () => {
+  test('товарищ в клетке — подпольщик идёт через люк в Нексус и вскрывает её, у двери оставляет растяжку', { timeout: 240_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    spawnPopulation(sim.ctx, 20);
+    const [caught, free] = sim.insurgency.garrison;
+    const cp = sim.entities.list.find((c) => c.faction === 'cp')!;
+    cage(sim, cp, caught);
+    // Свободному пора на операцию: товарищ в клетке — почти наверняка взлом.
+    const op = sim.insurgency.startOperation('jailbreak');
+    expect(op?.kind).toBe('jailbreak');
+    expect(op?.team[0]).toBe(free);
+    const t = run(sim, 200, () => sim.insurgency.stats.jailbreaks > 0 && sim.combat.mineStats.planted > 0);
+    console.log(`взлом за ${t.toFixed(0)} с; растяжек: ${sim.combat.mineStats.planted}`);
+    expect(sim.insurgency.stats.jailbreaks).toBeGreaterThan(0);
+    expect(caught.law.phase === 'jailed').toBe(false);
+    expect(sim.combat.mineStats.planted).toBeGreaterThan(0);
+  });
+
+  test('минирование: подпольщик ставит растяжку в городе', { timeout: 240_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    spawnPopulation(sim.ctx, 20);
+    const op = sim.insurgency.startOperation('mine');
+    expect(op?.kind).toBe('mine');
+    run(sim, 200, () => sim.combat.mineStats.planted > 0);
+    expect(sim.combat.mineStats.planted).toBeGreaterThan(0);
+    const m = sim.combat.mines[0] ?? null;
+    if (m) expect(sim.map.levelAt(m.x, m.y)).toBe('city');
+  });
+});

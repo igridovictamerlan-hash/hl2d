@@ -239,6 +239,61 @@ describe('гранаты', () => {
   });
 });
 
+describe('растяжки', () => {
+  test('растяжку повстанца задевает ГО, а не горожанин; тело можно заминировать', () => {
+    const sim = makeSim(12345);
+    const p = plaza(sim);
+    const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', p.x, p.y);
+    r.inventory.add('grenade', 2);
+    expect(sim.combat.startPlant(r)).toBe(true);
+    expect(sim.combat.canFire(r)).toBe(false);
+    sim.combat.update(1 / 60);
+    expect(sim.combat.mines.length).toBe(0);
+    sim.combat.update(2);
+    expect(sim.combat.mines.length).toBe(1);
+    r.x += 200;
+    sim.entities.rebuildHash();
+    // Горожанин проходит — ничего.
+    const cit = createCharacter(sim.entities, sim.ctx.rng, 'citizen', p.x, p.y);
+    sim.entities.rebuildHash();
+    sim.combat.update(2);
+    expect(sim.combat.mines.length).toBe(1);
+    cit.x += 300;
+    // Патрульный — щелчок и взрыв.
+    const cp = patrolman(sim, p.x + 5, p.y);
+    cp.brain = null;
+    sim.entities.rebuildHash();
+    for (let k = 0; k < 60; k++) {
+      sim.entities.rebuildHash();
+      sim.combat.update(1 / 60);
+    }
+    expect(sim.combat.mineStats.triggered).toBe(1);
+    expect(cp.health).toBeLessThan(cp.maxHealth);
+    // Тело рядом — растяжка под телом.
+    sim.combat.damage(cit, 9999, null);
+    r.x = cit.x;
+    r.y = cit.y;
+    const m = sim.combat.plantMine(r, 'grenade');
+    expect(m?.corpse).toBeTruthy();
+  });
+
+  test('сотрудник Альянса замечает растяжку и обезвреживает', () => {
+    const sim = makeSim(12345);
+    const p = plaza(sim);
+    const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', p.x, p.y);
+    r.inventory.add('grenade', 1);
+    sim.combat.plantMine(r, 'grenade');
+    r.x += 300;
+    const cp = patrolman(sim, p.x - 60, p.y);
+    cp.brain = null;
+    cp.facing = 0;
+    sim.entities.rebuildHash();
+    for (let k = 0; k < 60 * 30 && sim.combat.mines.length; k++) sim.combat.update(1 / 60);
+    expect(sim.combat.mineStats.defused).toBe(1);
+    expect(cp.alive).toBe(true);
+  });
+});
+
 describe('ИИ: бандит с ножом', () => {
   test('бандит заходит в спину одинокому патрульному и режет', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);

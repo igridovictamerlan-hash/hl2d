@@ -17,8 +17,9 @@ import type { Barrel, Bench, Lamp, NoticeBoard } from '../systems/StreetLife';
 import type { Poi } from './GameMap';
 import { PAWN } from '../config/pawns';
 import { RENDER } from '../config/render';
-import { GRENADE } from '../config/combat';
+import { GRENADE, MINE } from '../config/combat';
 import { FACTIONS } from '../config/factions';
+import { lineOfSight } from './visibility';
 
 /**
  * Эффекты мира: тела погибших, поломки (щитки), места в очереди за рационом, трассеры и
@@ -318,6 +319,46 @@ export class EffectsRenderer {
   }
 
   /** Места преступления: лента между конусами (жёлтая с чёрными полосами) и оранжевые конусы. */
+  /**
+   * Растяжки: свои (той же стороны, что игрок) видны всегда, чужие — только вблизи (MINE.seeRange)
+   * и в прямой видимости. Граната, проволока в сторону, у взведённой мигает огонёк.
+   */
+  drawMines(ctx: CanvasRenderingContext2D, v: View, combat: CombatSystem, player: Character, map: GameMap): void {
+    const s = v.scale;
+    const M = RENDER.effects.mine;
+    const mine = FACTIONS[player.faction].authority;
+    const now = combat.now;
+    ctx.lineCap = 'round';
+    for (const m of combat.mines) {
+      const own = m.alliance === mine || m.owner === player;
+      if (!own && (Math.hypot(m.x - player.x, m.y - player.y) > MINE.seeRange || !lineOfSight(map, player.x, player.y, m.x, m.y))) continue;
+      const x = (m.x - v.left) * s;
+      const y = (m.y - v.top) * s;
+      if (x < -20 || y < -20 || x > v.width + 20 || y > v.height + 20) continue;
+      // Проволока — в сторону, заданную координатами (без случайности на кадр).
+      const a = ((m.x * 0.37 + m.y * 0.61) % 6.283);
+      ctx.strokeStyle = M.wire;
+      ctx.lineWidth = Math.max(1, 0.8 * s);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * M.wireLen * s, y + Math.sin(a) * M.wireLen * s);
+      ctx.stroke();
+      ctx.fillStyle = m.kind === 'fire_grenade' ? M.fire : M.frag;
+      ctx.strokeStyle = M.rim;
+      ctx.lineWidth = Math.max(1, 1 * s);
+      ctx.beginPath();
+      ctx.arc(x, y, M.r * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (now >= m.armedAt && Math.floor(now * 2 + m.x) % 2 === 0) {
+        ctx.fillStyle = M.light;
+        ctx.beginPath();
+        ctx.arc(x, y - M.r * 0.45 * s, 1.3 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
   drawScenes(ctx: CanvasRenderingContext2D, v: View, scenes: readonly CrimeScene[]): void {
     const s = v.scale;
     const C = RENDER.effects.scene;

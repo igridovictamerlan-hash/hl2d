@@ -7,7 +7,7 @@ import type { Rng } from '../core/rng';
 import type { LawSystem } from './LawSystem';
 import { castRayWith, lineOfSight } from '../world/visibility';
 import { T } from '../world/tiles';
-import { COMBAT, GRENADE, FIRE, HITS, ROCKET, type HitZone } from '../config/combat';
+import { COMBAT, GRENADE, FIRE, HITS, ROCKET, MINE, type HitZone } from '../config/combat';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, ITEMS, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
 import { armorOf, rollZone, behind } from './wounds';
@@ -132,6 +132,21 @@ export interface Blast {
   kind: 'frag' | 'fire' | 'rocket';
 }
 
+/**
+ * Растяжка из гранаты: взводится к armedAt; задевает враг ставившего (сторона — authority владельца)
+ * — взрыв. corpse — заминированное тело (растяжка лежит под ним).
+ */
+export interface Mine {
+  x: number;
+  y: number;
+  kind: 'grenade' | 'fire_grenade';
+  owner: Character;
+  /** Ставил сотрудник Альянса (тогда задевают повстанцы и напавшие). */
+  alliance: boolean;
+  armedAt: number;
+  corpse: Corpse | null;
+}
+
 /** Дымовая завеса: тайлы tiles непрозрачны (map.smoke) до until. */
 export interface Smoke {
   x: number;
@@ -195,6 +210,10 @@ export class CombatSystem {
   readonly blasts: Blast[] = [];
   readonly decals: Decal[] = [];
   readonly smokes: Smoke[] = [];
+  readonly mines: Mine[] = [];
+  private mineScan = 0;
+  /** Сколько растяжек сработало и сколько обезврежено (для тестов и отладки). */
+  readonly mineStats = { planted: 0, triggered: 0, defused: 0 };
   /** Эффекты для отрисовки и звука (последние FX_KEEP, по возрастанию seq). */
   readonly fx: Fx[] = [];
   fxSeq = 0;
@@ -375,8 +394,13 @@ export class CombatSystem {
     return c.bandageUntil > this.time;
   }
 
+  /** Занят руками: перевязывается или ставит растяжку. */
+  busy(c: Character): boolean {
+    return c.bandageUntil > this.time || c.plantUntil > this.time;
+  }
+
   canFire(c: Character): boolean {
-    if (!c.weapon || !c.alive || this.time < c.nextShot || this.bandaging(c)) return false;
+    if (!c.weapon || !c.alive || this.time < c.nextShot || this.busy(c)) return false;
     if (WEAPONS[c.weapon].mode === 'melee') return true;
     return !this.reloading(c) && c.mag > 0;
   }
@@ -656,6 +680,7 @@ export class CombatSystem {
     // Раны, огонь, оглушение и отдача в новую жизнь не переходят (игрок возрождается тем же персонажем).
     c.bleed = 0;
     c.bandageUntil = 0;
+    c.plantUntil = 0;
     c.limpUntil = c.armUntil = 0;
     c.burnUntil = 0;
     c.stunUntil = 0;
@@ -769,7 +794,7 @@ export class CombatSystem {
 
   /** Может ли бросить гранату (kind — какую; без kind — любую). */
   canThrow(c: Character, kind: GrenadeId | null = null): boolean {
-    if (!c.alive || this.time < c.nextGrenade || c.stunUntil > this.time || this.bandaging(c)) return false;
+    if (!c.alive || this.time < c.nextGrenade || c.stunUntil > this.time || this.busy(c)) return false;
     return kind ? c.inventory.has(kind) : GRENADE_KINDS.some((k) => c.inventory.has(k));
   }
 
@@ -800,6 +825,91 @@ export class CombatSystem {
     this.grenades.push(g);
     this.grenadesThrown++;
     return g;
+  }
+
+  /** Какой гранатой минировать: выбранной (если не дымовая), иначе осколочной или зажигательной. */
+  mineKindOf(c: Character): 'grenade' | 'fire_grenade' | null {
+    if (c.grenadeKind !== 'smoke_grenade' && c.inventory.has(c.grenadeKind)) return c.grenadeKind;
+    return c.inventory.has('grenade') ? 'grenade' : c.inventory.has('fire_grenade') ? 'fire_grenade' : null;
+  }
+
+  /** Начать ставить растяжку под ноги (MINE.plantTime с). false — нечем или занят. */
+  startPlant(c: Character, kind: 'grenade' | 'fire_grenade' | null = this.mineKindOf(c)): boolean {
+    if (!kind || !c.alive || this.busy(c) || !c.inventory.has(kind)) return false;
+    c.plantUntil = this.time + MINE.plantTime;
+    c.plantKind = kind;
+    c.aim = 0;
+    return true;
+  }
+
+  /** Растяжка поставлена (граната из инвентаря): рядом тело — минируется тело. */
+  plantMine(c: Character, kind: 'grenade' | 'fire_grenade', x = c.x, y = c.y): Mine | null {
+    if (!c.inventory.remove(kind, 1)) return null;
+    let corpse: Corpse | null = null;
+    let bestD: number = MINE.corpseReach;
+    for (const k of this.corpses) {
+      const d = Math.hypot(k.x - x, k.y - y);
+      if (d < bestD && !this.mines.some((m) => m.corpse === k)) {
+        bestD = d;
+        corpse = k;
+      }
+    }
+    const m: Mine = { x: corpse ? corpse.x : x, y: corpse ? corpse.y : y, kind, owner: c, alliance: FACTIONS[c.faction].authority, armedAt: this.time + MINE.arm, corpse };
+    this.mines.push(m);
+    if (this.mines.length > MINE.max) this.mines.shift();
+    this.mineStats.planted++;
+    if (c.isPlayer) this.bus.emit('log', { text: corpse ? `Тело заминировано (${ITEMS[kind].name.toLowerCase()}).` : `Растяжка поставлена (${ITEMS[kind].name.toLowerCase()}). Своих не заденет.`, kind: 'system' });
+    return m;
+  }
+
+  /** Задевает ли растяжку этот персонаж: враг стороны ставившего (мирные — нет). */
+  private minesFor(m: Mine, o: Character): boolean {
+    if (!o.alive || o === m.owner) return false;
+    if (m.alliance) return (o.faction === 'rebel' && !o.disguised) || o.hostile;
+    return FACTIONS[o.faction].authority;
+  }
+
+  /** Растяжки: сработать от врага рядом; сотрудники Альянса замечают и обезвреживают чужие. */
+  private updateMines(dt: number): void {
+    this.mineScan -= dt;
+    const scan = this.mineScan <= 0;
+    if (scan) this.mineScan = MINE.scanEvery;
+    for (let i = this.mines.length - 1; i >= 0; i--) {
+      const m = this.mines[i];
+      // Заминированное тело сожгли или увезли — растяжка вместе с ним.
+      if (m.corpse && !this.corpses.includes(m.corpse)) {
+        this.mines.splice(i, 1);
+        continue;
+      }
+      if (this.time < m.armedAt) continue;
+      let fired = false;
+      for (const o of this.entities.near(m.x, m.y, MINE.trigger + 12, near)) {
+        if (Math.hypot(o.x - m.x, o.y - m.y) < MINE.trigger + o.radius * 0.5 && this.minesFor(m, o)) {
+          fired = true;
+          break;
+        }
+      }
+      if (fired) {
+        this.mines.splice(i, 1);
+        this.mineStats.triggered++;
+        // Щелчок — и взрыв через delay: граната «уже на земле».
+        this.grenades.push({ kind: m.kind, x: m.x, y: m.y, x0: m.x, y0: m.y, x1: m.x, y1: m.y, flight: 1, dur: 0.1, at: this.time + MINE.delay, thrower: m.owner });
+        continue;
+      }
+      if (!scan || m.alliance) continue;
+      // Заметить чужую растяжку: сотрудник Альянса видит её вблизи (в угле обзора, прямая видимость).
+      for (const o of this.entities.near(m.x, m.y, MINE.spot, near)) {
+        if (!o.alive || o.isPlayer || !FACTIONS[o.faction].authority) continue;
+        const a = Math.atan2(m.y - o.y, m.x - o.x);
+        if (Math.abs(angleDiff(a, o.facing)) > Math.PI / 3 || !lineOfSight(this.map, o.x, o.y, m.x, m.y)) continue;
+        if (!this.rng.chance(MINE.spotChance * MINE.scanEvery)) continue;
+        this.mines.splice(i, 1);
+        this.mineStats.defused++;
+        o.say(this.rng.pick(MINE.lines.spot), this.time, 2);
+        this.bus.emit('log', { text: `Надзор: ${o.name} обезвредил растяжку — ${this.map.zoneAtWorld(m.x, m.y)?.name ?? 'город'}.`, kind: 'radio' });
+        break;
+      }
+    }
   }
 
   /** Поджечь: горит time с, урон FIRE.dps в секунду (засчитывается поджёгшему). */
@@ -962,6 +1072,7 @@ export class CombatSystem {
       }
     }
     this.updateBullets(dt);
+    this.updateMines(dt);
     for (let i = this.swings.length - 1; i >= 0; i--) if ((this.swings[i].t -= dt) <= 0) this.swings.splice(i, 1);
     for (let i = this.corpses.length - 1; i >= 0; i--) if (this.corpses[i].until < this.time) this.corpses.splice(i, 1);
     while (this.shots.length > 0 && this.time - this.shots[0].t > 2) this.shots.shift();
@@ -981,12 +1092,16 @@ export class CombatSystem {
       }
       // Перевязка: закончилась — кровь остановлена; NPC перевязывается сам, когда в него давно не попадали.
       if (c.bandageUntil > 0 && this.time >= c.bandageUntil) this.finishBandage(c);
+      if (c.plantUntil > 0 && this.time >= c.plantUntil) {
+        c.plantUntil = 0;
+        this.plantMine(c, c.plantKind === 'fire_grenade' ? 'fire_grenade' : 'grenade');
+      }
       if (!c.isPlayer && c.bleed > 0 && c.bandageUntil === 0 && this.time - c.lastHurt > COMBAT.selfHealCalm && this.hasDressing(c) && c.law.phase === 'none') {
         if (this.startBandage(c)) c.say('Перевязываюсь!', this.time, 1.5);
       }
       // Оглушение, перевязка, хромота — медленнее.
       const stunned = c.stunUntil > this.time;
-      const dressing = c.bandageUntil > this.time;
+      const dressing = this.busy(c);
       c.speedMul = (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1);
       // Прицеливание копится стоя (при ходьбе — медленнее), теряется на бегу, без ПКМ и при перезарядке.
       if (w && w.mode !== 'melee') {

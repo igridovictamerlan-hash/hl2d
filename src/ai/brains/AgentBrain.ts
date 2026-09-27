@@ -43,6 +43,8 @@ export class AgentBrain implements Brain {
   private restUntil: number;
   private repath = 0;
   private idle = 0;
+  /** Ставит растяжку у выбитой двери (прикрыть побег) — потом домой. */
+  private planting = false;
   /** Итоги (для тестов и отладки). */
   stats = { dressed: 0, assassinations: 0, jailbreaks: 0, riots: 0 };
 
@@ -62,6 +64,8 @@ export class AgentBrain implements Brain {
     const A = PARTISANS.agent;
     const W = A.missions;
     let m = mission;
+    // Свой в клетке — вытащить.
+    if (!m && ctx.insurgency.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) m = 'jailbreak';
     if (!m) {
       const r = ctx.rng.next();
       m = r < W.assassinate ? 'assassinate' : r < W.assassinate + W.jailbreak ? 'jailbreak' : 'riot';
@@ -142,6 +146,7 @@ export class AgentBrain implements Brain {
   }
 
   private goHome(self: Character, ctx: AiContext): void {
+    this.planting = false;
     this.mode = 'return';
     this.mission = null;
     this.target = null;
@@ -196,6 +201,14 @@ export class AgentBrain implements Brain {
         break;
       }
       case 'mission':
+        if (this.planting) {
+          this.mover.stop();
+          if (!ctx.combat.busy(self)) {
+            this.planting = false;
+            this.goHome(self, ctx);
+          }
+          break;
+        }
         this.updateMission(self, ctx, dt, fighting);
         break;
       case 'return': {
@@ -259,6 +272,17 @@ export class AgentBrain implements Brain {
       } else if (st === 'failed') this.goHome(self, ctx);
       return;
     }
+    // Взлом: из камеры уже выпустили — к другой занятой.
+    if (this.mission === 'jailbreak' && (!this.cell || !this.cell.slots.some((sl) => sl.occupant))) {
+      const other = ctx.insurgency.occupiedCell();
+      if (!other) {
+        this.goHome(self, ctx);
+        return;
+      }
+      this.cell = other;
+      this.work = 0;
+      this.travel.start(self, ctx, this.mover, { x: other.frontX, y: other.frontY });
+    }
     const to = this.mission === 'jailbreak' && this.cell ? { x: this.cell.frontX, y: this.cell.frontY } : this.travel.goal;
     const st = this.travel.update(self, ctx, this.mover, dt);
     if (city && to && (st === 'arrived' || Math.hypot(to.x - self.x, to.y - self.y) < A.reach)) {
@@ -269,6 +293,11 @@ export class AgentBrain implements Brain {
       if (this.work >= need) {
         if (this.mission === 'jailbreak' && this.cell) {
           if (ctx.insurgency.jailbreak(self, this.cell) > 0) this.stats.jailbreaks++;
+          // Растяжка у двери — погоню встретит взрыв.
+          if (ctx.combat.startPlant(self)) {
+            this.planting = true;
+            return;
+          }
         } else if (this.mission === 'riot') {
           if (ctx.insurgency.startRiot(self, self.x, self.y) > 0) this.stats.riots++;
         }

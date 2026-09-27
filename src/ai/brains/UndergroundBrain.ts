@@ -3,23 +3,27 @@ import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
 import type { Vec2 } from '../../core/math';
 import type { RepairSpot } from '../../systems/EconomySystem';
+import type { Cell } from '../../systems/LawSystem';
 import { Mover } from '../Mover';
 import { complyWithCp } from '../comply';
 import { Gunner } from '../Gunner';
 import { HatchTravel } from '../HatchTravel';
 import { faceMovement, faceTowards } from '../facing';
 import { randomAnchorInZone } from '../destinations';
-import { COMBAT } from '../../config/combat';
+import { COMBAT, MINE } from '../../config/combat';
 import { CHARACTER } from '../../config/entities';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
 
-export type OpMode = 'base' | 'sabotage' | 'arm' | 'return' | 'outing';
+export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'return' | 'outing';
 
 /**
  * Боец убежища сопротивления в канализации.
  *  base — бродит по убежищу, защищает его;
  *  sabotage — через люк к узлу Альянса, возится INSURGENCY.sabotageTime с, уходит;
  *  arm — через люк к бандиту, отдать ствол (он пойдёт на ГО — чужими руками), назад; огня не открывает;
+ *  jailbreak — под личиной через люк в Нексус к занятой камере или клетке, выбить дверь, у двери
+ *    оставить растяжку (прикрыть побег) и уйти;
+ *  mine — поставить растяжку (на свежем теле ГО, у ворот Нексуса, у выхода проходной, на пути патруля);
  *  return — к ближайшему люку и вниз, в убежище (раненый — сразу сюда).
  */
 export class UndergroundBrain implements Brain {
@@ -30,6 +34,11 @@ export class UndergroundBrain implements Brain {
   /** Цель операции: узел Альянса или бандит, которому несут ствол. */
   node: RepairSpot | null = null;
   prey: Character | null = null;
+  /** Взлом: камера; минирование: куда ставить; ставит растяжку — ждёт и уходит. */
+  cell: Cell | null = null;
+  spot: Vec2 | null = null;
+  private planting = false;
+  private jailWait = 0;
   private work = 0;
   private idle = 0;
   private repath = 0;
@@ -81,6 +90,43 @@ export class UndergroundBrain implements Brain {
     this.travel.start(self, ctx, this.mover, { x: bandit.x, y: bandit.y });
   }
 
+  /** Взломать камеру КПЗ или клетку (партизан под личиной идёт через люк прямо в Нексус). */
+  startJailbreak(self: Character, ctx: AiContext, cell: Cell): void {
+    this.mode = 'jailbreak';
+    this.cell = cell;
+    this.jailWait = 0;
+    this.work = 0;
+    this.planting = false;
+    this.mover.speed = CHARACTER.walkSpeed;
+    this.travel.start(self, ctx, this.mover, { x: cell.frontX, y: cell.frontY });
+  }
+
+  /** Поставить растяжку в точке. */
+  startMine(self: Character, ctx: AiContext, spot: Vec2): void {
+    this.mode = 'mine';
+    this.spot = spot;
+    this.planting = false;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    this.travel.start(self, ctx, this.mover, spot);
+  }
+
+  /** Растяжку ставит — стоит, пока не поставит, потом уходит. true — ещё занят. */
+  private plantAndLeave(self: Character, ctx: AiContext): boolean {
+    if (!this.planting) {
+      this.planting = true;
+      if (ctx.combat.startPlant(self)) {
+        self.say(ctx.rng.pick(MINE.lines.plant), ctx.combat.now, 1.5);
+        this.mover.stop();
+        return true;
+      }
+    } else if (ctx.combat.busy(self)) {
+      this.mover.stop();
+      return true;
+    }
+    this.goHome(self, ctx);
+    return false;
+  }
+
   private goHome(self: Character, ctx: AiContext): void {
     // Не перезапускать путь каждый тик, если он не находится.
     if (this.mode === 'return' && ctx.combat.now - this.homeAt < 2) return;
@@ -89,6 +135,9 @@ export class UndergroundBrain implements Brain {
     this.mode = 'return';
     this.node = null;
     this.prey = null;
+    this.cell = null;
+    this.spot = null;
+    this.planting = false;
     this.mover.speed = CHARACTER.runSpeed * 0.75;
     const base = ctx.insurgency.base;
     if (base) this.travel.start(self, ctx, this.mover, base);
@@ -96,7 +145,9 @@ export class UndergroundBrain implements Brain {
 
   update(self: Character, ctx: AiContext, dt: number): void {
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
-    if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
+    // Скрытные дела (ствол бандиту, взлом, растяжка) — огня не открывает, пока не ранят.
+    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
+    else if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
     // Под личиной ствол в кармане, пока не стреляет.
     if (self.disguised && !this.gunner.target && self.weapon) ctx.combat.equip(self, null);
@@ -162,6 +213,61 @@ export class UndergroundBrain implements Brain {
           // Бандит ходит — цель обновляется.
           this.repath = 2;
           this.travel.start(self, ctx, this.mover, { x: b.x, y: b.y });
+        } else if (st === 'failed') this.goHome(self, ctx);
+        break;
+      }
+      case 'jailbreak': {
+        // Под личиной огня не открывает, пока не ранят.
+        this.gunner.holdFire = now - self.lastHurt >= INSURGENCY.returnFireFor;
+        if (this.planting) {
+          this.plantAndLeave(self, ctx);
+          break;
+        }
+        // Пока шёл, из камеры выпустили — ломать другую занятую (общая КПЗ почти всегда не пуста).
+        if (!this.cell || !this.cell.slots.some((sl) => sl.occupant)) {
+          const other = ctx.insurgency.occupiedCell();
+          if (!other) {
+            // КПЗ пуста — подождать у камер, пока не приведут кого-нибудь (не дольше jailWait с).
+            this.work = 0;
+            if ((this.jailWait += dt) > PARTISANS.jailWait) this.goHome(self, ctx);
+            else if (this.cell && ctx.map.levelAt(self.x, self.y) === 'city' && Math.hypot(this.cell.frontX - self.x, this.cell.frontY - self.y) < 60) this.mover.stop();
+            else this.travel.update(self, ctx, this.mover, dt);
+            break;
+          }
+          this.cell = other;
+          this.work = 0;
+          this.travel.start(self, ctx, this.mover, { x: other.frontX, y: other.frontY });
+        }
+        const cell = this.cell;
+        const st = this.travel.update(self, ctx, this.mover, dt);
+        const up = ctx.map.levelAt(self.x, self.y) === 'city';
+        if (up && Math.hypot(cell.frontX - self.x, cell.frontY - self.y) < PARTISANS.jailReach) {
+          this.travel.stop(this.mover);
+          faceTowards(self, cell.x, cell.y, dt);
+          this.work += dt;
+          if (this.work >= PARTISANS.agent.breakTime) {
+            ctx.insurgency.jailbreak(self, cell);
+            // Растяжка у двери — прикрыть побег.
+            this.plantAndLeave(self, ctx);
+          }
+        } else if (st === 'failed') this.goHome(self, ctx);
+        break;
+      }
+      case 'mine': {
+        this.gunner.holdFire = now - self.lastHurt >= INSURGENCY.returnFireFor;
+        if (this.planting) {
+          this.plantAndLeave(self, ctx);
+          break;
+        }
+        const to = this.spot;
+        if (!to) {
+          this.goHome(self, ctx);
+          break;
+        }
+        const st = this.travel.update(self, ctx, this.mover, dt);
+        if (ctx.map.levelAt(self.x, self.y) === 'city' && (st === 'arrived' || Math.hypot(to.x - self.x, to.y - self.y) < 22)) {
+          this.travel.stop(this.mover);
+          this.plantAndLeave(self, ctx);
         } else if (st === 'failed') this.goHome(self, ctx);
         break;
       }

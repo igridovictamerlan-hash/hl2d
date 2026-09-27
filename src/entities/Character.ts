@@ -167,6 +167,9 @@ export class Character {
   armUntil = 0;
   /** Перевязывается до этого времени (0 — нет): стоит, не стреляет. */
   bandageUntil = 0;
+  /** Ставит растяжку до этого времени (0 — нет) и из какой гранаты. */
+  plantUntil = 0;
+  plantKind: GrenadeId = 'grenade';
   /** Последнее ранение: зона и время (для HUD игрока). */
   lastZone: 'head' | 'torso' | 'arm' | 'leg' | 'blast' | null = null;
   /** Оглушён (дубинкой) до этого времени. */

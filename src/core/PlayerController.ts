@@ -14,7 +14,7 @@ import { WEAPONS, KITS, ITEMS } from '../config/items';
 import { UNDERGROUND, INSURGENCY, PARTISANS } from '../config/underground';
 import type { Cell } from '../systems/LawSystem';
 import { ECONOMY } from '../config/economy';
-import { COMBAT } from '../config/combat';
+import { COMBAT, HITS, MINE } from '../config/combat';
 import type { RepairSpot } from '../systems/EconomySystem';
 import type { TrashPile } from '../systems/LaborSystem';
 import { GRENADE_KINDS, type Corpse } from '../systems/CombatSystem';
@@ -84,6 +84,13 @@ export class PlayerController {
     if (this.packing && this.laborRef) return this.laborRef.packProgress(this.playerRef!);
     if (this.sabotaging) return this.sabotaging.progress / INSURGENCY.sabotageTime;
     if (this.repairing) return this.repairing.progress / ECONOMY.repairs.time;
+    // Перевязка и растяжка — полоска по времени боя.
+    const p = this.playerRef;
+    const combat = this.combatRef;
+    if (p && combat) {
+      if (p.plantUntil > combat.now) return 1 - (p.plantUntil - combat.now) / MINE.plantTime;
+      if (p.bandageUntil > combat.now) return 1 - (p.bandageUntil - combat.now) / HITS.bandageTime;
+    }
     return null;
   }
 
@@ -92,12 +99,14 @@ export class PlayerController {
   }
 
   private laborRef: AiContext['labor'] | null = null;
+  private combatRef: AiContext['combat'] | null = null;
   private playerRef: Character | null = null;
 
   update(p: Character, ctx: AiContext, dt: number): void {
     const i = this.input;
     this.laborRef = ctx.labor;
     this.playerRef = p;
+    this.combatRef = ctx.combat;
     const law = p.law;
     this.healCooldown -= dt;
     this.riotCooldown -= dt;
@@ -172,6 +181,12 @@ export class PlayerController {
         const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
         ctx.combat.throwGrenade(p, m.x, m.y);
       }
+    }
+    if (i.wasPressed('mine')) {
+      const k = ctx.combat.mineKindOf(p);
+      if (!k) this.say('Нечем минировать: нужна осколочная или зажигательная граната.');
+      else if (!ctx.combat.startPlant(p, k)) this.say('Сейчас не получится — руки заняты.');
+      else this.say(`Ставите растяжку (${ITEMS[k].name.toLowerCase()})… не двигайтесь.`);
     }
     if (i.wasPressed('bandage')) {
       if (ctx.combat.bandaging(p)) this.say('Уже перевязываетесь.');
