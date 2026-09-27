@@ -13,7 +13,7 @@ import { CHARACTER } from '../../config/entities';
 import { LAW } from '../../config/law';
 import { FACTIONS } from '../../config/factions';
 import { ECONOMY } from '../../config/economy';
-import { ITEMS, type ItemId } from '../../config/items';
+import { ITEMS, WEAPONS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
 import type { TrashPile } from '../../systems/LaborSystem';
 import type { Corpse } from '../../systems/CombatSystem';
@@ -45,6 +45,7 @@ type Job =
   | { kind: 'pickpocket'; victim: Character; left: number; until: number; repath: number }
   | { kind: 'rob'; victim: Character; left: number; until: number; repath: number; threatened: boolean }
   | { kind: 'loot'; corpse: Corpse; left: number; until: number }
+  | { kind: 'shank'; victim: Character; until: number; repath: number }
   | { kind: 'paper'; desk: Vec2; until: number; nextPay: number };
 
 /** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
@@ -64,6 +65,7 @@ const PROFILES: Record<'citizen' | 'cwu' | 'rebel' | 'vort', StreetProfile> = {
 };
 
 const near: Character[] = [];
+const near2: Character[] = [];
 
 /** Состояния, в которых мозг сам решает, куда смотреть (не «по ходу движения»). */
 const SELF_FACING = new Set(['stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice']);
@@ -441,7 +443,7 @@ export class CitizenBrain implements Brain {
         let best: Character | null = null;
         for (const o of ctx.entities.near(self.x, self.y, M.seek, near)) {
           if (o === self || !o.alive || o.isPlayer || o.hostile || o.faction === 'rebel' || o.faction === 'vort') continue;
-          if (o.health >= o.maxHealth * M.below || o.law.phase !== 'none') continue;
+          if ((o.health >= o.maxHealth * M.below && o.bleed <= 0) || o.law.phase !== 'none') continue;
           if (!FACTIONS[o.faction].authority && o.money < M.fee) continue;
           if (!best || o.health < best.health) best = o;
         }
@@ -477,6 +479,12 @@ export class CitizenBrain implements Brain {
           }
           if (best && !this.cpInSight(260) && ctx.rng.chance(CRIME.loot.chance)) return { kind: 'loot', corpse: best, left: CRIME.loot.time, until: ctx.law.now + CRIME.npc.giveUp };
         }
+        // Нож в спину одинокому патрульному.
+        // (Случайность — только если жертва есть: иначе не сдвигать общий поток rng.)
+        if (self.inventory.has('knife') && ctx.war.code === 'green') {
+          const v = this.loneCp();
+          if (v && ctx.rng.chance(CRIME.shank.chance)) return { kind: 'shank', victim: v, until: ctx.law.now + CRIME.shank.giveUp, repath: 0 };
+        }
         // Гоп-стоп: жертва в подворотне, ГО рядом не видно.
         if (!ctx.rng.chance(CRIME.rob.npcChance) || this.cpInSight(260)) return null;
         let victim: Character | null = null;
@@ -497,6 +505,31 @@ export class CitizenBrain implements Brain {
       }
     }
     return null;
+  }
+
+  /** Патрульный ГО в городе без напарников рядом (для удара ножом в спину). */
+  private loneCp(): Character | null {
+    const { ctx, self } = this;
+    const S = CRIME.shank;
+    let best: Character | null = null;
+    let bestD: number = S.seek;
+    for (const o of ctx.entities.near(self.x, self.y, S.seek, near)) {
+      if (!o.alive || o.isPlayer || o.faction !== 'cp' || o.law.phase !== 'none' || ctx.map.levelAt(o.x, o.y) !== 'city') continue;
+      const d = Math.hypot(o.x - self.x, o.y - self.y);
+      if (d >= bestD) continue;
+      let alone = true;
+      for (const q of ctx.entities.near(o.x, o.y, S.lone, near2)) {
+        if (q !== o && q.alive && FACTIONS[q.faction].authority) {
+          alone = false;
+          break;
+        }
+      }
+      if (alone) {
+        bestD = d;
+        best = o;
+      }
+    }
+    return best;
   }
 
   /** Видит ли сотрудника Альянса поблизости (вор не идёт на дело при свидетелях). */
@@ -714,6 +747,9 @@ const WORK: State<CitizenBrain> = {
     else if (job.kind === 'loot') b.goToPoint(job.corpse);
     else if (job.kind === 'pickpocket') {
       b.mover.speed = CHARACTER.walkSpeed * CRIME.npc.stalk;
+      b.goToPoint(job.victim);
+    } else if (job.kind === 'shank') {
+      b.mover.speed = CHARACTER.walkSpeed * CRIME.shank.stalk;
       b.goToPoint(job.victim);
     }
     else if (job.kind === 'paper') {
@@ -953,6 +989,35 @@ const WORK: State<CitizenBrain> = {
         }
         return;
       }
+      case 'shank': {
+        // Нож в спину: зайти сзади и бить, пока жертва жива (начал — не отступает).
+        const v = job.victim;
+        const combat = b.ctx.combat;
+        if (!v.alive || b.ctx.law.now > job.until || b.self.law.phase !== 'none') {
+          if (b.self.weapon === 'knife') combat.equip(b.self, null);
+          return done();
+        }
+        const d = Math.hypot(v.x - b.self.x, v.y - b.self.y);
+        const struck = v.lastAttacker === b.self;
+        if (d < v.radius + b.self.radius + WEAPONS.knife.range - 2 && (struck || b.ctx.crime.behind(b.self, v))) {
+          if (b.self.weapon !== 'knife') combat.equip(b.self, 'knife');
+          b.mover.stop();
+          faceTowards(b.self, v.x, v.y, dt);
+          if (!struck) b.self.say(b.ctx.rng.pick(CRIME.shank.lines), b.ctx.law.now, 1.5);
+          combat.fire(b.self, v.x, v.y);
+          return;
+        }
+        // Заходит за спину (после первого удара — прямо на жертву).
+        job.repath -= dt;
+        if (job.repath <= 0 || st === 'idle' || st === 'arrived') {
+          job.repath = 0.4;
+          if (struck) {
+            b.mover.speed = CHARACTER.runSpeed;
+            b.goToPoint(v);
+          } else b.goToPoint({ x: v.x - Math.cos(v.facing) * 16, y: v.y - Math.sin(v.facing) * 16 });
+        }
+        return;
+      }
       case 'loot': {
         // Обобрать тело ГО: оцепили, тело убрали, ГО рядом или долго — бросить.
         const k = job.corpse;
@@ -974,7 +1039,7 @@ const WORK: State<CitizenBrain> = {
       }
       case 'heal': {
         const p = job.patient;
-        if (!p.alive || p.health >= p.maxHealth * LABOR.medic.below || p.law.phase !== 'none') return done();
+        if (!p.alive || (p.health >= p.maxHealth * LABOR.medic.below && p.bleed <= 0) || p.law.phase !== 'none') return done();
         if (Math.hypot(p.x - b.self.x, p.y - b.self.y) < LABOR.medic.range) {
           b.mover.stop();
           faceTowards(b.self, p.x, p.y, dt);

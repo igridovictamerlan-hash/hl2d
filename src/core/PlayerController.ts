@@ -17,7 +17,7 @@ import { ECONOMY } from '../config/economy';
 import { COMBAT } from '../config/combat';
 import type { RepairSpot } from '../systems/EconomySystem';
 import type { TrashPile } from '../systems/LaborSystem';
-import type { Corpse } from '../systems/CombatSystem';
+import { GRENADE_KINDS, type Corpse } from '../systems/CombatSystem';
 import { LABOR } from '../config/labor';
 import { CWU_HQ } from '../config/cwuHq';
 import { CRIME } from '../config/crime';
@@ -157,12 +157,27 @@ export class PlayerController {
         if (!ctx.combat.reload(p) && i.mousePressed) this.say('Нет патронов.');
       } else ctx.combat.fire(p, m.x, m.y);
     }
+    if (i.wasPressed('grenadeKind')) {
+      // Следующая граната из тех, что есть.
+      const have = GRENADE_KINDS.filter((g) => p.inventory.has(g));
+      if (!have.length) this.say('Гранат нет.');
+      else {
+        p.grenadeKind = have[(have.indexOf(p.grenadeKind) + 1) % have.length];
+        this.say(`Граната: ${ITEMS[p.grenadeKind].name} (${p.inventory.count(p.grenadeKind)}).`);
+      }
+    }
     if (i.wasPressed('grenade')) {
-      if (!p.inventory.has('grenade')) this.say('Гранат нет.');
+      if (!GRENADE_KINDS.some((g) => p.inventory.has(g))) this.say('Гранат нет.');
       else if (i.mouseInside) {
         const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
         ctx.combat.throwGrenade(p, m.x, m.y);
       }
+    }
+    if (i.wasPressed('bandage')) {
+      if (ctx.combat.bandaging(p)) this.say('Уже перевязываетесь.');
+      else if (!ctx.combat.hasDressing(p)) this.say('Нет бинтов и аптечек.');
+      else if (!ctx.combat.startBandage(p)) this.say('Перевязывать нечего.');
+      else this.say(p.bleed > 0 ? 'Перевязываетесь…' : 'Обрабатываете раны…');
     }
     if (i.wasPressed('reload') && w?.ammo && !ctx.combat.reload(p) && ctx.combat.reserveAmmo(p) <= 0 && p.mag < w.magazine) this.say('Нет запасных патронов.');
     if (i.wasPressed('interact')) this.interact(p, ctx);
@@ -509,7 +524,7 @@ export class PlayerController {
     // Медик ГСР: лечит за плату (гражданин платит, ГО — бесплатно).
     if (p.profession === 'cwu_medic') {
       if (this.healCooldown > 0) return;
-      const t = this.facingTarget(p, ctx, LABOR.medic.range, (o) => o.health < o.maxHealth && o.faction !== 'rebel');
+      const t = this.facingTarget(p, ctx, LABOR.medic.range, (o) => (o.health < o.maxHealth || o.bleed > 0) && o.faction !== 'rebel');
       if (!t) return this.say('Перед вами некого лечить.');
       const err = ctx.labor.treat(p, t);
       if (err) return this.say(err);
@@ -519,7 +534,7 @@ export class PlayerController {
     // Медик сопротивления: лечит своих бесплатно.
     if (p.profession === 'rebel_medic') {
       if (this.healCooldown > 0) return;
-      const t = this.facingTarget(p, ctx, COMBAT.healRange, (o) => o.faction === 'rebel' && o.health < o.maxHealth);
+      const t = this.facingTarget(p, ctx, COMBAT.healRange, (o) => o.faction === 'rebel' && (o.health < o.maxHealth || o.bleed > 0));
       const target = t ?? (p.health < p.maxHealth ? p : null);
       if (!target) return this.say('Некого лечить рядом.');
       if (!p.inventory.remove('bandage', 1) && !p.inventory.remove('medkit', 1)) return this.say('Нет бинтов и аптечек — пополните у тайника или на рынке.');
@@ -563,7 +578,7 @@ export class PlayerController {
       if (this.healCooldown > 0) return;
       let best: Character | null = null;
       for (const o of ctx.entities.near(p.x, p.y, COMBAT.healRange + 12, near)) {
-        if (o !== p && o.alive && o.health < o.maxHealth && (!best || o.health < best.health)) best = o;
+        if (o !== p && o.alive && (o.health < o.maxHealth || o.bleed > 0) && (!best || o.health < best.health)) best = o;
       }
       const target = best ?? (p.health < p.maxHealth ? p : null);
       if (!target || !ctx.combat.heal(target, COMBAT.healAmount)) return this.say('Некого лечить рядом.');

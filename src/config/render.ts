@@ -135,6 +135,8 @@ export const RENDER = {
     chip: 'rgba(200,200,190,0.55)',
     /** Граната: корпус, мигающий огонёк (цвет стороны), тень в полёте; взрыв: вспышка и дым. */
     grenade: '#39402f',
+    grenadeSmoke: '#8d9296',
+    grenadeFire: '#8a2a1e',
     grenadeLightCombine: '#6fc3ff',
     grenadeLightRebel: '#ff5a3a',
     grenadeShadow: 'rgba(0,0,0,0.35)',
@@ -193,13 +195,66 @@ export const RENDER = {
     reload: '160,160,160',
   },
   /** Оружие в руках рисуется по моделям — config/weaponSprites.ts. */
-  /** Трассеры: толщина по классу оружия (px мира), особые цвета AR2 и арбалета. */
+  /**
+   * Пули в полёте: светящийся хвост длиной tail × скорость (px мира на px/с), толщина по классу,
+   * цвет: обычная пуля — тёплый (у Альянса — холодный), AR2 — голубой импульс, болт — оранжевый,
+   * ракета — корпус и пламя. Взмахи дубинки и ножа — сектор.
+   */
   tracers: {
-    width: { melee: 1, pistol: 1.2, magnum: 2, smg: 1.1, rifle: 1.8, shotgun: 0.9, crossbow: 1.6 },
-    pulse: 'rgba(150,235,255,0.95)',
+    tail: 0.018,
+    width: { melee: 1, blade: 1, pistol: 1.1, magnum: 1.6, smg: 1, rifle: 1.3, pulse: 2, shotgun: 0.8, crossbow: 1.6, sniper: 1.8, launcher: 3 },
+    core: '#fff6d8',
+    rebel: 'rgba(255,196,110,0.9)',
+    combine: 'rgba(170,215,255,0.9)',
+    pulse: 'rgba(120,225,255,0.95)',
+    pulseCore: '#eafcff',
     bolt: 'rgba(255,120,60,0.95)',
+    rocket: '#4f5a44',
+    rocketFlame: '#ffb347',
     swing: 'rgba(170,210,255,0.55)',
     swingHit: 'rgba(200,230,255,0.9)',
+    slash: 'rgba(235,240,245,0.7)',
+  },
+  /**
+   * Частицы (world/Particles.ts; не игровая логика — своя случайность): max на экране; цвета по
+   * видам; вспышка у ствола (размер по классу оружия); кровь, искры, пыль от стены; взрыв — вспышка,
+   * огненные клубы, дым, осколки, искры и ударная волна (кольцо), отсвет поверх тумана.
+   * Тряска экрана: от своего выстрела × shot, от попадания в себя hurt (+ урон × hurtPerDamage);
+   * затухает decay в секунду. Маркер попадания у прицела — markerTime с.
+   */
+  particles: {
+    max: 1600,
+    colors: {
+      spark: '#ffd27a',
+      blood: '#8e1212',
+      bloodMist: '#a01818',
+      smoke: '#707070',
+      darkSmoke: '#3a3a3a',
+      fire: '#ff8a2a',
+      fireCore: '#ffe08a',
+      debris: '#2a2622',
+      flash: '#fff3c8',
+      dust: '#a0978a',
+      ember: '#ffcc55',
+      energy: '#8fe8ff',
+      muzzle: '#ffd98a',
+      muzzleCombine: '#bfefff',
+      ring: '#fff0d0',
+    },
+    muzzleSize: { melee: 0, blade: 0, pistol: 5, magnum: 8, smg: 5, rifle: 7, pulse: 7, shotgun: 10, crossbow: 0, sniper: 11, launcher: 14 },
+    light: '255,200,120',
+    shot: 0.35,
+    hurt: 3,
+    hurtPerDamage: 0.06,
+    decay: 7,
+    maxShake: 9,
+    markerTime: 0.28,
+    marker: 'rgba(255,255,255,0.95)',
+    markerKill: 'rgba(255,70,60,0.95)',
+    hurtFlash: '200,20,20',
+    /** Дымовая завеса: клубов на облако, их цвет. */
+    smokePuffs: 16,
+    smokeCloud: '185,188,190',
   },
   /** Указатели на пограничные КПП у края экрана: в бою — оранжевые, мигают. */
   frontMarker: {

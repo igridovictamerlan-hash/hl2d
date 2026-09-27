@@ -64,12 +64,14 @@ describe('оружие: конус разброса как в Foxhole', () => {
       c.nextShot = 0;
       c.mag = 45;
       c.recoil = (k % 10) * 0.6;
+      // Увод ствола отдачей проверяется отдельно — здесь только конус.
+      c.kick = 0;
       const spread = (sim.combat.spreadOf(c) * Math.PI) / 180;
-      sim.combat.tracers.length = 0;
+      sim.combat.bullets.length = 0;
       sim.combat.fire(c, tx, ty);
-      const t = sim.combat.tracers[0];
-      // Трассер начинается у дульного среза (сбоку от центра); сама пуля летит от центра стрелка.
-      const d = Math.abs(angleDiff(Math.atan2(t.y1 - c.y, t.x1 - c.x), aim));
+      const b = sim.combat.bullets[0];
+      // Пуля вылетает у дульного среза (сбоку от центра), но летит по лучу от центра стрелка.
+      const d = Math.abs(angleDiff(Math.atan2(b.dy, b.dx), aim));
       worst = Math.max(worst, d / spread);
     }
     expect(worst).toBeLessThanOrEqual(1 + 1e-9);
@@ -79,9 +81,9 @@ describe('оружие: конус разброса как в Foxhole', () => {
   test('дробовик: 8 дробин за выстрел, урон падает с дальностью; заряжается по патрону', () => {
     const sim = makeSim(12345);
     const c = shooterOnPlaza(sim, 'rebel_shotgunner', 'spas12');
-    sim.combat.tracers.length = 0;
+    sim.combat.bullets.length = 0;
     sim.combat.fire(c, c.x + 100, c.y);
-    expect(sim.combat.tracers.length).toBe(WEAPONS.spas12.pellets);
+    expect(sim.combat.bullets.length).toBe(WEAPONS.spas12.pellets);
     expect(falloffMul(WEAPONS.spas12, 50)).toBe(1);
     expect(falloffMul(WEAPONS.spas12, WEAPONS.spas12.range)).toBeCloseTo(WEAPONS.spas12.falloff, 5);
     // По патрону: 5 в магазине → перезарядка добивает до 6 за одну «порцию».

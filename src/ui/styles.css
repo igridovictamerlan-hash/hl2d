@@ -175,6 +175,7 @@ kbd {
 }
 
 .hud-law { margin-top: 6px; padding: 4px 6px; border-radius: 4px; background: rgba(255, 91, 74, 0.16); color: #ffb3a8; font-size: 13px; }
+.hud-wound { margin-top: 4px; color: #ff6b5b; font-size: 12px; font-weight: 600; }
 
 /* Журнал событий */
 .event-log {
@@ -265,7 +266,7 @@ kbd {
 .hud-small { font-size: 14px; font-variant-numeric: tabular-nums; }
 .hunger-fill { background: #8fd6b0; }
 .hunger-fill.low { background: var(--danger); }
-.hud-weapon { margin-top: 4px; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+.hud-weapon { white-space: pre-line; margin-top: 4px; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
 .hud-ration { margin-top: 4px; font-size: 12px; color: var(--hud-dim); }
 .hud { bottom: 16px; }
 .event-log { bottom: 250px; }

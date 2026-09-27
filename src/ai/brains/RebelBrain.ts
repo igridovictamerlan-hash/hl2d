@@ -430,7 +430,7 @@ export class RebelBrain implements Brain {
       for (const o of ctx.entities.near(self.x, self.y, bestD, nearRebels)) {
         // Лечит всех нуждающихся: своих и мирных (не Альянс и не бандитов).
         const friend = o.faction === 'rebel' || ((o.faction === 'citizen' || o.faction === 'cwu' || o.faction === 'vort') && !o.hostile);
-        if (o === self || !friend || !o.alive || o.health >= o.maxHealth * COMBAT.medicBelow) continue;
+        if (o === self || !friend || !o.alive || (o.health >= o.maxHealth * COMBAT.medicBelow && o.bleed <= 0)) continue;
         const d = Math.hypot(o.x - self.x, o.y - self.y);
         if (d < bestD) {
           bestD = d;
@@ -453,7 +453,7 @@ export class RebelBrain implements Brain {
       ctx.combat.heal(p, COMBAT.healAmount);
       this.healCooldown = COMBAT.healCooldown;
       self.say('Держись, брат, латаю.', ctx.law.now, 1.5);
-      if (p.health >= p.maxHealth * COMBAT.medicBelow) {
+      if (p.health >= p.maxHealth * COMBAT.medicBelow && p.bleed <= 0) {
         this.patient = null;
         this.goal = -1;
       }

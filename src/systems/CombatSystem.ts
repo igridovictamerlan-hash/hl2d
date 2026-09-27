@@ -7,9 +7,10 @@ import type { Rng } from '../core/rng';
 import type { LawSystem } from './LawSystem';
 import { castRayWith, lineOfSight } from '../world/visibility';
 import { T } from '../world/tiles';
-import { COMBAT, GRENADE, FIRE } from '../config/combat';
+import { COMBAT, GRENADE, FIRE, HITS, ROCKET, type HitZone } from '../config/combat';
 import { CHARACTER } from '../config/entities';
-import { WEAPONS, AMMO_ITEM, weaponDps, type WeaponDef, type WeaponId, type WeaponClass } from '../config/items';
+import { WEAPONS, AMMO_ITEM, ITEMS, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
+import { armorOf, rollZone, behind } from './wounds';
 import { FACTIONS, type FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { muzzleWorld } from '../entities/weaponPose';
@@ -18,14 +19,60 @@ import { bark, barkSide } from './Barks';
 
 const DEG = Math.PI / 180;
 
-export interface Tracer {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-  t: number;
+/**
+ * Пуля (болт, ракета) в полёте: летит от дула со скоростью оружия. Куда попадёт, решается при
+ * выстреле (стена, блок, первый на линии — target и зона), урон — по прилёту. Ракета (rocket)
+ * проверяет попадание на лету и взрывается о стену или первого на пути.
+ */
+export interface Bullet {
+  /** Голова пули и где была тиком раньше (хвост рисуется между ними). */
+  x: number;
+  y: number;
+  px: number;
+  py: number;
+  /** Откуда летит (центр стрелка у края круга) и направление. */
+  ox: number;
+  oy: number;
+  dx: number;
+  dy: number;
+  /** Пройдено и где остановится (от ox, oy), px. */
+  dist: number;
+  end: number;
+  speed: number;
+  w: WeaponDef;
+  shooter: Character;
+  target: Character | null;
+  zone: HitZone;
+  /** Урон с учётом падения на дистанции (до брони и зоны). */
+  damage: number;
+  /** Во что упрётся: стена, блок, мимо (предел дальности). */
+  stop: 'wall' | 'barrier' | 'miss';
   combine: boolean;
   kind: WeaponClass;
+  rocket: boolean;
+  /** Ракета: когда в последний раз оставила дымный след. */
+  trailT: number;
+  done: boolean;
+}
+
+/**
+ * Эффект для отрисовки и звука (частицы, вспышки, маркер попадания): бой пишет, рендер и звук
+ * читают новые по seq (логика от них не зависит).
+ */
+export interface Fx {
+  seq: number;
+  kind: 'muzzle' | 'hit' | 'wall' | 'blast' | 'stab' | 'smoke' | 'fire' | 'rocket' | 'bleed';
+  x: number;
+  y: number;
+  ang: number;
+  cls: WeaponClass | null;
+  /** Кто стрелял / в кого попали (маркер попадания игроку, тряска). */
+  by: Character | null;
+  target: Character | null;
+  zone: HitZone | 'blast' | null;
+  /** Сила: урон попадания или радиус взрыва. */
+  power: number;
+  lethal: boolean;
 }
 
 /** Взмах дубинкой — сектор удара (для отрисовки). */
@@ -37,13 +84,6 @@ export interface Swing {
   reach: number;
   t: number;
   hit: boolean;
-}
-
-export interface Impact {
-  x: number;
-  y: number;
-  t: number;
-  blood: boolean;
 }
 
 export interface Corpse {
@@ -67,6 +107,7 @@ export interface Corpse {
 
 /** Граната в полёте или на земле. */
 export interface Grenade {
+  kind: GrenadeId;
   x: number;
   y: number;
   /** Откуда и куда летит; flight — доля пройденного пути 0..1. */
@@ -81,11 +122,24 @@ export interface Grenade {
   thrower: Character;
 }
 
-/** Взрыв (для отрисовки вспышки и дыма). */
+/** Взрыв (для тряски экрана и отрисовки): осталось t с из life, радиус r. */
 export interface Blast {
   x: number;
   y: number;
   t: number;
+  life: number;
+  r: number;
+  kind: 'frag' | 'fire' | 'rocket';
+}
+
+/** Дымовая завеса: тайлы tiles непрозрачны (map.smoke) до until. */
+export interface Smoke {
+  x: number;
+  y: number;
+  r: number;
+  born: number;
+  until: number;
+  tiles: number[];
 }
 
 /** След на земле: кровь, гильза, копоть от взрыва, выбоина от пули у стены. */
@@ -105,7 +159,8 @@ export interface Shot {
   y: number;
   t: number;
   shooter: Character;
-  weapon: WeaponId | 'grenade';
+  /** Ствол или взрыв (граната, ракета) / хлопок дымовой. */
+  weapon: WeaponId | 'blast' | 'smoke';
   /** Слышимость, px. */
   noise: number;
 }
@@ -119,24 +174,31 @@ export function angleDiff(a: number, b: number): number {
 }
 
 const near: Character[] = [];
+const FX_KEEP = 400;
 
 /**
- * Бой: выстрелы лучом внутри конуса разброса (как в Foxhole: прицеливание сужает конус, движение и
- * отдача расширяют), дробь — несколько лучей. Стены и закрытые двери останавливают пули, бетонный
- * блок — с вероятностью COMBAT.barrierStopChance × (1 − пробитие оружия); свой блок рядом со стрелком
- * не мешает. Урон падает с дальностью. Дубинка — удар в секторе перед собой с оглушением.
- * Смерть, тело с лутом, перезарядка (магазин у каждого ствола свой), регенерация, лечение HELIX.
+ * Бой. Пули летят с конечной скоростью (Bullet): куда попадёт, решается при выстреле внутри конуса
+ * разброса (как в Foxhole: прицеливание сужает конус, движение и отдача расширяют; отдача ещё и
+ * уводит ствол — kick), урон — по прилёту. Стены и закрытые двери останавливают пули, бетонный
+ * блок — с вероятностью COMBAT.barrierStopChance × (1 − пробитие); свой блок у стрелка не мешает.
+ * Попадание — в зону (голова, корпус, руки, ноги) с бронёй по зонам (wounds.ts): голова без шлема —
+ * смерть от любого огнестрела; каждое ранение кровоточит до перевязки. Ближний бой: дубинка
+ * (оглушает) и нож (в спину — мимо брони и сильнее). Гранаты: осколочная, дымовая, зажигательная;
+ * РПГ — ракета со взрывом. Смерть, тело с лутом, перезарядка (магазин у каждого ствола свой).
  */
 export class CombatSystem {
-  readonly tracers: Tracer[] = [];
+  readonly bullets: Bullet[] = [];
   readonly swings: Swing[] = [];
-  readonly impacts: Impact[] = [];
   readonly corpses: Corpse[] = [];
   readonly shots: Shot[] = [];
   readonly grenades: Grenade[] = [];
   readonly blasts: Blast[] = [];
   readonly decals: Decal[] = [];
-  /** Пламя от гранат пиротехника. */
+  readonly smokes: Smoke[] = [];
+  /** Эффекты для отрисовки и звука (последние FX_KEEP, по возрастанию seq). */
+  readonly fx: Fx[] = [];
+  fxSeq = 0;
+  /** Пламя от зажигательных гранат. */
   readonly fires: { x: number; y: number; r: number; until: number; owner: Character }[] = [];
   private time = 0;
   private readonly dead: Character[] = [];
@@ -144,6 +206,8 @@ export class CombatSystem {
   shotsFired = 0;
   hits = 0;
   kills = 0;
+  headshots = 0;
+  bledOut = 0;
   /** Куда ушли пули (для отладки баланса): стена, укрытие, мимо, попадание. */
   readonly stats = { wall: 0, barrier: 0, miss: 0, hit: 0 };
 
@@ -221,6 +285,7 @@ export class CombatSystem {
     c.reloadUntil = 0;
     c.aim = 0;
     c.recoil = 0;
+    c.kick = 0;
     if (!id) {
       c.mag = 0;
       return;
@@ -261,20 +326,22 @@ export class CombatSystem {
 
   /**
    * Лучший огнестрел против цели на дистанции d (для ИИ): с патронами, достаёт, наибольший урон
-   * в секунду с учётом падения урона. null — нечем стрелять.
+   * в секунду с учётом падения урона. РПГ сюда не входит — его ИИ берёт отдельно (Gunner).
+   * null — нечем стрелять.
    */
   bestWeapon(c: Character, d: number): WeaponId | null {
     let best: WeaponId | null = null;
     let bestScore = 0;
     for (const id of this.weaponsOf(c)) {
       const w = WEAPONS[id];
-      if (w.mode === 'melee' || !this.hasAmmo(c, id)) continue;
+      if (w.mode === 'melee' || w.blastMul || !this.hasAmmo(c, id)) continue;
       const reach = d <= Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul) ? 1 : 0.05;
       // Грубая оценка попадания: полуширина прицельного конуса у цели против радиуса кружка.
       const hit = Math.min(1, CHARACTER.radius / (d * Math.tan(w.spreadAim * DEG) + 1));
-      // Урон в секунду × «вес залпа» (дробь и магнум валят быстрее, чем видно по DPS).
-      const alpha = 1 + (w.damage * w.pellets) / 100;
-      const score = weaponDps(w) * alpha * falloffMul(w, d) * hit * reach * (id === c.weapon ? 1.15 : 1);
+      // Урон в секунду × «вес залпа» (дробь и магнум валят быстрее, чем видно по DPS); автомат
+      // стреляет очередями с паузами — реально выпускает меньше.
+      const alpha = 1 + (w.damage * w.pellets) / 80;
+      const score = weaponDps(w) * (w.mode === 'auto' ? 0.6 : 1) * alpha * falloffMul(w, d) * hit * reach * (id === c.weapon ? 1.15 : 1);
       if (score > bestScore) {
         bestScore = score;
         best = id;
@@ -288,7 +355,7 @@ export class CombatSystem {
     let r = 0;
     for (const id of this.weaponsOf(c)) {
       const w = WEAPONS[id];
-      if (w.mode !== 'melee' && this.hasAmmo(c, id)) r = Math.max(r, w.range);
+      if (w.mode !== 'melee' && !w.blastMul && this.hasAmmo(c, id)) r = Math.max(r, w.range);
     }
     return r;
   }
@@ -298,20 +365,25 @@ export class CombatSystem {
     let r = 0;
     for (const id of this.weaponsOf(c)) {
       const w = WEAPONS[id];
-      if (w.mode !== 'melee' && this.hasAmmo(c, id)) r = Math.max(r, Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul));
+      if (w.mode !== 'melee' && !w.blastMul && this.hasAmmo(c, id)) r = Math.max(r, Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul));
     }
     return r;
   }
 
+  /** Перевязывается (стоит, не стреляет). */
+  bandaging(c: Character): boolean {
+    return c.bandageUntil > this.time;
+  }
+
   canFire(c: Character): boolean {
-    if (!c.weapon || !c.alive || this.time < c.nextShot) return false;
+    if (!c.weapon || !c.alive || this.time < c.nextShot || this.bandaging(c)) return false;
     if (WEAPONS[c.weapon].mode === 'melee') return true;
     return !this.reloading(c) && c.mag > 0;
   }
 
   /**
    * Текущий полуугол конуса разброса, градусы: от бедра → прицельно по мере прицеливания,
-   * плюс движение (бег — сильнее) и накопленная отдача. У NPC — чуть шире (COMBAT.ai.spreadMul).
+   * плюс движение (бег — сильнее) и накопленная отдача; ранен в руку — шире. У NPC — чуть шире.
    */
   spreadOf(c: Character, w: WeaponDef | null = this.weaponOf(c)): number {
     if (!w) return 0;
@@ -320,11 +392,21 @@ export class CombatSystem {
     const v = c.moveSpeed / CHARACTER.walkSpeed;
     const move = v < 0.15 ? 0 : w.moveSpread * (v <= 1 ? v : 1 + (v - 1) * COMBAT.runSpreadMul);
     let s = base + move + c.recoil;
+    if (c.armUntil > this.time) s *= HITS.armSpread;
     if (!c.isPlayer) s *= COMBAT.ai.spreadMul;
     return Math.min(s, COMBAT.maxSpread);
   }
 
-  /** Выстрел (удар) в сторону точки. Возвращает, в кого попали (для дроби — в последнего). */
+  /** Записать эффект (для отрисовки и звука). */
+  private emit(kind: Fx['kind'], x: number, y: number, ang: number, cls: WeaponClass | null, by: Character | null, target: Character | null = null, zone: Fx['zone'] = null, power = 0, lethal = false): void {
+    this.fx.push({ seq: ++this.fxSeq, kind, x, y, ang, cls, by, target, zone, power, lethal });
+    if (this.fx.length > FX_KEEP) this.fx.splice(0, this.fx.length - FX_KEEP);
+  }
+
+  /**
+   * Выстрел (удар) в сторону точки. Возвращает, в кого попадёт пуля (для дроби — последняя
+   * попавшая); урон — когда пуля долетит. Ракета РПГ цель не предсказывает (null).
+   */
   fire(c: Character, tx: number, ty: number): Character | null {
     const w = this.weaponOf(c);
     if (!w) return null;
@@ -341,15 +423,25 @@ export class CombatSystem {
     const aim = Math.atan2(ty - c.y, tx - c.x);
     c.facing = aim;
     const spread = this.spreadOf(c, w) * DEG;
+    // Увод ствола: пуля летит туда, куда ствол увело прошлыми выстрелами.
+    const dir = aim + c.kick;
     let hit: Character | null = null;
     for (let k = 0; k < w.pellets; k++) {
       // Треугольное распределение в [−1, 1]: гуще к центру, но всегда внутри конуса.
       const g = this.rng.next() + this.rng.next() - 1;
-      hit = this.bullet(c, w, aim + g * spread) ?? hit;
+      hit = this.bullet(c, w, dir + g * spread) ?? hit;
     }
     c.recoil = Math.min(w.maxRecoil, c.recoil + w.recoil);
-    // Гильза — вправо-назад от стрелка (у арбалета и дробовика при помпе — тоже что-то летит, но не гильза).
-    if (w.class !== 'crossbow') {
+    // Отдача уводит ствол вбок: чаще в ту же сторону, иногда разворачивается.
+    if (w.kick > 0) {
+      if (this.rng.chance(w.kickSide)) c.kickDir = -c.kickDir;
+      const lim = w.kickMax * DEG;
+      c.kick = Math.max(-lim, Math.min(lim, c.kick + c.kickDir * w.kick * DEG * this.rng.range(0.6, 1.2)));
+    }
+    const m = muzzleWorld(c, w.id);
+    this.emit('muzzle', m.x, m.y, aim, w.class, c, null, null, w.shake);
+    // Гильза — вправо-назад от стрелка (у арбалета и РПГ гильз нет).
+    if (w.class !== 'crossbow' && w.class !== 'launcher' && w.class !== 'pulse') {
       const ca = aim + Math.PI / 2 + this.rng.range(-0.5, 0.5);
       const cd = this.rng.range(10, 20);
       this.addDecal(c.x + Math.cos(ca) * cd, c.y + Math.sin(ca) * cd, 'casing', COMBAT.decals.casingTime, this.rng.range(0, Math.PI), 1);
@@ -358,78 +450,135 @@ export class CombatSystem {
     return hit;
   }
 
-  /** Одна пуля (дробина) по направлению ang. */
+  /** Пуля (дробина, болт, ракета) по направлению ang: решить, куда попадёт, и выпустить. */
   private bullet(c: Character, w: WeaponDef, ang: number): Character | null {
     const dx = Math.cos(ang);
     const dy = Math.sin(ang);
     const ox = c.x + dx * (c.radius + 1);
     const oy = c.y + dy * (c.radius + 1);
     const stopChance = Math.min(COMBAT.barrierMaxStop, Math.max(0, COMBAT.barrierStopChance * (1 - w.penetration)));
-    let stoppedBy: 'wall' | 'barrier' | 'miss' = 'miss';
+    const rocket = !!w.blastMul;
+    let stop: Bullet['stop'] = 'miss';
     // Блок из нескольких тайлов — одно укрытие: шанс остановки бросается при входе в него.
     let inBarrier = false;
     const wallT = castRayWith(this.map, ox, oy, dx, dy, w.range, (x, y, t) => {
-      if (this.map.isOpaque(x, y)) {
-        stoppedBy = 'wall';
+      if (this.map.blocksShot(x, y)) {
+        stop = 'wall';
         return true;
       }
       const barrier = this.map.tileAt(x, y) === T.BARRIER;
       const entering = barrier && !inBarrier;
       inBarrier = barrier;
-      if (entering && t > COMBAT.ownCoverDistance && this.rng.chance(stopChance)) {
-        stoppedBy = 'barrier';
+      // Ракета бьёт в блок всегда (взрыв у укрытия).
+      if (entering && t > COMBAT.ownCoverDistance && (rocket || this.rng.chance(stopChance))) {
+        stop = 'barrier';
         return true;
       }
       return false;
     });
-    // Первый персонаж на линии огня.
+    // Первый персонаж на линии огня (для ракеты — решается в полёте).
     let hit: Character | null = null;
     let hitT = wallT;
-    const mx = ox + (dx * wallT) / 2;
-    const my = oy + (dy * wallT) / 2;
-    for (const o of this.entities.near(mx, my, wallT / 2 + 16, near)) {
-      if (o === c || !o.alive) continue;
-      const px = o.x - ox;
-      const py = o.y - oy;
-      const t = px * dx + py * dy;
-      if (t < 0 || t > hitT) continue;
-      const d2 = px * px + py * py - t * t;
-      const r2 = o.radius * o.radius;
-      if (d2 > r2) continue;
-      const th = t - Math.sqrt(r2 - d2);
-      if (th < hitT) {
-        hitT = th;
-        hit = o;
+    if (!rocket) {
+      const mx = ox + (dx * wallT) / 2;
+      const my = oy + (dy * wallT) / 2;
+      for (const o of this.entities.near(mx, my, wallT / 2 + 16, near)) {
+        if (o === c || !o.alive) continue;
+        const px = o.x - ox;
+        const py = o.y - oy;
+        const t = px * dx + py * dy;
+        if (t < 0 || t > hitT) continue;
+        const d2 = px * px + py * py - t * t;
+        const r2 = o.radius * o.radius;
+        if (d2 > r2) continue;
+        const th = t - Math.sqrt(r2 - d2);
+        if (th < hitT) {
+          hitT = th;
+          hit = o;
+        }
       }
     }
-    const ex = ox + dx * hitT;
-    const ey = oy + dy * hitT;
-    // Трассер — от дульного среза (если ствол не упёрся в стену и цель не ближе ствола).
+    // Пуля вылетает из дульного среза (если ствол не упёрся в стену и цель не ближе ствола).
     const m = muzzleWorld(c, w.id);
     const md = (m.x - ox) * dx + (m.y - oy) * dy;
     const fromMuzzle = md > 0 && md < hitT && lineOfSight(this.map, c.x, c.y, m.x, m.y);
-    this.tracers.push({ x0: fromMuzzle ? m.x : ox, y0: fromMuzzle ? m.y : oy, x1: ex, y1: ey, t: COMBAT.tracerTime, combine: FACTIONS[c.faction].authority, kind: w.class });
-    if (hitT < w.range) this.impacts.push({ x: ex, y: ey, t: COMBAT.impactTime, blood: !!hit });
-    if (hit) {
-      // Брызги крови позади раненого.
-      if (this.rng.chance(COMBAT.decals.bloodChance)) {
-        const bd = this.rng.range(4, 14);
-        this.addDecal(ex + dx * bd, ey + dy * bd, 'blood', COMBAT.decals.bloodTime, this.rng.range(0, Math.PI), this.rng.range(0.6, 1.2));
-      }
-    } else if ((stoppedBy as string) === 'wall' && this.rng.chance(COMBAT.decals.chipChance)) {
-      this.addDecal(ex - dx * 2, ey - dy * 2, 'chip', COMBAT.decals.chipTime, ang, this.rng.range(0.7, 1.2));
-    }
+    const start = fromMuzzle ? md : 0;
+    const zone = hit ? rollZone(this.rng, c.aim) : 'torso';
+    this.bullets.push({
+      x: ox + dx * start, y: oy + dy * start, px: ox + dx * start, py: oy + dy * start, ox, oy, dx, dy,
+      dist: start, end: hitT, speed: w.speed, w, shooter: c, target: hit, zone,
+      damage: w.damage * falloffMul(w, hitT + c.radius), stop, combine: FACTIONS[c.faction].authority, kind: w.class,
+      rocket, trailT: 0, done: false,
+    });
     if (hit) {
       this.hits++;
       this.stats.hit++;
-      this.damage(hit, w.damage * falloffMul(w, hitT + c.radius), c);
-      // Болт пиротехника поджигает.
-      if (w.class === 'crossbow' && c.profession === 'pyro' && hit.alive) this.ignite(hit, c, FIRE.boltBurn);
-    } else this.stats[stoppedBy]++;
+    } else if (!rocket) this.stats[stop]++;
     return hit;
   }
 
-  /** Удар дубинкой: ближайший в секторе перед собой; оглушает. */
+  /** Пуля долетела: попадание в цель, в стену, в блок или на излёте. */
+  private land(b: Bullet): void {
+    const ex = b.ox + b.dx * b.end;
+    const ey = b.oy + b.dy * b.end;
+    const ang = Math.atan2(b.dy, b.dx);
+    if (b.rocket) {
+      this.explode(ex - b.dx * 6, ey - b.dy * 6, b.shooter, 'rocket', b.w.blastMul ?? 1);
+      return;
+    }
+    const t = b.target;
+    if (t && t.alive) {
+      // Брызги крови позади раненого.
+      if (this.rng.chance(COMBAT.decals.bloodChance)) {
+        const bd = this.rng.range(4, 14);
+        this.addDecal(ex + b.dx * bd, ey + b.dy * bd, 'blood', COMBAT.decals.bloodTime, this.rng.range(0, Math.PI), this.rng.range(0.6, 1.2));
+      }
+      this.shotHit(t, b.w, b.damage, b.zone, b.shooter, ang, ex, ey);
+      // Болт пиротехника поджигает.
+      if (b.w.class === 'crossbow' && b.shooter.profession === 'pyro' && t.alive) this.ignite(t, b.shooter, FIRE.boltBurn);
+      return;
+    }
+    if (b.end >= b.w.range - 1) return;
+    this.emit('wall', ex, ey, ang, b.kind, b.shooter, null, null, b.stop === 'barrier' ? 1 : 0);
+    if (b.stop === 'wall' && this.rng.chance(COMBAT.decals.chipChance)) {
+      this.addDecal(ex - b.dx * 2, ey - b.dy * 2, 'chip', COMBAT.decals.chipTime, ang, this.rng.range(0.7, 1.2));
+    }
+  }
+
+  /** Попадание из оружия id в зону (для тестов и отладки): как пуля вплотную. */
+  applyHit(target: Character, id: WeaponId, zone: HitZone, attacker: Character): void {
+    const ang = Math.atan2(target.y - attacker.y, target.x - attacker.x);
+    this.shotHit(target, WEAPONS[id], WEAPONS[id].damage, zone, attacker, ang, target.x, target.y);
+  }
+
+  /**
+   * Попадание пули в зону: урон × множитель зоны × (1 − броня × (1 − бронебойность)); голова без
+   * шлема — смерть от любого огнестрела. Ранение кровоточит, нога — хромота, рука — шире конус.
+   */
+  private shotHit(target: Character, w: WeaponDef, base: number, zone: HitZone, attacker: Character, ang: number, x: number, y: number): void {
+    const armor = armorOf(target);
+    const prot = zone === 'head' ? armor.head : zone === 'torso' ? armor.torso : 0;
+    const lethal = zone === 'head' && prot <= 0;
+    const dmg = lethal ? target.health + 1 : base * HITS.mul[zone] * (1 - prot * (1 - w.pierce));
+    if (lethal) this.headshots++;
+    this.emit('hit', x, y, ang, w.class, attacker, target, zone, dmg, lethal);
+    this.wound(target, dmg, zone);
+    this.damage(target, dmg, attacker, zone);
+  }
+
+  /** Кровотечение и последствия ранения в зону (урон — отдельно, через damage). */
+  private wound(target: Character, dmg: number, zone: HitZone | 'blast'): void {
+    if (!target.alive) return;
+    const per = zone === 'blast' ? HITS.bleed.arm : HITS.bleed[zone];
+    target.bleed = Math.min(HITS.bleedMax, target.bleed + dmg * per);
+    if (zone === 'leg') target.limpUntil = this.time + HITS.limpTime;
+    if (zone === 'arm') target.armUntil = this.time + HITS.armTime;
+  }
+
+  /**
+   * Удар: ближайший в секторе перед собой. Дубинка оглушает; нож режет (кровотечение), в спину —
+   * × backstab и мимо брони (два удара в спину валят патрульного).
+   */
   private swing(c: Character, w: WeaponDef, tx: number, ty: number): Character | null {
     if (!this.canFire(c)) return null;
     c.nextShot = this.time + 1 / w.fireRate;
@@ -453,18 +602,38 @@ export class CombatSystem {
     if (!best) return null;
     best.stunUntil = Math.max(best.stunUntil, this.time + w.stun);
     best.aim = 0;
-    this.impacts.push({ x: best.x - Math.cos(ang) * best.radius, y: best.y - Math.sin(ang) * best.radius, t: COMBAT.impactTime, blood: false });
     this.hits++;
     this.stats.hit++;
-    this.damage(best, w.damage, c);
+    const hx = best.x - Math.cos(ang) * best.radius;
+    const hy = best.y - Math.sin(ang) * best.radius;
+    if (w.class === 'blade') {
+      const back = behind(best, c);
+      const armor = armorOf(best);
+      const dmg = back ? w.damage * (w.backstab ?? 1) : w.damage * (1 - armor.torso * (1 - w.pierce));
+      this.emit('stab', hx, hy, ang, w.class, c, best, 'torso', dmg, back);
+      if (back && c.isPlayer) this.bus.emit('log', { text: `Удар в спину: ${best.name}.`, kind: 'world' });
+      this.addDecal(hx + Math.cos(ang) * 6, hy + Math.sin(ang) * 6, 'blood', COMBAT.decals.bloodTime, this.rng.range(0, Math.PI), this.rng.range(0.7, 1.1));
+      this.wound(best, dmg, 'torso');
+      this.damage(best, dmg, c, 'torso');
+      return best;
+    }
+    const armor = armorOf(best);
+    const dmg = w.damage * (1 - armor.torso * 0.5);
+    this.emit('stab', hx, hy, ang, w.class, c, best, 'torso', dmg, false);
+    this.damage(best, dmg, c, 'torso');
     return best;
   }
 
-  damage(target: Character, amount: number, attacker: Character | null): void {
+  /**
+   * Урон как есть (зоны и броня уже учтены вызывающим): пули — shotHit, взрыв — explode, огонь и
+   * кровотечение — update. zone — для журнала и HUD.
+   */
+  damage(target: Character, amount: number, attacker: Character | null, zone: HitZone | 'blast' | null = null): void {
     if (!target.alive) return;
-    target.health -= amount * (COMBAT.armor[target.faction] ?? 1);
+    target.health -= amount;
     target.lastHurt = this.time;
     target.lastAttacker = attacker;
+    if (zone) target.lastZone = zone;
     // Под личиной ранивший остаётся неузнанным — выдаёт только убийство (kill).
     if (attacker && !attacker.disguised && !FACTIONS[attacker.faction].authority && FACTIONS[target.faction].authority && !attacker.hostile) {
       attacker.hostile = true;
@@ -481,9 +650,11 @@ export class CombatSystem {
   /** Задаёт WarSystem: ранение/гибель (тревога при нападении на ГО в городе). */
   onDamage: (target: Character, attacker: Character | null, killed: boolean) => void = () => {};
 
-  kill(c: Character, killer: Character | null): void {
+  kill(c: Character, killer: Character | null, how: string | null = null): void {
     c.alive = false;
     c.health = 0;
+    c.bleed = 0;
+    c.bandageUntil = 0;
     c.wantX = c.wantY = c.vx = c.vy = 0;
     this.kills++;
     const loot = c.inventory.takeAll();
@@ -512,17 +683,48 @@ export class CombatSystem {
     }
     const who = c.isPlayer ? 'Вы погибли' : `Убит: ${c.name} (${FACTIONS[c.faction].role})`;
     const by = killer ? (killer.isPlayer ? ' — вами' : ` — ${killer.name}`) : '';
-    this.bus.emit('log', { text: who + by, kind: FACTIONS[c.faction].authority ? 'radio' : 'world' });
+    const why = how ?? (c.lastZone === 'head' ? HITS.headshotLine : null);
+    this.bus.emit('log', { text: who + by + (why ? ` (${why})` : ''), kind: FACTIONS[c.faction].authority ? 'radio' : 'world' });
     if (c.isPlayer) c.respawnAt = this.time + COMBAT.respawnDelay;
     else this.dead.push(c);
     for (const l of this.deathListeners) l(c, killer);
   }
 
-  /** Лечение HELIX / аптечкой: true — если было кого лечить. */
+  /** Лечение медиком / аптечкой: останавливает кровотечение. true — если было кого лечить. */
   heal(target: Character, amount: number): boolean {
-    if (!target.alive || target.health >= target.maxHealth) return false;
+    if (!target.alive || (target.health >= target.maxHealth && target.bleed <= 0)) return false;
     target.health = Math.min(target.maxHealth, target.health + amount);
+    target.bleed = 0;
     return true;
+  }
+
+  /** Есть чем перевязаться (бинт или аптечка). */
+  hasDressing(c: Character): boolean {
+    return c.inventory.has('bandage') || c.inventory.has('medkit');
+  }
+
+  /**
+   * Начать перевязку (B у игрока; NPC — сам): HITS.bandageTime с стоит, потом бинт (или аптечка)
+   * останавливает кровотечение и немного лечит; аптечка ещё и снимает хромоту и рану руки.
+   */
+  startBandage(c: Character): boolean {
+    if (!c.alive || this.bandaging(c) || !this.hasDressing(c)) return false;
+    if (c.bleed <= 0 && c.health >= c.maxHealth) return false;
+    c.bandageUntil = this.time + HITS.bandageTime;
+    c.aim = 0;
+    return true;
+  }
+
+  private finishBandage(c: Character): void {
+    c.bandageUntil = 0;
+    // Сильно ранен — аптечка, иначе бинт (аптечки берегут).
+    const wantKit = c.health < c.maxHealth * 0.5 || !c.inventory.has('bandage');
+    const id = wantKit && c.inventory.has('medkit') ? 'medkit' : c.inventory.has('bandage') ? 'bandage' : 'medkit';
+    if (!c.inventory.remove(id, 1)) return;
+    c.bleed = 0;
+    c.health = Math.min(c.maxHealth, c.health + (ITEMS[id].heal ?? 0));
+    if (id === 'medkit') c.limpUntil = c.armUntil = 0;
+    if (c.isPlayer) this.bus.emit('log', { text: id === 'medkit' ? 'Рана обработана аптечкой.' : 'Перевязались: кровь остановлена.', kind: 'system' });
   }
 
   /** Ближайшее тело в радиусе. */
@@ -559,31 +761,35 @@ export class CombatSystem {
     if (this.decals.length > D.max) this.decals.splice(0, this.decals.length - D.max);
   }
 
-  /** Может ли бросить гранату сейчас. */
-  canThrow(c: Character): boolean {
-    return c.alive && c.inventory.has('grenade') && this.time >= c.nextGrenade && c.stunUntil <= this.time;
+  /** Может ли бросить гранату (kind — какую; без kind — любую). */
+  canThrow(c: Character, kind: GrenadeId | null = null): boolean {
+    if (!c.alive || this.time < c.nextGrenade || c.stunUntil > this.time || this.bandaging(c)) return false;
+    return kind ? c.inventory.has(kind) : GRENADE_KINDS.some((k) => c.inventory.has(k));
   }
 
   /**
    * Бросить гранату к точке (не дальше GRENADE.maxThrow). Стена останавливает полёт — граната
-   * падает перед ней; бетонный блок перелетает. Возвращает гранату или null.
+   * падает перед ней; бетонный блок перелетает. kind — какую (по умолчанию выбранную c.grenadeKind,
+   * если её нет — первую, что есть). Возвращает гранату или null.
    */
-  throwGrenade(c: Character, tx: number, ty: number): Grenade | null {
-    if (!this.canThrow(c)) return null;
+  throwGrenade(c: Character, tx: number, ty: number, kind: GrenadeId | null = null): Grenade | null {
+    const k = kind ?? (c.inventory.has(c.grenadeKind) ? c.grenadeKind : GRENADE_KINDS.find((g) => c.inventory.has(g)) ?? null);
+    if (!k || !this.canThrow(c, k)) return null;
     const G = GRENADE;
     let d = Math.hypot(tx - c.x, ty - c.y);
     const ang = Math.atan2(ty - c.y, tx - c.x);
     const dx = Math.cos(ang);
     const dy = Math.sin(ang);
     d = Math.max(G.minThrow, Math.min(G.maxThrow, d));
-    const wall = castRayWith(this.map, c.x, c.y, dx, dy, d, (x, y) => this.map.isOpaque(x, y));
+    const wall = castRayWith(this.map, c.x, c.y, dx, dy, d, (x, y) => this.map.blocksShot(x, y));
     const land = Math.max(0, Math.min(d, wall - 8));
-    c.inventory.remove('grenade', 1);
+    c.inventory.remove(k, 1);
     c.nextGrenade = this.time + G.cooldown;
     c.facing = ang;
+    const fuse = k === 'smoke_grenade' ? G.smoke.fuse : k === 'fire_grenade' ? G.fire.fuse : G.fuse;
     const g: Grenade = {
-      x: c.x, y: c.y, x0: c.x, y0: c.y, x1: c.x + dx * land, y1: c.y + dy * land,
-      flight: 0, dur: Math.max(0.15, land / G.speed), at: this.time + G.fuse, thrower: c,
+      kind: k, x: c.x, y: c.y, x0: c.x, y0: c.y, x1: c.x + dx * land, y1: c.y + dy * land,
+      flight: 0, dur: Math.max(0.15, land / G.speed), at: this.time + fuse, thrower: c,
     };
     this.grenades.push(g);
     this.grenadesThrown++;
@@ -606,7 +812,7 @@ export class CombatSystem {
     let mul = 1;
     let inBarrier = false;
     castRayWith(this.map, x0, y0, (x1 - x0) / d, (y1 - y0) / d, d, (x, y) => {
-      if (this.map.isOpaque(x, y)) {
+      if (this.map.blocksShot(x, y)) {
         mul = 0;
         return true;
       }
@@ -618,23 +824,94 @@ export class CombatSystem {
     return mul;
   }
 
-  private explode(g: Grenade): void {
+  /** Граната сработала. */
+  private detonate(g: Grenade): void {
     const G = GRENADE;
-    this.blasts.push({ x: g.x, y: g.y, t: COMBAT.blastTime });
-    this.addDecal(g.x, g.y, 'scorch', COMBAT.decals.scorchTime, this.rng.range(0, Math.PI), 1);
-    this.shots.push({ x: g.x, y: g.y, t: this.time, shooter: g.thrower, weapon: 'grenade', noise: G.noise });
-    // Зажигательная (пиротехник): пламя на земле.
-    if (g.thrower.profession === 'pyro') this.fires.push({ x: g.x, y: g.y, r: G.radius * FIRE.zoneRadiusMul, until: this.time + FIRE.zoneTime, owner: g.thrower });
-    for (const o of this.entities.near(g.x, g.y, G.radius + 16, near)) {
-      if (!o.alive) continue;
-      const d = Math.max(0, Math.hypot(o.x - g.x, o.y - g.y) - o.radius * 0.5);
-      if (d > G.radius) continue;
-      const cover = this.blastCover(g.x, g.y, o.x, o.y);
-      if (cover <= 0) continue;
-      const k = 1 - (d / G.radius) * (1 - G.edge);
-      o.aim = 0;
-      this.damage(o, G.damage * k * cover, g.thrower.alive || g.thrower.isPlayer ? g.thrower : null);
+    const by = g.thrower.alive || g.thrower.isPlayer ? g.thrower : null;
+    if (g.kind === 'smoke_grenade') {
+      this.addSmoke(g.x, g.y);
+      this.shots.push({ x: g.x, y: g.y, t: this.time, shooter: g.thrower, weapon: 'smoke', noise: 500 });
+      return;
     }
+    if (g.kind === 'fire_grenade') {
+      this.fires.push({ x: g.x, y: g.y, r: G.fire.radius, until: this.time + G.fire.time, owner: g.thrower });
+      this.blasts.push({ x: g.x, y: g.y, t: 0.5, life: 0.5, r: G.fire.radius, kind: 'fire' });
+      this.addDecal(g.x, g.y, 'scorch', COMBAT.decals.scorchTime, this.rng.range(0, Math.PI), 0.9);
+      this.shots.push({ x: g.x, y: g.y, t: this.time, shooter: g.thrower, weapon: 'blast', noise: G.noise * 0.6 });
+      this.emit('fire', g.x, g.y, 0, null, by, null, 'blast', G.fire.radius);
+      for (const o of this.entities.near(g.x, g.y, G.fire.radius, near)) {
+        if (!o.alive || this.blastCover(g.x, g.y, o.x, o.y) <= 0) continue;
+        this.ignite(o, by);
+        this.damage(o, G.fire.damage * (1 - Math.hypot(o.x - g.x, o.y - g.y) / (G.fire.radius * 1.4)), by, 'blast');
+      }
+      return;
+    }
+    // Осколочная (у пиротехника — ещё и пламя, как раньше).
+    this.explode(g.x, g.y, g.thrower, 'frag', 1);
+    if (g.thrower.profession === 'pyro') this.fires.push({ x: g.x, y: g.y, r: G.radius * FIRE.zoneRadiusMul, until: this.time + FIRE.zoneTime, owner: g.thrower });
+  }
+
+  /**
+   * Взрыв (граната, ракета): урон по кругу GRENADE.radius × mul от центра к краю (стена закрывает,
+   * блок ослабляет, жилет держит HITS.blastVest своей доли), осколки ранят и дальше — по рукам и
+   * ногам с шансом; всем — кровотечение.
+   */
+  explode(x: number, y: number, thrower: Character, kind: 'frag' | 'rocket', mul: number): void {
+    const G = GRENADE;
+    const R = G.radius * mul;
+    const by = thrower.alive || thrower.isPlayer ? thrower : null;
+    this.blasts.push({ x, y, t: COMBAT.blastTime, life: COMBAT.blastTime, r: R, kind });
+    this.addDecal(x, y, 'scorch', COMBAT.decals.scorchTime, this.rng.range(0, Math.PI), mul);
+    this.shots.push({ x, y, t: this.time, shooter: thrower, weapon: 'blast', noise: G.noise });
+    this.emit('blast', x, y, this.rng.range(0, Math.PI * 2), kind === 'rocket' ? 'launcher' : null, by, null, 'blast', R);
+    const reach = R * G.fragReach;
+    for (const o of this.entities.near(x, y, reach + 16, near)) {
+      if (!o.alive) continue;
+      const d = Math.max(0, Math.hypot(o.x - x, o.y - y) - o.radius * 0.5);
+      if (d > reach) continue;
+      const cover = this.blastCover(x, y, o.x, o.y);
+      if (cover <= 0) continue;
+      const vest = armorOf(o).torso * HITS.blastVest;
+      if (d <= R) {
+        const k = 1 - (d / R) * (1 - G.edge);
+        o.aim = 0;
+        const dmg = G.damage * mul * k * cover * (1 - vest);
+        this.wound(o, dmg, 'blast');
+        this.damage(o, dmg, by, 'blast');
+      } else if (this.rng.chance(G.fragChance * cover)) {
+        // Осколок на излёте — в руку или ногу.
+        const zone: HitZone = this.rng.chance(0.5) ? 'arm' : 'leg';
+        const dmg = G.fragDamage * mul * (1 - (d - R) / (reach - R));
+        this.emit('hit', o.x, o.y, Math.atan2(o.y - y, o.x - x), null, by, o, zone, dmg, false);
+        this.wound(o, dmg, zone);
+        this.damage(o, dmg, by, zone);
+      }
+    }
+  }
+
+  /** Дымовая завеса: тайлы в радиусе (куда дым дотекает, не сквозь стены) непрозрачны. */
+  private addSmoke(x: number, y: number): void {
+    const S = GRENADE.smoke;
+    const ts = this.map.tileSize;
+    const r = S.radius;
+    const tiles: number[] = [];
+    const cx = Math.floor(x / ts);
+    const cy = Math.floor(y / ts);
+    const rt = Math.ceil(r / ts);
+    for (let ty = cy - rt; ty <= cy + rt; ty++) {
+      for (let tx = cx - rt; tx <= cx + rt; tx++) {
+        if (!this.map.inBounds(tx, ty) || this.map.blocksShot(tx, ty)) continue;
+        const wx = (tx + 0.5) * ts;
+        const wy = (ty + 0.5) * ts;
+        if (Math.hypot(wx - x, wy - y) > r) continue;
+        if (!lineOfSightShot(this.map, x, y, wx, wy)) continue;
+        const i = ty * this.map.width + tx;
+        tiles.push(i);
+      }
+    }
+    for (const i of tiles) this.map.smoke[i]++;
+    this.smokes.push({ x, y, r, born: this.time, until: this.time + S.time, tiles });
+    this.emit('smoke', x, y, 0, null, null, null, null, r);
   }
 
   update(dt: number): void {
@@ -644,6 +921,13 @@ export class CombatSystem {
       let k = 0;
       while (k < this.decals.length && this.decals[k].until < this.time) k++;
       this.decals.splice(0, k);
+    }
+    // Дым рассеивается.
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      const s = this.smokes[i];
+      if (this.time < s.until) continue;
+      for (const t of s.tiles) if (this.map.smoke[t] > 0) this.map.smoke[t]--;
+      this.smokes.splice(i, 1);
     }
     // Пламя: кто в нём — горит; горящие получают урон.
     for (let i = this.fires.length - 1; i >= 0; i--) {
@@ -668,11 +952,10 @@ export class CombatSystem {
       }
       if (this.time >= g.at) {
         this.grenades.splice(i, 1);
-        this.explode(g);
+        this.detonate(g);
       }
     }
-    for (let i = this.tracers.length - 1; i >= 0; i--) if ((this.tracers[i].t -= dt) <= 0) this.tracers.splice(i, 1);
-    for (let i = this.impacts.length - 1; i >= 0; i--) if ((this.impacts[i].t -= dt) <= 0) this.impacts.splice(i, 1);
+    this.updateBullets(dt);
     for (let i = this.swings.length - 1; i >= 0; i--) if ((this.swings[i].t -= dt) <= 0) this.swings.splice(i, 1);
     for (let i = this.corpses.length - 1; i >= 0; i--) if (this.corpses[i].until < this.time) this.corpses.splice(i, 1);
     while (this.shots.length > 0 && this.time - this.shots[0].t > 2) this.shots.shift();
@@ -690,25 +973,100 @@ export class CombatSystem {
           if (c.mag < w.magazine && this.reserveAmmo(c) > 0) c.reloadUntil = this.time + w.reload;
         } else this.loadInstant(c);
       }
-      // Оглушение: медленнее и без прицела.
+      // Перевязка: закончилась — кровь остановлена; NPC перевязывается сам, когда в него давно не попадали.
+      if (c.bandageUntil > 0 && this.time >= c.bandageUntil) this.finishBandage(c);
+      if (!c.isPlayer && c.bleed > 0 && c.bandageUntil === 0 && this.time - c.lastHurt > COMBAT.selfHealCalm && this.hasDressing(c) && c.law.phase === 'none') {
+        if (this.startBandage(c)) c.say('Перевязываюсь!', this.time, 1.5);
+      }
+      // Оглушение, перевязка, хромота — медленнее.
       const stunned = c.stunUntil > this.time;
-      c.speedMul = stunned ? COMBAT.stunSpeedMul : 1;
+      const dressing = c.bandageUntil > this.time;
+      c.speedMul = (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1);
       // Прицеливание копится стоя (при ходьбе — медленнее), теряется на бегу, без ПКМ и при перезарядке.
       if (w && w.mode !== 'melee') {
         const running = c.moveSpeed > CHARACTER.walkSpeed * 1.2;
-        if (c.aiming && !running && !stunned && !this.reloading(c)) {
+        if (c.aiming && !running && !stunned && !dressing && !this.reloading(c)) {
           c.aim = Math.min(1, c.aim + (dt / w.aimTime) * (c.moveSpeed > 20 ? COMBAT.aimWhileMoving : 1));
         } else c.aim = Math.max(0, c.aim - dt * (running ? COMBAT.aimLossRun : COMBAT.aimLoss));
         c.recoil = Math.max(0, c.recoil - w.recovery * dt);
+        // Ствол возвращается на линию прицела.
+        const back = w.recovery * DEG * dt * COMBAT.kickReturn;
+        c.kick = Math.abs(c.kick) <= back ? 0 : c.kick - Math.sign(c.kick) * back;
       } else {
         c.aim = 0;
         c.recoil = 0;
+        c.kick = 0;
       }
-      // Регенерация, если давно не ранили.
-      if (this.time - c.lastHurt > COMBAT.regenDelay && c.health < c.maxHealth * COMBAT.regenCap) {
+      // Кровотечение — пока не перевяжут; истёк кровью — смерть от того, кто ранил.
+      if (c.bleed > 0) {
+        c.health -= c.bleed * dt;
+        if (this.rng.chance(Math.min(1, c.bleed * COMBAT.decals.bleedDrip * dt))) {
+          this.addDecal(c.x + this.rng.range(-6, 6), c.y + this.rng.range(-4, 8), 'blood', COMBAT.decals.bloodTime, this.rng.range(0, Math.PI), this.rng.range(0.25, 0.5));
+        }
+        if (c.health <= 0) {
+          const killer = c.lastAttacker && (c.lastAttacker.alive || c.lastAttacker.isPlayer) ? c.lastAttacker : null;
+          this.bledOut++;
+          this.kill(c, killer, 'истёк кровью');
+          this.onDamage(c, killer, true);
+          continue;
+        }
+      } else if (this.time - c.lastHurt > COMBAT.regenDelay && c.health < c.maxHealth * COMBAT.regenCap) {
+        // Регенерация — только без кровотечения и если давно не ранили.
         c.health = Math.min(c.maxHealth * COMBAT.regenCap, c.health + COMBAT.regenPerSec * dt);
       }
     }
+  }
+
+  /**
+   * Пули летят; долетевшие попадают. Долетевшая остаётся в списке ещё на тик (done) — хвост
+   * дорисуется до точки попадания. Ракета проверяет попадание на лету.
+   */
+  private updateBullets(dt: number): void {
+    let k = 0;
+    for (const b of this.bullets) if (!b.done) this.bullets[k++] = b;
+    this.bullets.length = k;
+    for (const b of this.bullets) {
+      b.px = b.x;
+      b.py = b.y;
+      const from = b.dist;
+      b.dist = Math.min(b.end, b.dist + b.speed * dt);
+      if (b.rocket) {
+        // Дымный след ракеты.
+        b.trailT -= dt;
+        if (b.trailT <= 0) {
+          b.trailT = ROCKET.trailEvery;
+          this.emit('rocket', b.x, b.y, Math.atan2(b.dy, b.dx), 'launcher', b.shooter);
+        }
+        const o = this.rocketHit(b, from, b.dist);
+        if (o !== null) b.end = b.dist = o;
+      }
+      b.x = b.ox + b.dx * b.dist;
+      b.y = b.oy + b.dy * b.dist;
+      if (b.dist >= b.end) {
+        b.done = true;
+        this.land(b);
+      }
+    }
+  }
+
+  /** Ракета на отрезке [t0, t1] пути задела кого-то (не ближе ROCKET.arm от стрелка) — где. */
+  private rocketHit(b: Bullet, t0: number, t1: number): number | null {
+    if (t1 < ROCKET.arm) return null;
+    const mx = b.ox + b.dx * ((t0 + t1) / 2);
+    const my = b.oy + b.dy * ((t0 + t1) / 2);
+    let best: number | null = null;
+    for (const o of this.entities.near(mx, my, (t1 - t0) / 2 + 16, near)) {
+      if (!o.alive || o === b.shooter) continue;
+      const px = o.x - b.ox;
+      const py = o.y - b.oy;
+      const t = px * b.dx + py * b.dy;
+      if (t < t0 - o.radius || t > t1 + o.radius) continue;
+      const d2 = px * px + py * py - t * t;
+      if (d2 > o.radius * o.radius) continue;
+      const th = Math.max(t0, t - Math.sqrt(o.radius * o.radius - d2));
+      if (best === null || th < best) best = th;
+    }
+    return best;
   }
 
   /** Был ли выстрел ближе r за последние sec секунд (не свой). */
@@ -720,6 +1078,16 @@ export class CombatSystem {
     }
     return null;
   }
+}
+
+/** Гранаты по порядку выбора (Y у игрока). */
+export const GRENADE_KINDS: readonly GrenadeId[] = ['grenade', 'smoke_grenade', 'fire_grenade'];
+
+/** Прямая видимость для дыма: сквозь стены и закрытые двери не течёт (дым сам себе не помеха). */
+function lineOfSightShot(map: GameMap, x0: number, y0: number, x1: number, y1: number): boolean {
+  const d = Math.hypot(x1 - x0, y1 - y0);
+  if (d < 1) return true;
+  return castRayWith(map, x0, y0, (x1 - x0) / d, (y1 - y0) / d, d, (x, y) => map.blocksShot(x, y)) >= d - 0.5;
 }
 
 /** Множитель урона на дистанции d: полный до effectiveRange, дальше линейно до falloff на range. */

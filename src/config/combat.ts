@@ -1,7 +1,77 @@
+/** Зоны попадания (хитбоксы). */
+export type HitZone = 'head' | 'torso' | 'arm' | 'leg';
+
+/**
+ * Броня по зонам: какую долю урона держит шлем (head) и жилет (torso), 0..1. Пуля с бронебойностью
+ * pierce снимает эту долю защиты: держит armor × (1 − pierce). Руки и ноги не защищены.
+ */
+export interface ArmorProfile {
+  head: number;
+  torso: number;
+}
+
+/**
+ * Попадания: зона выбирается по весам (прицелившийся чаще попадает в голову — headAim), урон × mul
+ * зоны; голова без шлема — смерть от любого огнестрела. Каждое ранение кровоточит: bleed[зона] HP/с
+ * на единицу урона, пока не перевяжут (бинт, аптечка, медик); всё кровотечение — не больше bleedMax.
+ * Нога — хромает (limp: множитель скорости, limpTime с), рука — конус шире (armSpread) armTime с.
+ * Броня: ARMOR (по юнитам и профессиям). Взрыв бьёт без зон, жилет держит blastVest своей доли.
+ */
+export const HITS = {
+  weights: { head: 0.1, torso: 0.47, arm: 0.2, leg: 0.23 } as Record<HitZone, number>,
+  /** + к весу головы при полном прицеливании. */
+  headAim: 0.06,
+  mul: { head: 2.5, torso: 1, arm: 0.55, leg: 0.65 } as Record<HitZone, number>,
+  bleed: { head: 0.03, torso: 0.022, arm: 0.012, leg: 0.016 } as Record<HitZone, number>,
+  bleedMax: 4,
+  limp: 0.65,
+  limpTime: 40,
+  armSpread: 1.6,
+  armTime: 40,
+  blastVest: 0.5,
+  /** Перевязка: столько секунд стоит на месте (B у игрока; NPC — сами, когда давно не попадали). */
+  bandageTime: 2.2,
+  /** Ранен в голову без шлема — надпись в журнал. */
+  headshotLine: 'в голову',
+} as const;
+
+/** Защита по фракциям, юнитам силового блока и профессиям (у кого нет — без брони). */
+export const ARMOR = {
+  none: { head: 0, torso: 0 },
+  /** Силовой блок по юниту (config/factions CP_RANKS.unit). */
+  cp: {
+    rct: { head: 0.3, torso: 0 },
+    pcu3: { head: 0.35, torso: 0.4 },
+    pcu2: { head: 0.35, torso: 0.4 },
+    pcu1: { head: 0.35, torso: 0.45 },
+    ofc: { head: 0.2, torso: 0.45 },
+    su3: { head: 0.45, torso: 0.5 },
+    su2: { head: 0.45, torso: 0.5 },
+    su1: { head: 0.4, torso: 0.45 },
+    guard: { head: 0.45, torso: 0.5 },
+    insp: { head: 0.4, torso: 0.5 },
+    epu: { head: 0.7, torso: 0.65 },
+  } as Record<string, ArmorProfile>,
+  /** Профессии: OTA и армия сопротивления (Патрик в берете — голова открыта). */
+  profession: {
+    ota_alpha: { head: 0.7, torso: 0.65 },
+    ota_king: { head: 0.75, torso: 0.7 },
+    rebel_soldier: { head: 0.35, torso: 0.3 },
+    pyro: { head: 0.35, torso: 0.35 },
+    demolitionist: { head: 0.35, torso: 0.4 },
+    veteran: { head: 0.45, torso: 0.5 },
+    rebel_medic: { head: 0.45, torso: 0.45 },
+    rebel_leader: { head: 0, torso: 0.6 },
+    hydra_rct: { head: 0.5, torso: 0.5 },
+    hydra_sergeant: { head: 0.5, torso: 0.55 },
+    hydra_sniper: { head: 0.45, torso: 0.4 },
+    commando: { head: 0.55, torso: 0.6 },
+    cremator: { head: 0.3, torso: 0.3 },
+  } as Partial<Record<string, ArmorProfile>>,
+} as const;
+
 /** Бой. Урон — единицы здоровья, время — секунды, расстояния — px. */
 export const COMBAT = {
-  /** Бронежилеты: множитель входящего урона по фракциям. */
-  armor: { cp: 0.8, ota: 0.6 } as Record<string, number>,
   /** Шанс, что пуля остановится о бетонный блок-укрытие. */
   barrierStopChance: 0.45,
   /** Свой блок рядом со стрелком не мешает стрелять поверх. */
@@ -22,8 +92,12 @@ export const COMBAT = {
   woundedFraction: 0.35,
   /** Медик сопротивления идёт лечить тех, у кого здоровья меньше этой доли. */
   medicBelow: 0.75,
-  /** Отошедший перевязывается своей аптечкой, если в него не попадали столько секунд. */
+  /** NPC перевязывается сам (бинт, аптечка), если в него не попадали столько секунд. */
   selfHealCalm: 2,
+  /** Во время перевязки — медленнее во столько раз. */
+  bandageSpeedMul: 0.3,
+  /** Увод ствола возвращается на линию прицела: × recovery оружия (градусов/с). */
+  kickReturn: 1.4,
   /** Сколько лежит тело. */
   corpseTime: 90,
   /** Игрок возрождается через… */
@@ -47,8 +121,12 @@ export const COMBAT = {
     chipTime: 30,
     chipChance: 0.3,
     scorchTime: 120,
+    /** Капли крови за раненым: шанс в секунду на 1 HP/с кровотечения. */
+    bleedDrip: 1.2,
   },
-  tracerTime: 0.09,
+  /** Пули: сколько тянется светящийся хвост (доля пути за тик × это) и сколько видна вспышка у ствола. */
+  trail: 0.022,
+  flashTime: 0.06,
   impactTime: 0.35,
   swingTime: 0.18,
   /** Слышимость выстрела: NPC в радиусе реагируют. */
@@ -113,6 +191,37 @@ export const GRENADE = {
   ai: { minDist: 90, maxDist: 240, cooldown: [9, 16] as const, check: 1, chance: 0.35, demoMul: 3 },
   /** NPC, заметивший гранату ближе radius + fleeMargin, убегает от неё. */
   fleeMargin: 36,
+  /**
+   * Дымовая: через fuse с — облако радиуса radius px (растёт за grow с), держится time с; тайлы в
+   * облаке непрозрачны для взгляда (туман, обзор NPC), но не для пуль. ИИ бросает дым, когда ранен
+   * (ниже hurtBelow здоровья) и враг видит его дальше minDist, — между собой и врагом (на доле at пути).
+   */
+  smoke: { fuse: 1.2, radius: 64, grow: 1.5, time: 16, hurtBelow: 0.6, minDist: 140, at: 0.45, cooldown: [14, 24] as const },
+  /** Зажигательная: пламя радиуса radius px на time с (горят по FIRE), вспышка — урон damage в центре. */
+  fire: { fuse: 1.8, radius: 58, time: 9, damage: 25 },
+  /**
+   * Осколки: frags штук разлетаются от взрыва (видны; урон уже в damage), шрапнель ранит и за
+   * радиусом — не дальше fragReach × radius с шансом fragChance (по ногам и рукам, кровотечение).
+   */
+  frags: 22,
+  fragReach: 1.6,
+  fragChance: 0.35,
+  fragDamage: 18,
+} as const;
+
+/**
+ * РПГ: ракета летит WEAPONS.rpg.speed px/с и взрывается о стену или первого на пути (не ближе
+ * arm px от стрелка — иначе не взводится и просто падает); взрыв — как граната × blastMul.
+ * ИИ стреляет из РПГ по цели не ближе minDist (своих у точки нет), если за укрытием или врагов
+ * кучка ≥ crowd; не чаще cooldown с.
+ */
+export const ROCKET = {
+  arm: 60,
+  minDist: 170,
+  crowd: 2,
+  cooldown: [8, 14] as const,
+  /** Дымный след: частица каждые trailEvery с полёта. */
+  trailEvery: 0.02,
 } as const;
 
 /**

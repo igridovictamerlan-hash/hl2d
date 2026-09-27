@@ -14,12 +14,13 @@ export class DeathScreen {
     parent.appendChild(this.el);
   }
 
-  update(p: Character, now: number, red = false): void {
+  /** arena — текст режима «отряд на отряд» (вернётся в следующем раунде). */
+  update(p: Character, now: number, red = false, arena: string | null = null): void {
     this.el.hidden = p.alive;
     if (!p.alive) {
-      this.timer.textContent = red
+      this.timer.textContent = arena ?? (red
         ? 'Код красный: идёт штурм Нексуса — возрождения нет до отбоя'
-        : `Возрождение через ${Math.max(0, Math.ceil(p.respawnAt - now))} с`;
+        : `Возрождение через ${Math.max(0, Math.ceil(p.respawnAt - now))} с`);
     }
   }
 }

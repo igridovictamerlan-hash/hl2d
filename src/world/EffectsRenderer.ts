@@ -17,7 +17,7 @@ import type { Barrel, Bench, Lamp, NoticeBoard } from '../systems/StreetLife';
 import type { Poi } from './GameMap';
 import { PAWN } from '../config/pawns';
 import { RENDER } from '../config/render';
-import { COMBAT, GRENADE } from '../config/combat';
+import { GRENADE } from '../config/combat';
 import { FACTIONS } from '../config/factions';
 
 /**
@@ -666,26 +666,55 @@ export class EffectsRenderer {
     }
   }
 
+  /**
+   * Пули в полёте (светящийся хвост от прошлого положения к текущему: ядро и ореол; AR2 — голубой
+   * импульс, болт — оранжевый, ракета — корпус с пламенем) и гранаты (осколочная — тёмная,
+   * дымовая — серая, зажигательная — красная; в полёте — выше и с тенью, на земле мигает огонёк).
+   */
   drawShots(ctx: CanvasRenderingContext2D, v: View, combat: CombatSystem): void {
     const s = v.scale;
     const E = RENDER.effects;
-    ctx.lineCap = 'round';
     const TR = RENDER.tracers;
-    for (const t of combat.tracers) {
-      ctx.globalAlpha = Math.min(1, t.t / COMBAT.tracerTime);
-      ctx.strokeStyle = t.kind === 'rifle' ? TR.pulse : t.kind === 'crossbow' ? TR.bolt : t.combine ? E.tracerCombine : E.tracerRebel;
-      ctx.lineWidth = Math.max(1, TR.width[t.kind] * s);
+    ctx.lineCap = 'round';
+    for (const b of combat.bullets) {
+      const len = Math.max(6, b.speed * TR.tail);
+      const t0 = Math.max(0, b.dist - len);
+      const hx = (b.x - v.left) * s;
+      const hy = (b.y - v.top) * s;
+      const tx = (b.ox + b.dx * t0 - v.left) * s;
+      const ty = (b.oy + b.dy * t0 - v.top) * s;
+      if (b.rocket) {
+        // Ракета: корпус и язык пламени сзади.
+        ctx.strokeStyle = TR.rocketFlame;
+        ctx.lineWidth = Math.max(1, 2.4 * s);
+        ctx.beginPath();
+        ctx.moveTo(hx - b.dx * 6 * s, hy - b.dy * 6 * s);
+        ctx.lineTo(hx - b.dx * 11 * s, hy - b.dy * 11 * s);
+        ctx.stroke();
+        ctx.strokeStyle = TR.rocket;
+        ctx.lineWidth = Math.max(1, 3 * s);
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(hx - b.dx * 6 * s, hy - b.dy * 6 * s);
+        ctx.stroke();
+        continue;
+      }
+      const w = TR.width[b.kind];
+      ctx.strokeStyle = b.kind === 'pulse' ? TR.pulse : b.kind === 'crossbow' ? TR.bolt : b.combine ? TR.combine : TR.rebel;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = Math.max(1, w * 2.2 * s);
       ctx.beginPath();
-      ctx.moveTo((t.x0 - v.left) * s, (t.y0 - v.top) * s);
-      ctx.lineTo((t.x1 - v.left) * s, (t.y1 - v.top) * s);
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(hx, hy);
       ctx.stroke();
-      // Вспышка у ствола.
-      ctx.fillStyle = E.flash;
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = b.kind === 'pulse' ? TR.pulseCore : TR.core;
+      ctx.lineWidth = Math.max(0.8, w * 0.8 * s);
       ctx.beginPath();
-      ctx.arc((t.x0 - v.left) * s, (t.y0 - v.top) * s, 3 * s, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo((tx + hx) / 2, (ty + hy) / 2);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
     }
-    // Гранаты: в полёте — крупнее (дуга) с тенью; на земле мигает огонёк.
     const now = combat.now;
     for (const g of combat.grenades) {
       const x = (g.x - v.left) * s;
@@ -698,7 +727,7 @@ export class EffectsRenderer {
         ctx.fill();
       }
       const gy = y - lift * 14 * s;
-      ctx.fillStyle = E.grenade;
+      ctx.fillStyle = g.kind === 'smoke_grenade' ? E.grenadeSmoke : g.kind === 'fire_grenade' ? E.grenadeFire : E.grenade;
       ctx.beginPath();
       ctx.arc(x, gy, (3.5 + lift * 1.5) * s, 0, Math.PI * 2);
       ctx.fill();
@@ -711,35 +740,21 @@ export class EffectsRenderer {
         ctx.fill();
       }
     }
-    // Взрывы: огненный шар расширяется и гаснет, по краю — дым.
+    // Огненный шар в первые мгновения взрыва (дальше — частицы).
     for (const b of combat.blasts) {
-      const k = 1 - b.t / COMBAT.blastTime;
+      const k = 1 - b.t / b.life;
+      if (k > 0.4) continue;
       const x = (b.x - v.left) * s;
       const y = (b.y - v.top) * s;
-      const R = GRENADE.radius * s;
-      ctx.fillStyle = `rgba(${E.blastSmoke},${0.45 * (1 - k)})`;
+      ctx.fillStyle = `rgba(${E.blastFire},${(0.9 * (1 - k / 0.4)).toFixed(3)})`;
       ctx.beginPath();
-      ctx.arc(x, y, R * (0.55 + 0.5 * k), 0, Math.PI * 2);
+      ctx.arc(x, y, b.r * (0.2 + 0.5 * Math.sqrt(k / 0.4)) * s, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = `rgba(${E.blastFire},${0.85 * (1 - k) ** 1.5})`;
+      ctx.fillStyle = `rgba(${E.blastCore},${(1 - k / 0.4).toFixed(3)})`;
       ctx.beginPath();
-      ctx.arc(x, y, R * (0.25 + 0.55 * Math.sqrt(k)), 0, Math.PI * 2);
-      ctx.fill();
-      if (k < 0.35) {
-        ctx.fillStyle = `rgba(${E.blastCore},${1 - k / 0.35})`;
-        ctx.beginPath();
-        ctx.arc(x, y, R * 0.3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    for (const im of combat.impacts) {
-      ctx.globalAlpha = Math.min(1, im.t / COMBAT.impactTime);
-      ctx.fillStyle = im.blood ? E.bloodHit : E.spark;
-      ctx.beginPath();
-      ctx.arc((im.x - v.left) * s, (im.y - v.top) * s, (im.blood ? 3 : 2) * s, 0, Math.PI * 2);
+      ctx.arc(x, y, b.r * 0.22 * s, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.globalAlpha = 1;
   }
 
   /**

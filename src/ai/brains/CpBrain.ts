@@ -466,7 +466,7 @@ export class CpBrain implements Brain {
     let best: Character | null = null;
     let bestD = range;
     for (const o of this.ctx.entities.near(this.self.x, this.self.y, range, near)) {
-      if (o === this.self || !FACTIONS[o.faction].authority || o.health >= o.maxHealth * 0.75) continue;
+      if (o === this.self || !FACTIONS[o.faction].authority || (o.health >= o.maxHealth * 0.75 && o.bleed <= 0)) continue;
       const d = Math.hypot(o.x - this.self.x, o.y - this.self.y);
       if (d < bestD) {
         bestD = d;
@@ -794,7 +794,7 @@ const HEAL: State<CpBrain> = {
   },
   update(b, dt) {
     const p = b.patient;
-    if (!p || !p.alive || p.health >= p.maxHealth * 0.95) {
+    if (!p || !p.alive || (p.health >= p.maxHealth * 0.95 && p.bleed <= 0)) {
       b.patient = null;
       b.mover.speed = LAW.cpWalkSpeed;
       return b.idleState;

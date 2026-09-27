@@ -278,7 +278,7 @@ export class LaborSystem {
    */
   treat(medic: Character, patient: Character): string | null {
     const M = LABOR.medic;
-    if (!patient.alive || patient.health >= patient.maxHealth) return 'Лечить некого.';
+    if (!patient.alive || (patient.health >= patient.maxHealth && patient.bleed <= 0)) return 'Лечить некого.';
     const free = FACTIONS[patient.faction].authority;
     if (!free && patient.money < M.fee) return `${patient.name}: нет ${M.fee} токенов на лечение.`;
     if (!medic.inventory.remove('bandage', 1) && !medic.inventory.remove('medkit', 1)) return 'Нет бинтов и аптечек.';

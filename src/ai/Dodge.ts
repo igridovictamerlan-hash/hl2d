@@ -24,6 +24,8 @@ export function grenadeDanger(self: Character, ctx: AiContext): Grenade | null {
   let best: Grenade | null = null;
   let bestD = GRENADE.radius + GRENADE.fleeMargin;
   for (const g of ctx.combat.grenades) {
+    // От дыма не бегут.
+    if (g.kind === 'smoke_grenade') continue;
     const d = Math.hypot(g.x - self.x, g.y - self.y);
     if (d < bestD && noticed(self, g, ctx)) {
       bestD = d;

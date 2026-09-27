@@ -3,7 +3,7 @@ import type { AiContext } from './AiContext';
 import type { Rng } from '../core/rng';
 import { canSeeCircle } from '../world/visibility';
 import { faceTowards } from './facing';
-import { COMBAT, GRENADE } from '../config/combat';
+import { COMBAT, GRENADE, ROCKET } from '../config/combat';
 import { T } from '../world/tiles';
 import { castRay, castRayWith } from '../world/visibility';
 import { VISION } from '../config/vision';
@@ -46,6 +46,10 @@ export class Gunner {
   private lastSeen = { x: 0, y: 0, t: -1e9 };
   private nadeCheck = 0;
   private nextNade = 0;
+  private nextSmoke = 0;
+  /** РПГ: взят для выстрела до этого времени (потом — обратно на автомат). */
+  private rocketUntil = 0;
+  private nextRocket = 0;
 
   constructor(private readonly rng: Rng) {}
 
@@ -178,15 +182,30 @@ export class Gunner {
     }
     this.calm = 0;
     const d = Math.hypot(t.x - self.x, t.y - self.y);
-    // Ствол под дистанцию (дубинку — на огнестрел, пустой — на заряженный).
-    if (!combat.reloading(self) && !this.holdFire) {
-      const best = combat.bestWeapon(self, d);
-      if (best && best !== self.weapon) combat.equip(self, best);
+    const now = combat.now;
+    // Вплотную и с ножом — режет (бандит, партизан), если огнестрела нет или враг уже рядом.
+    const reach = t.radius + self.radius + WEAPONS.knife.range - 2;
+    if (d < reach && self.inventory.has('knife') && !this.holdFire && (self.profession === 'bandit' || !combat.bestWeapon(self, d))) {
+      if (self.weapon !== 'knife') combat.equip(self, 'knife');
+      faceTowards(self, t.x, t.y, dt);
+      if (combat.canFire(self)) combat.fire(self, t.x, t.y);
+      return true;
     }
+    // РПГ: по укрытию или кучке врагов издалека.
     this.nadeCheck -= dt;
     if (this.nadeCheck <= 0) {
       this.nadeCheck = GRENADE.ai.check;
-      if (this.tryGrenade(self, t, ctx)) return true;
+      if (now >= this.nextRocket && now >= this.rocketUntil && this.wantsRocket(self, t, d, ctx)) {
+        this.rocketUntil = now + 4;
+        combat.equip(self, 'rpg');
+        if (self.mag <= 0) combat.reload(self);
+      } else if (this.trySmoke(self, t, d, ctx) || this.tryGrenade(self, t, ctx)) return true;
+    }
+    const rocket = now < this.rocketUntil && self.weapon === 'rpg';
+    // Ствол под дистанцию (дубинку — на огнестрел, пустой — на заряженный).
+    if (!rocket && !combat.reloading(self) && !this.holdFire) {
+      const best = combat.bestWeapon(self, d);
+      if (best && best !== self.weapon) combat.equip(self, best);
     }
     const w = combat.weaponOf(self);
     if (!w || w.mode === 'melee') {
@@ -225,10 +244,59 @@ export class Gunner {
     const steady = width <= t.radius * COMBAT.ai.fireWidth || self.aim >= 0.95;
     const inReach = d <= Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul);
     if (!this.holdFire && steady && inReach && combat.canFire(self) && !this.friendInLine(self, t, ctx)) {
-      combat.fire(self, t.x + t.vx * 0.1, t.y + t.vy * 0.1);
+      // Упреждение по скорости цели (пуля летит не мгновенно).
+      const lead = d / w.speed;
+      combat.fire(self, t.x + t.vx * lead, t.y + t.vy * lead);
+      if (rocket) {
+        this.rocketUntil = 0;
+        this.nextRocket = combat.now + this.rng.range(ROCKET.cooldown[0], ROCKET.cooldown[1]);
+        self.say(FACTIONS[self.faction].authority ? 'Ракета!' : 'Выстрел! Ложись!', combat.now, 1.5);
+      }
       this.burst--;
       if (this.burst <= 0) this.pause = this.rng.range(COMBAT.ai.burstPause[0], COMBAT.ai.burstPause[1]);
     }
+    return true;
+  }
+
+  /**
+   * РПГ (Патрик, OTA.KING): цель не ближе ROCKET.minDist, за блоком или врагов кучка (≥ crowd),
+   * своих у цели нет; в ракетах есть патрон.
+   */
+  private wantsRocket(self: Character, t: Character, d: number, ctx: AiContext): boolean {
+    const combat = ctx.combat;
+    if (this.holdFire || !self.inventory.has('rpg') || !combat.hasAmmo(self, 'rpg')) return false;
+    if (d < ROCKET.minDist || d > WEAPONS.rpg.range * 0.8) return false;
+    const R = GRENADE.radius * (WEAPONS.rpg.blastMul ?? 1);
+    let crowd = 0;
+    for (const o of ctx.entities.near(t.x, t.y, R, near)) {
+      if (o === self || !o.alive) continue;
+      if (combat.isHostile(self, o)) crowd++;
+      else return false;
+    }
+    let behindBlock = false;
+    const dx = (t.x - self.x) / d;
+    const dy = (t.y - self.y) / d;
+    castRayWith(ctx.map, self.x, self.y, dx, dy, d, (x, y, tt) => {
+      if (ctx.map.blocksShot(x, y)) return true;
+      if (tt > COMBAT.ownCoverDistance && ctx.map.tileAt(x, y) === T.BARRIER) behindBlock = true;
+      return behindBlock;
+    });
+    return behindBlock || crowd >= ROCKET.crowd || t.maxHealth >= 150;
+  }
+
+  /**
+   * Дым: ранен (ниже GRENADE.smoke.hurtBelow) и враг видит издалека — завеса между собой и ним.
+   */
+  private trySmoke(self: Character, t: Character, d: number, ctx: AiContext): boolean {
+    const S = GRENADE.smoke;
+    const combat = ctx.combat;
+    const now = combat.now;
+    if (now < this.nextSmoke || !combat.canThrow(self, 'smoke_grenade')) return false;
+    if (self.health > self.maxHealth * S.hurtBelow || d < S.minDist) return false;
+    if (!canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius)) return false;
+    if (!combat.throwGrenade(self, self.x + (t.x - self.x) * S.at, self.y + (t.y - self.y) * S.at, 'smoke_grenade')) return false;
+    this.nextSmoke = now + this.rng.range(S.cooldown[0], S.cooldown[1]);
+    self.say('Дым! Прикройте!', now, 1.5);
     return true;
   }
 
@@ -240,7 +308,9 @@ export class Gunner {
     const combat = ctx.combat;
     const G = GRENADE;
     const now = combat.now;
-    if (this.holdFire || now < this.nextNade || !combat.canThrow(self)) return false;
+    // Осколочная, иначе зажигательная (дымовая — не для этого).
+    const kind = self.inventory.has('grenade') ? 'grenade' : self.inventory.has('fire_grenade') ? 'fire_grenade' : null;
+    if (this.holdFire || !kind || now < this.nextNade || !combat.canThrow(self, kind)) return false;
     const visible = canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius);
     if (!visible && now - this.lastSeen.t > 4) return false;
     const px = visible ? t.x : this.lastSeen.x;
@@ -251,7 +321,7 @@ export class Gunner {
     const dy = (py - self.y) / d;
     let behindBlock = false;
     castRayWith(ctx.map, self.x, self.y, dx, dy, d, (x, y, tt) => {
-      if (ctx.map.isOpaque(x, y)) return true;
+      if (ctx.map.blocksShot(x, y)) return true;
       if (tt > COMBAT.ownCoverDistance && ctx.map.tileAt(x, y) === T.BARRIER) behindBlock = true;
       return behindBlock;
     });
@@ -269,7 +339,7 @@ export class Gunner {
     const land = Math.min(d, castRay(ctx.map, self.x, self.y, dx, dy, d) - 8);
     if (land < G.radius + 12) return false;
     if (!this.rng.chance(Math.min(1, G.ai.chance * (demo ? G.ai.demoMul : 1)))) return false;
-    if (!combat.throwGrenade(self, px, py)) return false;
+    if (!combat.throwGrenade(self, px, py, kind)) return false;
     this.nextNade = now + this.rng.range(G.ai.cooldown[0], G.ai.cooldown[1]) / (demo ? G.ai.demoMul : 1);
     self.say(FACTIONS[self.faction].authority ? 'Граната! Ложись!' : 'Лови подарок!', now, 1.5);
     return true;

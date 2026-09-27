@@ -7,7 +7,7 @@ import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
-import { bootColor, drawPawnShadow, lookSeed, pawnDir } from './PawnRenderer';
+import { bootColor, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
@@ -106,9 +106,10 @@ export class EntityRenderer {
       // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу.
       const hold = pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
       // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
-      if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading, hold);
+      const hand = c.weapon ? handColor(look) : null;
+      if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
       drawPawnCached(ctx, look, x, y, ps, dir);
-      if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold);
+      if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
         const bx = x + Math.cos(hold) * 6 * ps;

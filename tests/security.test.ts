@@ -35,11 +35,11 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(by('epu')).toHaveLength(ROSTER.cp.epu);
     // Охранников меньше, чем целей охраны (инспекторы, глава, Администратор, лоялисты).
     expect(by('guard').length).toBeLessThan(ROSTER.cp.inspectors + ROSTER.cp.epu + 1 + SECURITY.guard.loyalists);
-    // Оружие: PCU.03 — пистолет без MP7, сержант и SU.03 — MP7.
+    // Оружие: PCU.03 — пистолет без MP7, сержант — MP7, SU.03 — M4A4, OTA.KING — ещё и РПГ.
     expect(by('pcu3')[0].inventory.has('mp7')).toBe(false);
     expect(by('pcu3')[0].inventory.has('usp')).toBe(true);
     expect(by('pcu1')[0].inventory.has('mp7')).toBe(true);
-    expect(by('su3')[0].inventory.has('mp7')).toBe(true);
+    expect(by('su3')[0].inventory.has('m4a4')).toBe(true);
     // RCT: у ворот Нексуса, в проходных КПП и в людных местах; на постах КПП — только SU.03.
     const rct = by('rct');
     expect(rct.length).toBe(ROSTER.cp.nexusPosts + ROSTER.cp.publicPosts + sim.war.fronts.reduce((n, f) => n + f.gatePosts.length, 0));
@@ -54,6 +54,7 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(ota.filter((c) => c.profession === 'ota_alpha').length).toBeGreaterThan(0);
     expect(ota.find((c) => c.profession === 'ota_alpha')!.maxHealth).toBe(150);
     expect(ota.find((c) => c.profession === 'ota_alpha')!.inventory.has('ar2')).toBe(true);
+    expect(ota.find((c) => c.profession === 'ota_king')!.inventory.has('rpg')).toBe(true);
     // PCU на КПП не ходит.
     const leader = cps(sim).find((c) => brain(c).duty === 'squad' && brain(c).lead)!;
     const kpp = sim.map.zones.find((z) => z.kind === 'checkpoint')!.id;

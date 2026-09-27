@@ -24,7 +24,10 @@ import { MapView, type MapViewHost } from './MapView';
 import { GameMenu, type GameMenuHost } from './GameMenu';
 import type { WarSystem, AlertCode } from '../systems/WarSystem';
 import { GAME } from '../config/game';
-import { WEAPONS, type FireMode } from '../config/items';
+import { WEAPONS, ITEMS, type FireMode } from '../config/items';
+import { GRENADE_KINDS } from '../systems/CombatSystem';
+import type { SquadArena } from '../systems/SquadArena';
+import { ArenaBar } from './ArenaBar';
 
 const FIRE_MODE: Record<FireMode, string> = { semi: 'одиночный', auto: 'авто', pump: 'помпа', melee: 'удар' };
 
@@ -32,6 +35,8 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly economy: EconomySystem;
   readonly combat: CombatSystem;
   readonly war: WarSystem;
+  /** Режим «отряд на отряд» (null — обычная игра). */
+  readonly arena: SquadArena | null;
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null): void;
   resolveCheck(target: Character, choice: CheckChoice): void;
   /** Терминал кодов тревоги: игрок выбрал код. */
@@ -68,6 +73,7 @@ export class UI {
   readonly death: DeathScreen;
   readonly audio = new GunfireAudio();
   readonly capture: CaptureBar;
+  readonly arenaBar: ArenaBar;
   readonly chat: ChatBox;
   readonly mapView: MapView;
   readonly menu: GameMenu;
@@ -84,6 +90,7 @@ export class UI {
     this.code = new CodePanel(root, () => host.war, (c) => host.setAlertCode(c));
     this.inventory = new InventoryPanel(root, host);
     this.capture = new CaptureBar(root);
+    this.arenaBar = new ArenaBar(root);
     this.mapView = new MapView(root);
     this.menu = new GameMenu(root, host);
     this.pauseEl = document.createElement('div');
@@ -114,7 +121,7 @@ export class UI {
   update(player: Character, now: number, dt: number): void {
     const map = this.host.map;
     const level = map.levelAt(player.x, player.y);
-    this.audio.update(this.host.combat.shots, player, this.host.combat.now, (x, y) => map.levelAt(x, y) === level);
+    this.audio.update(this.host.combat.shots, player, this.host.combat.now, (x, y) => map.levelAt(x, y) === level, this.host.combat.fx);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
@@ -122,15 +129,22 @@ export class UI {
     let weapon = '';
     if (player.weapon) {
       const w = WEAPONS[player.weapon];
-      if (w.mode === 'melee') weapon = `${w.name} · удар ЛКМ, оглушает`;
+      if (w.mode === 'melee') weapon = w.class === 'blade' ? `${w.name} · удар ЛКМ, в спину — сильнее` : `${w.name} · удар ЛКМ, оглушает`;
       else {
         const ammo = combat.reloading(player) ? 'перезарядка…' : `${player.mag} / ${combat.reserveAmmo(player)}`;
         const aim = player.aiming ? ` · прицел ${Math.round(player.aim * 100)}%` : '';
         weapon = `${w.name} [${FIRE_MODE[w.mode]}]: ${ammo} · ±${combat.spreadOf(player, w).toFixed(1)}°${aim}`;
       }
     }
+    // Гранаты: выбранная (T) и сколько всего.
+    const nades = GRENADE_KINDS.filter((g) => player.inventory.has(g));
+    if (nades.length) {
+      const g = nades.includes(player.grenadeKind) ? player.grenadeKind : nades[0];
+      weapon += `${weapon ? '\n' : ''}T: ${ITEMS[g].name} ×${player.inventory.count(g)}${nades.length > 1 ? ' · Y — сменить' : ''}`;
+    }
     let ration: string;
-    if (economy.open) {
+    if (this.host.arena) ration = '';
+    else if (economy.open) {
       const i = economy.queue.indexOf(player);
       const where = economy.hasBeenServed(player) ? 'вы получили' : i >= 0 ? `вы ${i + 1}-й в очереди` : `в очереди ${economy.queue.length}`;
       ration = `Раздача рационов открыта (${mmss(economy.timer)}) · ${where}`;
@@ -143,10 +157,15 @@ export class UI {
       this.log.el.style.bottom = `${h + 28}px`;
     }
     this.inventory.update(player);
-    this.capture.update(this.host.war);
+    if (this.host.arena) this.arenaBar.update(this.host.arena);
+    else {
+      this.arenaBar.update(null);
+      this.capture.update(this.host.war);
+    }
     this.mapView.update(this.host, GAME.hudInterval);
     this.shop.update(player, this.shop.kind === 'black' ? this.host.blackMarketCounter : economy.shopCounter);
-    this.death.update(player, combat.now, this.host.war.code === 'red');
+    const arena = this.host.arena;
+    this.death.update(player, combat.now, this.host.war.code === 'red', arena ? `Отряд на отряд: вернётесь в бой в следующем раунде (живы: ${arena.alive(arena.playerSide)} из вашего отряда)` : null);
     this.dev.update();
   }
 }

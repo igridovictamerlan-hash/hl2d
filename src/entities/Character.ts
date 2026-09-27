@@ -1,7 +1,7 @@
 import type { RoleSpec } from '../systems/Roster';
 import type { FactionId, DivisionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
-import type { ItemId, WeaponId } from '../config/items';
+import type { ItemId, WeaponId, GrenadeId } from '../config/items';
 import { ECONOMY } from '../config/economy';
 import { Inventory } from './Inventory';
 import { CHARACTER } from '../config/entities';
@@ -155,6 +155,20 @@ export class Character {
   aim = 0;
   /** Накопленная отдача, градусы разброса. */
   recoil = 0;
+  /** Увод ствола отдачей, радианы (со знаком: куда уводит), и сторона увода (±1). */
+  kick = 0;
+  kickDir = 1;
+  /** Какую гранату бросает (T; Y — сменить). */
+  grenadeKind: GrenadeId = 'grenade';
+  /** Кровотечение, HP/с: не проходит само — перевязка (бинт, аптечка, медик). */
+  bleed = 0;
+  /** Ранен в ногу (хромает) / в руку (конус шире) — до этого времени. */
+  limpUntil = 0;
+  armUntil = 0;
+  /** Перевязывается до этого времени (0 — нет): стоит, не стреляет. */
+  bandageUntil = 0;
+  /** Последнее ранение: зона и время (для HUD игрока). */
+  lastZone: 'head' | 'torso' | 'arm' | 'leg' | 'blast' | null = null;
   /** Оглушён (дубинкой) до этого времени. */
   stunUntil = 0;
   /** Множитель желаемой скорости (оглушение). Ставит CombatSystem, применяет физика. */

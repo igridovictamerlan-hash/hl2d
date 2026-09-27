@@ -18,10 +18,26 @@ export interface Pose {
 export function weaponPose(c: Character, reloading: boolean, ang: number = c.facing): Pose {
   const flip = Math.cos(ang) < 0;
   const kick = Math.min(WEAPON_POSE.kickMax, c.recoil * WEAPON_POSE.kickPerDeg);
-  const d = (WEAPON_POSE.hold - kick) * PAWN.scale;
-  // Перезарядка — ствол опущен (к низу экрана с той стороны, куда смотрит).
-  const tilt = reloading ? (flip ? -WEAPON_POSE.reloadTilt : WEAPON_POSE.reloadTilt) : 0;
+  // Длинный ствол (винтовка, РПГ) — у плеча: рукоять ближе к телу.
+  const long = c.weapon ? isLong(c.weapon) : false;
+  const d = (WEAPON_POSE.hold - kick - (long ? WEAPON_POSE.shoulder : 0)) * PAWN.scale;
+  // Перезарядка — ствол опущен (к низу экрана с той стороны, куда смотрит); отдача уводит ствол.
+  const tilt = reloading ? (flip ? -WEAPON_POSE.reloadTilt : WEAPON_POSE.reloadTilt) : c.kick;
   return { x: c.x + Math.cos(ang) * d, y: c.y + WEAPON_POSE.y * PAWN.scale + Math.sin(ang) * d, ang: ang + tilt, flip };
+}
+
+const longCache = new Map<WeaponId, boolean>();
+/** Длинная модель (от приклада до дула длиннее WEAPON_POSE.long). */
+function isLong(id: WeaponId): boolean {
+  let v = longCache.get(id);
+  if (v === undefined) {
+    let x0 = 0;
+    for (const p of WEAPON_SPRITES[id].parts) if ('r' in p) x0 = Math.min(x0, p.r[0]);
+    else if ('p' in p) for (const [x] of p.p) x0 = Math.min(x0, x);
+    v = WEAPON_SPRITES[id].muzzle[0] - x0 > WEAPON_POSE.long;
+    longCache.set(id, v);
+  }
+  return v;
 }
 
 /** Дульный срез в мире (для трассера и вспышки). */

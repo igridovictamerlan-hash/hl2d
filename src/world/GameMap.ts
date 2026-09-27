@@ -118,6 +118,8 @@ export class GameMap {
   readonly doorClosed: Uint8Array;
   /** 1 — дверь заперта и непроходима (камеры КПЗ). */
   readonly doorLocked: Uint8Array;
+  /** Дым от дымовых гранат: сколько облаков накрывает тайл (> 0 — не видно насквозь, пули летят). */
+  readonly smoke: Uint8Array;
   /** Прямоугольник канализации в тайлах (null — карта без неё). */
   readonly underground: Rect | null;
   readonly hatches: HatchPair[];
@@ -138,6 +140,7 @@ export class GameMap {
     this.worldHeight = height * tileSize;
     this.doorClosed = new Uint8Array(width * height);
     this.doorLocked = new Uint8Array(width * height);
+    this.smoke = new Uint8Array(width * height);
     for (let i = 0; i < tiles.length; i++) if (tiles[i] === T.DOOR) this.doorClosed[i] = 1;
     // Канализация — описывающий прямоугольник её зон.
     const ug = new Set(zones.filter((z) => UNDERGROUND_KINDS.includes(z.kind)).map((z) => z.id));
@@ -197,8 +200,15 @@ export class GameMap {
     return SOLID[this.tiles[i]] === 1 || this.doorLocked[i] === 1;
   }
 
-  /** Перекрывает ли тайл обзор (стены и закрытые двери). */
+  /** Перекрывает ли тайл обзор (стены, закрытые двери, дым). */
   isOpaque(tx: number, ty: number): boolean {
+    if (!this.inBounds(tx, ty)) return true;
+    const i = ty * this.width + tx;
+    return OPAQUE[this.tiles[i]] === 1 || this.doorClosed[i] === 1 || this.smoke[i] > 0;
+  }
+
+  /** Останавливает ли тайл пулю и гранату (стены и закрытые двери; дым — нет). */
+  blocksShot(tx: number, ty: number): boolean {
     if (!this.inBounds(tx, ty)) return true;
     const i = ty * this.width + tx;
     return OPAQUE[this.tiles[i]] === 1 || this.doorClosed[i] === 1;

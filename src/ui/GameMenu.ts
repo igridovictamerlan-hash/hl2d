@@ -9,6 +9,10 @@ export interface GameMenuHost {
   changeRole(): void;
   toggleSound(): boolean;
   readonly soundMuted: boolean;
+  /** Экспериментальный режим «отряд на отряд»: начать за сторону, идёт ли, выйти в город. */
+  startArena(side: 'combine' | 'rebel'): void;
+  readonly inArena: boolean;
+  leaveArena(): void;
 }
 
 /**
@@ -20,7 +24,7 @@ export class GameMenu {
   private readonly el: HTMLElement;
   private readonly box: HTMLElement;
   private mode: 'main' | 'pause' = 'main';
-  private screen: 'buttons' | 'controls' | 'confirmNew' = 'buttons';
+  private screen: 'buttons' | 'controls' | 'confirmNew' | 'arena' = 'buttons';
   private note = '';
 
   constructor(parent: HTMLElement, private readonly host: GameMenuHost) {
@@ -100,6 +104,18 @@ export class GameMenu {
       case 'controls':
         this.screen = 'controls';
         break;
+      case 'arena':
+        this.screen = 'arena';
+        break;
+      case 'arenaCombine':
+      case 'arenaRebel':
+        this.close();
+        h.startArena(a === 'arenaCombine' ? 'combine' : 'rebel');
+        return;
+      case 'leaveArena':
+        this.close();
+        h.leaveArena();
+        return;
       case 'back':
         this.screen = 'buttons';
         break;
@@ -124,6 +140,11 @@ export class GameMenu {
         <div class="gm-buttons"><button data-act="newYes" class="primary">Да, начать заново</button><button data-act="back">Отмена</button></div>`;
       return;
     }
+    if (this.screen === 'arena') {
+      this.box.innerHTML = `${title}<div class="gm-note">Эксперимент: отряд Альянса (SU.03, медик SU.02, OTA) против отряда сопротивления (ветераны, солдаты, RCT HYDRA) на пограничном КПП. Раунд — до гибели одной стороны. Город пуст, игра не сохраняется.</div>
+        <div class="gm-buttons"><button data-act="arenaRebel" class="primary">За сопротивление</button><button data-act="arenaCombine">За Альянс</button><button data-act="back">Назад</button></div>`;
+      return;
+    }
     const btn = (act: string, text: string, primary = false) => `<button data-act="${act}"${primary ? ' class="primary"' : ''}>${text}</button>`;
     const sound = `Звук: ${h.soundMuted ? 'выкл' : 'вкл'}`;
     const buttons =
@@ -131,10 +152,13 @@ export class GameMenu {
         ? [
             h.canContinue() ? btn('continue', 'Продолжить', true) : btn('continue', 'Играть', true),
             h.canContinue() ? btn('new', 'Новая игра') : '',
+            btn('arena', 'Отряд на отряд (эксперимент)'),
             btn('controls', 'Управление'),
             btn('sound', sound),
           ]
-        : [
+        : h.inArena
+          ? [btn('continue', 'Продолжить', true), btn('controls', 'Управление'), btn('sound', sound), btn('leaveArena', 'Выйти из режима «отряд на отряд»')]
+          : [
             btn('continue', 'Продолжить', true),
             btn('save', 'Сохранить'),
             btn('role', 'Сменить роль'),

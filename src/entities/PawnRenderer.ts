@@ -1,3 +1,4 @@
+import { WEAPON_POSE } from '../config/weaponSprites';
 import type { FactionId } from '../config/factions';
 import { PAWN } from '../config/pawns';
 import { cpUnit } from '../config/factions';
@@ -34,6 +35,16 @@ function outfitOf(look: PawnLook): Outfit {
   const o = prof ? { ...base, ...prof } : base;
   // Повязка семьи — если своей (медик, глава) нет.
   return look.band && !o.armband ? { ...o, armband: look.band } : o;
+}
+
+/** Армия сопротивления в перчатках (военная экипировка). */
+const GLOVED_REBELS = new Set(['rebel_soldier', 'veteran', 'rebel_medic', 'pyro', 'demolitionist', 'rebel_leader', 'hydra_rct', 'hydra_sergeant', 'hydra_sniper', 'commando']);
+
+/** Цвет рук на оружии: перчатки у силовиков, OTA и армии, иначе кожа (как у головы). */
+export function handColor(look: Pick<PawnLook, 'faction' | 'profession' | 'seed' | 'kin'>): string {
+  if (look.faction === 'cp' || look.faction === 'ota') return WEAPON_POSE.gloves;
+  if (look.faction === 'rebel' && look.profession && GLOVED_REBELS.has(look.profession)) return WEAPON_POSE.gloveRebel;
+  return pick(PAWN.skins, look.kin ?? look.seed, 3);
 }
 
 /** Цвет обуви (ступни при ходьбе) по фракции — без сборки одежды: зовётся каждый кадр. */

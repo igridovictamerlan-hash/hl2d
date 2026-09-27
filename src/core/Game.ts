@@ -1,6 +1,5 @@
 import { EventBus } from './EventBus';
 import { Camera, type View } from './Camera';
-import { COMBAT, GRENADE } from '../config/combat';
 import { Input } from './Input';
 import { GameLoop } from './GameLoop';
 import { Rng, randomSeed } from './rng';
@@ -21,6 +20,9 @@ import type { Character } from '../entities/Character';
 import { createCharacter, nameFor, randomName, resetCids } from '../entities/factory';
 import { stepPhysics } from '../entities/physics';
 import { EntityRenderer } from '../entities/EntityRenderer';
+import { Particles } from '../world/Particles';
+import { SquadArena } from '../systems/SquadArena';
+import { ARENA, type ArenaSide } from '../config/arena';
 import { AimRenderer } from '../entities/AimRenderer';
 import { PathService } from '../ai/PathService';
 import { AnchorBfs } from '../ai/yieldSearch';
@@ -99,6 +101,8 @@ export class Game {
   private readonly fog = new FogRenderer();
   private readonly effects = new EffectsRenderer();
   private readonly aim = new AimRenderer();
+  /** Частицы боя, тряска экрана, маркер попадания (только отрисовка). */
+  private readonly particles = new Particles();
   /** Бетонные блоки, поставленные игроком-GRID (самый старый убирается). */
   private placedBarriers: number[] = [];
   private readonly sight = new VisibilityPolygon(VISION.rays);
@@ -409,9 +413,9 @@ export class Game {
     this.regenerate(save.seed);
   }
 
-  /** Сохранить сейчас (если роль выбрана и игрок жив). */
+  /** Сохранить сейчас (если роль выбрана и игрок жив; в «отряд на отряд» — нет). */
   save(): boolean {
-    if (!this.role || !this.player?.alive) return false;
+    if (!this.role || !this.player?.alive || this.arena) return false;
     const data = capturePlayer(this.player, this.map.seed, this.role, this.civilName, { explored: this.ui.mapView.explored, hatches: this.ui.mapView.hatches });
     try {
       localStorage.setItem(SAVE.key, JSON.stringify(data));
@@ -589,6 +593,39 @@ export class Game {
   /** Раунд окончен — перезапустить карту в начале следующего тика. */
   private restartPending = false;
 
+  /** Экспериментальный режим «отряд на отряд» (null — обычная игра в городе). */
+  arena: SquadArena | null = null;
+
+  get inArena(): boolean {
+    return this.arena !== null;
+  }
+
+  /**
+   * «Отряд на отряд»: город пустеет (жители, ГО, армия, подполье уходят; война и подполье стоят),
+   * два отряда сходятся на пограничном КПП, игрок — в своём. Игра в этом режиме не сохраняется.
+   */
+  startArena(side: ArenaSide): void {
+    this.save();
+    for (const c of [...this.entities.list]) if (!c.isPlayer) this.entities.remove(c);
+    this.combat.corpses.length = 0;
+    this.war.command.paused = true;
+    this.war.reinforcements = false;
+    this.insurgency.paused = true;
+    this.ui.roles.close();
+    this.arena = new SquadArena(this.ai, side, this.player);
+    this.arena.startRound();
+    this.camera.snapTo(this.player.x, this.player.y);
+    this.bus.emit('announce', { text: `Отряд на отряд · вы — ${ARENA.sideNames[side]}` });
+    this.canvas.focus();
+  }
+
+  /** Выйти из «отряд на отряд»: тот же город заново, прежняя роль. */
+  leaveArena(): void {
+    this.arena = null;
+    this.regenerate(this.map.seed);
+    this.canvas.focus();
+  }
+
   private update(dt: number): void {
     if (this.restartPending) {
       this.restartPending = false;
@@ -621,6 +658,14 @@ export class Game {
     this.law.update(dt, this.player);
     this.economy.update(dt);
     this.combat.update(dt);
+    this.particles.update(this.combat, this.player, dt);
+    if (this.arena) {
+      // Город пуст: работают только бой, двери, закон и сам режим.
+      this.arena.update(dt);
+      this.updateVisibility();
+      this.finishTick(dt);
+      return;
+    }
     this.war.update(dt);
     this.insurgency.update(dt);
     this.labor.update(dt);
@@ -633,6 +678,11 @@ export class Game {
     // Красный код (штурм Нексуса) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
+    this.finishTick(dt);
+  }
+
+  /** Камера, зоны, клавиши интерфейса, UI — в конце тика (и в обычной игре, и в «отряд на отряд»). */
+  private finishTick(dt: number): void {
     const m = this.input.mouseInside
       ? this.camera.screenToWorld(this.input.mouseX, this.input.mouseY)
       : { x: this.player.x, y: this.player.y };
@@ -665,18 +715,13 @@ export class Game {
     this.input.endTick();
   }
 
-  /** Тряска экрана от близких взрывов (сдвиг вида, не камеры). */
+  /** Тряска экрана: взрывы, свои выстрелы, попадания (сдвиг вида, не камеры; px экрана). */
   private shake(v: View): void {
-    let amp = 0;
-    for (const b of this.combat.blasts) {
-      const d = Math.hypot(b.x - this.player.x, b.y - this.player.y);
-      if (d < GRENADE.shakeRange) amp += (b.t / COMBAT.blastTime) * (1 - d / GRENADE.shakeRange);
-    }
-    if (amp <= 0) return;
+    const a = this.particles.shake;
+    if (a <= 0.05) return;
     const t = this.combat.now * 60;
-    const a = Math.min(1.5, amp) * RENDER.effects.shake;
-    v.left += Math.sin(t * 1.7) * a;
-    v.top += Math.cos(t * 2.3) * a;
+    v.left += (Math.sin(t * 1.7) * a) / v.scale;
+    v.top += (Math.cos(t * 2.3) * a) / v.scale;
   }
 
   private render(alpha: number): void {
@@ -702,12 +747,14 @@ export class Game {
     this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
     this.effects.drawCages(ctx, v, this.law.cells, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
+    this.particles.draw(ctx, v);
     this.effects.drawShots(ctx, v, this.combat);
     this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);
     this.effects.drawScanners(ctx, v, this.ai.scanners.list, alpha, this.law.now);
     this.aim.drawSwings(ctx, v, this.combat);
     const sewer = this.level === 'sewer';
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);
+    this.particles.drawOver(ctx, v, this.combat);
     this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);
     this.effects.drawProgress(ctx, v, this.player, this.playerCtl.progress);
     this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll);
@@ -718,6 +765,7 @@ export class Game {
     }
     this.effects.drawAlert(ctx, v, this.war.code, this.law.now, this.player);
     if (!sewer) this.effects.drawFrontMarkers(ctx, v, this.war, this.player, dpr, this.law.now);
+    this.particles.drawHud(ctx, v, this.input.mouseInside ? this.input.mouseX * dpr : null, this.input.mouseInside ? this.input.mouseY * dpr : null, dpr);
     if (this.input.mouseInside) this.drawCrosshair(this.input.mouseX * dpr, this.input.mouseY * dpr, dpr);
   }
 

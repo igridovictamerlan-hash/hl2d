@@ -239,9 +239,9 @@ describe('чёрный рынок', () => {
     const c = createCharacter(sim.entities, sim.ctx.rng, 'rebel', 100, 100);
     equipKit(c, 'rebel', sim.ctx);
     c.inventory.add('bread', 2);
-    const smg = c.inventory.count('ammo_smg');
+    const rifle = c.inventory.count('ammo_545');
     expect(sim.economy.refillAmmo(c, 4)).toBeGreaterThan(0);
-    expect(c.inventory.count('ammo_smg')).toBeGreaterThan(smg);
+    expect(c.inventory.count('ammo_545')).toBeGreaterThan(rifle);
     expect(c.inventory.count('bread')).toBe(2);
   });
 });

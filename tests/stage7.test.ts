@@ -106,7 +106,9 @@ describe('командование сопротивления', () => {
     const other = cmd.army.filter((c) => (c.brain as RebelBrain).front !== target.index);
     console.log(`у КПП главы: ${atTarget.length}, отвлекают: ${other.length}`);
     expect(atTarget.length).toBeGreaterThanOrEqual(8);
-    expect(other.length).toBe(COMMAND.diversion);
+    // Отвлекающая группа — COMMAND.diversion бойцов (кто-то из них мог уже погибнуть в бою).
+    expect(other.length).toBeLessThanOrEqual(COMMAND.diversion);
+    expect(other.length).toBeGreaterThanOrEqual(COMMAND.diversion - 1);
     expect(other.length).toBeLessThan(cmd.army.length / 2);
   });
 
@@ -344,11 +346,12 @@ describe('штурм звеньями и терминал кодов', () => {
 });
 
 describe('штурм Нексуса', () => {
-  test('все точки D у повстанцев — волна из внутреннего двора доходит до Нексуса и начинает захват', { timeout: 400_000 }, () => {
-    // Исход штурма зависит от того, сколько армии успело к КПП, — смотрим несколько сидов, нужно большинство.
+  test('все точки D у повстанцев — волна из внутреннего двора доходит до Нексуса и начинает захват', { timeout: 600_000 }, () => {
+    // Исход штурма зависит от того, сколько армии успело к КПП и как лёг бой (ранения смертельны,
+    // кровотечение), — смотрим шесть сидов: до Нексуса доходят в половине, захват начинается не везде.
     let ok = 0;
     let started = 0;
-    for (const seed of [12345, 777, 4242]) {
+    for (const seed of [12345, 777, 4242, 99, 2024, 31337]) {
       const sim = makeSim(seed);
       spawnPopulation(sim.ctx, 45);
       // Проверяем саму волну: OTA не выдвигаются к КПП и не отбивают точки (иначе исход решает бой у КПП).
@@ -375,8 +378,8 @@ describe('штурм Нексуса', () => {
       if (progress > 0) started++;
     }
     // При красном коде никто не возрождается (и повстанцы тоже) — захват начинается не в каждом сиде.
-    expect(ok).toBeGreaterThanOrEqual(2);
-    expect(started).toBeGreaterThanOrEqual(1);
+    expect(ok).toBeGreaterThanOrEqual(3);
+    expect(started).toBeGreaterThanOrEqual(2);
   });
 
   test('Нексус взят и Администратор мёртв — победа восстания, армия в лагерь, отбой, новая карта', () => {

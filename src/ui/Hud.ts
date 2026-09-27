@@ -18,6 +18,7 @@ export class Hud {
   private rationEl: HTMLElement;
   private loyaltyEl: HTMLElement;
   private last = '';
+  private woundEl: HTMLElement;
 
   constructor(parent: HTMLElement) {
     this.el = document.createElement('div');
@@ -25,6 +26,7 @@ export class Hud {
     this.el.innerHTML = `
       <div class="hud-row"><span class="hud-label">ЗДОРОВЬЕ</span><span class="hud-value" data-hp></span></div>
       <div class="hp-bar"><div class="hp-fill" data-hpfill></div></div>
+      <div class="hud-wound" data-wound></div>
       <div class="hud-row"><span class="hud-label">СЫТОСТЬ</span><span class="hud-small" data-hunger></span></div>
       <div class="hp-bar"><div class="hp-fill hunger-fill" data-hungerfill></div></div>
       <div class="hud-row"><span class="hud-label">ТОКЕНЫ</span><span class="hud-value" data-money></span></div>
@@ -44,17 +46,21 @@ export class Hud {
     this.weaponEl = this.el.querySelector('[data-weapon]')!;
     this.rationEl = this.el.querySelector('[data-ration]')!;
     this.loyaltyEl = this.el.querySelector('[data-loyalty]')!;
+    this.woundEl = this.el.querySelector('[data-wound]')!;
   }
 
   /** rallyCooldown — до готовности клича главы восстания, с (-1 — не глава). */
   update(p: Character, now: number, weapon: string, ration: string, rallyCooldown = -1): void {
     const status = lawStatus(p, now);
     const hunger = Math.ceil(p.hunger);
-    const key = `${Math.ceil(p.health)}|${p.maxHealth}|${p.money}|${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${status}|${hunger}|${weapon}|${ration}|${p.loyalty}`;
+    const wound = woundStatus(p, now);
+    const key = `${wound}|${Math.ceil(p.health)}|${p.maxHealth}|${p.money}|${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${status}|${hunger}|${weapon}|${ration}|${p.loyalty}`;
     if (key === this.last) return;
     this.last = key;
     const hp = Math.max(0, Math.ceil(p.health));
     this.hpText.textContent = String(hp);
+    this.woundEl.textContent = wound;
+    this.woundEl.hidden = wound === '';
     this.hpFill.style.width = `${(100 * hp) / p.maxHealth}%`;
     this.hpFill.classList.toggle('low', hp <= 25);
     this.money.textContent = String(p.money);
@@ -64,6 +70,7 @@ export class Hud {
     this.weaponEl.textContent = weapon;
     this.weaponEl.hidden = weapon === '';
     this.rationEl.textContent = ration;
+    this.rationEl.hidden = ration === '';
     this.name.textContent = p.name;
     const f = FACTIONS[p.faction];
     const r = rankOf(p.faction, p.rank);
@@ -86,6 +93,17 @@ export class Hud {
     this.lawEl.textContent = status;
     this.lawEl.hidden = status === '';
   }
+}
+
+/** Ранения игрока: кровотечение, перевязка, нога, рука. */
+function woundStatus(p: Character, now: number): string {
+  if (!p.alive) return '';
+  const out: string[] = [];
+  if (p.bandageUntil > now) out.push('перевязка…');
+  else if (p.bleed > 0) out.push(`кровотечение −${p.bleed.toFixed(1)}/с · B — перевязать`);
+  if (p.limpUntil > now) out.push('ранена нога');
+  if (p.armUntil > now) out.push('ранена рука');
+  return out.join(' · ');
 }
 
 /** Строка «что со мной сейчас» для игрока. */

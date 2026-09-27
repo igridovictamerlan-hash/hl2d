@@ -255,7 +255,11 @@ export class EconomySystem {
     if (!def.food && !def.heal) return false;
     if (!c.inventory.remove(id, 1)) return false;
     if (def.food) c.hunger = Math.min(ECONOMY.hunger.max, c.hunger + def.food);
-    if (def.heal) c.health = Math.min(c.maxHealth, c.health + def.heal);
+    if (def.heal) {
+      c.health = Math.min(c.maxHealth, c.health + def.heal);
+      // Бинт и аптечка останавливают кровотечение.
+      c.bleed = 0;
+    }
     return true;
   }
 
