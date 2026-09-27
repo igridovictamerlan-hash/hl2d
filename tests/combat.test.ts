@@ -135,6 +135,25 @@ describe('попадания: зоны, броня, кровотечение', (
   });
 });
 
+describe('гибель', () => {
+  test('после гибели раны не остаются: игрок возрождается без хромоты, раны руки и кровотечения', () => {
+    const sim = makeSim(12345);
+    const p = plaza(sim);
+    const shooter = createCharacter(sim.entities, sim.ctx.rng, 'rebel', p.x, p.y);
+    const v = createCharacter(sim.entities, sim.ctx.rng, 'citizen', p.x + 30, p.y, true);
+    sim.combat.applyHit(v, 'usp', 'leg', shooter);
+    sim.combat.applyHit(v, 'usp', 'arm', shooter);
+    sim.combat.ignite(v, shooter);
+    expect(v.limpUntil).toBeGreaterThan(sim.combat.now);
+    sim.combat.applyHit(v, 'usp', 'head', shooter);
+    expect(v.alive).toBe(false);
+    expect(v.limpUntil).toBe(0);
+    expect(v.armUntil).toBe(0);
+    expect(v.bleed).toBe(0);
+    expect(v.burnUntil).toBe(0);
+  });
+});
+
 describe('пули и отдача', () => {
   test('пуля летит, урон — по прилёту; очередь уводит ствол, потом он возвращается', () => {
     const sim = makeSim(12345);

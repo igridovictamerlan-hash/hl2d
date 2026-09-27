@@ -653,8 +653,14 @@ export class CombatSystem {
   kill(c: Character, killer: Character | null, how: string | null = null): void {
     c.alive = false;
     c.health = 0;
+    // Раны, огонь, оглушение и отдача в новую жизнь не переходят (игрок возрождается тем же персонажем).
     c.bleed = 0;
     c.bandageUntil = 0;
+    c.limpUntil = c.armUntil = 0;
+    c.burnUntil = 0;
+    c.stunUntil = 0;
+    c.speedMul = 1;
+    c.recoil = c.kick = c.aim = 0;
     c.wantX = c.wantY = c.vx = c.vy = 0;
     this.kills++;
     const loot = c.inventory.takeAll();
