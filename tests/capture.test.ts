@@ -44,7 +44,7 @@ describe('капт КПП', () => {
     expect(f.squad.every((r) => (r.brain as RebelBrain).mode === 'capture')).toBe(true);
   });
 
-  test('тамбур: точки берутся по очереди (D3, потом D4), код жёлтый; контрудар из Цитадели отбивает обе', { timeout: 240_000 }, () => {
+  test('тамбур: точки берутся по очереди (D3, потом D4), тревога у проходной; контрудар из Цитадели отбивает обе', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     expect(f.points.map((p) => p.name)).toEqual(['D3', 'D4']);
@@ -60,7 +60,9 @@ describe('капт КПП', () => {
     expect(f.owner).toBe('combine');
     expect(f.capture).toBeNull();
     sim.step();
-    expect(sim.war.code).toBe('yellow');
+    // Захват точки — точка тревоги (патрули стягиваются), код жёлтый — только за убитого патрульного в городе.
+    expect(sim.war.alarmActive).toBe(true);
+    expect(sim.war.code).toBe('green');
     // Вторая точка — D4: КПП прорван.
     sim.war.startCapture(f);
     expect(f.capture!.point).toBe(1);
@@ -134,8 +136,10 @@ describe('капт КПП', () => {
     // Гарнизон D3 — часовые двух постов внешней камеры.
     expect(f.capture!.defenders.every((d) => sim.war.pointOfPost(f, (d.brain as CpBrain).guardPost!) === 0)).toBe(true);
     for (const d of f.capture!.defenders) sim.combat.damage(d, 1000, null);
-    for (let t = 0; t < 30 && f.capture; t++) sim.step();
+    // Гарнизона нет — точка берётся, как только штурмующие войдут во двор (без ожидания таймера).
+    for (let t = 0; t < 90 * 60 && f.capture; t++) sim.step();
     expect(f.held).toBe(1);
+    expect(sim.war.now).toBeLessThan(WAR.capture.duration);
   });
 
   test('штурмующих не осталось — капт отбит, повстанцы снова собираются', () => {

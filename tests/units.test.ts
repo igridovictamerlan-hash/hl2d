@@ -62,7 +62,7 @@ describe('спецподразделения ГО и огонь', () => {
     equipKit(armed, 'rebel_raider', sim.ctx);
     run(sim, 5, () => sim.scanners.stats.spotted > 0);
     expect(sim.scanners.stats.spotted).toBeGreaterThan(0);
-    expect(sim.war.code).not.toBe('green');
+    expect(sim.war.alarmActive).toBe(true);
     expect(sim.war.operatives.has(armed)).toBe(true);
   });
 

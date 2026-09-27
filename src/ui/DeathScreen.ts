@@ -14,8 +14,12 @@ export class DeathScreen {
     parent.appendChild(this.el);
   }
 
-  update(p: Character, now: number): void {
+  update(p: Character, now: number, red = false): void {
     this.el.hidden = p.alive;
-    if (!p.alive) this.timer.textContent = `Возрождение через ${Math.max(0, Math.ceil(p.respawnAt - now))} с`;
+    if (!p.alive) {
+      this.timer.textContent = red
+        ? 'Код красный: идёт штурм Нексуса — возрождения нет до отбоя'
+        : `Возрождение через ${Math.max(0, Math.ceil(p.respawnAt - now))} с`;
+    }
   }
 }

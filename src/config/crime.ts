@@ -25,5 +25,6 @@ export const CRIME = {
   rob: { time: 1.4, reach: 46, amount: [10, 24] as const, cryChance: 0.75, npcChance: 0.6, seek: 220, zones: ['residential', 'industrial'] as const },
   seenFor: 5,
   /** NPC-вор: шанс пойти на дело, где искать жертву, у жертвы должно быть не меньше minMoney. */
-  npc: { chance: 0.5, seek: 260, minMoney: 6, giveUp: 18 },
+  /** stalk — скорость вора, крадущегося за жертвой (× шаг; быстрее прохожего, но не бег). */
+  npc: { chance: 0.5, seek: 260, minMoney: 6, giveUp: 18, stalk: 1.12 },
 } as const;

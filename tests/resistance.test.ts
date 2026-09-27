@@ -167,7 +167,7 @@ describe('спецагент', () => {
     expect(sim.insurgency.jailbreak(agent, cell)).toBe(1);
     expect(p.law.phase).toBe('releasing');
     expect(sim.law.caged()).not.toContain(p);
-    expect(sim.war.code).toBe('yellow');
+    expect(sim.war.alarmActive).toBe(true);
     // Покушение раскрывает агента.
     sim.insurgency.revealAgent(agent, 'покушение');
     expect(agent.cover).toBeNull();
@@ -207,7 +207,7 @@ describe('спецагент', () => {
     agent.profession = 'spec_agent';
     const n = sim.insurgency.startRiot(agent, p.x, p.y);
     expect(n).toBeGreaterThanOrEqual(4);
-    expect(sim.war.code).toBe('yellow');
+    expect(sim.war.alarmActive).toBe(true);
     const rioters = people.filter((c) => (c.brain as CitizenBrain).fsm.current === 'riot');
     expect(rioters.length).toBe(n);
     run(sim, 3);

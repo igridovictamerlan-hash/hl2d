@@ -199,6 +199,11 @@ describe('война на границе', () => {
     run(sim, 30);
     // Отряд у западного КПП «прорывается»: переносим бойца за внутренние ворота.
     const f = sim.war.fronts[0];
+    // Красный код — только штурм Нексуса: все КПП прорваны.
+    for (const o of sim.war.fronts) {
+      o.held = o.points.length;
+      o.owner = 'rebels';
+    }
     sim.war.forceAssault(0);
     const r = f.squad[0];
     const a = sim.nav.nearestWalkable(f.apron.x + (f.apron.x - f.outerGate.x) * 0.8, f.apron.y, 8);
@@ -216,7 +221,12 @@ describe('война на границе', () => {
     const inside = civ.filter((c) => !sim.war.outdoors(c)).length;
     console.log(`граждан в укрытии: ${inside} из ${civ.length}`);
     expect(inside / Math.max(1, civ.length)).toBeGreaterThan(0.5);
-    // Прорвавшихся ликвидируют или время тревоги выходит — отбой.
+    // КПП отбиты, прорвавшихся ликвидируют или время тревоги выходит — отбой.
+    for (const o of sim.war.fronts) {
+      o.held = 0;
+      o.owner = 'combine';
+    }
+    for (const x of sim.war.infiltrators) sim.combat.damage(x, 9999, null);
     run(sim, WAR.redMaxTime + 30, () => sim.war.code === 'green');
     expect(sim.war.code).toBe('green');
     expect(sim.war.curfew).toBe(false);

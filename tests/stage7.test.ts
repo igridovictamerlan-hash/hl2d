@@ -289,6 +289,10 @@ describe('штурм звеньями и терминал кодов', () => {
       (c.brain as RebelBrain).march('gather');
       men.push(c);
     }
+    // Защитник в глубине двора (без него точка без гарнизона берётся сразу).
+    const post = f.points[0].posts[0];
+    const guard = createCharacter(sim.entities, sim.ctx.rng, 'cp', post.x, post.y);
+    guard.maxHealth = guard.health = 1e9;
     run(sim, 1);
     sim.war.startCapture(f);
     // Отвлекающая группа ушла на второй КПП — звенья у штурмующих этот.
@@ -343,9 +347,12 @@ describe('штурм Нексуса', () => {
   test('все точки D у повстанцев — волна из внутреннего двора доходит до Нексуса и начинает захват', { timeout: 400_000 }, () => {
     // Исход штурма зависит от того, сколько армии успело к КПП, — смотрим несколько сидов, нужно большинство.
     let ok = 0;
+    let started = 0;
     for (const seed of [12345, 777, 4242]) {
       const sim = makeSim(seed);
       spawnPopulation(sim.ctx, 45);
+      // Проверяем саму волну: OTA не выдвигаются к КПП и не отбивают точки (иначе исход решает бой у КПП).
+      sim.war.reinforcements = false;
       run(sim, 90);
       for (const f of sim.war.fronts) {
         f.held = f.points.length;
@@ -363,13 +370,16 @@ describe('штурм Нексуса', () => {
       });
       console.log(`сид ${seed}, штурм Нексуса: ${JSON.stringify(sim.war.stats)}, в Нексусе максимум ${inside}, захват ${progress.toFixed(0)} с`);
       expect(wave).toBe(true);
-      // Прорвавшиеся не топчутся у проходной — доходят до Нексуса и захват идёт.
-      if (inside >= WAR.nexus.minAttackers && progress > 0) ok++;
+      // Прорвавшиеся не топчутся у проходной — доходят до Нексуса; захват — где их не меньше защитников.
+      if (inside >= WAR.nexus.minAttackers) ok++;
+      if (progress > 0) started++;
     }
+    // При красном коде никто не возрождается (и повстанцы тоже) — захват начинается не в каждом сиде.
     expect(ok).toBeGreaterThanOrEqual(2);
+    expect(started).toBeGreaterThanOrEqual(1);
   });
 
-  test('Нексус удержан — победа восстания: КПП у Альянса, армия уходит в лагерь, отбой', () => {
+  test('Нексус взят и Администратор мёртв — победа восстания, армия в лагерь, отбой, новая карта', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     for (const f of sim.war.fronts) {
@@ -380,12 +390,20 @@ describe('штурм Нексуса', () => {
     const r = spawnRole(sim.ctx, armySpec('rebel_soldier', 'rebel_raider', 0), { x: sim.nav.worldX(a), y: sim.nav.worldY(a) })!;
     (r.brain as RebelBrain).storm();
     sim.war.nexus.fallen = true;
-    sim.war.nexus.fallenAt = sim.war.now - WAR.nexus.holdToWin;
+    // Нексус взят, но Администратор жив — ещё не победа.
+    sim.step();
+    expect(sim.war.stats.victories).toBe(0);
+    let restarted = false;
+    sim.bus.on('restart', () => (restarted = true));
+    for (const c of sim.entities.list) if (c.faction === 'admin') sim.combat.damage(c, 9999, null);
     sim.step();
     expect(sim.war.stats.victories).toBe(1);
     expect(sim.war.fronts.every((f) => f.held === 0 && f.owner === 'combine')).toBe(true);
     expect(sim.war.code).toBe('green');
     expect((r.brain as RebelBrain).mode).toBe('retreat');
+    // Через restartDelay — новая карта (Game ловит 'restart').
+    for (let t = 0; t < (WAR.nexus.restartDelay + 1) * 60 && !restarted; t++) sim.step();
+    expect(restarted).toBe(true);
   });
 });
 

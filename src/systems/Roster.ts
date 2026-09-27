@@ -233,6 +233,8 @@ export class RosterSystem {
   update(dt: number): void {
     this.time += dt;
     if (this.paused) return;
+    // Красный код (штурм Нексуса): никто не возрождается — ни ГО, ни OTA, ни повстанцы, ни жители.
+    if (this.ctx.war.code === 'red') return;
     for (let i = this.queue.length - 1; i >= 0; i--) {
       const q = this.queue[i];
       if (this.time < q.at) continue;

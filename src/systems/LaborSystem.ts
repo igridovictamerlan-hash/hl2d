@@ -303,7 +303,7 @@ export class LaborSystem {
       this.cremator = null;
       this.crematorAt = this.time + LABOR.cremator.respawn;
     }
-    if (this.time < this.crematorAt) return;
+    if (this.time < this.crematorAt || this.ctx.war.code === 'red') return;
     const gate = poiWorld(this.ctx, 'nexus_gate');
     if (!gate) return;
     const a = this.ctx.nav.nearestWalkable(gate.x, gate.y, 6);

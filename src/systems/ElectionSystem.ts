@@ -25,10 +25,15 @@ export class ElectionSystem {
   /** Сколько выборов прошло (для тестов и отладки). */
   held = 0;
   private time = 0;
+  /** Администратор погиб при красном коде — выборы после отбоя. */
+  private owed = false;
 
   constructor(private readonly ctx: AiContext) {
     ctx.combat.deathListeners.push((c) => {
-      if (c.faction === 'admin' && !this.current && !this.adminAlive()) this.start();
+      // При красном коде (штурм Нексуса) выборов нет — новый Администратор после отбоя.
+      if (c.faction !== 'admin' || this.current || this.adminAlive()) return;
+      if (ctx.war.code === 'red') this.owed = true;
+      else this.start();
     });
   }
 
@@ -81,7 +86,14 @@ export class ElectionSystem {
   update(dt: number): void {
     this.time += dt;
     const e = this.current;
-    if (!e) return;
+    if (!e) {
+      // Администратор погиб при красном коде — выборы после отбоя.
+      if (this.owed && this.ctx.war.code !== 'red') {
+        this.owed = false;
+        if (!this.adminAlive()) this.start();
+      }
+      return;
+    }
     // NPC голосуют понемногу: чаще за самого лояльного кандидата.
     for (const c of this.ctx.entities.list) {
       if (c.isPlayer || !c.alive || !hasLoyalty(c) || e.voted.has(c) || !this.ctx.rng.chance(ELECTION.npcVoteRate * dt)) continue;

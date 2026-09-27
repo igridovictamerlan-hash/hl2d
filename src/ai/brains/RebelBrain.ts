@@ -52,6 +52,8 @@ export class RebelBrain implements Brain {
   private suppressAt: { x: number; y: number } | null = null;
   private repath = 0;
   private holdPost: { x: number; y: number } | null = null;
+  /** Куда смотреть на посту (стрелки у выхода в город — на проспект). */
+  private holdFace: { x: number; y: number } | null = null;
   /** Капт: доля пути по коридору, сколько ещё держаться в укрытии, фаза перебежки. */
   private advance = 0;
   private coverLeft = 0;
@@ -227,11 +229,12 @@ export class RebelBrain implements Brain {
   }
 
   /** КПП захвачен: держать пост. */
-  orderHold(post: { x: number; y: number }): void {
+  orderHold(post: { x: number; y: number }, face: { x: number; y: number } | null = null): void {
     if (this.mode === 'retreat' || this.mode === 'infiltrate') return;
     this.team = -1;
     this.mode = 'hold';
     this.holdPost = post;
+    this.holdFace = face;
     this.goal = -1;
   }
 
@@ -731,6 +734,12 @@ export class RebelBrain implements Brain {
               best = a;
             }
           }
+          // Внутри (или Нексус уже взят) — часть бойцов идёт прямо на Администратора: без него город не пал.
+          if ((inside || ctx.war.nexus.fallen) && ctx.rng.chance(N.huntAdmin)) {
+            const admin = ctx.entities.list.find((c) => c.alive && c.faction === 'admin');
+            const a = admin ? ctx.nav.nearestWalkable(admin.x, admin.y, 4) : -1;
+            if (a >= 0) best = a;
+          }
           this.approachNexus();
           this.go(best);
         }
@@ -800,7 +809,8 @@ export class RebelBrain implements Brain {
     if ((this.mode === 'raid' || this.mode === 'gather') && f && self.moveSpeed < 8) {
       const post = f.posts[0] ?? f.outerGate;
       faceTowards(self, (post.x + f.outerGate.x) / 2, (post.y + f.outerGate.y) / 2, dt);
-    } else faceMovement(self, ctx, dt);
+    } else if (this.mode === 'hold' && this.holdFace && self.moveSpeed < 8) faceTowards(self, this.holdFace.x, this.holdFace.y, dt);
+    else faceMovement(self, ctx, dt);
   }
 }
 

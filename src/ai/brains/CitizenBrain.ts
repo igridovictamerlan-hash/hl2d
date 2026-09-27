@@ -693,7 +693,10 @@ const WORK: State<CitizenBrain> = {
       if (to) b.goToPoint(to);
     } else if (job.kind === 'clean' || job.kind === 'scavenge') b.goToPoint(job.pile);
     else if (job.kind === 'heal') b.goToPoint(job.patient);
-    else if (job.kind === 'pickpocket') b.goToPoint(job.victim);
+    else if (job.kind === 'pickpocket') {
+      b.mover.speed = CHARACTER.walkSpeed * CRIME.npc.stalk;
+      b.goToPoint(job.victim);
+    }
     else if (job.kind === 'paper') {
       // В Нексус жителю обычно не нужно (избегает), в канцелярию — можно.
       b.mover.avoidZones = undefined;
@@ -911,9 +914,8 @@ const WORK: State<CitizenBrain> = {
         const v = job.victim;
         const crime = b.ctx.crime;
         if (!crime.victimOk(b.self, v) || b.ctx.law.now > job.until || b.cpInSight(200)) return done();
+        // За спиной — тянется к карману, не отставая от идущей жертвы.
         if (crime.behind(b.self, v)) {
-          b.mover.stop();
-          faceTowards(b.self, v.x, v.y, dt);
           if ((job.left -= dt) <= 0) {
             crime.pickpocket(b.self, v);
             // Уходит быстрым шагом подальше.
@@ -923,9 +925,8 @@ const WORK: State<CitizenBrain> = {
             if (away >= 0) b.mover.goTo(b.self, b.ctx, away);
             return 'walk';
           }
-          return;
         }
-        // Заходит за спину: точка позади жертвы.
+        // Заходит за спину (и держится там): точка позади жертвы.
         job.repath -= dt;
         if (job.repath <= 0 || st === 'idle' || st === 'arrived') {
           job.repath = 0.6;

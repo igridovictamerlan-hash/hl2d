@@ -64,24 +64,24 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 30);
     sim.war.command.paused = true;
-    let d = 0;
-    let n = 0;
+    // Ведомый, который сам задержал нарушителя и отвёл его в КПЗ, потом догоняет группу через весь
+    // город — это выброс; смотрим медиану расстояния до ведущего.
+    const ds: number[] = [];
     run(sim, 90, () => {
       if (sim.ctx.law.now % 1 < 1 / 60) {
         for (const c of cps(sim)) {
           const b = brain(c);
           const l = b.fsm.current === 'follow' ? b.leader() : null;
-          if (l) {
-            d += Math.hypot(l.x - c.x, l.y - c.y);
-            n++;
-          }
+          if (l) ds.push(Math.hypot(l.x - c.x, l.y - c.y));
         }
       }
       return false;
     });
-    console.log(`ведомых в группах: ${n} замеров, среднее расстояние до ведущего ${(d / n).toFixed(0)} px`);
-    expect(n).toBeGreaterThan(100);
-    expect(d / n).toBeLessThan(160);
+    ds.sort((a, b) => a - b);
+    const median = ds[Math.floor(ds.length / 2)];
+    console.log(`ведомых в группах: ${ds.length} замеров, медиана расстояния до ведущего ${median.toFixed(0)} px`);
+    expect(ds.length).toBeGreaterThan(100);
+    expect(median).toBeLessThan(160);
   });
 
   test('построение: офицер собирает юнитов PCU на плацу Нексуса и распускает', { timeout: 120_000 }, () => {

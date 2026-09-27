@@ -151,7 +151,8 @@ export class CpBrain implements Brain {
    */
   shouldHunt(): boolean {
     const war = this.ctx.war;
-    if (this.guardPost || this.medicStation || war.code === 'green') return false;
+    // Прочёсывают при тревоге: коде жёлтом/красном или свежей точке тревоги (нападение, саботаж…).
+    if (this.guardPost || this.medicStation || (war.code === 'green' && !war.alarmActive)) return false;
     // Командование и охрана при тревоге остаются при своих. Ведомые идут за ведущим, а когда он
     // поднят на прочёсывание — расходятся и прочёсывают вместе с ним, каждый в своей точке.
     if (this.duty === 'inspector' || this.duty === 'epu' || this.duty === 'bodyguard' || this.duty === 'officer') return false;

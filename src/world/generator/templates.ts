@@ -158,9 +158,9 @@ export function rotateTemplate(rows: readonly string[], rot: 0 | 180): string[] 
  */
 export const CHECKPOINT_TEMPLATE: readonly string[] = [
   'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'MMMMMMMMMMMMMMMMMMMMMMkkkkkkkBkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
+  'MMMMMMMMMMMMMMMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
   'ooooooooooooooMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
-  'ooooooooooooooMMMMMMMMkkkkkkkkkkkkBkkkkkBkkkkkkMMMMMMMMMMMMMMMMMMM',
+  'ooooooooooooooMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
   'ooBBooooooooooMMMMMMMMkkkMMMMMMMMMMMMMMMMMMMkkkMMMMMMMMMMMMMMMMMMM',
   'ooooooooooBoooMMMMMMMMkkkMMMMMMMMMMMMMMMMMMMkkkMMMMMMMMMMMMMMMMMMM',
   'oooooooooooBooMMkkkkkkkkkkkkMMMMMMMMMMkkkkkkkkkkkkkkMMkkkkkkkkkMMM',
@@ -189,6 +189,8 @@ export const CHECKPOINT_AXIS_ROW = 13;
 
 /** Часть КПП по координатам шаблона в канонической ориентации (у зеркального — x отражён). */
 export type CheckpointSection = 'outer' | 'short' | 'long' | 'inner' | 'gatehouse';
+/** Ширина полосы пустоши в шаблоне КПП (столбцы 0…13 — пустошь с завалами). */
+export const CHECKPOINT_OUTLANDS_W = 14;
 /** Первый столбец проходной в шаблоне КПП. */
 export const CHECKPOINT_GATEHOUSE_X = 54;
 export function checkpointSection(x: number, y: number): CheckpointSection {

@@ -13,7 +13,7 @@ import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked } from './stamps';
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
@@ -287,7 +287,11 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   layout.checkpoints.forEach((cp, k) => {
     const rows = cp.mirror ? mirrorTemplate(CHECKPOINT_TEMPLATE) : [...CHECKPOINT_TEMPLATE];
     const cw = rows[0].length;
-    const zoneOf = (ch: string, x: number, y: number) => (ch === 'o' ? zOut : zCheckpoints[k][checkpointSection(cp.mirror ? cw - 1 - x : x, y)]);
+    // Пустошь перед КПП (и завалы на ней) — зона пустоши, остальное — части КПП.
+    const zoneOf = (ch: string, x: number, y: number) => {
+      const tx = cp.mirror ? cw - 1 - x : x;
+      return ch === 'o' || tx < CHECKPOINT_OUTLANDS_W ? zOut : zCheckpoints[k][checkpointSection(tx, y)];
+    };
     const res = stampTemplate(g, rows, cp.rect.x, cp.rect.y, zoneOf, pois);
     const cityDx = cp.mirror ? -1 : 1;
     for (const exit of res.exits) {

@@ -112,7 +112,7 @@ describe('чат и команды', () => {
     for (let t = 0; t < LOYALTY.reportCooldown * 60 + 5; t++) sim.law.update(1 / 60, null);
     chat.submit(me, '/донос');
     expect(me.loyalty).toBe(LOYALTY.points.falseReport + LOYALTY.points.report);
-    expect(sim.war.code).toBe('yellow');
+    expect(sim.war.alarmActive).toBe(true);
     // Поощрение ГО.
     const cp = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x + 20, p.y, false);
     sim.entities.rebuildHash();

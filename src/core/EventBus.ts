@@ -12,6 +12,10 @@ export interface GameEvents {
   'map:loaded': { seed: number; stats: MapStats | null; source: 'generated' | 'file' };
   'zone:enter': { entityId: number; zone: Zone };
   log: { text: string; kind: LogKind };
+  /** Победа восстания: Нексус взят, Администратор мёртв. */
+  victory: { side: 'rebels' };
+  /** Раунд окончен — перезапустить карту (Game). */
+  restart: Record<string, never>;
   /** Крупное объявление по центру экрана. */
   announce: { text: string };
   /** Смена кода тревоги. */

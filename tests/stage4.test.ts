@@ -119,8 +119,9 @@ describe('сопротивление в городе', () => {
     const t = run(sim, 150, () => node.broken);
     console.log(`узел саботирован через ${t.toFixed(0)} с (${op.where})`);
     expect(node.broken).toBe(true);
-    expect(sim.war.code).not.toBe('green');
-    expect(sim.log.some((l) => l.includes('Код ЖЁЛТЫЙ'))).toBe(true);
+    // Саботаж — точка тревоги для патрулей; код жёлтый — только за убитого патрульного.
+    expect(sim.war.alarmActive).toBe(true);
+    expect(sim.log.some((l) => l.includes('саботаж'))).toBe(true);
     // Группа уходит под землю (город большой — путь к люку долгий), тревога снимается.
     run(sim, 360, () => sim.war.code === 'green' && op.team.every((c) => !c.alive || (c.brain as UndergroundBrain).mode === 'base'));
     for (const c of op.team) if (c.alive) expect(sim.map.levelAt(c.x, c.y)).toBe('sewer');
@@ -178,7 +179,7 @@ describe('сопротивление в городе', () => {
     // Без отрядов у КПП (гарнизона в тесте нет — иначе будет прорыв и красный код).
     sim.war.command.paused = true;
     const p = poiWorld(sim.ctx, 'plaza_center')!;
-    sim.war.raiseAlarm(p.x, p.y, 'проверка');
+    sim.war.raiseAlarm(p.x, p.y, 'проверка', true);
     expect(sim.war.code).toBe('yellow');
     run(sim, ALARM.minTime + ALARM.calmToGreen + 2);
     expect(sim.war.code).toBe('green');

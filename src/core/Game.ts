@@ -151,6 +151,11 @@ export class Game {
       this.role = { faction: 'admin', rank: 0, division: null, profession: null };
       this.save();
     });
+    // Победа восстания (Нексус взят, Администратор мёртв): через паузу — новый город, роль прежняя.
+    // Перезапуск — в начале следующего тика, не посреди обновления систем.
+    this.bus.on('restart', () => {
+      this.restartPending = true;
+    });
     // Игрок примкнул к повстанцам у прорванного КПП — новая роль (сохраняется).
     this.bus.on('defected', ({ who }) => {
       if (who !== this.player) return;
@@ -581,7 +586,17 @@ export class Game {
     this.vignette = g;
   }
 
+  /** Раунд окончен — перезапустить карту в начале следующего тика. */
+  private restartPending = false;
+
   private update(dt: number): void {
+    if (this.restartPending) {
+      this.restartPending = false;
+      this.regenerate();
+      this.bus.emit('announce', { text: 'Новый город · раунд заново' });
+      this.save();
+      return;
+    }
     // Пауза (P): мир стоит, отрисовка идёт.
     if (this.input.wasPressed('pause') && !this.ui.chat.isOpen) {
       this.paused = !this.paused;
@@ -615,7 +630,8 @@ export class Game {
     this.ai.street.update(dt);
     this.ai.security.update(dt);
     this.ai.cwuHq.update(dt);
-    if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
+    // Красный код (штурм Нексуса) — возрождения нет ни у кого, игрока тоже.
+    if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside
       ? this.camera.screenToWorld(this.input.mouseX, this.input.mouseY)

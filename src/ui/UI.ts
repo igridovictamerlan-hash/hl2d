@@ -146,7 +146,7 @@ export class UI {
     this.capture.update(this.host.war);
     this.mapView.update(this.host, GAME.hudInterval);
     this.shop.update(player, this.shop.kind === 'black' ? this.host.blackMarketCounter : economy.shopCounter);
-    this.death.update(player, combat.now);
+    this.death.update(player, combat.now, this.host.war.code === 'red');
     this.dev.update();
   }
 }
