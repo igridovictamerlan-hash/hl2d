@@ -697,6 +697,7 @@ export class Game {
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards);
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
+    this.effects.drawScenes(ctx, v, this.war.scenes.list);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
     this.effects.drawCages(ctx, v, this.law.cells, this.law.now);

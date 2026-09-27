@@ -13,6 +13,8 @@ import { canSeeCircle } from '../../world/visibility';
 import { CHARACTER } from '../../config/entities';
 import { CP_UNITS } from '../../config/cpUnits';
 import type { Corpse } from '../../systems/CombatSystem';
+import type { CrimeScene } from '../../systems/CrimeScenes';
+import { CRIME } from '../../config/crime';
 import { LAW } from '../../config/law';
 import { VISION } from '../../config/vision';
 import { dist, type Vec2 } from '../../core/math';
@@ -54,7 +56,10 @@ export interface FormationSlot {
 }
 
 /** Состояния, из которых можно сразу перейти в бой. */
-const CAN_FIGHT = new Set(['patrol', 'patrol-again', 'post', 'guard', 'hunt', 'approach', 'chase', 'medic', 'heal', 'check', 'bodyguard', 'follow', 'duty', 'formation']);
+const CAN_FIGHT = new Set(['patrol', 'patrol-again', 'post', 'guard', 'hunt', 'approach', 'chase', 'medic', 'heal', 'check', 'bodyguard', 'follow', 'duty', 'formation', 'scene']);
+
+/** Из этих состояний юнит возвращается на место преступления, если ещё не закончил там. */
+const SCENE_RESUME = new Set(['patrol', 'patrol-again', 'post', 'follow', 'duty', 'hunt']);
 
 /** Состояния, в которых юнит осматривается (нарушения, тела, раненые). */
 const WATCHING = new Set(['patrol', 'post', 'guard', 'hunt', 'medic', 'follow', 'duty', 'bodyguard']);
@@ -94,6 +99,10 @@ export class CpBrain implements Brain {
   /** Наблюдатель OBS: какое тело сканирует и сколько осталось. */
   corpse: Corpse | null = null;
   scanLeft = 0;
+  /** Место преступления: осмотреть тело (следователь) или охранять оцепление (офицер). */
+  scene: CrimeScene | null = null;
+  sceneRole: 'investigate' | 'guard' = 'guard';
+  sceneSpot: Vec2 | null = null;
   /** Кого сопровождает (охрана доверенного лоялиста) и до какого времени. */
   ward: Character | null = null;
   wardUntil = 0;
@@ -133,7 +142,7 @@ export class CpBrain implements Brain {
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
       this,
-      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD, SCAN, FOLLOW, DUTY, FORMATION],
+      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD, SCAN, FOLLOW, DUTY, FORMATION, SCENE],
       this.idleState,
     );
     this.scan = ctx.rng.range(0, LAW.scanInterval);
@@ -348,6 +357,9 @@ export class CpBrain implements Brain {
       this.fsm.change('fight');
     }
     cur = this.fsm.current;
+    // Не закончил на месте преступления (отвлёкся на бой, проверку) — назад к оцеплению.
+    if (this.scene && !this.scene.closed && SCENE_RESUME.has(cur)) this.fsm.change('scene');
+    cur = this.fsm.current;
     // Красный код: патрульные — на прочёсывание.
     if ((cur === 'patrol' || cur === 'post' || cur === 'patrol-again') && !this.guardPost && !this.medicStation && this.shouldHunt()) {
       this.fsm.change('hunt');
@@ -365,7 +377,25 @@ export class CpBrain implements Brain {
     const now = this.fsm.current;
     // Цель или тревога (ранили, стреляют рядом) перебивают дежурный взгляд.
     if (this.gunner.look(self, ctx, dt)) return;
-    if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic' && now !== 'formation' && !(now === 'duty' && this.dutyArrived)) faceMovement(self, ctx, dt);
+    if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic' && now !== 'formation' && !(now === 'duty' && this.dutyArrived) && !(now === 'scene' && self.moveSpeed < 8)) faceMovement(self, ctx, dt);
+  }
+
+  /** Отправить на место преступления: следователь — осмотр тела, офицер — охрана оцепления. */
+  assignScene(s: CrimeScene, role: 'investigate' | 'guard'): void {
+    this.scene = s;
+    this.sceneRole = role;
+    this.sceneSpot = null;
+    if (this.target && this.target.law.handler === this.self && this.target.law.phase !== 'cuffed') this.ctx.law.clear(this.target);
+    this.target = null;
+    this.fsm.change('scene');
+  }
+
+  /** Оцепление снято (или своё дело сделано). */
+  releaseScene(s: CrimeScene): void {
+    if (this.scene !== s) return;
+    this.scene = null;
+    this.sceneSpot = null;
+    if (this.fsm.current === 'scene') this.fsm.change(this.idleState);
   }
 
   /** Осмотреться: раненые свои (HELIX), нарушения, иногда — проверка «для порядка». */
@@ -868,6 +898,68 @@ const SCAN: State<CpBrain> = {
   },
   exit(b) {
     b.mover.speed = LAW.cpWalkSpeed;
+  },
+};
+
+/**
+ * Место преступления (CrimeScenes): следователь идёт к телу, осматривает CP_UNITS.obs.scanTime с
+ * (убийца — в розыск) и уходит; офицер встаёт у ленты со стороны, откуда пришёл, лицом наружу, и
+ * стоит, пока оцепление не снимут.
+ */
+const SCENE: State<CpBrain> = {
+  name: 'scene',
+  enter(b) {
+    b.repath = 0;
+    b.scanLeft = CP_UNITS.obs.scanTime;
+    b.mover.speed = LAW.cpWalkSpeed * CRIME.scene.speed;
+  },
+  update(b, dt) {
+    const s = b.scene;
+    if (!s || s.closed) {
+      b.scene = null;
+      return b.idleState;
+    }
+    const { self, ctx } = b;
+    if (b.sceneRole === 'investigate') {
+      const c = s.corpse;
+      if (dist(self.x, self.y, c.x, c.y) > CP_UNITS.obs.reach - 8) {
+        b.goToPoint(c, dt, 2);
+        return;
+      }
+      b.mover.stop();
+      faceTowards(self, c.x, c.y, dt);
+      if (b.scanLeft === CP_UNITS.obs.scanTime) self.say(ctx.rng.pick(CRIME.scene.lines.investigate), ctx.law.now, 2.5);
+      if ((b.scanLeft -= dt) <= 0) {
+        if (!c.scanned) ctx.crime.investigate(c, self);
+        ctx.war.scenes.investigated(s);
+        b.scene = null;
+        return b.idleState;
+      }
+      return;
+    }
+    // Офицер: место у ленты со своей стороны.
+    if (!b.sceneSpot) {
+      const dx = self.x - s.x;
+      const dy = self.y - s.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const a = ctx.nav.nearestWalkable(s.x + (dx / d) * (s.r - 8), s.y + (dy / d) * (s.r - 8), 4);
+      b.sceneSpot = a >= 0 ? { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) } : { x: s.x, y: s.y };
+    }
+    const p = b.sceneSpot;
+    if (dist(self.x, self.y, p.x, p.y) > 18) {
+      b.goToPoint(p, dt, 2);
+      return;
+    }
+    b.mover.stop();
+    if (!b.dutyArrived) {
+      b.dutyArrived = true;
+      self.say(ctx.rng.pick(CRIME.scene.lines.guard), ctx.law.now, 3);
+    }
+    turnTowards(self, Math.atan2(self.y - s.y, self.x - s.x), dt, 2);
+  },
+  exit(b) {
+    b.mover.speed = LAW.cpWalkSpeed;
+    b.dutyArrived = false;
   },
 };
 

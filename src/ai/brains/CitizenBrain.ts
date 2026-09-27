@@ -16,6 +16,8 @@ import { ECONOMY } from '../../config/economy';
 import { ITEMS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
 import type { TrashPile } from '../../systems/LaborSystem';
+import type { Corpse } from '../../systems/CombatSystem';
+import { CrimeScenes } from '../../systems/CrimeScenes';
 import { LABOR } from '../../config/labor';
 import { CRIME } from '../../config/crime';
 import type { Vec2 } from '../../core/math';
@@ -42,6 +44,7 @@ type Job =
   | { kind: 'heal'; patient: Character; repath: number }
   | { kind: 'pickpocket'; victim: Character; left: number; until: number; repath: number }
   | { kind: 'rob'; victim: Character; left: number; until: number; repath: number; threatened: boolean }
+  | { kind: 'loot'; corpse: Corpse; left: number; until: number }
   | { kind: 'paper'; desk: Vec2; until: number; nextPay: number };
 
 /** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
@@ -459,6 +462,21 @@ export class CitizenBrain implements Brain {
         return victim ? { kind: 'pickpocket', victim, left: CRIME.pickpocket.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0 } : null;
       }
       case 'bandit': {
+        // Тело ГО со стволом, не оцепленное и без ГО рядом, — обобрать (оружие Альянса дорогого стоит).
+        // (Случайность — только если тело есть: иначе не сдвигать общий поток rng.)
+        {
+          let best: Corpse | null = null;
+          let bestD: number = CRIME.loot.seek;
+          for (const k of ctx.combat.corpses) {
+            if (!FACTIONS[k.faction].authority || !CrimeScenes.armed(k) || ctx.war.scenes.sealed(k) || ctx.map.levelAt(k.x, k.y) !== 'city') continue;
+            const d = Math.hypot(k.x - self.x, k.y - self.y);
+            if (d < bestD) {
+              bestD = d;
+              best = k;
+            }
+          }
+          if (best && !this.cpInSight(260) && ctx.rng.chance(CRIME.loot.chance)) return { kind: 'loot', corpse: best, left: CRIME.loot.time, until: ctx.law.now + CRIME.npc.giveUp };
+        }
         // Гоп-стоп: жертва в подворотне, ГО рядом не видно.
         if (!ctx.rng.chance(CRIME.rob.npcChance) || this.cpInSight(260)) return null;
         let victim: Character | null = null;
@@ -693,6 +711,7 @@ const WORK: State<CitizenBrain> = {
       if (to) b.goToPoint(to);
     } else if (job.kind === 'clean' || job.kind === 'scavenge') b.goToPoint(job.pile);
     else if (job.kind === 'heal') b.goToPoint(job.patient);
+    else if (job.kind === 'loot') b.goToPoint(job.corpse);
     else if (job.kind === 'pickpocket') {
       b.mover.speed = CHARACTER.walkSpeed * CRIME.npc.stalk;
       b.goToPoint(job.victim);
@@ -931,6 +950,25 @@ const WORK: State<CitizenBrain> = {
         if (job.repath <= 0 || st === 'idle' || st === 'arrived') {
           job.repath = 0.6;
           b.goToPoint({ x: v.x - Math.cos(v.facing) * 18, y: v.y - Math.sin(v.facing) * 18 });
+        }
+        return;
+      }
+      case 'loot': {
+        // Обобрать тело ГО: оцепили, тело убрали, ГО рядом или долго — бросить.
+        const k = job.corpse;
+        if (!b.ctx.combat.corpses.includes(k) || b.ctx.war.scenes.sealed(k) || b.ctx.law.now > job.until || b.cpInSight(200)) return done();
+        if (Math.hypot(k.x - b.self.x, k.y - b.self.y) > 22) {
+          if (st === 'idle' || st === 'arrived') b.goToPoint(k);
+          return;
+        }
+        b.mover.stop();
+        faceTowards(b.self, k.x, k.y, dt);
+        if ((job.left -= dt) <= 0) {
+          if (b.ctx.combat.loot(b.self, k) > 0) {
+            b.ctx.crime.stats.corpseLoots++;
+            b.self.say(b.ctx.rng.pick(CRIME.loot.lines), b.ctx.law.now, 2);
+          }
+          return done();
         }
         return;
       }

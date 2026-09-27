@@ -15,7 +15,7 @@ const DEG = Math.PI / 180;
  */
 export class CrimeSystem {
   /** Счётчики (тесты, отладка). */
-  stats = { pickpockets: 0, robberies: 0, stolen: 0, hacks: 0, cries: 0 };
+  stats = { pickpockets: 0, robberies: 0, stolen: 0, hacks: 0, cries: 0, corpseLoots: 0 };
 
   constructor(private readonly ctx: AiContext) {}
 

@@ -18,6 +18,7 @@ import { RebelCommand } from './RebelCommand';
 import { spawnRole } from './Roster';
 import { armySpec } from './Population';
 import type { Corpse } from './CombatSystem';
+import { CrimeScenes } from './CrimeScenes';
 import { lineOfSight } from '../world/visibility';
 import { VISION } from '../config/vision';
 
@@ -158,9 +159,12 @@ export class WarSystem {
   readonly nexus = { progress: 0, fallen: false, fallenAt: 0, rebels: 0, defenders: 0, wave: false, waveSince: 0, stagedSince: -1 };
   /** Командование сопротивления: армия в лагере, цель главы, клич. */
   readonly command: RebelCommand;
+  /** Места преступления: оцепление у тел убитых ГО в городе. */
+  readonly scenes: CrimeScenes;
 
   constructor(private readonly ctx: AiContext) {
     this.command = new RebelCommand(ctx);
+    this.scenes = new CrimeScenes(ctx);
     this.buildFronts();
     ctx.economy.paused = () => this.curfew;
     ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Альянса');
@@ -694,6 +698,8 @@ export class WarSystem {
         if (Math.hypot(o.x - b.x, o.y - b.y) > VISION.npcRange || !lineOfSight(map, o.x, o.y, b.x, b.y)) continue;
         this.seenCorpses.add(b);
         this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true);
+        // Улицу перекрывают, на осмотр идут следователь и офицер (при штурме Нексуса — не до того).
+        if (this.code !== 'red') this.scenes.open(b);
         break;
       }
     }
@@ -877,6 +883,7 @@ export class WarSystem {
     this.ctx.law.log(`Администрация: Код КРАСНЫЙ! ${why} — ${where}. Объявлен комендантский час. Граждане, немедленно пройдите в жилые блоки.`, 'world');
     this.ctx.bus.emit('alert', { code: 'red' });
     this.ctx.economy.forceClose();
+    this.scenes.closeAll();
     this.ctx.bus.emit('announce', { text: 'Код красный · комендантский час' });
     for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код красный. Комендантский час!', this.ctx.law.now, 5);
     // OTA по городу не ходит — держит Цитадель и КПП; прочёсывают город PCU и SU.
@@ -1166,6 +1173,7 @@ export class WarSystem {
       this.corpseScan = ALARM.corpseScan;
       this.scanCorpses();
     }
+    this.scenes.update(dt);
     if (this.restartAt >= 0 && this.time >= this.restartAt) {
       this.restartAt = -1;
       this.ctx.bus.emit('restart', {});

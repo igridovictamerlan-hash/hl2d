@@ -6,6 +6,7 @@ import { spawnRole } from '../src/systems/Roster';
 import { randomAnchorAround } from '../src/ai/destinations';
 import { RebelBrain } from '../src/ai/brains/RebelBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
+import { CpBrain } from '../src/ai/brains/CpBrain';
 import { CP_UNIT, REBEL_UNIT, rebelUnitOf } from '../src/config/factions';
 import { WAR } from '../src/config/war';
 import { ROSTER } from '../src/config/roster';
@@ -152,3 +153,62 @@ describe('КПП', () => {
     expect(sim.war.stats.otaDeployed).toBeGreaterThan(0);
   });
 });
+
+describe('место преступления', () => {
+  test('тело ГО нашли — оцепление, следователь SU.01 и офицер, за ленту не пускают, тело не обыскать', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 20);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    sim.ctx.insurgency.paused = true;
+    const plaza = poiWorld(sim.ctx, 'plaza_center')!;
+    const at = spotNear(sim, plaza, 0, 4);
+    const victim = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, at)!;
+    sim.combat.damage(victim, 9999, null);
+    const corpse = sim.combat.corpses[sim.combat.corpses.length - 1];
+    spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, spotNear(sim, at, 2, 4));
+    run(sim, 1);
+    const scene = sim.war.scenes.list[0];
+    expect(scene).toBeTruthy();
+    expect(scene.corpse).toBe(corpse);
+    expect(scene.cones.filter((c) => !Number.isNaN(c.x)).length).toBeGreaterThan(3);
+    // Едут следователь SU.01 и офицер (PCU.OFC или SU.INSP).
+    expect(scene.investigator?.rank).toBe(CP_UNIT.su1);
+    expect([CP_UNIT.ofc, CP_UNIT.insp]).toContain(scene.officer?.rank);
+    // Тело не обыскать не-сотруднику; житель внутри ленты выталкивается.
+    const cit = sim.entities.list.find((c) => c.faction === 'citizen' && !c.isPlayer && c.alive)!;
+    expect(sim.war.scenes.sealed(corpse, cit)).toBe(true);
+    expect(sim.war.scenes.sealed(corpse, scene.officer)).toBe(false);
+    cit.x = cit.prevX = corpse.x + 10;
+    cit.y = cit.prevY = corpse.y;
+    sim.step();
+    expect(Math.hypot(cit.x - corpse.x, cit.y - corpse.y)).toBeGreaterThanOrEqual(scene.r);
+    // Следователь доходит и осматривает тело, офицер стоит у ленты.
+    const t = run(sim, 120, () => sim.war.scenes.stats.investigated > 0);
+    console.log(`осмотр тела через ${t.toFixed(0)} с`);
+    expect(corpse.scanned).toBe(true);
+    const o = scene.officer!;
+    const near = () => Math.hypot(o.x - scene.x, o.y - scene.y) < scene.r + 30;
+    run(sim, 25, near);
+    expect(near()).toBe(true);
+    // Через holdAfter оцепление снимают, офицер возвращается к службе.
+    run(sim, 40, () => scene.closed);
+    expect(scene.closed).toBe(true);
+    expect((o.brain as CpBrain).scene).toBeNull();
+  });
+
+  test('бандит обирает неоцеплённое тело ГО — забирает оружие', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    const plaza = poiWorld(sim.ctx, 'plaza_center')!;
+    const at = spotNear(sim, plaza, 0, 4);
+    const victim = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, at)!;
+    sim.combat.damage(victim, 9999, null);
+    const bandit = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 6, 10))!;
+    run(sim, 60, () => sim.crime.stats.corpseLoots > 0);
+    expect(sim.crime.stats.corpseLoots).toBeGreaterThan(0);
+    expect(bandit.inventory.has('usp')).toBe(true);
+  });
+});
+

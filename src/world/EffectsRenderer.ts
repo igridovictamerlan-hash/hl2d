@@ -1,3 +1,4 @@
+import type { CrimeScene } from '../systems/CrimeScenes';
 import type { Cell } from '../systems/LawSystem';
 import type { View } from '../core/Camera';
 import type { CombatSystem } from '../systems/CombatSystem';
@@ -313,6 +314,49 @@ export class EffectsRenderer {
       ctx.beginPath();
       ctx.arc(hx, hy, 3 * s, 0, Math.PI * 2);
       ctx.fill();
+    }
+  }
+
+  /** Места преступления: лента между конусами (жёлтая с чёрными полосами) и оранжевые конусы. */
+  drawScenes(ctx: CanvasRenderingContext2D, v: View, scenes: readonly CrimeScene[]): void {
+    const s = v.scale;
+    const C = RENDER.effects.scene;
+    for (let k = 0; k < scenes.length; k++) {
+      const sc = scenes[k];
+      if (sc.closed) continue;
+      const cx = (sc.x - v.left) * s;
+      const cy = (sc.y - v.top) * s;
+      const R = (sc.r + 10) * s;
+      if (cx < -R || cy < -R || cx > v.width + R || cy > v.height + R) continue;
+      ctx.lineWidth = C.width * s;
+      ctx.beginPath();
+      for (const [a, b] of sc.tape) {
+        ctx.moveTo((sc.cones[a].x - v.left) * s, (sc.cones[a].y - v.top) * s);
+        ctx.lineTo((sc.cones[b].x - v.left) * s, (sc.cones[b].y - v.top) * s);
+      }
+      ctx.strokeStyle = C.tape;
+      ctx.stroke();
+      ctx.setLineDash([C.dash * s, C.dash * s]);
+      ctx.strokeStyle = C.stripe;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const h = C.coneSize * s;
+      for (const p of sc.cones) {
+        if (Number.isNaN(p.x)) continue;
+        const x = (p.x - v.left) * s;
+        const y = (p.y - v.top) * s;
+        ctx.fillStyle = C.coneDark;
+        ctx.fillRect(x - h, y + h * 0.55, h * 2, h * 0.45);
+        ctx.beginPath();
+        ctx.moveTo(x, y - h * 1.1);
+        ctx.lineTo(x + h * 0.75, y + h * 0.6);
+        ctx.lineTo(x - h * 0.75, y + h * 0.6);
+        ctx.closePath();
+        ctx.fillStyle = C.cone;
+        ctx.fill();
+        ctx.fillStyle = C.coneStripe;
+        ctx.fillRect(x - h * 0.42, y - h * 0.1, h * 0.84, h * 0.28);
+      }
     }
   }
 

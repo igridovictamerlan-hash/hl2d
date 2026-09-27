@@ -303,6 +303,7 @@ export class PlayerController {
       this.task = { kind: 'scan', x: corpse.x, y: corpse.y, left: T, total: T, corpse };
       return this.say('Сканирование тела…', 'world');
     }
+    if (corpse && ctx.war.scenes.sealed(corpse, p)) return this.say('Место преступления оцеплено — тело не обыскать.');
     if (corpse) {
       const n = ctx.combat.loot(p, corpse);
       return this.say(n > 0 ? `Обыскали тело: ${corpse.name}.` : 'Инвентарь полон.');
