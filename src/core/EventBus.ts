@@ -1,3 +1,4 @@
+import type { ProfessionId } from '../config/professions';
 import type { MapStats } from '../world/mapStats';
 import type { Zone } from '../world/GameMap';
 import type { Character } from '../entities/Character';
@@ -23,6 +24,8 @@ export interface GameEvents {
   defected: { who: Character };
   /** Игрок избран Администратором города. */
   elected: { who: Character };
+  /** Игрока приняли на работу в штабе ГСР. */
+  hired: { who: Character; profession: ProfessionId };
 }
 
 type Handler<T> = (payload: T) => void;

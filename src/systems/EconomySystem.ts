@@ -1,3 +1,4 @@
+import { CWU_HQ } from '../config/cwuHq';
 import { cpUnit } from '../config/factions';
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
@@ -415,7 +416,7 @@ export class EconomySystem {
         let pay = 0;
         if (c.faction === 'cp') pay = S.cp + S.cpPerRank * cpUnit(c.rank).command;
         else if (c.faction === 'admin') pay = S.admin;
-        else if (c.faction === 'cwu' && this.worked.has(c.id)) pay = S.cwu;
+        else if (c.faction === 'cwu' && this.worked.has(c.id)) pay = S.cwu + (c.profession === 'cwu_head' ? CWU_HQ.head.salaryBonus : 0);
         if (pay <= 0) continue;
         c.money += pay;
         if (c.isPlayer) this.bus.emit('log', { text: `Зарплата: +${pay} токенов.`, kind: 'world' });

@@ -54,6 +54,22 @@ export function furnishMap(map: GameMap): Furniture[] {
       case 'villa_living':
         furnishRoom(map, p, 'villa_living', out, []);
         break;
+      case 'cwu_lounge':
+      case 'cwu_canteen':
+        furnishRoom(map, p, p.type, out, []);
+        break;
+      case 'cwu_office':
+      case 'cwu_lobby':
+      case 'cwu_production': {
+        // Стол главы, стойка найма и конвейеры уже стоят — вокруг них свободно.
+        const [cx, cy] = FURNITURE.conveyorClear;
+        const inside = (t: Poi) => t.x >= p.x && t.y >= p.y && t.x < p.x + p.w! && t.y < p.y + p.h!;
+        const pre = map.pois
+          .filter((t) => (t.type === 'cwu_head_desk' || t.type === 'cwu_hire' || t.type === 'ration_line' || t.type === 'cwu_store') && inside(t))
+          .map((t) => ({ x: (t.x + 0.5) * ts - cx, y: (t.y + 0.5) * ts - cy, w: cx * 2, h: cy * 2 + ts }));
+        furnishRoom(map, p, p.type, out, pre);
+        break;
+      }
       case 'dorm_table': {
         const cx = (p.x + 0.5) * ts;
         const cy = (p.y + 0.5) * ts;
@@ -75,7 +91,9 @@ export function furnishMap(map: GameMap): Furniture[] {
         out.push({ kind: 'cot', x, y, w: a, h: b, rot: up ? 0 : 2, variant: hash2(p.x, p.y, 3) });
         break;
       }
-      case 'clerk_desk': {
+      case 'clerk_desk':
+      case 'cwu_head_desk':
+      case 'cwu_hire': {
         const [a, b] = FURNITURE.sizes.desk;
         const C = FURNITURE.sizes.chair;
         const x = (p.x + 0.5) * ts - a / 2;
@@ -149,7 +167,25 @@ function furnishRoom(map: GameMap, p: Poi, recipe: string, out: Furniture[], pre
   // Стол со стульями посередине большой комнаты (в гостиной особняка — и ковёр).
   let k = 0;
   const T0 = F.table;
-  const withTable = (recipe === 'home' || recipe === 'villa_living' || recipe === 'dorm') && (p.w ?? 1) >= T0.min[0] && (p.h ?? 1) >= T0.min[1];
+  const withTable = (recipe === 'home' || recipe === 'villa_living' || recipe === 'dorm' || recipe === 'cwu_lounge') && (p.w ?? 1) >= T0.min[0] && (p.h ?? 1) >= T0.min[1];
+  if (recipe === 'cwu_canteen') {
+    // Столовая: ряд столов посередине, у каждого — стулья сверху и снизу.
+    const C = F.sizes.chair;
+    const step = F.canteen.step;
+    const n = Math.max(1, Math.floor((R.w - 24) / step));
+    const x0 = R.x + (R.w - (n - 1) * step - T0.w) / 2;
+    const ty = R.y + (R.h - T0.h) / 2;
+    for (let i = 0; i < n; i++) {
+      const t: Box = { x: x0 + i * step, y: ty, w: T0.w, h: T0.h };
+      placed.push(t);
+      out.push({ kind: 'table', ...t, rot: 0, variant: hash2(seed, i, 19) });
+      for (const [dx, dy, rot] of [[4, -C[1] - 1, 0], [T0.w - 4 - C[0], -C[1] - 1, 0], [4, T0.h + 1, 2], [T0.w - 4 - C[0], T0.h + 1, 2]] as const) {
+        const c: Box = { x: t.x + dx, y: t.y + dy, w: C[0], h: C[1] };
+        placed.push(c);
+        out.push({ kind: 'chair', ...c, rot, variant: 0 });
+      }
+    }
+  }
   if (recipe === 'villa_living' || (recipe === 'home' && (p.w ?? 1) >= 6 && (p.h ?? 1) >= 4)) {
     const rw = Math.min(R.w - 20, 64);
     const rh = Math.min(R.h - 20, 44);

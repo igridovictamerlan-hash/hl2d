@@ -41,6 +41,7 @@ export const MINIMAP = {
     nexus: '#6aa8ff',
     ration: '#ffd36b',
     shop: '#9fd7a0',
+    cwuHq: '#e0c060',
     hatch: '#b8b0a0',
     node: '#6ec2ff',
     nodeBroken: '#ff6a3a',

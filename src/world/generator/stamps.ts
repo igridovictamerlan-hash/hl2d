@@ -39,6 +39,15 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   v: T.GARDEN,
   h: T.HEDGE,
   t: T.GARDEN,
+  p: T.INTERIOR,
+  y: T.INTERIOR,
+  u: T.INTERIOR,
+  l: T.INTERIOR,
+  n: T.INTERIOR,
+  e: T.INTERIOR,
+  H: T.INTERIOR,
+  a: T.INTERIOR,
+  J: T.INTERIOR,
 };
 
 export interface StampResult {
@@ -49,6 +58,8 @@ export interface StampResult {
   /** Жилые комнаты (r) и общие комнаты / гостиные (m). */
   rooms: Rect[];
   commons: Rect[];
+  /** Помещения штаба ГСР по символам: l — отдых, n — столовая, e — кабинет, a — приёмная, p — цех. */
+  areas: Record<string, Rect[]>;
 }
 
 /**
@@ -80,6 +91,10 @@ export function stampTemplate(
       if (ch === 'q') pois.push({ type: 'ota_spot', x: x0 + x, y: y0 + y });
       if (ch === 'x') pois.push({ type: 'dorm_table', x: x0 + x, y: y0 + y });
       if (ch === 't') pois.push({ type: 'tree', x: x0 + x, y: y0 + y });
+      if (ch === 'y') pois.push({ type: 'ration_line', x: x0 + x, y: y0 + y });
+      if (ch === 'u') pois.push({ type: 'cwu_store', x: x0 + x, y: y0 + y });
+      if (ch === 'H') pois.push({ type: 'cwu_head_desk', x: x0 + x, y: y0 + y });
+      if (ch === 'J') pois.push({ type: 'cwu_hire', x: x0 + x, y: y0 + y });
     }
   }
   g.lockRect({ x: x0, y: y0, w, h });
@@ -113,6 +128,8 @@ export function stampTemplate(
   const commonCells = regions('C');
   const rooms = regions('r');
   const commons = regions('m');
+  const areas: Record<string, Rect[]> = {};
+  for (const mark of 'lneap') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];
@@ -144,7 +161,7 @@ export function stampTemplate(
   scanSide(bottom, 0, 1);
   scanSide(left, -1, 0);
   scanSide(right, 1, 0);
-  return { exits, cells, commonCells, rooms, commons };
+  return { exits, cells, commonCells, rooms, commons, areas };
 }
 
 /**

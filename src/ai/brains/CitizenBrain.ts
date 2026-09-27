@@ -23,13 +23,18 @@ import { STREET } from '../../config/street';
 import type { Barrel, Bench, CardTable, NoticeBoard } from '../../systems/StreetLife';
 import { FAMILIES } from '../../config/families';
 import { lineOfSight } from '../../world/visibility';
+import { CWU_HQ } from '../../config/cwuHq';
 
 /** Работа по профессии (ГСР, вортигонт, отброс общества). */
 type Job =
   | { kind: 'dispense' }
   | { kind: 'repair'; spot: RepairSpot }
   | { kind: 'clerk'; until: number }
-  | { kind: 'pack'; until: number }
+  | { kind: 'pack'; until: number; station: Vec2 | null; belt: Vec2 | null }
+  | { kind: 'apply'; until: number }
+  | { kind: 'rest'; spot: Vec2; until: number; lines: readonly string[] }
+  | { kind: 'office'; until: number }
+  | { kind: 'hire'; until: number }
   | { kind: 'deliver'; carry: boolean }
   | { kind: 'clean'; pile: TrashPile }
   | { kind: 'scavenge'; pile: TrashPile; left: number }
@@ -358,7 +363,29 @@ export class CitizenBrain implements Brain {
       const desk = labor.claimDesk(self);
       if (desk) return { kind: 'paper', desk, until: ctx.law.now + ctx.rng.range(PW.time[0], PW.time[1]), nextPay: ctx.law.now + PW.payEvery };
     }
+    // Штаб ГСР: гражданин идёт устраиваться (если есть места), рабочий — на перерыв.
+    const hq = ctx.cwuHq;
+    if (hq?.present && !ctx.war.curfew && !rationsFirst) {
+      const H = CWU_HQ;
+      // Лоялисты работают с бумагами в канцелярии — в штаб идут остальные.
+      if (self.faction === 'citizen' && self.profession === 'citizen' && self.loyalty < PW.minLoyalty && !self.isPlayer && self.law.phase === 'none' && ctx.rng.chance(H.hire.chance) && hq.vacancy() && hq.apply(self)) {
+        return { kind: 'apply', until: ctx.law.now + H.hire.waitMax };
+      }
+      if (self.faction === 'cwu' && self.profession !== 'cwu_head' && !self.carrying && hq.restSpots.length && ctx.rng.chance(H.rest.chance)) {
+        return { kind: 'rest', spot: ctx.rng.pick(hq.restSpots), until: ctx.law.now + ctx.rng.range(H.rest.time[0], H.rest.time[1]), lines: H.lines.rest };
+      }
+    }
     switch (self.profession) {
+      case 'cwu_head': {
+        // Глава ГСР: к стойке, если ждут соискатели; иначе кабинет или обход штаба.
+        if (!hq?.present) return null;
+        if (hq.queue.length) return { kind: 'hire', until: ctx.law.now + 60 };
+        const H = CWU_HQ.head;
+        if (hq.roundSpots.length && ctx.rng.chance(H.roundChance)) {
+          return { kind: 'rest', spot: ctx.rng.pick(hq.roundSpots), until: ctx.law.now + ctx.rng.range(H.round[0], H.round[1]), lines: CWU_HQ.lines.head };
+        }
+        return { kind: 'office', until: ctx.law.now + ctx.rng.range(H.desk[0], H.desk[1]) };
+      }
       case 'cook': {
         if (eco.open && (!eco.dispenser || eco.dispenser === self) && eco.claimDispenser(self)) return { kind: 'dispense' };
         if (eco.shopCounter && ctx.rng.chance(0.5)) {
@@ -367,8 +394,11 @@ export class CitizenBrain implements Brain {
         }
         return null;
       }
-      case 'packer':
-        return labor.factory && labor.boxes < LABOR.factory.maxBoxes ? { kind: 'pack', until: ctx.law.now + ctx.rng.range(40, 90) } : null;
+      case 'packer': {
+        if (!labor.factory || labor.boxes >= LABOR.factory.maxBoxes) return null;
+        const st = labor.claimStation(self);
+        return st ? { kind: 'pack', until: ctx.law.now + ctx.rng.range(40, 90), station: st, belt: st.belt } : null;
+      }
       case 'courier':
         if (self.carrying) return { kind: 'deliver', carry: true };
         return labor.factoryStore && labor.deliveryNeeded ? { kind: 'deliver', carry: false } : null;
@@ -632,7 +662,13 @@ const WORK: State<CitizenBrain> = {
     if (job.kind === 'dispense') b.goToPoint(eco.dispenserSpot);
     else if (job.kind === 'repair') b.goToPoint(job.spot);
     else if (job.kind === 'pack') {
-      if (labor.factory) b.goToPoint(labor.factory);
+      const f = job.station ?? labor.factory;
+      if (f) b.goToPoint(f);
+    } else if (job.kind === 'rest') b.goToPoint(job.spot);
+    else if (job.kind === 'office' || job.kind === 'hire' || job.kind === 'apply') {
+      const hq = b.ctx.cwuHq;
+      const to = job.kind === 'office' ? hq.desk : job.kind === 'hire' ? hq.counter : hq.queueSpot(b.self);
+      if (to) b.goToPoint(to);
     } else if (job.kind === 'deliver') {
       const to = job.carry ? labor.boothDrop : labor.factoryStore;
       if (to) b.goToPoint(to);
@@ -653,7 +689,11 @@ const WORK: State<CitizenBrain> = {
       if (job?.kind === 'dispense') eco.releaseDispenser(b.self);
       if (job?.kind === 'repair' && job.spot.worker === b.self) job.spot.worker = null;
       if (job?.kind === 'clean' && job.pile.worker === b.self) job.pile.worker = null;
-      if (job?.kind === 'pack') labor.stopPacking(b.self);
+      if (job?.kind === 'pack') {
+        labor.stopPacking(b.self);
+        labor.releaseStation(b.self);
+      }
+      if (job?.kind === 'apply') b.ctx.cwuHq.leave(b.self);
       if (job?.kind === 'paper') labor.releaseDesk(b.self);
       b.mover.avoidZones = b.avoid;
       b.mover.speed = b.walkSpeed;
@@ -708,12 +748,60 @@ const WORK: State<CitizenBrain> = {
         } else if (st === 'idle' || st === 'arrived') b.goToPoint(d);
         return;
       }
+      case 'rest': {
+        const now = b.ctx.law.now;
+        if (now > job.until || b.ctx.war.curfew) return done();
+        if (Math.hypot(job.spot.x - b.self.x, job.spot.y - b.self.y) < 20) {
+          b.mover.stop();
+          if (b.self.profession === 'cwu_head') b.ctx.economy.markWorked(b.self);
+          if (b.fsm.time % 9 < dt && b.ctx.rng.chance(0.35)) b.self.say(b.ctx.rng.pick(job.lines), now, 3);
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(job.spot);
+        return;
+      }
+      case 'office':
+      case 'hire': {
+        // Глава ГСР: за столом в кабинете или у стойки найма напротив соискателя.
+        const hq = b.ctx.cwuHq;
+        const now = b.ctx.law.now;
+        if (job.kind === 'office' && hq.queue.length) {
+          b.job = { kind: 'hire', until: now + 60 };
+          if (hq.counter) b.goToPoint(hq.counter);
+          return;
+        }
+        if (now > job.until || (job.kind === 'hire' && !hq.queue.length)) return done();
+        const to = job.kind === 'office' ? hq.desk : hq.counter;
+        if (!to) return done();
+        if (Math.hypot(to.x - b.self.x, to.y - b.self.y) < 14) {
+          b.mover.stop();
+          b.ctx.economy.markWorked(b.self);
+          const look = job.kind === 'hire' ? hq.applicantSpot : { x: to.x, y: to.y - 16 };
+          if (look) faceTowards(b.self, look.x, look.y, dt);
+          if (job.kind === 'office' && b.fsm.time % 12 < dt && b.ctx.rng.chance(0.25)) b.self.say(b.ctx.rng.pick(CWU_HQ.lines.head), now, 3);
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(to);
+        return;
+      }
+      case 'apply': {
+        // Соискатель: в очереди у стойки найма; приняли — он уже рабочий ГСР.
+        const hq = b.ctx.cwuHq;
+        if (b.self.faction !== 'citizen') {
+          b.job = null;
+          return done();
+        }
+        const spot = hq.queueSpot(b.self);
+        if (!spot || b.ctx.law.now > job.until || b.ctx.war.curfew) return done();
+        if (Math.hypot(spot.x - b.self.x, spot.y - b.self.y) < 12) {
+          b.mover.stop();
+          if (hq.counter) faceTowards(b.self, hq.counter.x, hq.counter.y, dt);
+        } else if (st === 'idle' || st === 'arrived' || b.fsm.time % 2 < dt) b.goToPoint(spot);
+        return;
+      }
       case 'pack': {
-        const f = labor.factory;
-        if (!f || b.ctx.law.now > job.until) return done();
+        const f = job.station ?? labor.factory;
+        const belt = job.belt ?? (f ? { x: f.x, y: f.y - 20 } : null);
+        if (!f || !belt || b.ctx.law.now > job.until) return done();
         if (Math.hypot(f.x - b.self.x, f.y - b.self.y) < 26) {
           b.mover.stop();
-          faceTowards(b.self, f.x, f.y - 20, dt);
+          faceTowards(b.self, belt.x, belt.y, dt);
           labor.packStep(b.self, dt);
           if (labor.boxes >= LABOR.factory.maxBoxes) return done();
         } else if (st === 'idle' || st === 'arrived') b.goToPoint(f);

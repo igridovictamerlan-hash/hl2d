@@ -1,4 +1,5 @@
 import type { SecuritySystem } from '../systems/Security';
+import type { CwuHqSystem } from '../systems/CwuHq';
 import type { FamilySystem } from '../systems/Families';
 import type { GameMap } from '../world/GameMap';
 import type { NavGrid } from '../world/NavGrid';
@@ -60,4 +61,6 @@ export interface AiContext {
   families: FamilySystem;
   /** Штаб силового блока: построения, охрана, выходы главы. */
   security: SecuritySystem;
+  /** Штаб ГСР: приёмная и наём, перерывы, инспекция главы. */
+  cwuHq: CwuHqSystem;
 }

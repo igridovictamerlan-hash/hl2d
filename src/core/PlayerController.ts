@@ -18,6 +18,7 @@ import type { RepairSpot } from '../systems/EconomySystem';
 import type { TrashPile } from '../systems/LaborSystem';
 import type { Corpse } from '../systems/CombatSystem';
 import { LABOR } from '../config/labor';
+import { CWU_HQ } from '../config/cwuHq';
 import { CRIME } from '../config/crime';
 import { CP_UNITS } from '../config/cpUnits';
 
@@ -176,10 +177,11 @@ export class PlayerController {
       }
     }
     if (this.packing) {
-      const f = ctx.labor.factory;
+      const f = ctx.labor.stations.find((st) => st.who === p) ?? ctx.labor.factory;
       if (!f || Math.hypot(f.x - p.x, f.y - p.y) > 40) {
         this.packing = false;
         ctx.labor.stopPacking(p);
+        ctx.labor.releaseStation(p);
         this.say('Фасовка прервана — отошли от конвейера.');
       } else ctx.labor.packStep(p, dt);
     }
@@ -301,11 +303,27 @@ export class PlayerController {
         return this.say(`Взламываете раздатчик… ${CRIME.hack.time} с. Если увидит ГО — арест.`, 'world');
       }
     }
-    // Работы ГСР: завод, доставка коробок.
+    // Штаб ГСР: гражданин у стойки найма — устроиться (глава оформляет туда, где не хватает рук).
+    const hq = ctx.cwuHq;
+    if (hq?.present && p.faction === 'citizen' && (d(hq.counter) < REACH + 12 || d(hq.applicantSpot) < REACH + 12)) {
+      const head = hq.head;
+      if (!head) return this.say('Главы ГСР нет на месте — приходите позже.');
+      const prof = hq.vacancy();
+      if (!prof) return this.say(`Глава ГСР: «${ctx.rng.pick(CWU_HQ.lines.noVacancy)}»`, 'world');
+      hq.hire(p, prof, head);
+      return;
+    }
+    // Работы ГСР: цех штаба, доставка коробок.
     const labor = ctx.labor;
-    if (p.profession === 'packer' && d(labor.factory) < REACH) {
+    const station = labor.nearestStation(p.x, p.y);
+    if (p.profession === 'packer' && station && d(station) < REACH) {
+      if (!this.packing && station.who && station.who !== p) return this.say('У этого конвейера уже работают — займите соседний.');
       this.packing = !this.packing;
-      if (!this.packing) labor.stopPacking(p);
+      if (this.packing) station.who = p;
+      else {
+        labor.stopPacking(p);
+        labor.releaseStation(p);
+      }
       return this.say(this.packing ? `Вы у конвейера: собираете коробки рационов (${LABOR.factory.packTime} с каждая). E — закончить.` : 'Фасовка окончена.', 'world');
     }
     if (p.profession === 'courier') {

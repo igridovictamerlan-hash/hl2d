@@ -43,6 +43,7 @@ import { ElectionSystem } from '../systems/ElectionSystem';
 import { ROSTER } from '../config/roster';
 import { FamilySystem } from '../systems/Families';
 import { SecuritySystem } from '../systems/Security';
+import { CwuHqSystem } from '../systems/CwuHq';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
 import { StreetLifeSystem } from '../systems/StreetLife';
@@ -158,6 +159,13 @@ export class Game {
       this.bus.emit('announce', { text: 'Вы примкнули к сопротивлению' });
       this.save();
     });
+    // Игрока приняли в штабе ГСР — рабочий ГСР (сохраняется).
+    this.bus.on('hired', ({ who, profession }) => {
+      if (who !== this.player) return;
+      this.role = { faction: 'cwu', rank: 0, division: null, profession };
+      this.bus.emit('announce', { text: 'Вы приняты в ГСР' });
+      this.save();
+    });
     // Esc: закрыть открытую панель или открыть меню паузы (перехват до остальных обработчиков).
     window.addEventListener('keydown', (e) => this.onEscape(e), true);
     // Сохранить при закрытии/сворачивании вкладки.
@@ -220,6 +228,7 @@ export class Game {
       street: null as unknown as StreetLifeSystem,
       families: null as unknown as FamilySystem,
       security: null as unknown as SecuritySystem,
+      cwuHq: null as unknown as CwuHqSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -234,6 +243,7 @@ export class Game {
     this.ai.street = new StreetLifeSystem(this.ai);
     this.ai.families = new FamilySystem(this.ai);
     this.ai.security = new SecuritySystem(this.ai);
+    this.ai.cwuHq = new CwuHqSystem(this.ai);
     this.entityRenderer.families = this.ai.families;
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
@@ -602,6 +612,7 @@ export class Game {
     this.ai.elections.update(dt);
     this.ai.street.update(dt);
     this.ai.security.update(dt);
+    this.ai.cwuHq.update(dt);
     if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside

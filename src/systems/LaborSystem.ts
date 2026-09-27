@@ -32,9 +32,14 @@ export interface TrashPile {
  * убирают за плату, отбросы и воры роются), лечение у медика ГСР за плату.
  */
 export class LaborSystem {
-  /** Конвейер завода (где фасуют) и склад завода (откуда берут коробки). */
+  /** Конвейер (где фасуют — первое место цеха) и склад коробок (откуда берёт курьер). */
   readonly factory: Vec2 | null;
   readonly factoryStore: Vec2 | null;
+  /**
+   * Места фасовки: конвейер (belt — где он нарисован) и где стоит фасовщик (x, y). В штабе ГСР —
+   * по конвейеру цеха на каждого; на старых картах без штаба — один у заводского двора промзоны.
+   */
+  readonly stations: { x: number; y: number; belt: Vec2; who: Character | null }[] = [];
   /** Куда курьер сдаёт коробки (у будки раздачи, в стороне от очереди). */
   readonly boothDrop: Vec2;
   boxes: number = LABOR.factory.startBoxes;
@@ -61,12 +66,31 @@ export class LaborSystem {
       const a = nav.nearestWalkable((d.x + 0.5) * ts, (d.y + 1.5) * ts, 2);
       if (a >= 0) this.desks.push({ x: nav.worldX(a), y: nav.worldY(a), who: null });
     }
+    const lines = map.poisOf('ration_line');
     const yard = map.poisOf('industrial_yard')[0];
-    if (yard) {
+    if (lines.length) {
+      // Цех фасовки в штабе ГСР: фасовщик стоит перед конвейером, лицом к нему (со стороны цеха).
+      const room = map.poisOf('cwu_production')[0];
+      const rc = room ? { x: (room.x + room.w! / 2) * ts, y: (room.y + room.h! / 2) * ts } : null;
+      for (const l of lines) {
+        const belt = { x: (l.x + 0.5) * ts, y: (l.y + 0.5) * ts };
+        const dx = rc ? rc.x - belt.x : 0;
+        const dy = rc ? rc.y - belt.y : 1;
+        // Шаг к середине цеха — по оси, поперёк стены с конвейером.
+        const [sx, sy] = Math.abs(dx) > Math.abs(dy) * 1.2 ? [Math.sign(dx), 0] : [0, Math.sign(dy) || 1];
+        const a = nav.nearestWalkable(belt.x + sx * LABOR.factory.stand, belt.y + sy * LABOR.factory.stand, 2);
+        if (a >= 0) this.stations.push({ x: nav.worldX(a), y: nav.worldY(a), belt, who: null });
+      }
+      this.factory = this.stations[0] ?? null;
+      const st = map.poisOf('cwu_store')[0];
+      const b = st ? nav.nearestWalkable((st.x + 0.5) * ts, (st.y + 0.5) * ts, 3) : -1;
+      this.factoryStore = b >= 0 ? { x: nav.worldX(b), y: nav.worldY(b) } : this.factory;
+    } else if (yard) {
       const a = nav.nearestWalkable((yard.x + 0.5) * ts, (yard.y + 0.5) * ts, 6);
       this.factory = a >= 0 ? { x: nav.worldX(a), y: nav.worldY(a) } : null;
       const b = this.factory ? nav.nearestWalkable(this.factory.x + 40, this.factory.y + 8, 6) : -1;
       this.factoryStore = b >= 0 ? { x: nav.worldX(b), y: nav.worldY(b) } : this.factory;
+      if (this.factory) this.stations.push({ ...this.factory, belt: { x: this.factory.x, y: this.factory.y - 22 }, who: null });
     } else {
       this.factory = this.factoryStore = null;
     }
@@ -101,6 +125,36 @@ export class LaborSystem {
     adjustLoyalty(c, LOYALTY.points.cwuWork, 'работа ГСР', this.ctx.bus);
     if (c.isPlayer) this.say(`Коробка рационов собрана (на складе завода: ${this.boxes}). +${LABOR.factory.pay} токенов`);
     return true;
+  }
+
+  /** Свободное (или уже своё) место у конвейера; null — все заняты. */
+  claimStation(c: Character): (typeof this.stations)[number] | null {
+    for (const st of this.stations) if (st.who && (!st.who.alive || st.who.profession !== 'packer')) st.who = null;
+    const own = this.stations.find((st) => st.who === c);
+    if (own) return own;
+    const free = this.stations.filter((st) => !st.who);
+    if (!free.length) return null;
+    free.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
+    free[0].who = c;
+    return free[0];
+  }
+
+  releaseStation(c: Character): void {
+    for (const st of this.stations) if (st.who === c) st.who = null;
+  }
+
+  /** Ближайшее место у конвейера (игрок-фасовщик — E рядом). */
+  nearestStation(x: number, y: number): (typeof this.stations)[number] | null {
+    let best: (typeof this.stations)[number] | null = null;
+    let bd = Infinity;
+    for (const st of this.stations) {
+      const d = Math.hypot(st.x - x, st.y - y);
+      if (d < bd) {
+        bd = d;
+        best = st;
+      }
+    }
+    return best;
   }
 
   /** Прогресс фасовки персонажа 0..1 (полоска игрока). */

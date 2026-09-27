@@ -193,6 +193,7 @@ export const AMMO_ITEM: Record<AmmoType, ItemId> = {
 export const KITS: Record<string, [ItemId, number][]> = {
   citizen: [['water', 1]],
   cwu: [['toolkit', 1], ['bread', 1]],
+  cwu_head: [['bread', 2], ['bandage', 1]],
   /** Повстанец-игрок: трофейный MP7 и пистолет про запас. */
   rebel: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['bandage', 1], ['grenade', 1]],
   /** Повстанец-командир (ранг ≥ REBEL_OFFICER_RANK): трофейный AR2 и револьвер. */

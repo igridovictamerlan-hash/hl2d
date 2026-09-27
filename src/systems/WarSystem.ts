@@ -1,3 +1,4 @@
+import { COMBAT } from '../config/combat';
 import type { Character } from '../entities/Character';
 import type { AiContext } from '../ai/AiContext';
 import type { Vec2 } from '../core/math';
@@ -738,7 +739,8 @@ export class WarSystem {
       if (map.zoneAtWorld(c.x, c.y)?.kind !== 'nexus') continue;
       // Штурмующие — бойцы в режиме штурма и игрок-повстанец (не отпущенные из КПЗ).
       if (c.faction === 'rebel' && c.law.phase === 'none' && (c.isPlayer || b?.mode === 'storm')) rebels++;
-      else if (c.faction === 'cp' || c.faction === 'ota') defenders++;
+      // Защитники — боеспособные: раненый, отошедший перевязываться, Нексус не держит.
+      else if ((c.faction === 'cp' || c.faction === 'ota') && c.health >= c.maxHealth * COMBAT.woundedFraction) defenders++;
     }
     n.rebels = rebels;
     n.defenders = defenders;

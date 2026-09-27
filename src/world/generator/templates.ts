@@ -11,6 +11,9 @@
  *   b — нары казармы ГО, w — стол канцелярии (лоялисты), q — место OTA (пол + точка интереса)
  *   r — пол жилой комнаты (POI home), m — пол общей комнаты / гостиной, x — стол (POI dorm_table)
  *   v — сад, h — живая изгородь, t — дерево в саду (сад + POI tree)
+ *   Штаб ГСР: p — цех фасовки, y — конвейер (POI ration_line), u — склад коробок (POI cwu_store),
+ *   l — комната отдыха, n — столовая, e — кабинет главы ГСР, H — его стол (POI cwu_head_desk),
+ *   a — приёмная, J — стойка найма (POI cwu_hire)
  * Проходимые клетки на краю шаблона — выходы: генератор прокапывает от них проход наружу.
  */
 export const NEXUS_TEMPLATE: readonly string[] = [
@@ -69,6 +72,32 @@ export const DORM_TEMPLATE: readonly string[] = [
   '#mmmxmmmd,,,drrrrrrr#',
   '#mmmmmmmd,,,drrrrrrr#',
   '#########ddd#########',
+];
+
+/**
+ * Штаб ГСР (вход внизу, у главного проспекта): Т-образный коридор, как в Нексусе, но меньше —
+ * поперечный в 3 тайла с выходами по бокам и «ножка» ко входу. Сверху цех фасовки рационов с
+ * тремя конвейерами и складом коробок, комната отдыха и кабинет главы ГСР; по сторонам ножки —
+ * приёмная со стойкой найма (сюда граждане приходят устраиваться) и столовая.
+ */
+export const CWU_HQ_TEMPLATE: readonly string[] = [
+  '#########################',
+  '#pypppyppppyp#lllll#eeee#',
+  '#pppppppppppp#lllll#eeHe#',
+  '#pppppppppppp#lllll#eeee#',
+  '#pppppppppppp#lllll#eeee#',
+  '#ppppppppppup#lllll#eeee#',
+  '#####dd########dd####dd##',
+  '#,,,,,,,,,,,,,,,,,,,,,,,#',
+  'd,,,,,,,,,,,,,,,,,,,,,,,d',
+  'd,,,,,,,,,,,,,,,,,,,,,,,d',
+  '###########,,,###########',
+  '#aaaaaaaaa#,,,#nnnnnnnnn#',
+  '#aaaaJaaaad,,,dnnnnnnnnn#',
+  '#aaaaaaaaad,,,dnnnnnnnnn#',
+  '#aaaaaaaaa#,,,#nnnnnnnnn#',
+  '#aaaaaaaaa#,,,#nnnnnnnnn#',
+  '###########ddd###########',
 ];
 
 /**

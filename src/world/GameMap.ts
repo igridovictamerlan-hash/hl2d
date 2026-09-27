@@ -16,7 +16,8 @@ export type ZoneKind =
   | 'rebel_base'
   | 'black_market'
   | 'wasteland'
-  | 'rebel_camp';
+  | 'rebel_camp'
+  | 'cwu_hq';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -65,7 +66,17 @@ export type PoiType =
   | 'home'
   | 'bunk'
   | 'clerk_desk'
-  | 'ota_spot';
+  | 'ota_spot'
+  | 'cwu_hq'
+  | 'cwu_hire'
+  | 'cwu_head_desk'
+  | 'ration_line'
+  | 'cwu_store'
+  | 'cwu_lounge'
+  | 'cwu_canteen'
+  | 'cwu_office'
+  | 'cwu_lobby'
+  | 'cwu_production';
 
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)

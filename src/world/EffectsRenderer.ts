@@ -423,11 +423,10 @@ export class EffectsRenderer {
       ctx.fillStyle = E.boxTape;
       ctx.fillRect(x - 0.7 * s, y - 3.4 * s, 1.4 * s, 6.8 * s);
     };
-    // Конвейер завода и коробки на складе.
-    const f = labor.factory;
-    if (f) {
-      const x = (f.x - v.left) * s;
-      const y = (f.y - 22 - v.top) * s;
+    // Конвейеры цеха (у каждого места фасовки) и коробки на складе.
+    for (const station of labor.stations) {
+      const x = (station.belt.x - v.left) * s;
+      const y = (station.belt.y - v.top) * s;
       if (onScreen(x, y, 80)) {
         ctx.fillStyle = E.conveyor;
         ctx.strokeStyle = PAWN.outline;
@@ -440,8 +439,11 @@ export class EffectsRenderer {
         ctx.fillStyle = E.roller;
         const shift = (now * 12) % 6;
         for (let k = -24 + shift; k < 24; k += 6) ctx.fillRect(x + k * s, y - 3.5 * s, 1.2 * s, 7 * s);
-        box(x + (((now * 12) % 40) - 20) * s, y);
+        // Коробка едет по ленте, только пока здесь фасуют.
+        if (station.who) box(x + (((now * 12) % 40) - 20) * s, y);
       }
+    }
+    {
       const st = labor.factoryStore;
       if (st) {
         const sx = (st.x - v.left) * s;

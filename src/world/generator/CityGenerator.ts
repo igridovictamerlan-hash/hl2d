@@ -13,7 +13,7 @@ import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked } from './stamps';
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
@@ -76,6 +76,7 @@ export function validateMap(map: GameMap): string[] {
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 7], ['common_cell', 1], ['bunk', 10], ['clerk_desk', 6], ['ota_spot', 6], ['restricted_gate', 1],
     ['checkpoint_post', 10], ['gate_post', 4], ['dorm', 2], ['villa', 2], ['outlands_exit', 2], ['shop_counter', 1],
+    ['cwu_hq', 1], ['cwu_hire', 1], ['cwu_head_desk', 1], ['ration_line', 3], ['cwu_store', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -261,6 +262,23 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   if (streets.villas.length) {
     const z = addZone('residential', ZONE_NAMES.villas, null);
     streets.villas.forEach((p, k) => stampBuilding(faceTemplate(VILLA_TEMPLATE, p.face), p.rect, z, 'villa', k));
+  }
+
+  // Штаб ГСР у главного проспекта: цех фасовки, отдых, столовая, кабинет главы, приёмная найма.
+  if (streets.hq) {
+    const p = streets.hq;
+    const z = addZone('cwu_hq', ZONE_NAMES.cwuHq, null);
+    const res = stampTemplate(g, faceTemplate(CWU_HQ_TEMPLATE, p.face), p.rect.x, p.rect.y, () => z, pois);
+    for (const exit of res.exits) if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
+    const area = (mark: string, type: Poi['type']) => {
+      for (const r of res.areas[mark] ?? []) pois.push({ type, x: r.x, y: r.y, w: r.w, h: r.h });
+    };
+    area('l', 'cwu_lounge');
+    area('n', 'cwu_canteen');
+    area('e', 'cwu_office');
+    area('a', 'cwu_lobby');
+    area('p', 'cwu_production');
+    pois.push({ type: 'cwu_hq', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
   }
 
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);

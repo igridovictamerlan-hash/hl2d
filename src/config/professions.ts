@@ -18,6 +18,7 @@ export type ProfessionId =
   | 'courier'
   | 'janitor'
   | 'cwu_medic'
+  | 'cwu_head'
   // Сопротивление.
   | 'rebel_soldier'
   | 'rebel_medic'
@@ -73,18 +74,23 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
   },
   packer: {
     id: 'packer', faction: 'cwu', name: 'Фасовщик ГСР', kit: 'cwu', selectable: true,
-    desc: 'Собирает рационы на заводе ГСР в промзоне.',
-    perks: ['E у конвейера завода — собрать коробку рационов (оплата за коробку)'],
+    desc: 'Собирает рационы в цехе штаба ГСР у главного проспекта.',
+    perks: ['E у конвейера цеха — собрать коробку рационов (оплата за коробку)'],
   },
   courier: {
     id: 'courier', faction: 'cwu', name: 'Курьер ГСР', kit: 'cwu', selectable: true,
-    desc: 'Носит коробки рационов с завода к будке раздачи.',
-    perks: ['E у склада завода — взять коробку', 'E у будки раздачи — сдать (оплата за доставку)'],
+    desc: 'Носит коробки рационов со склада штаба ГСР к будке раздачи.',
+    perks: ['E у склада цеха — взять коробку', 'E у будки раздачи — сдать (оплата за доставку)'],
   },
   janitor: {
     id: 'janitor', faction: 'cwu', name: 'Уборщик ГСР', kit: 'cwu', selectable: true,
     desc: 'Убирает мусор на улицах и чинит щитки в переулках.',
     perks: ['E у кучи мусора — убрать (оплата)', 'E у поломки — починить (нужен набор инструментов)'],
+  },
+  cwu_head: {
+    id: 'cwu_head', faction: 'cwu', name: 'Глава ГСР', kit: 'cwu_head', selectable: false,
+    desc: 'Руководит штабом ГСР: принимает граждан на работу, отчитывается перед инспектором SU.',
+    perks: ['Сидит в кабинете штаба, выходит к стойке найма', 'Зарплата выше, чем у рабочих'],
   },
   cwu_medic: {
     id: 'cwu_medic', faction: 'cwu', name: 'Медик ГСР', kit: 'cwu_medic', selectable: true,

@@ -295,7 +295,8 @@ describe('убранство комнат', () => {
     expect(Math.max(bed.w, bed.h)).toBeGreaterThanOrEqual(30);
     // В Нексусе — койки казармы, столы канцелярии, шкафчики OTA; в общежитиях — стол для карт.
     expect(items.filter((f) => f.kind === 'cot')).toHaveLength(map.poisOf('bunk').length);
-    expect(items.filter((f) => f.kind === 'desk')).toHaveLength(map.poisOf('clerk_desk').length);
+    // Столы: канцелярия Нексуса, стол главы ГСР и стойка найма в штабе ГСР.
+    expect(items.filter((f) => f.kind === 'desk')).toHaveLength(map.poisOf('clerk_desk').length + map.poisOf('cwu_head_desk').length + map.poisOf('cwu_hire').length);
     expect(items.filter((f) => f.kind === 'card_table')).toHaveLength(map.poisOf('dorm_table').length);
     console.log(`обстановка: ${items.length} предметов в ${homes.length} комнатах, кроватей ${beds}, полок ${shelves}`);
   });

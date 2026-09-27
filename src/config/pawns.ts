@@ -142,6 +142,8 @@ export const PAWN = {
    */
   professionOutfits: {
     cwu_medic: { base: '#e6e4dc', head: 'hair', cross: '#c93030', collar: '#cfccc4' },
+    // Глава ГСР — костюм цвета ГСР с жёлтым галстуком и повязкой, без кепки.
+    cwu_head: { base: '#4a4638', head: 'hair', collar: '#e8e2d0', tie: '#c9a53e', armband: '#c9a53e', zip: false },
     cook: { head: 'chef', chef: '#f4f2ec', apron: '#f1efe8' },
     courier: { cap: '#8b6a3e', bag: '#7a5a38' },
     janitor: { cap: '#7d848c', hivis: '#e8e04a' },

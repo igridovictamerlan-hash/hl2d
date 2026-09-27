@@ -102,6 +102,11 @@ export const GENERATOR = {
   /** Общежития и особняки лоялистов — вдоль ветвей артерий (вход на улицу), отступ gap от улицы. */
   dorms: { count: [5, 6] as const, gap: 2, tries: 200 },
   villas: { count: [5, 7] as const, gap: 2, tries: 200 },
+  /**
+   * Штаб ГСР — у ствола улицы ближе всех к главному проспекту: из tries случайных мест вдоль улиц
+   * берётся ближайшее к проспекту (не дальше maxDist px от его узлов).
+   */
+  cwuHq: { gap: 2, tries: 400, maxDist: 20 * 16 },
 
   restricted: {
     size: [38, 44] as const,

@@ -22,6 +22,7 @@ import { ALARM } from '../../config/underground';
 import { hasLoyalty, loyaltyTier } from '../../systems/Loyalty';
 import { FACTIONS, cpHas, cpUnit } from '../../config/factions';
 import { SECURITY } from '../../config/security';
+import { CWU_HQ } from '../../config/cwuHq';
 
 const near: Character[] = [];
 
@@ -291,6 +292,9 @@ export class CpBrain implements Brain {
         [pick('clerk_desk'), SECURITY.lines.inspectClerk],
         [pick('clerk_desk'), SECURITY.lines.inspectClerk],
         [ctx.labor.factory, SECURITY.lines.inspectCook],
+        // Штаб ГСР: глава отчитывается инспектору (CwuHqSystem).
+        [ctx.cwuHq?.desk ?? null, CWU_HQ.lines.inspect],
+        [ctx.cwuHq?.desk ?? null, CWU_HQ.lines.inspect],
         [poiWorld(ctx, 'plaza_center'), SECURITY.lines.inspect],
         [poiWorld(ctx, 'nexus_yard'), SECURITY.lines.inspect],
       ];

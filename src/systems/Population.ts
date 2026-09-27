@@ -116,6 +116,9 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : freeSpot(ctx, plaza, 3, 30, civAvoid);
     put({ kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'cwu' }, at);
   }
+  // Глава ГСР — за столом в кабинете штаба.
+  const hqDesk = ctx.cwuHq?.desk;
+  if (hqDesk) put({ kind: 'cwu', faction: 'cwu', profession: 'cwu_head', division: null, rank: 0, kit: 'cwu_head' }, freeSpot(ctx, hqDesk, 0, 2, new Set(), 16) ?? hqDesk);
   // Жители — семьями: фамилия, цвет повязки, дом (общежитие или особняк). Рабочие ГСР — на работе.
   ctx.families?.assign(residents);
   for (let k = 0; k < P.vorts; k++) {
@@ -215,6 +218,8 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   // Схрон партизан в канализации: партизаны и торговец чёрного рынка.
   ctx.insurgency?.populate();
+  // Штаб ГСР: сколько граждан было (город не пустеет от найма — CWU_HQ.hire.minCitizenShare).
+  if (ctx.cwuHq) ctx.cwuHq.citizensAtStart = ctx.entities.list.filter((c) => c.faction === 'citizen').length;
 }
 
 /** Где появляется игрок в выбранной роли. */
