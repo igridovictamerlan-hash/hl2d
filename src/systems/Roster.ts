@@ -9,6 +9,7 @@ import { equipKit, poiWorld } from './Population';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
+import { cpUnit } from '../config/factions';
 import { RebelBrain } from '../ai/brains/RebelBrain';
 import { UndergroundBrain } from '../ai/brains/UndergroundBrain';
 import { PostBrain } from '../ai/brains/PostBrain';
@@ -18,6 +19,7 @@ import { randomAnchorAround, randomAnchorInZone } from '../ai/destinations';
 export type RoleKind =
   | 'citizen' | 'cwu' | 'vort'
   | 'patrol' | 'guard' | 'gate' | 'medic' | 'ota'
+  | 'post' | 'squad' | 'tech' | 'officer' | 'inspector' | 'bodyguard' | 'epu'
   | 'army' | 'leader' | 'hydra' | 'partisan'
   | 'trader' | 'admin';
 
@@ -41,6 +43,9 @@ export interface RoleSpec {
   post?: Vec2;
   facing?: number;
   station?: Vec2;
+  /** Патрульная группа ГО: номер и ведущий ли. */
+  squad?: number;
+  lead?: boolean;
 }
 
 /** Точка рядом с p (радиус в якорях), проходимая, на уровне p. */
@@ -61,7 +66,14 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'patrol':
     case 'guard':
     case 'gate':
-    case 'medic': {
+    case 'medic':
+    case 'post':
+    case 'squad':
+    case 'tech':
+    case 'officer':
+    case 'inspector':
+    case 'bodyguard':
+    case 'epu': {
       // ГО — из казармы Нексуса (нары), нет казармы — у ворот.
       const n = ctx.map.poisOf('bunk').length;
       const p = n ? poiWorld(ctx, 'bunk', Math.floor(ctx.rng.next() * n)) : poiWorld(ctx, 'nexus_gate');
@@ -106,12 +118,27 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   equipKit(c, spec.kit, ctx);
   // Жители оружие на виду не носят (бандит достаёт ствол только для грабежа).
   if (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'trader') ctx.combat.equip(c, null);
-  const hp = spec.profession ? ROSTER.hp[spec.profession] : undefined;
+  // ГО — здоровье по юниту (RCT.PCU 75 … CMD.EPU 200), остальные — по профессии.
+  const hp = spec.faction === 'cp' ? cpUnit(spec.rank).hp : spec.profession ? ROSTER.hp[spec.profession] : undefined;
   if (hp) c.maxHealth = c.health = hp;
+  if (spec.faction === 'cp') c.division = cpUnit(spec.rank).group;
   c.role = { ...spec, name: c.name };
   switch (spec.kind) {
     case 'patrol':
+    case 'tech':
       c.brain = new CpBrain(c, ctx);
+      break;
+    case 'post':
+      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'post' });
+      break;
+    case 'squad':
+      c.brain = new CpBrain(c, ctx, { duty: 'squad', squad: spec.squad, lead: spec.lead });
+      break;
+    case 'officer':
+    case 'inspector':
+    case 'bodyguard':
+    case 'epu':
+      c.brain = new CpBrain(c, ctx, { duty: spec.kind });
       break;
     case 'guard':
     case 'gate':

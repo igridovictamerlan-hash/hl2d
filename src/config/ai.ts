@@ -4,11 +4,12 @@ export const AI = {
   citizens: 70,
   population: {
     /**
-     * ГО — самая многочисленная вооружённая сила (патрули + часовой на каждом посту обоих дворов
-     * обоих КПП + медики, резерв OTA — config/roster.ts), граждан — большинство населения;
+     * Силовой блок — самая многочисленная вооружённая сила (состав — ROSTER.cp, часовые SU.03 на
+     * каждом посту обоих дворов обоих КПП + медики SU.02, резерв OTA — config/roster.ts);
+     * граждан — большинство населения;
      * армия сопротивления — в лагере (config/roster.ts), партизаны в схроне, пара подпольщиков.
      */
-    cpPatrol: 18, cpPerCheckpoint: 5, rebels: 2, admin: 1,
+    cpPerCheckpoint: 5, rebels: 2, admin: 1,
     /** ГСР по профессиям (config/professions.ts): повара на раздаче, фасовщик, курьер, уборщики, медик. */
     cwuProfessions: ['cook', 'cook', 'packer', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic'] as const,
     /** Доля воров и отбросов среди граждан. */

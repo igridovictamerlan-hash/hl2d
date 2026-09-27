@@ -79,9 +79,9 @@ export const PAWN = {
     // Бандит — тёмная куртка и платок на лице; беглец — оранжевая роба.
     bandit: { base: '#2c2623', facemask: '#1d1d1f', collar: '#3a322d', zip: false },
     fugitive: { base: '#c8692a', patch: '#8f4a1e', collar: false, zip: false },
-    // OTA: солдаты — серо-синяя броня и голубой глаз, элита — белая броня и красный глаз.
-    ota_soldier: { armor: '#6b7781', helmet: '#5c6873', trim: '#39424a', eye: '#58d0ff' },
-    ota_elite: { armor: '#eceae2', helmet: '#f1efe8', trim: '#9e1d18', eye: '#ff2a1a' },
+    // OTA: ALPHA — серо-синяя броня и голубой глаз, KING — белая броня, красные полосы и красный глаз.
+    ota_alpha: { armor: '#6b7781', helmet: '#5c6873', trim: '#39424a', eye: '#58d0ff' },
+    ota_king: { armor: '#eceae2', helmet: '#f1efe8', trim: '#9e1d18', eye: '#ff2a1a' },
     cremator: { style: 'cremator', coat: '#3a3833', skin: '#d8cfc4', mask: '#57544d', tank: '#6d7176', eye: '#b8e04a' },
   } as Partial<Record<ProfessionId, Record<string, string | boolean | number>>>,
 } as const;

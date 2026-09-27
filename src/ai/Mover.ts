@@ -1,3 +1,4 @@
+import { linked } from '../entities/physics';
 import type { Character } from '../entities/Character';
 import type { AiContext } from './AiContext';
 import type { PathRequest } from './PathService';
@@ -223,7 +224,7 @@ export class Mover {
     let ax = 0;
     let ay = 0;
     for (const o of ctx.entities.near(self.x, self.y, self.radius * 2 + M.avoidRange, near)) {
-      if (o === self || !o.alive) continue;
+      if (o === self || !o.alive || linked(self, o)) continue;
       const ox = o.x - self.x;
       const oy = o.y - self.y;
       const d = Math.hypot(ox, oy);
@@ -247,7 +248,7 @@ export class Mover {
     let best: Character | null = null;
     let bestD = Infinity;
     for (const o of ctx.entities.near(self.x, self.y, self.radius * 2 + 10, near)) {
-      if (o === self || !o.alive) continue;
+      if (o === self || !o.alive || linked(self, o)) continue;
       const ox = o.x - self.x;
       const oy = o.y - self.y;
       const d = Math.hypot(ox, oy);
@@ -267,7 +268,7 @@ export class Mover {
    */
   private findContact(self: Character, dx: number, dy: number, ctx: AiContext): Character | null {
     for (const o of ctx.entities.near(self.x, self.y, self.radius * 2 + 4, near)) {
-      if (o === self || !o.alive) continue;
+      if (o === self || !o.alive || linked(self, o)) continue;
       const ox = o.x - self.x;
       const oy = o.y - self.y;
       const d = Math.hypot(ox, oy);

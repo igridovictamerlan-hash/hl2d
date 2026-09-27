@@ -1,3 +1,4 @@
+import { cpUnit } from '../config/factions';
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
 import type { GameMap } from '../world/GameMap';
@@ -412,7 +413,7 @@ export class EconomySystem {
       for (const c of this.entities.list) {
         if (!c.alive) continue;
         let pay = 0;
-        if (c.faction === 'cp') pay = S.cp + S.cpPerRank * c.rank;
+        if (c.faction === 'cp') pay = S.cp + S.cpPerRank * cpUnit(c.rank).command;
         else if (c.faction === 'admin') pay = S.admin;
         else if (c.faction === 'cwu' && this.worked.has(c.id)) pay = S.cwu;
         if (pay <= 0) continue;

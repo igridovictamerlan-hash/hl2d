@@ -3,7 +3,7 @@ import type { AiContext } from '../ai/AiContext';
 import type { Vec2 } from '../core/math';
 import { WAR } from '../config/war';
 import { ALARM } from '../config/underground';
-import { FACTIONS } from '../config/factions';
+import { FACTIONS, cpUnit } from '../config/factions';
 import { T } from '../world/tiles';
 import { ZONE_NAMES } from '../config/names';
 import { equipKit } from './Population';
@@ -427,7 +427,8 @@ export class WarSystem {
    * часовые этой точки после гибели возрождаются в Цитадели и бегут на свои посты).
    */
   private counterattack(f: Front, k: number): number {
-    if (!this.reinforcements) return 0;
+    // Все точки D у повстанцев и они идут на город — резерв OTA держит Цитадель, контрударов нет.
+    if (!this.reinforcements || this.cityPush) return 0;
     const pt = f.points[k];
     const posts = pt?.posts.length ? pt.posts : f.posts;
     let sent = 0;
@@ -655,7 +656,7 @@ export class WarSystem {
 
   /** Может ли персонаж пользоваться терминалом кодов тревоги. */
   canSetCode(c: Character): boolean {
-    return c.alive && (c.faction === 'admin' || (c.faction === 'cp' && c.rank >= WAR.terminal.minCpRank));
+    return c.alive && (c.faction === 'admin' || (c.faction === 'cp' && cpUnit(c.rank).command >= WAR.terminal.minCommand));
   }
 
   /**
@@ -711,16 +712,8 @@ export class WarSystem {
     this.ctx.economy.forceClose();
     this.ctx.bus.emit('announce', { text: 'Код красный · комендантский час' });
     for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код красный. Комендантский час!', this.ctx.law.now, 5);
-    // Весь свободный резерв OTA из Цитадели — на прочёсывание.
-    let n = 0;
-    for (const o of this.ota) {
-      const b = o.brain;
-      if (o.alive && b instanceof OtaBrain && b.available) {
-        b.hunt();
-        n++;
-      }
-    }
-    if (n) this.ctx.law.log(`Надзор: отряд OTA (${n}) выходит из Цитадели.`, 'radio');
+    // OTA по городу не ходит — держит Цитадель и КПП; прочёсывают город PCU и SU.
+    if (this.ota.some((o) => o.alive)) this.ctx.law.log('Надзор: OTA держит Цитадель. PCU и SU — прочёсывание кварталов.', 'radio');
   }
 
   /**

@@ -207,8 +207,8 @@ describe('война на границе', () => {
     sim.step();
     expect(sim.war.code).toBe('red');
     expect(sim.war.curfew).toBe(true);
-    // Резерв OTA из Цитадели вышел на прочёсывание.
-    expect(sim.war.ota.filter((o) => (o.brain as OtaBrain).mode === 'hunt').length).toBeGreaterThan(0);
+    // OTA по городу не ходит: остаётся в резерве Цитадели или на КПП (прочёсывают PCU и SU).
+    for (const o of sim.war.ota) expect(['reserve', 'post', 'home']).toContain((o.brain as OtaBrain).mode);
     expect(sim.economy.open).toBe(false);
     // Граждане уходят в укрытия.
     run(sim, WAR.curfewGrace + 20);

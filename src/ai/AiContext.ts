@@ -1,3 +1,4 @@
+import type { SecuritySystem } from '../systems/Security';
 import type { FamilySystem } from '../systems/Families';
 import type { GameMap } from '../world/GameMap';
 import type { NavGrid } from '../world/NavGrid';
@@ -57,4 +58,6 @@ export interface AiContext {
   street: StreetLifeSystem;
   /** Семьи горожан: фамилия, повязка, дом. */
   families: FamilySystem;
+  /** Штаб силового блока: построения, охрана, выходы главы. */
+  security: SecuritySystem;
 }

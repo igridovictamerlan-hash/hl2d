@@ -57,7 +57,7 @@ describe('городок с домиками', () => {
   test('OTA ждёт в своей комнате; ГО возрождается в казарме', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
-    const o = spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_soldier', division: null, rank: 0, kit: 'ota' })!;
+    const o = spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_alpha', division: null, rank: 0, kit: 'ota_alpha' })!;
     run(sim, 40);
     const spots = sim.map.poisOf('ota_spot');
     const ts = sim.map.tileSize;

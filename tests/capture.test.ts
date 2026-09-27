@@ -1,3 +1,4 @@
+import { CP_UNIT } from '../src/config/factions';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
@@ -68,7 +69,7 @@ describe('капт КПП', () => {
     expect(f.owner).toBe('rebels');
     // Повстанцев нет — резерв OTA из Цитадели занимает точки и отбивает КПП (сначала D4, потом D3).
     for (const c of sim.entities.list) if (c.faction === 'rebel') c.alive = false;
-    for (let k = 0; k < 4; k++) spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_soldier', division: null, rank: 0, kit: 'ota' });
+    for (let k = 0; k < 4; k++) spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_alpha', division: null, rank: 0, kit: 'ota_alpha' });
     const cpBefore = sim.entities.list.filter((c) => c.alive && (c.faction === 'cp' || c.faction === 'ota')).length;
     const held: number[] = [];
     // Точку нельзя отбить раньше holdTime; контрудары — раз в retakeEvery.
@@ -115,7 +116,7 @@ describe('капт КПП', () => {
     const f = sim.war.fronts[0];
     // Гарнизон D3 на постах.
     for (const post of f.points[0].posts) {
-      spawnRole(sim.ctx, { kind: 'guard', faction: 'cp', profession: null, division: 'grid', rank: 1, kit: 'cp_grid', front: 0, post, facing: 0 }, post);
+      spawnRole(sim.ctx, { kind: 'guard', faction: 'cp', profession: null, division: 'su', rank: CP_UNIT.su3, kit: 'cp_su', front: 0, post, facing: 0 }, post);
     }
     for (let t = 0; t < 2 * 60; t++) sim.step();
     const cps = () => sim.entities.list.filter((c) => c.alive && c.faction === 'cp' && sim.war.frontAt(c.x, c.y) === f).length;
@@ -157,7 +158,7 @@ describe('капт КПП', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     const post = f.points[1].posts[0];
-    const spec = { kind: 'guard' as const, faction: 'cp' as const, profession: null, division: 'grid' as const, rank: 1, kit: 'cp_grid', front: 0, post, facing: 0 };
+    const spec = { kind: 'guard' as const, faction: 'cp' as const, profession: null, division: 'su' as const, rank: CP_UNIT.su3, kit: 'cp_su', front: 0, post, facing: 0 };
     const g0 = spawnRole(sim.ctx, spec, post)!;
     sim.combat.damage(g0, 1000, null);
     for (let t = 0; t < (ROSTER.respawn.guard + 1) * 60; t++) sim.step();

@@ -9,6 +9,11 @@ const tmp: Character[] = [];
  * Шаг физики: разгон к желаемой скорости → перемещение → расталкивание кружков
  * (по массам: игрок тяжелее; NPC-«призрак» из затора — сквозь NPC) → выталкивание из стен (стены всегда побеждают).
  */
+/** Связанная пара (конвоир и задержанный, охранник и подопечный, ведущий и ведомый) — друг другу не помеха. */
+export function linked(a: Character, b: Character): boolean {
+  return a.law.handler === b || b.law.handler === a || a.guarding === b || b.guarding === a || a.squadLead === b || b.squadLead === a;
+}
+
 export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): void {
   const list = entities.list;
   for (const c of list) {
@@ -41,7 +46,7 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
         if ((a.ghost > 0 || b.ghost > 0) && !a.isPlayer && !b.isPlayer) continue;
         // Конвоир и его задержанный не толкают друг друга: в переулке в 2 тайла задержанный иначе
         // встаёт на пути конвоира, и оба стоят.
-        if (a.law.handler === b || b.law.handler === a) continue;
+        if (linked(a, b)) continue;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const minD = a.radius + b.radius;

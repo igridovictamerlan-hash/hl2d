@@ -1,6 +1,6 @@
 import type { Character } from './Character';
 import type { View } from '../core/Camera';
-import { FACTIONS, CP_DIVISIONS, colorsOf, rankOf } from '../config/factions';
+import { FACTIONS, colorsOf, rankOf } from '../config/factions';
 import { LOYALTY } from '../config/loyalty';
 import { familyTitle, type FamilySystem } from '../systems/Families';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
@@ -21,7 +21,6 @@ export function roleLabel(c: Character): string {
   // Профессия вместо названия фракции там, где она своя (не «Гражданин»/«Солдат»).
   const role = prof && prof.id !== DEFAULT_PROFESSION[c.faction] ? prof.name : f.role;
   let s = r ? `${role} · ${r.short}` : c.faction === 'admin' || c.faction === 'vort' ? role : `${role} · #${c.cid}`;
-  if (c.division) s += ` · ${CP_DIVISIONS[c.division].short}`;
   const phase = c.law.phase;
   if (phase === 'cuffed' || phase === 'entering') s += ' · задержан';
   else if (phase === 'jailed') s += ' · в КПЗ';

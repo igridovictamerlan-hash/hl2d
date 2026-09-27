@@ -5,17 +5,15 @@ import type { Vec2 } from '../../core/math';
 import { Mover } from '../Mover';
 import { Gunner } from '../Gunner';
 import { faceMovement, turnTowards } from '../facing';
-import { randomAnchorAround } from '../destinations';
 import { poiWorld } from '../../systems/Population';
 import { LAW } from '../../config/law';
 
-export type OtaMode = 'reserve' | 'post' | 'hunt' | 'home';
+export type OtaMode = 'reserve' | 'post' | 'home';
 
 /**
- * Солдат OTA — постоянный резерв Цитадели.
+ * Боец OTA (OTA.ALPHA, командир OTA.KING) — резерв Цитадели. Воюет только на КПП, по городу не ходит.
  *  reserve — ждёт приказа в комнате OTA в Нексусе (у своего шкафа; нет комнаты — у ворот);
  *  post — контрудар: бежит на пост захваченной точки КПП и держит его (WarSystem.counterattack);
- *  hunt — красный код: идёт к последней известной позиции прорвавшихся, стреляет на поражение;
  *  home — отбой: возвращается в комнату OTA (там снова reserve).
  */
 export class OtaBrain implements Brain {
@@ -34,7 +32,7 @@ export class OtaBrain implements Brain {
   }
 
   get stateName(): string {
-    const m = { reserve: 'резерв', post: 'контрудар', hunt: 'охота', home: 'возврат' }[this.mode];
+    const m = { reserve: 'резерв', post: 'контрудар', home: 'возврат' }[this.mode];
     return this.gunner.target ? `${m} · бой` : m;
   }
 
@@ -48,13 +46,6 @@ export class OtaBrain implements Brain {
     this.front = front;
     this.post = post;
     this.facing = facing;
-    this.repath = 0;
-  }
-
-  hunt(): void {
-    this.mode = 'hunt';
-    this.front = -1;
-    this.post = null;
     this.repath = 0;
   }
 
@@ -82,14 +73,6 @@ export class OtaBrain implements Brain {
       } else if (this.repath <= 0 || st === 'idle' || st === 'failed') {
         this.repath = 3;
         const a = ctx.nav.nearestWalkable(p.x, p.y, 3);
-        if (a >= 0) this.mover.goTo(self, ctx, a);
-      }
-    } else if (this.mode === 'hunt') {
-      this.mover.speed = 95;
-      if (this.repath <= 0 || st === 'arrived' || st === 'failed') {
-        this.repath = 3;
-        const p = ctx.war.nearestKnown(self.x, self.y);
-        const a = p ? ctx.nav.nearestWalkable(p.x, p.y, 6) : randomAnchorAround(self, ctx, 10, 40, new Set());
         if (a >= 0) this.mover.goTo(self, ctx, a);
       }
     } else {

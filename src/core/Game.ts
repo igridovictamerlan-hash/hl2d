@@ -8,7 +8,7 @@ import { PlayerController } from './PlayerController';
 import { RENDER } from '../config/render';
 import { VISION } from '../config/vision';
 import { CHARACTER } from '../config/entities';
-import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId } from '../config/factions';
+import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, cpUnit } from '../config/factions';
 import type { GameMap, Level } from '../world/GameMap';
 import { NavGrid } from '../world/NavGrid';
 import type { Poi } from '../world/GameMap';
@@ -42,6 +42,7 @@ import { RosterSystem } from '../systems/Roster';
 import { ElectionSystem } from '../systems/ElectionSystem';
 import { ROSTER } from '../config/roster';
 import { FamilySystem } from '../systems/Families';
+import { SecuritySystem } from '../systems/Security';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
 import { StreetLifeSystem } from '../systems/StreetLife';
@@ -218,6 +219,7 @@ export class Game {
       elections: null as unknown as ElectionSystem,
       street: null as unknown as StreetLifeSystem,
       families: null as unknown as FamilySystem,
+      security: null as unknown as SecuritySystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -231,6 +233,7 @@ export class Game {
     this.ai.elections = new ElectionSystem(this.ai);
     this.ai.street = new StreetLifeSystem(this.ai);
     this.ai.families = new FamilySystem(this.ai);
+    this.ai.security = new SecuritySystem(this.ai);
     this.entityRenderer.families = this.ai.families;
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
@@ -270,7 +273,7 @@ export class Game {
   /** Выбор роли из меню. */
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null = null, profession: ProfessionId | null = null): void {
     const prof = profession && PROFESSIONS[profession]?.faction === faction ? profession : DEFAULT_PROFESSION[faction] ?? null;
-    this.role = { faction, rank, division: faction === 'cp' ? division ?? 'union' : null, profession: prof };
+    this.role = { faction, rank, division: faction === 'cp' ? cpGroup(rank) : division, profession: prof };
     this.applyRole(faction, rank, this.role.division, true, prof);
     this.save();
   }
@@ -289,7 +292,8 @@ export class Game {
     // У армейских профессий (глава, HYDRA, ветеран) звание — по профессии, не ниже выбранного.
     const profRank = profession ? ROSTER.rank[profession] : undefined;
     p.rank = profRank !== undefined ? Math.max(rank, profRank) : rank;
-    p.division = faction === 'cp' ? division : null;
+    p.division = faction === 'cp' ? cpGroup(p.rank) : null;
+    void division;
     p.profession = profession && PROFESSIONS[profession]?.faction === faction ? profession : DEFAULT_PROFESSION[faction] ?? null;
     p.disguised = false;
     p.carrying = false;
@@ -302,7 +306,7 @@ export class Game {
     // Новая роль — лояльность с чистого листа (при возрождении сохраняется).
     if (announce) p.loyalty = faction === 'cwu' ? LOYALTY.playerStart.cwu : LOYALTY.playerStart.citizen;
     const profKit = p.profession ? PROFESSIONS[p.profession].kit : undefined;
-    const kit = faction === 'cp' ? cpKit(p.division) : profKit ?? (faction === 'rebel' && rank >= REBEL_OFFICER_RANK ? 'rebel_officer' : faction);
+    const kit = faction === 'cp' ? cpKit(p.rank) : profKit ?? (faction === 'rebel' && rank >= REBEL_OFFICER_RANK ? 'rebel_officer' : faction);
     equipKit(p, kit, this.ai);
     // Жителям оружие на виду ни к чему; повстанец начинает в убежище — с оружием в руках (Q/H — убрать).
     if (faction !== 'cp' && faction !== 'rebel') this.combat.equip(p, null);
@@ -318,7 +322,7 @@ export class Game {
     const spot = roleSpawn(this.ai, faction, p.profession);
     // Глава восстания один: выбрал игрок — NPC-глава становится ветераном.
     if (faction === 'rebel' && p.profession === 'rebel_leader') this.war.command.demoteNpcLeader();
-    const hp = p.profession ? ROSTER.hp[p.profession] : undefined;
+    const hp = faction === 'cp' ? cpUnit(p.rank).hp : p.profession ? ROSTER.hp[p.profession] : undefined;
     p.maxHealth = hp ?? CHARACTER.maxHealth;
     p.health = p.maxHealth;
     p.x = p.prevX = spot.x;
@@ -327,7 +331,7 @@ export class Game {
     this.camera.snapTo(p.x, p.y);
     if (announce) {
       const r = rankOf(faction, rank);
-      const div = p.division ? ` · ${CP_DIVISIONS[p.division].short}` : '';
+      const div = p.division ? ` · ${CP_DIVISIONS[p.division].name}` : '';
       const pr = p.profession && p.profession !== DEFAULT_PROFESSION[faction] ? ` · ${PROFESSIONS[p.profession].name}` : '';
       this.bus.emit('log', { text: `Вы теперь: ${FACTIONS[faction].role}${r ? ` (${r.name})` : ''}${div}${pr} — ${p.name}`, kind: 'system' });
       if (p.profession) for (const t of PROFESSIONS[p.profession].perks) this.bus.emit('log', { text: `• ${t}`, kind: 'system' });
@@ -597,6 +601,7 @@ export class Game {
     this.ai.roster.update(dt);
     this.ai.elections.update(dt);
     this.ai.street.update(dt);
+    this.ai.security.update(dt);
     if (!this.player.alive && this.combat.now >= this.player.respawnAt) this.respawn();
     this.updateVisibility();
     const m = this.input.mouseInside

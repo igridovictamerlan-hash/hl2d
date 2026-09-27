@@ -1,3 +1,4 @@
+import { CP_UNIT } from '../src/config/factions';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
@@ -41,7 +42,7 @@ describe('спецподразделения ГО и огонь', () => {
     const o = spot(sim, -80);
     const obs = createCharacter(sim.entities, sim.ctx.rng, 'cp', o.x, o.y);
     equipKit(obs, 'cp', sim.ctx);
-    obs.division = 'jury';
+    obs.rank = CP_UNIT.su1;
     obs.brain = new CpBrain(obs, sim.ctx);
     run(sim, 40, () => !!corpse.scanned);
     expect(corpse.scanned).toBe(true);
@@ -53,7 +54,7 @@ describe('спецподразделения ГО и огонь', () => {
     calm(sim);
     const at = spot(sim, 0);
     const tech = createCharacter(sim.entities, sim.ctx.rng, 'cp', at.x, at.y);
-    tech.division = 'tech';
+    tech.rank = CP_UNIT.su2;
     expect(sim.scanners.deploy(tech)).toBeNull();
     expect(sim.scanners.deploy(tech)).toMatch(/уже/);
     const b = spot(sim, 30, 20);

@@ -23,11 +23,30 @@ export const ROSTER = {
   ] as [ProfessionId, number][],
   /** Партизаны в схроне под городом (ходят люками). */
   partisans: 3,
-  /** Резерв OTA в Цитадели: элита и солдаты (часть — с дробовиками). */
+  /** OTA: командир OTA.KING и бойцы OTA.ALPHA (часть — с дробовиками). Воюют только на КПП. */
   ota: [
-    ['ota_elite', 2],
-    ['ota_soldier', 4],
+    ['ota_king', 1],
+    ['ota_alpha', 5],
   ] as [ProfessionId, number][],
+  /**
+   * Силовой блок города (юниты — config/factions.ts). RCT.PCU на постах: у проходных КПП
+   * (Front.gatePosts), у ворот Нексуса (nexusPosts) и в людных местах (publicPosts). Патрульные
+   * группы (squads): ведущий PCU.02 или PCU.01 и squadFollowers PCU.03 за ним; следователи SU.01
+   * (investigators) ходят с группами. Офицеры PCU.OFC — построения на плацу. SU.02-техники в
+   * городе (technicians, сканер). Инспекторы SU.INSP, охрана SU.GUARD (меньше, чем целей), CMD.EPU.
+   */
+  cp: {
+    nexusPosts: 2,
+    publicPosts: 4,
+    squads: 3,
+    squadFollowers: 2,
+    investigators: 3,
+    officers: 2,
+    technicians: 1,
+    inspectors: 2,
+    guards: 4,
+    epu: 1,
+  },
   otaShotgunChance: 0.25,
   /**
    * Через сколько секунд погибший возвращается (по виду роли). ГО и OTA — долго: иначе гарнизон
@@ -42,6 +61,13 @@ export const ROSTER = {
     /** RCT проходной КПП (возвращаются и во время капта: проходная — не часть точки D). */
     gate: 60,
     medic: 60,
+    post: 60,
+    squad: 60,
+    tech: 60,
+    officer: 120,
+    inspector: 150,
+    bodyguard: 90,
+    epu: 240,
     ota: 90,
     army: 25,
     leader: 50,
@@ -57,7 +83,8 @@ export const ROSTER = {
     hydra_captain: 170,
     hydra_officer: 150,
     hydra_soldier: 140,
-    ota_elite: 160,
+    ota_alpha: 150,
+    ota_king: 220,
   } as Partial<Record<ProfessionId, number>>,
   /** Ранг по профессии (цвет формы). */
   rank: {

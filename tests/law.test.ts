@@ -146,11 +146,13 @@ describe('живой город со всеми фракциями', () => {
     const count = (f: string) => sim.entities.list.filter((c) => c.faction === f).length;
     // 20 граждан + торговец чёрного рынка в канализации.
     expect(count('citizen')).toBe(21);
-    // Патрульные + на каждом из двух КПП 5 часовых GRID (2 во внешней точке, 3 во внутренней),
-    // 2 RCT в проходной и медик HELIX.
-    expect(count('cp')).toBe(AI.population.cpPatrol + 2 * (5 + 2 + 1));
+    // Силовой блок города (ROSTER.cp) + на каждом из двух КПП 5 спецназовцев SU.03 (2 во внешней
+    // точке, 3 во внутренней), 2 RCT.PCU в проходной и медик SU.02.
+    const C = ROSTER.cp;
+    const city = C.nexusPosts + C.publicPosts + C.squads * (1 + C.squadFollowers) + C.investigators + C.technicians + C.officers + C.inspectors + C.guards + C.epu;
+    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1));
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
-    for (const d of ['union', 'grid', 'helix', 'jury']) expect(divisions.has(d as never)).toBe(true);
+    for (const d of ['pcu', 'su', 'cmd']) expect(divisions.has(d as never)).toBe(true);
     // Подпольщики в городе + гарнизон убежища в канализации.
     // Армия в лагере + HYDRA + партизаны в схроне.
     const army = [...ROSTER.army, ...ROSTER.hydra].reduce((n, [, k]) => n + k, 0);

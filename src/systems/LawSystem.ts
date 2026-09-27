@@ -11,7 +11,7 @@ import { LOYALTY } from '../config/loyalty';
 import { LAW, VIOLATION_NAMES, type Violation } from '../config/law';
 import { VISION } from '../config/vision';
 import { loyalistPerk } from './Loyalty';
-import { FACTIONS } from '../config/factions';
+import { FACTIONS, cpHas } from '../config/factions';
 import { LINES, fill } from '../config/lines';
 import { T } from '../world/tiles';
 import { PrisonerBrain } from '../ai/brains/PrisonerBrain';
@@ -251,7 +251,7 @@ export class LawSystem {
       return;
     }
     if (verdict.kind === 'fine') {
-      if (handler.division === 'jury') verdict = { ...verdict, fine: verdict.fine * LAW.juryFineMul };
+      if (cpHas(handler, 'investigate')) verdict = { ...verdict, fine: verdict.fine * LAW.juryFineMul };
       const paid = Math.min(target.money, verdict.fine);
       target.money -= paid;
       handler.money += Math.floor(paid / 2);

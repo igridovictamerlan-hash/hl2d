@@ -1,9 +1,9 @@
-import { FACTIONS, CP_DIVISIONS, type FactionId, type DivisionId } from '../config/factions';
+import { FACTIONS, cpUnit, cpGroup, type FactionId, type DivisionId } from '../config/factions';
 import { PROFESSIONS, professionsOf, type ProfessionId } from '../config/professions';
 
 /**
- * Выбор роли: при старте и у терминала найма на площади. Фракция → ранг (ГО, повстанцы), отряд
- * (ГО) и профессия (граждане, ГСР, повстанцы, вортигонты) — со списком умений профессии.
+ * Выбор роли: при старте и у терминала найма на площади. Фракция → ранг (повстанцы) или юнит (ГО:
+ * PCU, SU, CMD — с описанием) и профессия (граждане, ГСР, повстанцы, вортигонты) — со списком умений.
  */
 export class RoleMenu {
   private readonly el: HTMLElement;
@@ -23,16 +23,11 @@ export class RoleMenu {
       .map((id) => {
         const f = FACTIONS[id];
         const ranks = f.ranks
-          ? `<label class="role-rank">Ранг <select id="rank-${id}">${f.ranks
+          ? `<label class="role-rank">${id === 'cp' ? 'Юнит' : 'Ранг'} <select id="rank-${id}">${f.ranks
               .map((r, i) => `<option value="${i}">${r.name}</option>`)
               .join('')}</select></label>`
           : '';
-        const divisions =
-          id === 'cp'
-            ? `<label class="role-rank">Отряд <select id="division-cp">${Object.values(CP_DIVISIONS)
-                .map((d) => `<option value="${d.id}">${d.short} — ${d.name}</option>`)
-                .join('')}</select></label><p class="role-div-desc">${CP_DIVISIONS.union.desc}</p>`
-            : '';
+        const divisions = id === 'cp' ? `<p class="role-div-desc">${cpUnit(0).desc}</p>` : '';
         const profs = professionsOf(id, true);
         const professions =
           profs.length > 1
@@ -88,11 +83,11 @@ export class RoleMenu {
       b.addEventListener('click', () => {
         const id = b.dataset.pick as FactionId;
         const sel = this.el.querySelector<HTMLSelectElement>(`#rank-${id}`);
-        const div = this.el.querySelector<HTMLSelectElement>(`#division-${id}`);
         const prof = this.el.querySelector<HTMLSelectElement>(`#prof-${id}`);
         const only = professionsOf(id, true);
         this.close();
-        this.onChoose(id, sel ? Number(sel.value) : 0, div ? (div.value as DivisionId) : null, prof ? (prof.value as ProfessionId) : only[0]?.id ?? null);
+        const rank = sel ? Number(sel.value) : 0;
+        this.onChoose(id, rank, id === 'cp' ? cpGroup(rank) : null, prof ? (prof.value as ProfessionId) : only[0]?.id ?? null);
       }),
     );
     // Смена профессии — её описание и умения.
@@ -103,10 +98,6 @@ export class RoleMenu {
       }),
     );
     // Смена ранга сразу красит кружок на карточке.
-    const divSel = this.el.querySelector<HTMLSelectElement>('#division-cp');
-    divSel?.addEventListener('change', () => {
-      this.el.querySelector('.role-div-desc')!.textContent = CP_DIVISIONS[divSel.value as DivisionId].desc;
-    });
     this.el.querySelectorAll<HTMLSelectElement>('select[id^="rank-"]').forEach((sel) =>
       sel.addEventListener('change', () => {
         const id = sel.id.replace('rank-', '') as FactionId;
@@ -114,6 +105,7 @@ export class RoleMenu {
         const dot = this.el.querySelector<HTMLElement>(`[data-role="${id}"] .role-dot`)!;
         dot.style.background = r.color;
         dot.style.borderColor = r.outline;
+        if (id === 'cp') this.el.querySelector('.role-div-desc')!.textContent = cpUnit(Number(sel.value)).desc;
       }),
     );
     window.addEventListener('keydown', (e) => {

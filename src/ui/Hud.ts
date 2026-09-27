@@ -67,7 +67,7 @@ export class Hud {
     this.name.textContent = p.name;
     const f = FACTIONS[p.faction];
     const r = rankOf(p.faction, p.rank);
-    const div = p.division ? ` · ${CP_DIVISIONS[p.division].short}` : '';
+    const div = p.division && p.faction === 'cp' ? ` · ${CP_DIVISIONS[p.division].short}` : '';
     const prof = p.profession ? PROFESSIONS[p.profession] : null;
     const pname = prof && prof.id !== DEFAULT_PROFESSION[p.faction] ? ` · ${prof.name}` : '';
     const mask = p.disguised ? ' · в маскировке' : '';

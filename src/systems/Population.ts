@@ -3,10 +3,10 @@ import type { Character } from '../entities/Character';
 import type { FactionId } from '../config/factions';
 import { FACTIONS } from '../config/factions';
 import { AI } from '../config/ai';
-import { randomAnchorAround, zoneIds } from '../ai/destinations';
+import { randomAnchorAround, randomAnchorInZone, zoneIds } from '../ai/destinations';
 import { dist } from '../core/math';
 import { KITS, ITEMS, type WeaponId } from '../config/items';
-import type { DivisionId } from '../config/factions';
+import { cpUnit, CP_UNIT, type CpUnitId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import { ROSTER } from '../config/roster';
 import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
@@ -26,9 +26,9 @@ export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat
   if (weapon) ctx.combat.equip(c, weapon);
 }
 
-/** Набор ГО по специализации. */
-export function cpKit(division: DivisionId | null): string {
-  return division === 'grid' ? 'cp_grid' : division === 'helix' ? 'cp_helix' : 'cp';
+/** Набор юнита ГО по рангу (config/factions.ts, CP_RANKS). */
+export function cpKit(rank: number): string {
+  return cpUnit(rank).kit;
 }
 
 /** Точка в px мира для POI. */
@@ -82,7 +82,9 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
-  const put = (spec: RoleSpec, at: { x: number; y: number } | null): Character | null => (at ? spawnRole(ctx, spec, at) : null);
+  // Силовой блок — постоянный состав: не нашлось места у точки — появляется там же, где при возрождении.
+  const put = (spec: RoleSpec, at: { x: number; y: number } | null): Character | null =>
+    at ? spawnRole(ctx, spec, at) : spec.faction === 'cp' ? spawnRole(ctx, spec) : null;
 
   const nearPlaza = Math.min(6, citizens);
   // Особые жители — в конце списка (не у площади).
@@ -125,41 +127,81 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
   const none = new Set<number>();
+  const C = ROSTER.cp;
+  const cpSpec = (kind: RoleSpec['kind'], unit: CpUnitId, extra: Partial<RoleSpec> = {}): RoleSpec => {
+    const rank = CP_UNIT[unit];
+    return { kind, faction: 'cp', profession: null, division: cpUnit(rank).group, rank, kit: cpUnit(rank).kit, ...extra };
+  };
+  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted']);
   const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
-  const patrolDivisions: DivisionId[] = ['union', 'union', 'jury', 'union', 'helix', 'tech', 'union', 'jury'];
-  for (let k = 0; k < P.cpPatrol; k++) {
-    const division = patrolDivisions[k % patrolDivisions.length];
-    // Патрули — в городе: КПП и пустошь заняты гарнизонами (иначе патрульный займёт место часового).
-    const at = freeSpot(ctx, k < 2 ? nexus : anywhere, 2, k < 2 ? 12 : 100, patrolAvoid);
-    put({ kind: 'patrol', faction: 'cp', profession: null, division, rank: randomRank(ctx, 'cp', 6), kit: cpKit(division) }, at);
+  // RCT.PCU на постах: у ворот Нексуса (лицом наружу) и в людных местах — площадь и улицы.
+  const inside = zoneIds(ctx, ['nexus', 'cells']);
+  // Нет места у самой точки — чуть дальше, в крайнем случае у площади: состав постов всегда полный.
+  const postSpot = (p: { x: number; y: number }, r0: number, r1: number, avoid: ReadonlySet<number>) =>
+    freeSpot(ctx, p, r0, r1, avoid, 28) ?? freeSpot(ctx, p, r0, r1 * 3, avoid, 20) ?? freeSpot(ctx, plaza, 2, 30, cityAvoid, 16);
+  for (let k = 0; k < C.nexusPosts; k++) {
+    const at = postSpot(nexus, 2, 4, inside);
+    if (at) put(cpSpec('post', 'rct', { post: at, facing: Math.atan2(at.y - nexus.y, at.x - nexus.x) }), at);
   }
-  // Гарнизоны КПП: часовые GRID на всех постах обоих дворов лицом к пустоши, RCT в проходной, медик HELIX в бункере.
+  for (let k = 0; k < C.publicPosts; k++) {
+    const onPlaza = k % 2 === 0;
+    let at: { x: number; y: number } | null = null;
+    if (onPlaza) at = postSpot(plaza, 4, 8, cityAvoid);
+    else {
+      const a = randomAnchorInZone(ctx, 'avenue');
+      at = a >= 0 ? { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) } : postSpot(plaza, 6, 12, cityAvoid);
+    }
+    if (at) put(cpSpec('post', 'rct', { post: at, facing: ctx.rng.range(0, Math.PI * 2) }), at);
+  }
+  // Патрульные группы: ведущий PCU.02 или сержант PCU.01, за ним PCU.03; следователи SU.01 — в группах.
+  for (let s = 0; s < C.squads; s++) {
+    const at = freeSpot(ctx, anywhere, 0, 110, patrolAvoid) ?? postSpot(plaza, 3, 12, cityAvoid);
+    if (!at) continue;
+    put(cpSpec('squad', s % 2 === 0 ? 'pcu2' : 'pcu1', { squad: s, lead: true }), at);
+    for (let k = 0; k < C.squadFollowers; k++) put(cpSpec('squad', 'pcu3', { squad: s, lead: false }), freeSpot(ctx, at, 0, 3, patrolAvoid, 24));
+  }
+  for (let k = 0; k < C.investigators; k++) {
+    const s = k % Math.max(1, C.squads);
+    put(cpSpec('squad', 'su1', { squad: s, lead: false }), freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
+  }
+  for (let k = 0; k < C.technicians; k++) put(cpSpec('tech', 'su2'), freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
+  // Командование в Нексусе: офицеры на плацу, инспекторы у канцелярии, охрана и глава — у кабинета.
+  const yard = poiWorld(ctx, 'nexus_yard') ?? nexus;
+  const office = poiWorld(ctx, 'nexus_desk') ?? nexus;
+  const desk = poiWorld(ctx, 'clerk_desk') ?? office;
+  // Администратор — первым, за своим столом (охрана и глава встают рядом).
+  if (P.admin > 0) {
+    const desk = poiWorld(ctx, 'nexus_desk');
+    if (desk) put({ kind: 'admin', faction: 'admin', profession: null, division: null, rank: 0, kit: 'admin' }, freeSpot(ctx, desk, 0, 0, none, 10));
+  }
+  for (let k = 0; k < C.officers; k++) put(cpSpec('officer', 'ofc'), freeSpot(ctx, yard, 0, 4, none, 30));
+  for (let k = 0; k < C.inspectors; k++) put(cpSpec('inspector', 'insp'), freeSpot(ctx, desk, 0, 3, none, 24));
+  for (let k = 0; k < C.guards; k++) put(cpSpec('bodyguard', 'guard'), freeSpot(ctx, office, 0, 4, none, 24));
+  for (let k = 0; k < C.epu; k++) put(cpSpec('epu', 'epu'), freeSpot(ctx, office, 0, 2, none, 24));
+  // Гарнизоны КПП: спецназ SU.03 на всех постах обоих дворов лицом к пустоши, RCT.PCU в проходной,
+  // медик SU.02 в бункере.
   for (const f of ctx.war.fronts) {
     f.posts.slice(0, P.cpPerCheckpoint).forEach((post) => {
       const facing = Math.atan2(f.exit.y - post.y, f.exit.x - post.x);
-      put({ kind: 'guard', faction: 'cp', profession: null, division: 'grid', rank: randomRank(ctx, 'cp', 5), kit: 'cp_grid', front: f.index, post, facing }, freeSpot(ctx, post, 0, 0, none, 20));
+      put(cpSpec('guard', 'su3', { front: f.index, post, facing }), freeSpot(ctx, post, 0, 0, none, 20));
     });
-    // Проходная со стороны города: RCT (рядовые UNION) на постах лицом к КПП — проверяют входящих.
+    // Проходная со стороны города: RCT.PCU на постах лицом к КПП — проверяют входящих.
     for (const post of f.gatePosts) {
       const facing = Math.atan2(f.innerGate.y - post.y, f.innerGate.x - post.x);
-      put({ kind: 'gate', faction: 'cp', profession: null, division: 'union', rank: 0, kit: cpKit('union'), front: f.index, post, facing }, freeSpot(ctx, post, 0, 0, none, 20));
+      put(cpSpec('gate', 'rct', { front: f.index, post, facing }), freeSpot(ctx, post, 0, 0, none, 20));
     }
     if (f.bunker.length) {
       const a = ctx.rng.pick(f.bunker);
       const st = { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) };
-      put({ kind: 'medic', faction: 'cp', profession: null, division: 'helix', rank: randomRank(ctx, 'cp', 4), kit: 'cp_helix', front: f.index, station: st }, freeSpot(ctx, st, 0, 0, none, 20));
+      put(cpSpec('medic', 'su2', { front: f.index, station: st }), freeSpot(ctx, st, 0, 0, none, 20));
     }
   }
-  // Резерв OTA в Цитадели: элита и солдаты (часть — с дробовиками).
+  // OTA: командир OTA.KING и бойцы OTA.ALPHA (часть — с дробовиками) — резерв Цитадели.
   for (const [prof, n] of ROSTER.ota) {
     for (let k = 0; k < n; k++) {
-      const kit = prof === 'ota_elite' ? 'ota_elite' : ctx.rng.chance(ROSTER.otaShotgunChance) ? 'ota_shotgun' : 'ota';
+      const kit = prof === 'ota_king' ? 'ota_king' : ctx.rng.chance(ROSTER.otaShotgunChance) ? 'ota_shotgun' : 'ota_alpha';
       put({ kind: 'ota', faction: 'ota', profession: prof, division: null, rank: 0, kit }, freeSpot(ctx, nexus, 1, 5, none, 24));
     }
-  }
-  if (P.admin > 0) {
-    const desk = poiWorld(ctx, 'nexus_desk');
-    if (desk) put({ kind: 'admin', faction: 'admin', profession: null, division: null, rank: 0, kit: 'admin' }, freeSpot(ctx, desk, 0, 0, none, 10));
   }
   // Армия сопротивления — в лагере в пустоши.
   const camp = poiWorld(ctx, 'rebel_camp');

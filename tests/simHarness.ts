@@ -1,3 +1,4 @@
+import { resetCids } from '../src/entities/factory';
 import { generateCity } from '../src/world/generator/CityGenerator';
 import { NavGrid } from '../src/world/NavGrid';
 import { EntityManager } from '../src/entities/EntityManager';
@@ -22,10 +23,13 @@ import { ScannerSystem } from '../src/systems/ScannerSystem';
 import { RosterSystem } from '../src/systems/Roster';
 import { ElectionSystem } from '../src/systems/ElectionSystem';
 import { FamilySystem } from '../src/systems/Families';
+import { SecuritySystem } from '../src/systems/Security';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
 export function makeSim(seedOrMap: number | GameMap) {
+  // Номера CID — общий набор модуля: без сброса случайность теста зависит от предыдущих тестов.
+  resetCids();
   const map = typeof seedOrMap === 'number' ? generateCity(seedOrMap) : seedOrMap;
   const nav = new NavGrid(map);
   const entities = new EntityManager();
@@ -61,6 +65,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     elections: null as unknown as ElectionSystem,
     street: null as unknown as StreetLifeSystem,
     families: null as unknown as FamilySystem,
+    security: null as unknown as SecuritySystem,
   };
   const war = new WarSystem(ctx);
   ctx.war = war;
@@ -79,6 +84,8 @@ export function makeSim(seedOrMap: number | GameMap) {
   const street = new StreetLifeSystem(ctx);
   ctx.street = street;
   ctx.families = new FamilySystem(ctx);
+  const security = new SecuritySystem(ctx);
+  ctx.security = security;
   economy.onEmpty = () => labor.noticeEmpty();
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;
@@ -97,6 +104,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     roster.update(dt);
     elections.update(dt);
     street.update(dt);
+    security.update(dt);
   };
-  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street };
+  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security };
 }

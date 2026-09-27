@@ -34,8 +34,8 @@ export type ProfessionId =
   | 'vort_slave'
   // Синтеты Альянса.
   | 'cremator'
-  | 'ota_soldier'
-  | 'ota_elite';
+  | 'ota_alpha'
+  | 'ota_king';
 
 export interface ProfessionDef {
   id: ProfessionId;
@@ -156,14 +156,14 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
     desc: 'Штурмовик спецотряда HYDRA.',
     perks: ['Бронежилет: больше здоровья', 'MP7 и гранаты'],
   },
-  ota_soldier: {
-    id: 'ota_soldier', faction: 'ota', name: 'Солдат OTA', selectable: false,
-    desc: 'Сверхчеловеческий солдат Альянса: резерв в Цитадели, контрудары по КПП и красный код.',
+  ota_alpha: {
+    id: 'ota_alpha', faction: 'ota', name: 'OTA.ALPHA', selectable: false,
+    desc: 'Боец сверхчеловеческого отряда: энерговинтовка, пистолет, гранаты. Воюет только на КПП.',
     perks: [],
   },
-  ota_elite: {
-    id: 'ota_elite', faction: 'ota', name: 'Элита OTA', selectable: false,
-    desc: 'Элитный солдат OTA: больше брони, AR2, ведёт контрудары.',
+  ota_king: {
+    id: 'ota_king', faction: 'ota', name: 'OTA.KING', selectable: false,
+    desc: 'Командир OTA: руководит всем отрядом, ведёт контрудары на КПП.',
     perks: [],
   },
   cremator: {
@@ -178,7 +178,7 @@ export const DEFAULT_PROFESSION: Partial<Record<FactionId, ProfessionId>> = {
   citizen: 'citizen',
   cwu: 'janitor',
   rebel: 'rebel_soldier',
-  ota: 'ota_soldier',
+  ota: 'ota_alpha',
   vort: 'vort_slave',
 };
 

@@ -99,10 +99,10 @@ export const WAR = {
   },
   /**
    * Терминал кодов тревоги в кабинете Администратора (E рядом, reach px): жёлтый, красный, отбой.
-   * Пользуются Администратор и ГО не ниже ранга minCpRank (OFC). Код с терминала держится, пока его
+   * Пользуются Администратор и ГО с уровнем командования от minCommand (PCU.OFC, SU.INSP, CMD.EPU). Код с терминала держится, пока его
    * не снимут (автоматический отбой не действует); пропал тот, кто включил, — снова по обстановке.
    */
-  terminal: { reach: 40, minCpRank: 4 },
+  terminal: { reach: 40, minCommand: 4 },
   /**
    * Штурм Нексуса — цель выхода в город. Идущие на прорыв сначала собираются во внутреннем дворе
    * прорванного КПП; собралось waveSize (или ждали stageMax с и собралась треть, или stageHardMax с) — волна: все разом через проходную на
@@ -113,7 +113,7 @@ export const WAR = {
    * В Нексусе не осталось повстанцев — отбит. Дальше alleysUntil px от ворот Нексуса штурмующие идут
    * переулками (проспект и площадь для них дороже в A* в alleyCost раз) — не под огнём по открытому проспекту.
    */
-  nexus: { minAttackers: 3, captureTime: 40, decay: 0.5, holdToWin: 45, reward: 150, relocate: [5, 10] as const, waveSize: 8, stageMax: 60, stageHardMax: 120, waveMax: 150, alleysUntil: 420, alleyCost: 3 },
+  nexus: { minAttackers: 3, captureTime: 40, decay: 0.5, holdToWin: 45, reward: 150, relocate: [5, 10] as const, waveSize: 12, stageMax: 60, stageHardMax: 120, waveMax: 150, alleysUntil: 420, alleyCost: 3 },
   /** Бой у КПП «идёт», если там стреляли за последние… секунд (маркеры на экране, звук). */
   activeWindow: 3,
 } as const;

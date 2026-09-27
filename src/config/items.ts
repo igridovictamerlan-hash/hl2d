@@ -200,6 +200,17 @@ export const KITS: Record<string, [ItemId, number][]> = {
   cp: [['stunstick', 1], ['usp', 1], ['ammo_pistol', 54]],
   cp_grid: [['mp7', 1], ['ammo_smg', 135], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 1], ['grenade', 1]],
   cp_helix: [['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 2]],
+  /** Сержант и офицер PCU: дубинка, пистолет, MP7. */
+  cp_sgt: [['stunstick', 1], ['usp', 1], ['ammo_pistol', 36], ['mp7', 1], ['ammo_smg', 90]],
+  /** Спецназ SU.03: MP7, пистолет, аптечка, граната. */
+  cp_su: [['mp7', 1], ['ammo_smg', 135], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 1], ['grenade', 2]],
+  /** Медик-техник SU.02: MP7, пистолет, аптечки. */
+  cp_su_medic: [['mp7', 1], ['ammo_smg', 90], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 3]],
+  /** Охрана, инспектор, глава силового блока: MP7 и пистолет. */
+  cp_guard: [['mp7', 1], ['ammo_smg', 120], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1]],
+  /** OTA.ALPHA и OTA.KING: энерговинтовка AR2, пистолет, гранаты. */
+  ota_alpha: [['ar2', 1], ['ammo_ar2', 120], ['usp', 1], ['ammo_pistol', 36], ['grenade', 2]],
+  ota_king: [['ar2', 1], ['ammo_ar2', 180], ['usp', 1], ['ammo_pistol', 36], ['grenade', 3], ['medkit', 1]],
   ota: [['ar2', 1], ['ammo_ar2', 120], ['grenade', 2]],
   ota_shotgun: [['spas12', 1], ['ammo_buckshot', 36], ['usp', 1], ['ammo_pistol', 36], ['grenade', 1]],
   admin: [['canned', 2]],
@@ -225,7 +236,6 @@ export const KITS: Record<string, [ItemId, number][]> = {
   hydra_captain: [['ar2', 1], ['ammo_ar2', 150], ['usp', 1], ['ammo_pistol', 36], ['medkit', 1], ['grenade', 3]],
   hydra_officer: [['ar2', 1], ['ammo_ar2', 120], ['usp', 1], ['ammo_pistol', 36], ['bandage', 2], ['grenade', 2]],
   hydra_soldier: [['mp7', 1], ['ammo_smg', 180], ['usp', 1], ['ammo_pistol', 36], ['bandage', 1], ['grenade', 2]],
-  ota_elite: [['ar2', 1], ['ammo_ar2', 180], ['grenade', 3], ['medkit', 1]],
   bandit: [['rebel_pistol', 1], ['ammo_pistol', 24], ['water', 1]],
   fugitive: [['bandage', 1]],
 };

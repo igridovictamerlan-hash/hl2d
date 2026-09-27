@@ -76,10 +76,12 @@ describe('постоянный состав', () => {
     const soldier = sim.war.command.army.find((c) => c.profession === 'rebel_soldier')!;
     const civ = sim.entities.list.find((c) => c.faction === 'citizen' && c.role?.kind === 'citizen')!;
     const names = [soldier.name, civ.name];
+    const kinds = [soldier.role!.kind, civ.role!.kind];
     sim.combat.damage(soldier, 1000, null);
     sim.combat.damage(civ, 1000, null);
     run(sim, Math.max(ROSTER.respawn.army, ROSTER.respawn.citizen) + 1);
-    const back = names.map((n) => sim.entities.list.find((c) => c.alive && c.name === n));
+    // По имени и виду роли: у бойца и горожанина могут совпасть имена.
+    const back = names.map((n, i) => sim.entities.list.find((c) => c.alive && c.name === n && c.role?.kind === kinds[i]));
     expect(back[0]).toBeTruthy();
     expect(back[1]).toBeTruthy();
     expect(zoneKind(sim, back[0]!.x, back[0]!.y)).toBe('rebel_camp');

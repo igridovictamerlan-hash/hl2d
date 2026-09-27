@@ -102,6 +102,10 @@ export class Character {
   loyalty = 0;
   /** Семья (номер в FamilySystem) или -1. */
   family = -1;
+  /** Кого охраняет (охрана и подопечный друг друга не толкают — physics). */
+  guarding: Character | null = null;
+  /** Ведомый патрульной группы ГО — его ведущий (друг другу не помеха). */
+  squadLead: Character | null = null;
   /** Курит (уличная жизнь) — огонёк и дымок у пешки. */
   smoking = false;
 

@@ -8,7 +8,7 @@ import type { AlertCode } from '../systems/WarSystem';
 import { WAR } from '../config/war';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
-import { FACTIONS } from '../config/factions';
+import { FACTIONS, cpHas, cpUnit } from '../config/factions';
 import { poiWorld, cpKit } from '../systems/Population';
 import { WEAPONS, KITS, ITEMS } from '../config/items';
 import { UNDERGROUND, INSURGENCY } from '../config/underground';
@@ -266,7 +266,7 @@ export class PlayerController {
     }
     const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
     // Наблюдатель OBS сначала сканирует тело (найти убийцу), потом можно обыскать.
-    if (corpse && p.faction === 'cp' && p.division === 'jury' && !corpse.scanned) {
+    if (corpse && cpHas(p, 'investigate') && !corpse.scanned) {
       const T = CP_UNITS.obs.scanTime;
       this.task = { kind: 'scan', x: corpse.x, y: corpse.y, left: T, total: T, corpse };
       return this.say('Сканирование тела…', 'world');
@@ -364,7 +364,7 @@ export class PlayerController {
     const desk = poiWorld(ctx, 'nexus_desk');
     if (p.faction === 'cp' && d(desk) < REACH * 1.5) {
       // Выдать недостающее из табельного набора и пополнить патроны; свои вещи не трогаем.
-      for (const [id, qty] of KITS[cpKit(p.division)] ?? []) {
+      for (const [id, qty] of KITS[cpKit(p.rank)] ?? []) {
         if (ITEMS[id].kind === 'weapon' && !p.inventory.has(id)) p.inventory.add(id, 1);
         else if (ITEMS[id].kind === 'medical' && p.inventory.count(id) < qty) p.inventory.add(id, qty - p.inventory.count(id));
       }
@@ -482,7 +482,12 @@ export class PlayerController {
       return this.say('Вы в маскировке: для ГО вы обычный гражданин. Оружие в руках или проверка CID выдадут вас.', 'world');
     }
     if (p.faction !== 'cp') return this.say('Умение (G) есть у ГО и у некоторых профессий (медики, партизан).');
-    if (p.division === 'helix') {
+    // SU.02 в городе (не у раненых) — сканер; иначе — лечение.
+    if (cpHas(p, 'drone') && ctx.map.zoneAtWorld(p.x, p.y)?.kind !== 'checkpoint' && !ctx.scanners.of(p)) {
+      const err = ctx.scanners.deploy(p);
+      if (!err) return this.say(`Сканер запущен: облетает кварталы вокруг вас ${CP_UNITS.scanner.life} с и засекает повстанцев, вооружённых и разыскиваемых.`, 'world');
+    }
+    if (cpHas(p, 'medic')) {
       if (this.healCooldown > 0) return;
       let best: Character | null = null;
       for (const o of ctx.entities.near(p.x, p.y, COMBAT.healRange + 12, near)) {
@@ -493,15 +498,11 @@ export class PlayerController {
       this.healCooldown = COMBAT.healCooldown;
       return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
     }
-    if (p.division === 'tech') {
-      const err = ctx.scanners.deploy(p);
-      return this.say(err ?? `Сканер запущен: облетает кварталы вокруг вас ${CP_UNITS.scanner.life} с и засекает повстанцев, вооружённых и разыскиваемых.`, err ? 'system' : 'world');
-    }
-    if (p.division === 'grid') {
+    if (cpHas(p, 'barrier')) {
       const err = this.hooks.placeBarrier();
       return this.say(err ?? 'Бетонный блок установлен (не больше трёх).', err ? 'system' : 'world');
     }
-    this.say(p.division === 'jury' ? 'OBS: E у тела — сканировать и найти убийцу; проверки CID быстрее (F).' : 'MPF: патруль, проверки CID (F).');
+    this.say(cpUnit(p.rank).desc);
   }
 
   /** F: у ГО — проверка документов у ближайшего, кто перед игроком. */
@@ -535,7 +536,7 @@ export class PlayerController {
       return;
     }
     ctx.law.beginCheck(p, best);
-    this.check = { target: best, until: ctx.law.now + LAW.checkTime * (p.division === 'jury' ? LAW.juryCheckMul : 1) };
+    this.check = { target: best, until: ctx.law.now + LAW.checkTime * (cpHas(p, 'investigate') ? LAW.juryCheckMul : 1) };
   }
 
   private updateCheck(p: Character, ctx: AiContext): void {
