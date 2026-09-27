@@ -33,12 +33,20 @@ export class CrematorBrain implements Brain {
     const C = LABOR.cremator;
     const t = this.target;
     if (t && !combat.corpses.includes(t)) this.target = null;
+    // Тело оцепили уже после выбора — оставить следствию.
+    else if (t && ctx.war.scenes.awaiting(t)) {
+      if (t.cremator === self) t.cremator = null;
+      t.burning = undefined;
+      this.target = null;
+    }
     if (!this.target) {
       // Ближайшее тело в городе, которое никто не сжигает.
       let best: Corpse | null = null;
       let bestD = Infinity;
       for (const c of combat.corpses) {
         if (c.cremator && c.cremator !== self && c.cremator.alive) continue;
+        // Под оцеплением тело не трогают — крематор приходит, когда ленту снимут.
+        if (ctx.war.scenes.awaiting(c)) continue;
         if (ctx.map.levelAt(c.x, c.y) !== 'city' || this.avoid.has(ctx.nav.zone[ctx.nav.nearestWalkable(c.x, c.y, 2)] ?? -1)) continue;
         const d = Math.hypot(c.x - self.x, c.y - self.y);
         if (d < bestD) {

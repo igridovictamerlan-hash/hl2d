@@ -3,7 +3,7 @@ import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
 import type { Corpse } from './CombatSystem';
 import { CRIME } from '../config/crime';
-import { FACTIONS, CP_UNIT, cpHas } from '../config/factions';
+import { FACTIONS, CP_UNIT } from '../config/factions';
 import { WEAPONS } from '../config/items';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { lineOfSight } from '../world/visibility';
@@ -91,7 +91,7 @@ export class CrimeScenes {
 
   /** Отправить следователя SU.01 и офицера (PCU.OFC или SU.INSP). */
   private dispatch(s: CrimeScene): void {
-    const inv = this.nearest(s, (c) => cpHas(c, 'investigate'));
+    const inv = this.nearest(s, (c) => c.rank === CP_UNIT.su1);
     if (inv) {
       s.investigator = inv;
       (inv.brain as CpBrain).assignScene(s, 'investigate');
@@ -113,6 +113,11 @@ export class CrimeScenes {
   /** Тело под оцеплением — обыскать его может только сотрудник Альянса. */
   sealed(corpse: Corpse, who: Character | null = null): boolean {
     if (who && FACTIONS[who.faction].authority) return false;
+    return this.list.some((s) => !s.closed && s.corpse === corpse);
+  }
+
+  /** Тело под оцеплением (крематору ждать, пока его не снимут). */
+  awaiting(corpse: Corpse): boolean {
     return this.list.some((s) => !s.closed && s.corpse === corpse);
   }
 
@@ -145,6 +150,8 @@ export class CrimeScenes {
     for (const s of this.list) {
       if (s.closed) continue;
       const gone = !combat.corpses.includes(s.corpse);
+      // Пока стоит оцепление, тело не исчезает само.
+      if (!gone) s.corpse.until = Math.max(s.corpse.until, combat.now + 5);
       const done = s.investigatedAt >= 0 && this.time - s.investigatedAt >= S.holdAfter;
       if (gone || done || this.time - s.since >= S.maxTime) {
         this.close(s);
@@ -153,7 +160,7 @@ export class CrimeScenes {
       // Погиб или занят другим — прислать замену.
       if (s.investigatedAt < 0 && (!s.investigator?.alive || (s.investigator.brain as CpBrain | null)?.scene !== s)) {
         s.investigator = null;
-        const inv = this.nearest(s, (c) => cpHas(c, 'investigate'));
+        const inv = this.nearest(s, (c) => c.rank === CP_UNIT.su1);
         if (inv) {
           s.investigator = inv;
           (inv.brain as CpBrain).assignScene(s, 'investigate');
