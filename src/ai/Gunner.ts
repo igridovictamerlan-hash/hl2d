@@ -61,8 +61,10 @@ export class Gunner {
     if (range <= 0) return null;
     let best: Character | null = null;
     let bestD = range;
+    // Подпольщик под личиной, которому можно стрелять, сам выбирает цели из Альянса (его пока не узнают).
+    const covert = self.faction === 'rebel' && self.disguised && !this.holdFire;
     for (const o of ctx.entities.near(self.x, self.y, range, near)) {
-      if (!ctx.combat.threat(self, o)) continue;
+      if (!ctx.combat.threat(self, o) && !(covert && o.alive && FACTIONS[o.faction].authority)) continue;
       const d = Math.hypot(o.x - self.x, o.y - self.y);
       if (d < bestD && Gunner.inView(self, o.x, o.y) && canSeeCircle(ctx.map, self.x, self.y, o.x, o.y, o.radius)) {
         bestD = d;

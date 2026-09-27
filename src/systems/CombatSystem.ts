@@ -180,7 +180,7 @@ export class CombatSystem {
     return b.weapon !== null || b.hostile;
   }
 
-  /** Партизан раскрыт: снова виден как повстанец. */
+  /** Подпольщик раскрыт (убил кого-то, арест, допрос): снова виден как повстанец. */
   reveal(c: Character, why: string): void {
     if (!c.disguised) return;
     c.disguised = false;
@@ -225,8 +225,6 @@ export class CombatSystem {
       c.mag = 0;
       return;
     }
-    // Оружие в руках выдаёт партизана.
-    if (c.disguised) this.reveal(c, 'достал оружие');
     const stored = c.mags[id];
     c.mag = stored ?? 0;
     if (stored === undefined) this.loadInstant(c);
@@ -467,7 +465,8 @@ export class CombatSystem {
     target.health -= amount * (COMBAT.armor[target.faction] ?? 1);
     target.lastHurt = this.time;
     target.lastAttacker = attacker;
-    if (attacker && !FACTIONS[attacker.faction].authority && FACTIONS[target.faction].authority && !attacker.hostile) {
+    // Под личиной ранивший остаётся неузнанным — выдаёт только убийство (kill).
+    if (attacker && !attacker.disguised && !FACTIONS[attacker.faction].authority && FACTIONS[target.faction].authority && !attacker.hostile) {
       attacker.hostile = true;
       attacker.law.wanted = true;
       if (attacker.isPlayer) this.bus.emit('log', { text: 'Вы напали на Альянс — ГО будет стрелять без предупреждения.', kind: 'law' });
@@ -495,6 +494,14 @@ export class CombatSystem {
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
     if (c.law.phase !== 'none') this.law.release(c);
+    // Убийство выдаёт подпольщика под личиной: теперь его узнают, а за убитого из Альянса — враг и розыск.
+    if (killer && killer !== c && killer.disguised) {
+      this.reveal(killer, `убили ${c.name}`);
+      if (FACTIONS[c.faction].authority && !FACTIONS[killer.faction].authority) {
+        killer.hostile = true;
+        killer.law.wanted = true;
+      }
+    }
     // Реплики: убийца радуется, свои рядом замечают потерю.
     if (killer && killer !== c) bark(killer, 'kill', this.time, this.rng);
     const side = barkSide(c);

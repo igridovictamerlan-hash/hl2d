@@ -468,11 +468,11 @@ export class PlayerController {
     if (t.kind === 'dress' && t.corpse) {
       if (t.corpse.stripped) return this.say('С тела уже сняли форму.');
       ctx.insurgency.dressAs(p, t.corpse);
-      return this.say(`Вы в форме: ${t.corpse.name}. Для ГО — свой; выстрел или проверка выдадут.`, 'world');
+      return this.say(`Вы в форме: ${t.corpse.name}. Для ГО — свой; выдаст только убийство.`, 'world');
     }
     if (t.kind === 'dressOta') {
       ctx.insurgency.dressAsOta(p);
-      return this.say('Вы в броне OTA. Для ГО — свой; выстрел выдаст.', 'world');
+      return this.say('Вы в броне OTA. Для ГО — свой; выдаст только убийство.', 'world');
     }
     if (t.kind === 'break' && t.cell) {
       const n = ctx.insurgency.jailbreak(p, t.cell);
@@ -550,7 +550,7 @@ export class PlayerController {
       if (p.weapon) return this.say('Уберите оружие (H), чтобы надеть маскировку.');
       if (ctx.combat.now - p.lastHurt < 10 || p.hostile) return this.say('Вас только что видели в бою — маскировка не поможет.');
       ctx.insurgency.giveCover(p);
-      return this.say(`Вы в маскировке: для ГО вы ${p.cover?.faction === 'cwu' ? 'рабочий ГСР' : 'обычный гражданин'}. Оружие в руках выдаст, проверка CID — может.`, 'world');
+      return this.say(`Вы в маскировке: для ГО вы ${p.cover?.faction === 'cwu' ? 'рабочий ГСР' : 'обычный гражданин'}. Выдаст только убийство; проверка CID — может, со стволом в руках ГО остановит.`, 'world');
     }
     if (p.faction !== 'cp') return this.say('Умение (G) есть у ГО и у некоторых профессий (медики, партизан).');
     // SU.02 в городе (не у раненых) — сканер; иначе — лечение.

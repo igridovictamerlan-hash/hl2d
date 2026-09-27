@@ -244,9 +244,8 @@ export class AgentBrain implements Brain {
       }
       const d = Math.hypot(t.x - self.x, t.y - self.y);
       if (city && d < A.shootAt && canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius)) {
-        // Вплотную — ствол наружу (маскировка слетает) и огонь.
+        // Вплотную — ствол наружу и огонь; личину выдаст только убийство (CombatSystem.kill).
         this.travel.stop(this.mover);
-        ctx.insurgency.revealAgent(self, 'напал на ' + t.name);
         const w = ctx.combat.bestWeapon(self, d);
         if (w) ctx.combat.equip(self, w);
         this.gunner.target = t;

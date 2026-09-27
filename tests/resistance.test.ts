@@ -220,4 +220,30 @@ describe('спецагент', () => {
     run(sim, PARTISANS.riot.time + 5);
     expect(people.every((c) => !c.alive || (c.brain as CitizenBrain | null)?.fsm?.current !== 'riot')).toBe(true);
   });
+
+  test('маскировку снимает только убийство: ствол в руках и ранение — нет', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    spawnPopulation(sim.ctx, 10);
+    sim.insurgency.paused = true;
+    const p = sim.insurgency.garrison[0];
+    expect(p.disguised).toBe(true);
+    sim.combat.equip(p, 'rebel_pistol');
+    expect(p.weapon).toBe('rebel_pistol');
+    expect(p.disguised).toBe(true);
+    const cp = sim.entities.list.find((c) => c.faction === 'cp')!;
+    sim.combat.damage(cp, 5, p);
+    expect(p.disguised).toBe(true);
+    expect(p.hostile).toBe(false);
+    expect(sim.combat.isHostile(cp, p)).toBe(false);
+    sim.combat.damage(cp, 9999, p);
+    expect(cp.alive).toBe(false);
+    expect(p.disguised).toBe(false);
+    expect(p.cover).toBeNull();
+    expect(p.hostile).toBe(true);
+    expect(p.law.wanted).toBe(true);
+    // Подполье возвращается долго.
+    expect(ROSTER.respawn.partisan).toBeGreaterThanOrEqual(300);
+    expect(ROSTER.respawn.agent).toBeGreaterThan(ROSTER.respawn.partisan);
+  });
 });
