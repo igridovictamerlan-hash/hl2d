@@ -1,14 +1,14 @@
 /** Параметры ИИ NPC. Время — в секундах, расстояния — в px, если не сказано иное. */
 export const AI = {
   /** Население при старте. citizens меняется параметром ?npcs=. */
-  citizens: 45,
+  citizens: 70,
   population: {
     /**
      * ГО — самая многочисленная вооружённая сила (патрули + часовой на каждом посту обоих дворов
      * обоих КПП + медики, резерв OTA — config/roster.ts), граждан — большинство населения;
      * армия сопротивления — в лагере (config/roster.ts), партизаны в схроне, пара подпольщиков.
      */
-    cpPatrol: 14, cpPerCheckpoint: 5, rebels: 2, admin: 1,
+    cpPatrol: 18, cpPerCheckpoint: 5, rebels: 2, admin: 1,
     /** ГСР по профессиям (config/professions.ts): повара на раздаче, фасовщик, курьер, уборщики, медик. */
     cwuProfessions: ['cook', 'cook', 'packer', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic'] as const,
     /** Доля воров и отбросов среди граждан. */
@@ -21,7 +21,7 @@ export const AI = {
     banditShare: 0.06,
     fugitiveShare: 0.05,
     /** Вортигонты-рабы, убирающие улицы. */
-    vorts: 3,
+    vorts: 5,
   },
 
   /** Сколько запросов A* обрабатывается за один тик (распределение нагрузки). */

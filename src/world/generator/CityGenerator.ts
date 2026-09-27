@@ -81,6 +81,9 @@ export function validateMap(map: GameMap): string[] {
   return out;
 }
 
+/** Символы для зон без своего символа (кварталы — a…h, фиксированные зоны — заглавные). */
+const ZONE_CHAR_POOL = '0123456789ijklmnopqrstuvwxyz!$%&*+-/;<=>?@^_~|';
+
 const shrink = (r: Rect, d: number): Rect => ({ x: r.x + d, y: r.y + d, w: r.w - 2 * d, h: r.h - 2 * d });
 
 function generateAttempt(seed: number, attempt: number): GameMap {
@@ -150,7 +153,10 @@ function generateAttempt(seed: number, attempt: number): GameMap {
 
   // 4. Зоны.
   const zones: Zone[] = [];
-  const addZone = (kind: ZoneKind, name: string, char: string): number => {
+  // Символ зоны в JSON: заданный, а для многочисленных (улицы, общежития) — первый свободный из
+  // ZONE_CHAR_POOL (без заглавных: ими помечены зоны пустоши и канализации, добавляемые позже).
+  const addZone = (kind: ZoneKind, name: string, char: string | null): number => {
+    if (char === null || zones.some((z) => z.char === char)) char = [...ZONE_CHAR_POOL].find((c) => !zones.some((z) => z.char === c)) ?? '?';
     zones.push({ id: zones.length, kind, name, char });
     return zones.length - 1;
   };
@@ -207,7 +213,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   }
   // Улицы-артерии — свои зоны (вид avenue: асфальт, фонари, туда выходят жители).
   arteryRects.forEach((rects, k) => {
-    const z = addZone('avenue', ZONE_NAMES.streets[k % ZONE_NAMES.streets.length], String.fromCharCode(53 + k));
+    const z = addZone('avenue', ZONE_NAMES.streets[k % ZONE_NAMES.streets.length], null);
     for (const r of rects) {
       for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (g.get(x, y) === T.STREET && !hRects.some((h) => x >= h.x && y >= h.y && x < h.x + h.w && y < h.y + h.h)) g.zones[y * W + x] = z;
     }
@@ -249,11 +255,11 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     pois.push({ type: kind, x: rect.x, y: rect.y, w: rect.w, h: rect.h, id });
   };
   streets.dorms.forEach((p, k) => {
-    const z = addZone('residential', `${ZONE_NAMES.dorm} №${k + 1}`, String.fromCharCode(49 + k));
+    const z = addZone('residential', `${ZONE_NAMES.dorm} №${k + 1}`, null);
     stampBuilding(faceTemplate(DORM_TEMPLATE, p.face), p.rect, z, 'dorm', k);
   });
   if (streets.villas.length) {
-    const z = addZone('residential', ZONE_NAMES.villas, 'Z');
+    const z = addZone('residential', ZONE_NAMES.villas, null);
     streets.villas.forEach((p, k) => stampBuilding(faceTemplate(VILLA_TEMPLATE, p.face), p.rect, z, 'villa', k));
   }
 

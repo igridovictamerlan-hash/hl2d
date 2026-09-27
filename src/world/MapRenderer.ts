@@ -37,6 +37,8 @@ export class MapRenderer {
   /** Трубы на крышах (тайлы). */
   private readonly chimney: Uint8Array;
   private readonly noise: Uint32Array;
+  /** Пол помещения: 1 — доска (жилые), 2 — плитка (Нексус, КПЗ, магазин, казённое). */
+  private readonly floor: Uint8Array;
   private xs = new Float64Array(0);
   private ys = new Float64Array(0);
 
@@ -51,6 +53,7 @@ export class MapRenderer {
     this.roofPart = new Uint8Array(n);
     this.chimney = new Uint8Array(n);
     this.noise = new Uint32Array(n);
+    this.floor = new Uint8Array(n);
     const seed = map.seed | 0;
     this.placeChimneys(seed);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.computeTile(x, y);
@@ -131,7 +134,13 @@ export class MapRenderer {
       case T.FLOOR: this.color[i] = tone(P.floor); break;
       case T.STREET: this.color[i] = tone(P.street); break;
       case T.PLAZA: this.color[i] = tone(P.plaza); break;
-      case T.INTERIOR: this.color[i] = tone(P.interior); break;
+      case T.INTERIOR: {
+        const wood = map.zoneAtTile(x, y)?.kind === 'residential';
+        this.floor[i] = wood ? 1 : 2;
+        // Доски одной полосы — один тон (полоса = ряд тайлов), плитка — чуть разная.
+        this.color[i] = wood ? hsl(P.woodFloor.h, P.woodFloor.s, P.woodFloor.l + ((hash2(0, y, seed) & 7) - 3.5) * 0.5 + jit * P.woodFloor.noise) : tone(P.tileFloor);
+        break;
+      }
       case T.COURTYARD: this.color[i] = tone(P.courtyard); break;
       case T.ARCH: this.color[i] = tone(P.arch); break;
       case T.DOOR: this.color[i] = P.doorFrame; break;
@@ -343,9 +352,28 @@ export class MapRenderer {
             ctx.fillRect(x0, y0, line, ch);
             break;
           case T.INTERIOR:
-            ctx.fillStyle = P.interiorLine;
-            ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
-            ctx.fillRect(x0 + ((hv & 1) ? cw >> 2 : (cw * 3) >> 2), y0, line, ch >> 1);
+            if (this.floor[i] === 1) {
+              // Доски вдоль x: две доски на тайл, стыки вразбежку.
+              ctx.fillStyle = P.woodFloorLine;
+              ctx.fillRect(x0, y0, cw, line);
+              ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+              ctx.fillRect(x0 + ((hv & 3) * cw) / 4, y0, line, ch >> 1);
+              ctx.fillRect(x0 + (((hv >> 2) & 3) * cw) / 4, y0 + (ch >> 1), line, ch >> 1);
+              if ((hv & 31) === 5) {
+                ctx.fillStyle = P.woodFloorKnot;
+                ctx.fillRect(x0 + px((hv >> 5) & 11) + px(2), y0 + px((hv >> 9) & 5) + px(2), px(2), px(1.5));
+              }
+            } else {
+              // Плитка: шов по краю тайла, изредка трещина.
+              ctx.fillStyle = P.tileFloorLine;
+              ctx.fillRect(x0, y0, cw, line);
+              ctx.fillRect(x0, y0, line, ch);
+              if ((hv & 63) === 7) {
+                ctx.fillStyle = P.tileFloorCrack;
+                ctx.fillRect(x0 + px(3), y0 + px(5), px(7), line);
+                ctx.fillRect(x0 + px(9), y0 + px(5), line, px(5));
+              }
+            }
             break;
           case T.ARCH:
             ctx.fillStyle = P.archRoof;

@@ -104,7 +104,7 @@ describe('канализация', () => {
 });
 
 describe('сопротивление в городе', () => {
-  test('саботаж: группа из убежища через люк выводит из строя узел, код жёлтый, потом отбой', { timeout: 120_000 }, () => {
+  test('саботаж: группа из убежища через люк выводит из строя узел, код жёлтый, потом отбой', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     // Только убежище, без городских патрулей, боёв на КПП и подкреплений из Цитадели (они идут через город).
     sim.war.command.paused = true;
@@ -120,8 +120,8 @@ describe('сопротивление в городе', () => {
     expect(node.broken).toBe(true);
     expect(sim.war.code).not.toBe('green');
     expect(sim.log.some((l) => l.includes('Код ЖЁЛТЫЙ'))).toBe(true);
-    // Группа уходит под землю, тревога снимается.
-    run(sim, 180, () => sim.war.code === 'green' && op.team.every((c) => !c.alive || (c.brain as UndergroundBrain).mode === 'base'));
+    // Группа уходит под землю (город большой — путь к люку долгий), тревога снимается.
+    run(sim, 360, () => sim.war.code === 'green' && op.team.every((c) => !c.alive || (c.brain as UndergroundBrain).mode === 'base'));
     for (const c of op.team) if (c.alive) expect(sim.map.levelAt(c.x, c.y)).toBe('sewer');
     expect(sim.war.code).toBe('green');
   });
@@ -153,13 +153,13 @@ describe('сопротивление в городе', () => {
 });
 
 describe('жизнь убежища', () => {
-  test('партизаны ходят на вылазки: по тоннелям, на рынок, через люки в город — и возвращаются', { timeout: 120_000 }, () => {
+  test('партизаны ходят на вылазки: по тоннелям, на рынок, через люки в город — и возвращаются', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     sim.insurgency.populate();
     sim.war.command.paused = true;
     let climbs = 0;
     const level = new Map<number, string>();
-    for (let t = 0; t < 240 * 60; t++) {
+    for (let t = 0; t < 360 * 60; t++) {
       sim.step();
       for (const c of sim.insurgency.garrison) {
         const l = sim.map.levelAt(c.x, c.y);

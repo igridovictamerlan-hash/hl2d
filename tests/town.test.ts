@@ -10,6 +10,7 @@ import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { LABOR } from '../src/config/labor';
 import { LOYALTY } from '../src/config/loyalty';
 import { FAMILIES } from '../src/config/families';
+import { furnishMap } from '../src/world/furnish';
 import { isLoyalistUniform } from '../src/entities/EntityRenderer';
 
 type Sim = ReturnType<typeof makeSim>;
@@ -257,5 +258,45 @@ describe('улицы, общежития, особняки, семьи', () => {
     expect(st.stats.notices).toBeGreaterThan(0);
     expect(st.stats.family).toBeGreaterThan(0);
     expect(smoking).toBeGreaterThan(0);
+  });
+});
+
+describe('убранство комнат', () => {
+  test('в каждой жилой комнате кровать по размеру пешки; мебель внутри комнаты и не загораживает дверь', () => {
+    const sim = makeSim(12345);
+    const { map } = sim;
+    const items = furnishMap(map);
+    const ts = map.tileSize;
+    const homes = map.poisOf('home');
+    let beds = 0;
+    let shelves = 0;
+    for (const h of homes) {
+      const R = { x: h.x * ts, y: h.y * ts, w: h.w! * ts, h: h.h! * ts };
+      const inside = items.filter((f) => f.x >= R.x && f.y >= R.y && f.x + f.w <= R.x + R.w && f.y + f.h <= R.y + R.h);
+      const bed = inside.find((f) => f.kind === 'bed' || f.kind === 'bed_double');
+      if (bed) beds++;
+      if (inside.some((f) => f.kind === 'bookshelf')) shelves++;
+      // Двери не загорожены: у каждого проёма свободен проход 2×2 тайла внутри.
+      for (let x = h.x; x < h.x + h.w!; x++) {
+        for (const [ty, dy] of [[h.y - 1, 1], [h.y + h.h!, -1]] as const) {
+          if (map.tileAt(x, ty) !== T.DOOR) continue;
+          const cx = (x + 0.5) * ts;
+          const cy = (ty + 0.5 + dy) * ts;
+          for (const f of inside) expect(cx > f.x && cx < f.x + f.w && cy > f.y && cy < f.y + f.h).toBe(false);
+        }
+      }
+    }
+    // Кровать почти в каждой комнате (кроме совсем крохотных), полки — во многих.
+    expect(beds).toBeGreaterThan(homes.length * 0.8);
+    expect(shelves).toBeGreaterThan(homes.length * 0.4);
+    const bed = items.find((f) => f.kind === 'bed')!;
+    expect(Math.min(bed.w, bed.h)).toBeGreaterThanOrEqual(20);
+    // Пешка ≈ 16×28 px — кровать длиннее пешки.
+    expect(Math.max(bed.w, bed.h)).toBeGreaterThanOrEqual(30);
+    // В Нексусе — койки казармы, столы канцелярии, шкафчики OTA; в общежитиях — стол для карт.
+    expect(items.filter((f) => f.kind === 'cot')).toHaveLength(map.poisOf('bunk').length);
+    expect(items.filter((f) => f.kind === 'desk')).toHaveLength(map.poisOf('clerk_desk').length);
+    expect(items.filter((f) => f.kind === 'card_table')).toHaveLength(map.poisOf('dorm_table').length);
+    console.log(`обстановка: ${items.length} предметов в ${homes.length} комнатах, кроватей ${beds}, полок ${shelves}`);
   });
 });

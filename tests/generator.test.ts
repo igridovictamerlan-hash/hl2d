@@ -42,13 +42,14 @@ describe('генератор переулочного города', () => {
 
   for (const seed of SEEDS) {
     describe(`seed ${seed}`, () => {
-      test('город ~3000×3000 px в кольце пустоши (~3300×3400), справа — канализация; стена по краю', () => {
+      test('город ~4800×3700 px в кольце пустоши (~5100×4100), справа — канализация; стена по краю', () => {
         const map = get(seed);
         const city = map.levelBounds('city');
-        expect(city.w).toBeGreaterThanOrEqual(3200);
-        expect(city.w).toBeLessThanOrEqual(3500);
-        expect(map.worldHeight).toBeGreaterThanOrEqual(3200);
-        expect(map.worldHeight).toBeLessThanOrEqual(3600);
+        // Город 300×230 тайлов (4800×3680 px) + пустошь по бокам и снизу.
+        expect(city.w).toBeGreaterThanOrEqual(5000);
+        expect(city.w).toBeLessThanOrEqual(5300);
+        expect(map.worldHeight).toBeGreaterThanOrEqual(4000);
+        expect(map.worldHeight).toBeLessThanOrEqual(4200);
         // Лагерь сопротивления в пустоши и ровно два люка — в запретной зоне.
         expect(map.poisOf('rebel_camp')).toHaveLength(1);
         expect(map.hatches).toHaveLength(2);

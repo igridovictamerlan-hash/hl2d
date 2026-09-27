@@ -462,6 +462,20 @@ export class RebelBrain implements Brain {
     this.mover.goTo(this.self, this.ctx, anchor);
   }
 
+  /** Проспект и площадь (для штурма Нексуса — идти к нему переулками, а не по открытому). */
+  private openStreets: ReadonlySet<number> | null = null;
+
+  /** В городе к Нексусу — переулками, пока до него дальше WAR.nexus.alleysUntil; у Нексуса — напрямую. */
+  private approachNexus(): void {
+    const { ctx, self } = this;
+    const gate = ctx.map.poisOf('nexus_gate')[0];
+    const ts = ctx.map.tileSize;
+    const far = !gate || Math.hypot((gate.x + 0.5) * ts - self.x, (gate.y + 0.5) * ts - self.y) > WAR.nexus.alleysUntil;
+    this.openStreets ??= zoneIds(ctx, ['avenue', 'plaza']);
+    this.mover.avoidZones = far ? this.openStreets : undefined;
+    this.mover.avoidCost = WAR.nexus.alleyCost;
+  }
+
   update(self: Character, ctx: AiContext, dt: number): void {
     this.self = self;
     this.ctx = ctx;
@@ -608,6 +622,7 @@ export class RebelBrain implements Brain {
         const stalled = this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived' || (this.mover.status === 'idle' && !(fighting && this.gunner.target));
         if (ctx.war.cityPush && (this.stageSpot || stalled)) {
           this.stageSpot = false;
+          this.approachNexus();
           this.go(randomAnchorInZone(ctx, 'nexus'));
         } else if (stalled) {
           // Цель — за внутренними воротами, в город.
@@ -712,6 +727,7 @@ export class RebelBrain implements Brain {
               best = a;
             }
           }
+          this.approachNexus();
           this.go(best);
         }
         this.phaseLeft -= dt;

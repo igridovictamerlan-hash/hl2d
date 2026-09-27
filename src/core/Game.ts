@@ -42,6 +42,8 @@ import { RosterSystem } from '../systems/Roster';
 import { ElectionSystem } from '../systems/ElectionSystem';
 import { ROSTER } from '../config/roster';
 import { FamilySystem } from '../systems/Families';
+import { furnishMap, type Furniture } from '../world/furnish';
+import { drawFurnitureList } from '../world/FurnitureRenderer';
 import { StreetLifeSystem } from '../systems/StreetLife';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
@@ -88,7 +90,9 @@ export class Game {
   private ai!: AiContext;
   private mapRenderer!: MapRenderer;
   /** Мебель (дома, казарма, канцелярия, комната OTA) — точки интереса карты. */
-  private furniture: Poi[] = [];
+  /** Деревья садов (POI) и обстановка комнат (furnishMap). */
+  private trees: Poi[] = [];
+  private furnishings: Furniture[] = [];
   private readonly ctx: CanvasRenderingContext2D;
   private readonly entityRenderer = new EntityRenderer();
   private readonly fog = new FogRenderer();
@@ -182,7 +186,8 @@ export class Game {
     this.map = map;
     this.nav = new NavGrid(map);
     this.mapRenderer = new MapRenderer(map);
-    this.furniture = map.pois.filter((p) => p.type === 'home' || p.type === 'bunk' || p.type === 'clerk_desk' || p.type === 'ota_spot' || p.type === 'dorm_table' || p.type === 'villa_living' || p.type === 'tree');
+    this.trees = map.pois.filter((p) => p.type === 'tree');
+    this.furnishings = furnishMap(map);
     this.rng = new Rng(map.seed ^ 0x51f15e);
     this.doors = new DoorSystem(map, this.nav);
     this.law = new LawSystem(map, this.nav, this.doors, this.entities, this.bus, this.rng);
@@ -649,7 +654,8 @@ export class Game {
     this.drawTerminal(v);
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
-    this.effects.drawFurniture(ctx, v, this.furniture, this.map.tileSize);
+    drawFurnitureList(ctx, v, this.furnishings);
+    this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards);
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);

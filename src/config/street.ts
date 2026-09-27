@@ -26,7 +26,7 @@ export const STREET = {
   },
   /** Бочки с огнём во дворах и переулках: у каждой slots мест по кругу radius. */
   barrel: {
-    count: 9,
+    count: 15,
     minSpacing: 380,
     slots: 5,
     ringRadius: 30,
@@ -41,7 +41,7 @@ export const STREET = {
    * lampEvery px друг к другу, скамейки — benchEvery, скамейка от фонаря — не ближе gap; не ближе
    * avoidGate к постам проходной КПП и avoidDoor тайлов к дверям.
    */
-  avenue: { lampEvery: 128, benchEvery: 150, gap: 48, lampMax: 120, benchMax: 40, avoidGate: 96, avoidDoor: 2 },
+  avenue: { lampEvery: 128, benchEvery: 150, gap: 48, lampMax: 220, benchMax: 70, avoidGate: 96, avoidDoor: 2 },
   /** Скамейка (только при зелёном коде): посидеть time с, с соседом — беседа (реплика раз в lineEvery). */
   bench: {
     time: [25, 60] as const,
@@ -82,7 +82,7 @@ export const STREET = {
   /** Перекур у стены: место в радиусе spot якорей, сколько стоять, реплика раз в lineEvery. */
   smoke: { spot: [2, 7] as const, time: [12, 25] as const, lineEvery: [7, 14] as const },
   /** Доска объявлений у стены улицы: не ближе every px друг к другу, читать time с, искать в seek. */
-  notice: { every: 420, max: 24, time: [6, 12] as const, seek: 1300 },
+  notice: { every: 420, max: 40, time: [6, 12] as const, seek: 1300 },
   /** Зайти домой (в подъезд или квартиру): сколько пробыть, дальность поиска (якоря). */
   home: { time: [15, 45] as const, seek: 60 },
   /** На прогулке иногда остановиться и оглядеться (шанс в секунду, длительность). */

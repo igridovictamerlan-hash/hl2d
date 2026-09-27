@@ -38,7 +38,7 @@ export const ECONOMY = {
   },
   cwuPay: { rationServed: 2, repair: 12, sale: 1, node: 20 },
   /** Узлы Альянса (терминалы на проспектах и площади) — цели саботажа, чинит ГСР. */
-  nodes: { count: 7, spacing: 15 },
+  nodes: { count: 11, spacing: 15 },
   repairs: {
     spots: 12,
     /** Раз в сколько секунд что-то ломается. */

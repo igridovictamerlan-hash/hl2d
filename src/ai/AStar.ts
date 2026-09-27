@@ -3,8 +3,9 @@ import { MinHeap } from '../core/MinHeap';
 import { AI } from '../config/ai';
 
 export interface PathOptions {
-  /** id зон, которых стоит избегать (множитель стоимости AI.avoidZoneCost). */
+  /** id зон, которых стоит избегать (множитель стоимости avoidCost, по умолчанию AI.avoidZoneCost). */
   avoidZones?: ReadonlySet<number>;
+  avoidCost?: number;
   /** Доп. стоимость входа в якорь (например, обход стоящего персонажа). */
   extraCost?: (anchor: number) => number;
   maxNodes?: number;
@@ -46,6 +47,7 @@ export class AStar {
     const gx = goal % w;
     const gy = (goal - gx) / w;
     const avoid = opts.avoidZones;
+    const avoidCost = opts.avoidCost ?? AI.avoidZoneCost;
     const extra = opts.extraCost;
     const maxNodes = opts.maxNodes ?? AI.pathMaxNodes;
     const heur = (i: number) => {
@@ -81,7 +83,7 @@ export class AStar {
         const n = ny * w + nx;
         if (this.closed[n] === gen) continue;
         let step = (k >= 4 ? SQRT2 : 1) * nav.cost[n];
-        if (avoid && n !== goal && avoid.has(nav.zone[n])) step *= AI.avoidZoneCost;
+        if (avoid && n !== goal && avoid.has(nav.zone[n])) step *= avoidCost;
         if (extra) step += extra(n);
         const ng = this.g[cur] + step;
         if (this.seen[n] !== gen || ng < this.g[n]) {

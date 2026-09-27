@@ -110,9 +110,10 @@ export const WAR = {
    * ≥ minAttackers повстанцев и их не меньше защитников (ГО, OTA) — захват копится captureTime с
    * (иначе убывает со скоростью decay). Захвачен — удержать holdToWin с: победа восстания, раунд
    * заново (КПП у Альянса, армия — в лагерь, код зелёный), живым повстанцам-игрокам — reward токенов.
-   * В Нексусе не осталось повстанцев — отбит.
+   * В Нексусе не осталось повстанцев — отбит. Дальше alleysUntil px от ворот Нексуса штурмующие идут
+   * переулками (проспект и площадь для них дороже в A* в alleyCost раз) — не под огнём по открытому проспекту.
    */
-  nexus: { minAttackers: 3, captureTime: 40, decay: 0.5, holdToWin: 45, reward: 150, relocate: [5, 10] as const, waveSize: 8, stageMax: 60, stageHardMax: 120, waveMax: 150 },
+  nexus: { minAttackers: 3, captureTime: 40, decay: 0.5, holdToWin: 45, reward: 150, relocate: [5, 10] as const, waveSize: 8, stageMax: 60, stageHardMax: 120, waveMax: 150, alleysUntil: 420, alleyCost: 3 },
   /** Бой у КПП «идёт», если там стреляли за последние… секунд (маркеры на экране, звук). */
   activeWindow: 3,
 } as const;

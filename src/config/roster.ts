@@ -11,7 +11,7 @@ export const ROSTER = {
   army: [
     ['rebel_leader', 1],
     ['veteran', 4],
-    ['rebel_soldier', 6],
+    ['rebel_soldier', 10],
     ['pyro', 1],
     ['demolitionist', 1],
   ] as [ProfessionId, number][],

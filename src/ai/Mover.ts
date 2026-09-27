@@ -25,6 +25,8 @@ const priority = (c: Character) => (c.isPlayer ? 100 : FACTIONS[c.faction].yield
 export class Mover {
   status: MoveStatus = 'idle';
   avoidZones: ReadonlySet<number> | undefined;
+  /** Множитель стоимости зон avoidZones (undefined — AI.avoidZoneCost). */
+  avoidCost: number | undefined;
   /** Целевой якорь, -1 — нет цели. */
   goal = -1;
   path: Vec2[] = [];
@@ -82,7 +84,7 @@ export class Mover {
 
   private requestPath(self: Character, ctx: AiContext): void {
     this.req?.cancel();
-    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones });
+    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost });
     this.status = 'pending';
     this.path = [];
     this.wp = 0;

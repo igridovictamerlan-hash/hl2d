@@ -29,6 +29,13 @@ export const RENDER = {
     plazaLine: 'rgba(0,0,0,0.22)',
     interior: { h: 28, s: 18, l: 25, noise: 1.5 },
     interiorLine: 'rgba(0,0,0,0.25)',
+    /** Пол жилых комнат — доска (как в RimWorld), казённых помещений — серая плитка. */
+    woodFloor: { h: 30, s: 34, l: 30, noise: 1 },
+    woodFloorLine: 'rgba(40,22,8,0.45)',
+    woodFloorKnot: 'rgba(40,22,8,0.35)',
+    tileFloor: { h: 210, s: 4, l: 38, noise: 1.2 },
+    tileFloorLine: 'rgba(0,0,0,0.28)',
+    tileFloorCrack: 'rgba(0,0,0,0.22)',
     courtyard: { h: 75, s: 12, l: 24, noise: 2.5 },
     arch: { h: 35, s: 6, l: 24, noise: 1.5 },
     archRoof: 'rgba(0,0,0,0.35)',
@@ -106,13 +113,8 @@ export const RENDER = {
     bloodHit: 'rgba(190,20,20,0.95)',
     spark: 'rgba(255,230,160,0.9)',
     /** Мебель: кровать (рама, одеяло, подушка), стол со стульями, стол канцелярии, шкаф OTA. */
-    furniture: {
-      bedFrame: '#3e2a1c', blanket: ['#5b6b7a', '#6d5a48', '#4f6a55', '#7a5a5a'] as readonly string[], pillow: '#d8d2c4',
-      table: '#5a3f28', tableTop: '#6e4e33', chair: '#3b2a1d',
-      desk: '#4a4f57', deskTop: '#5d646e', paper: '#e9e5da', lamp: '#ffd36b',
-      locker: '#2c3440', lockerLine: '#46566a', rifle: '#15191e', outline: 'rgba(0,0,0,0.55)',
-      rug: '#5a2f2a', sofa: '#6b4a5e', tree: ['#2f4a2a', '#3f6236'] as readonly string[], treeShade: 'rgba(0,0,0,0.3)',
-    },
+    /** Деревья в садах особняков (обстановка комнат — config/furniture.ts). */
+    furniture: { tree: ['#2f4a2a', '#3f6236'] as readonly string[], treeShade: 'rgba(0,0,0,0.3)' },
     /** Фонарь на проспекте: столб у стены, кронштейн, плафон и пятно света (спрайт). */
     lamp: { post: '#26292e', arm: '#3a3e45', head: '#f3ecc9', rim: '#15171a', glow: '255,232,170', glowRadius: 72, glowAlpha: 0.3 },
     /** Доска объявлений на стене и дымок курящего. */

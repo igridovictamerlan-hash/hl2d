@@ -93,15 +93,15 @@ export const GENERATOR = {
    * minApart линий друг к другу. Стволы идут и от дальнего края площади.
    */
   streets: {
-    spines: [3, 4] as const, width: 4, branchRow: [2, 3] as const, branchMax: 7, minSpine: 2, minApart: 2,
+    spines: [5, 7] as const, width: 4, branchRow: [2, 3] as const, branchMax: 9, minSpine: 2, minApart: 2,
     /** Сторона без стволов от проспекта: улица начинается через столько линий решётки. */
     detachedRow: [2, 3] as const,
     /** Улочки поменьше от ветвей вглубь кварталов: шанс на узел ветви, длина в рёбрах, ширина 3. */
     lanes: { chance: 0.45, length: [2, 3] as const, width: 3, minApart: 2 },
   },
   /** Общежития и особняки лоялистов — вдоль ветвей артерий (вход на улицу), отступ gap от улицы. */
-  dorms: { count: [3, 4] as const, gap: 2, tries: 120 },
-  villas: { count: [3, 5] as const, gap: 2, tries: 120 },
+  dorms: { count: [5, 6] as const, gap: 2, tries: 200 },
+  villas: { count: [5, 7] as const, gap: 2, tries: 200 },
 
   restricted: {
     size: [38, 44] as const,
@@ -116,12 +116,12 @@ export const GENERATOR = {
     yardSize: [7, 11] as const,
   },
 
-  residential: { quarters: 4 },
+  residential: { quarters: 7 },
 
-  courtyards: { count: 10, size: [5, 8] as const, margin: 2, maxLink: 8, secondLinkChance: 0.35 },
+  courtyards: { count: 18, size: [5, 8] as const, margin: 2, maxLink: 8, secondLinkChance: 0.35 },
   /** Срезки сквозь застройку — только арки (подъезды-коридоры с дверями путали: «непонятные комнаты»). */
-  passages: { count: 20, archChance: 1, maxLength: 9, minDetour: 45 },
-  deadEnds: { count: 22, length: [4, 9] as const },
+  passages: { count: 34, archChance: 1, maxLength: 9, minDetour: 45 },
+  deadEnds: { count: 36, length: [4, 9] as const },
   /** Выходы из штампов (Нексус, КПП) прокапываются наружу не дальше этого. */
   connectorMax: 16,
 
