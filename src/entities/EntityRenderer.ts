@@ -13,6 +13,8 @@ import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
 import { apparentFaction, displayName } from './cover';
+import { CROUCH, DOWNED } from '../config/tactics';
+import type { PawnLook } from './PawnRenderer';
 
 /** Подпись роли: ГО и повстанцы — с рангом, жители — с номером CID. */
 export function roleLabel(c: Character): string {
@@ -75,6 +77,11 @@ export class EntityRenderer {
       const fam = !c.disguised ? this.families?.of(c) ?? null : null;
       const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: fam?.color };
       const reloading = c.reloadUntil > now;
+      // Тяжело ранен — лежит.
+      if (c.downed) {
+        this.downedBody(ctx, c, look, gx, gy, s, ps, now);
+        continue;
+      }
       if (c.isPlayer) {
         // Выделение игрока — эллипс у ног.
         ctx.strokeStyle = PAWN.playerRing;
@@ -98,7 +105,9 @@ export class EntityRenderer {
       const footY = W.foot.y * ps;
       const cs = Math.cos(lean);
       const si = Math.sin(lean);
-      ctx.setTransform(cs, si, -si, cs, gx, gy + footY);
+      // Присел — ниже ростом (сжат по вертикали к ступням).
+      const k = c.crouch ? CROUCH.squash : 1;
+      ctx.setTransform(cs, si, -si * k, cs * k, gx, gy + footY);
       // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
       const x = 0;
       const y = -footY - bob * ps;
@@ -149,6 +158,32 @@ export class EntityRenderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     ctx.globalAlpha = 1;
+  }
+
+  /** Лежащий тяжелораненый: лужа крови, пешка на боку (слабо шевелится), кольцо — сколько осталось. */
+  private downedBody(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number): void {
+    const D = RENDER.entity.downed;
+    ctx.fillStyle = D.blood;
+    ctx.beginPath();
+    ctx.ellipse(gx + 2 * s, gy + 4 * s, 15 * s, 8 * s, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    const a = (lookSeed(c.id) % 2 ? Math.PI / 2 : -Math.PI / 2) + Math.sin(now * 2.5 + c.id) * D.wobble;
+    const cs = Math.cos(a);
+    const si = Math.sin(a);
+    ctx.setTransform(cs, si, -si, cs, gx, gy);
+    drawPawnCached(ctx, look, 0, -2 * ps, ps, 'S');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const left = Math.max(0, Math.min(1, (c.downedUntil - now) / DOWNED.time));
+    const r = D.ringR * s;
+    ctx.lineWidth = Math.max(1.5, 1.8 * s);
+    ctx.strokeStyle = D.ringBack;
+    ctx.beginPath();
+    ctx.arc(gx, gy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = D.ring;
+    ctx.beginPath();
+    ctx.arc(gx, gy, r, -Math.PI / 2, -Math.PI / 2 + left * Math.PI * 2);
+    ctx.stroke();
   }
 
   /**
@@ -204,9 +239,9 @@ export class EntityRenderer {
       ctx.fillText(shown, x, ny);
       ctx.font = scaleFont(E.roleFont, dpr);
       const fam = !c.disguised ? this.families?.of(c) ?? null : null;
-      const role = fam ? `${roleLabel(c)} · ${familyTitle(fam.surname)}` : roleLabel(c);
+      const role = c.downed ? `тяжело ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : fam ? `${roleLabel(c)} · ${familyTitle(fam.surname)}` : roleLabel(c);
       ctx.strokeText(role, x, ny + 10 * dpr);
-      ctx.fillStyle = isLoyalistUniform(c) ? LOYALTY.uniform.label : r ? r.color : f.label;
+      ctx.fillStyle = c.downed ? RENDER.entity.downed.label : isLoyalistUniform(c) ? LOYALTY.uniform.label : r ? r.color : f.label;
       ctx.fillText(role, x, ny + 10 * dpr);
       const top = cy + (PAWN.head.y - PAWN.head.r) * s * PAWN.scale;
       if (c.speech && c.speech.until > now) this.bubble(ctx, c.speech.text, x, top - 6 * dpr, dpr);

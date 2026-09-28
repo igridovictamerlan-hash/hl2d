@@ -139,7 +139,7 @@ export class Mover {
     // Упёрлись в NPC — ненадолго проходим сквозь (раз в окно).
     if (before < M.ghostAfter && this.noProgress >= M.ghostAfter && self.ghost <= 0) {
       // Мешающий — не только впереди: сосед вплотную сбоку может прижимать к стене или завалу.
-      const o = this.blocker ?? this.yieldFrom ?? ctx.entities.near(self.x, self.y, self.radius * 2 + M.ghostContact, near).find((n) => n !== self && n.alive) ?? null;
+      const o = this.blocker ?? this.yieldFrom ?? ctx.entities.near(self.x, self.y, self.radius * 2 + M.ghostContact, near).find((n) => n !== self && n.alive && !n.downed) ?? null;
       if (o && !o.isPlayer) self.ghost = M.ghostTime;
     }
     if (this.noProgress < M.giveUpAfter) return false;
@@ -224,7 +224,8 @@ export class Mover {
     let ax = 0;
     let ay = 0;
     for (const o of ctx.entities.near(self.x, self.y, self.radius * 2 + M.avoidRange, near)) {
-      if (o === self || !o.alive || linked(self, o)) continue;
+      // Лежащий раненый не мешает: через него переступают.
+      if (o === self || !o.alive || o.downed || linked(self, o)) continue;
       const ox = o.x - self.x;
       const oy = o.y - self.y;
       const d = Math.hypot(ox, oy);
@@ -248,7 +249,8 @@ export class Mover {
     let best: Character | null = null;
     let bestD = Infinity;
     for (const o of ctx.entities.near(self.x, self.y, self.radius * 2 + 10, near)) {
-      if (o === self || !o.alive || linked(self, o)) continue;
+      // Лежащий раненый не мешает: через него переступают.
+      if (o === self || !o.alive || o.downed || linked(self, o)) continue;
       const ox = o.x - self.x;
       const oy = o.y - self.y;
       const d = Math.hypot(ox, oy);
@@ -268,7 +270,8 @@ export class Mover {
    */
   private findContact(self: Character, dx: number, dy: number, ctx: AiContext): Character | null {
     for (const o of ctx.entities.near(self.x, self.y, self.radius * 2 + 4, near)) {
-      if (o === self || !o.alive || linked(self, o)) continue;
+      // Лежащий раненый не мешает: через него переступают.
+      if (o === self || !o.alive || o.downed || linked(self, o)) continue;
       const ox = o.x - self.x;
       const oy = o.y - self.y;
       const d = Math.hypot(ox, oy);

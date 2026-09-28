@@ -60,4 +60,9 @@ export const AUDIO = {
   hitRange: 520,
   flesh: { freq: 180, dur: 0.09, gain: 0.55 },
   ricochet: { freq: 3200, dur: 0.12, gain: 0.12, chance: 0.35 },
+  /**
+   * Пуля пролетела рядом с игроком: сверхзвуковой щелчок (crack, высокие частоты, crackDur с) и
+   * короткий свист (whistle Гц, падает за dur с); громче, чем ближе прошла (power — 0..1).
+   */
+  whiz: { crack: 0.9, crackDur: 0.012, whistle: 2600, dur: 0.16, gain: 0.38 },
 } as const;

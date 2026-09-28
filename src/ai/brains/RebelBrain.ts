@@ -15,8 +15,12 @@ import { COMMAND } from '../../config/roster';
 import { poiWorld } from '../../systems/Population';
 import type { Vec2 } from '../../core/math';
 import type { Front } from '../../systems/WarSystem';
+import { Tactician, followColumn, watchSector } from '../Tactics';
+import { TACTICS, SUPPRESS } from '../../config/tactics';
 
 const nearRebels: Character[] = [];
+/** У КПП укрытия ищем только на пустоши перед ним и в самом КПП (не на тропе за скалами). */
+const FRONT_ZONES: ReadonlySet<string> = new Set(['outlands', 'checkpoint']);
 
 export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 'storm' | 'retreat' | 'capture' | 'hold';
 
@@ -59,9 +63,11 @@ export class RebelBrain implements Brain {
   private coverLeft = 0;
   private shooting = false;
   private phaseLeft = 0;
-  /** Капт: маршрут во внутренний двор (точки шорта или лонга) и для какой точки он выбран. */
+  /** Капт: маршрут во внутренний двор (точки шорта или лонга), вход в проход и для какой точки он выбран. */
   private route: number[] = [];
   private routeFor = -1;
+  private entry = -1;
+  private stackReady = 0;
   /** Идёт через лонг (для отладки и тестов). */
   viaLong = false;
   /** Звено штурма (-1 — без звена) и его полоса двора. */
@@ -75,6 +81,16 @@ export class RebelBrain implements Brain {
   private patient: Character | null = null;
   private healCooldown = 0;
   private medicScan = 0;
+  /** Тактика боя (углы, укрытия, раненые). */
+  readonly tactics = new Tactician();
+  /** Колонна звена: шёл за ведущим в прошлом тике, место в колонне, ведущий, накопление у входа. */
+  private inCol = false;
+  private readonly column = { repath: 0 };
+  private colK = 1;
+  private colLast = false;
+  private colLead: Character | null = null;
+  private colCheck = 0;
+  private stackSince = -1;
 
   constructor(
     private self: Character,
@@ -89,7 +105,41 @@ export class RebelBrain implements Brain {
   }
 
   get stateName(): string {
-    return `${this.mode}${this.gunner.target ? ' · бой' : ''}`;
+    const tac = this.tactics.label;
+    return `${this.mode}${this.inCol ? ' · колонна' : ''}${this.gunner.target ? ' · бой' : ''}${tac ? ` · ${tac}` : ''}`;
+  }
+
+  /** Ведущий звена (идёт первым через проход, остальные — колонной за ним). */
+  get stacking(): boolean {
+    return this.stackSince >= 0;
+  }
+
+  /** Звено идёт колонной: ведущий накапливает звено у входа в проход или ведёт его по проходу. */
+  get inColumn(): boolean {
+    return this.mode === 'capture' && (this.stacking || (this.routeStarted && this.route.length > 0));
+  }
+
+  /** Ведущий звена на этом фронте (глава, если он NPC и в звене, иначе младший по номеру) и своё место за ним. */
+  private pointman(f: Front): Character | null {
+    const now = this.ctx.combat.now;
+    if (now < this.colCheck) return this.colLead;
+    this.colCheck = now + 0.5;
+    this.colLead = null;
+    if (this.team < 0) return null;
+    const leader = this.ctx.war.command.leader;
+    const team: Character[] = [];
+    for (const r of f.squad) {
+      const b = r.brain;
+      if (!r.fit || !(b instanceof RebelBrain) || b.mode !== 'capture' || b.team !== this.team) continue;
+      team.push(r);
+    }
+    if (team.length < 2) return null;
+    team.sort((a, b) => (a === leader ? -1 : b === leader ? 1 : a.id - b.id));
+    this.colLead = team[0];
+    const k = team.indexOf(this.self);
+    this.colK = Math.max(1, k);
+    this.colLast = k === team.length - 1;
+    return this.colLead;
   }
 
   /** Спецотряд HYDRA: держится рядом с главой. */
@@ -215,6 +265,18 @@ export class RebelBrain implements Brain {
     }
     const k = Math.min(n - 1, Math.floor(t * (n - 1)));
     return floor[k];
+  }
+
+  /** Звено выстроилось за ведущим (каждый не дальше своего места в колонне). */
+  private teamStacked(f: Front): boolean {
+    const S = TACTICS.stack;
+    const team: Character[] = [];
+    for (const r of f.squad) {
+      const b = r.brain;
+      if (r !== this.self && r.fit && b instanceof RebelBrain && b.mode === 'capture' && b.team === this.team) team.push(r);
+    }
+    team.sort((a, b) => a.id - b.id);
+    return team.every((r, i) => Math.hypot(r.x - this.self.x, r.y - this.self.y) <= (i + 1) * S.gap + S.near * 1.5);
   }
 
   /** Куда уже идут другие штурмующие этого фронта (их укрытия заняты). */
@@ -505,6 +567,18 @@ export class RebelBrain implements Brain {
       if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
       return;
     }
+    // Свой тяжелораненый рядом — оттащить из-под огня и поднять.
+    if (this.mode !== 'retreat' && this.mode !== 'infiltrate' && this.tactics.rescue(self, ctx, this.gunner, this.mover, dt)) {
+      this.mover.update(self, ctx, dt);
+      if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
+      return;
+    }
+    // Бой кончился — укрытие больше не держим.
+    if (!fighting && this.tactics.mode !== 'none') {
+      this.tactics.reset(self);
+      this.gunner.memory = 3;
+    }
+    const covered = this.tactics.mode !== 'none';
     // Клич главы: бойцы рядом бегут за ним (стреляя на ходу) и вместе идут на штурм.
     const lead = ctx.war.command.rallyFor(self);
     const leadBrain = lead && !lead.isPlayer && lead.brain instanceof RebelBrain && lead.brain.mode === 'capture' ? lead.brain : null;
@@ -571,26 +645,30 @@ export class RebelBrain implements Brain {
           if (fighting && this.gunner.target) this.mover.stop();
           break;
         }
-        if (this.goal < 0 || this.mover.status === 'failed') this.go(this.pickGather(f));
-        // Заметили — отстреливается с места, но вперёд не лезет.
-        if (fighting && this.gunner.target) this.mover.stop();
-        else if (this.mover.status === 'idle' && this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) > 20) this.go(this.goal);
+        if (!covered && (this.goal < 0 || this.mover.status === 'failed')) this.go(this.pickGather(f));
+        // Заметили — отстреливается из укрытия рядом, но вперёд не лезет.
+        if (fighting && this.gunner.target) {
+          const home = this.goal >= 0 ? { x: ctx.nav.worldX(this.goal), y: ctx.nav.worldY(this.goal) } : null;
+          if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt, home, TACTICS.leash * 0.6, FRONT_ZONES)) this.mover.stop();
+        } else if (this.mover.status === 'idle' && this.goal >= 0 && Math.hypot(ctx.nav.worldX(this.goal) - self.x, ctx.nav.worldY(this.goal) - self.y) > 20) this.go(this.goal);
         else if (this.mover.status === 'arrived') this.mover.stop();
         break;
       }
       case 'raid': {
         if (!f) break;
-        // Позиция: пустошь, с видом на внешние ворота.
-        if (this.goal < 0 || this.relocate <= 0 || this.mover.status === 'failed') {
+        // Позиция: пустошь, с видом на внешние ворота (в укрытии боя — не дёргаться).
+        if (!covered && (this.goal < 0 || this.relocate <= 0 || this.mover.status === 'failed')) {
           this.relocate = ctx.rng.range(WAR.relocateEvery[0], WAR.relocateEvery[1]);
           const pick = this.pickPosition(f);
           if (pick >= 0) this.go(pick);
         }
-        // Часовых не видно — огонь на подавление по постам (перестрелка не затихает).
-        if (!this.gunner.target && this.mover.status !== 'moving') this.suppress(f, dt);
-        // Стреляя — стоит на месте.
-        if (fighting && this.gunner.target) this.mover.stop();
-        else if (this.mover.status === 'idle' && this.goal >= 0) this.go(this.goal);
+        // Часовых не видно (или цель скрылась) — огонь на подавление по постам (перестрелка не затихает).
+        if ((!this.gunner.target || !self.aiming) && this.mover.status !== 'moving') this.suppress(f, dt);
+        // Стреляя — из укрытия рядом с позицией (угол, завал), иначе стоит.
+        if (fighting && this.gunner.target) {
+          const home = this.goal >= 0 ? { x: ctx.nav.worldX(this.goal), y: ctx.nav.worldY(this.goal) } : null;
+          if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt, home, TACTICS.leash, FRONT_ZONES)) this.mover.stop();
+        } else if (this.mover.status === 'idle' && this.goal >= 0) this.go(this.goal);
         break;
       }
       case 'assault': {
@@ -661,13 +739,50 @@ export class RebelBrain implements Brain {
             return ctx.rng.pick(free.length ? free : part);
           };
           this.route = via.length ? [pickOn(0.35, 0.65), pickOn(0.8, 1)] : [];
+          this.entry = via.length ? via[Math.min(via.length - 1, 1)] : -1;
           this.routeStarted = withLeader ? lb.routeStarted : false;
+          this.stackSince = -1;
+          this.inCol = false;
           this.goal = -1;
         }
-        // В проход звено входит в свой такт переката; пока — стоит и прикрывает.
+        // Колонна: звено идёт через проход след в след за ведущим, каждый смотрит в свой сектор.
+        const lead = this.route.length ? this.pointman(f) : null;
+        const pb = lead && lead !== self && lead.brain instanceof RebelBrain ? lead.brain : null;
+        if (pb && pb.inColumn) {
+          this.inCol = true;
+          followColumn(self, ctx, this.mover, lead!, this.colK, dt, this.column);
+          break;
+        }
+        if (this.inCol) {
+          // Ведущий прошёл проход — дальше каждый своей полосой двора, без своего маршрута.
+          this.inCol = false;
+          this.route = [];
+          this.routeStarted = true;
+          this.goal = -1;
+        }
+        // В проход звено входит в свой такт переката; пока — стоит и прикрывает (огонь на подавление).
         if (this.route.length && !this.routeStarted) {
-          if (!this.boundTurn(f) && !(withLeader && lb.routeStarted)) {
+          const now = ctx.combat.now;
+          if (lead === self && this.entry >= 0) {
+            // Ведущий: встать у входа, подождать, пока звено выстроится за спиной, — и вперёд.
+            if (this.stackSince < 0) {
+              this.stackSince = now;
+              this.stackReady = now + ctx.rng.range(TACTICS.stack.stackWait[0], TACTICS.stack.stackWait[1]);
+              this.go(this.entry);
+            }
+            const atEntry = Math.hypot(ctx.nav.worldX(this.entry) - self.x, ctx.nav.worldY(this.entry) - self.y) < 18;
+            const ready = now >= this.stackReady && (this.teamStacked(f) || now - this.stackSince > TACTICS.stack.stackMax);
+            if (!atEntry || !ready || (!this.boundTurn(f) && !(withLeader && lb.routeStarted))) {
+              if (atEntry) this.mover.stop();
+              else if (this.mover.status === 'idle' || this.mover.status === 'failed') this.go(this.entry);
+              if (!(fighting && this.gunner.target) && atEntry) this.suppress(f, dt);
+              break;
+            }
+            this.stackSince = -1;
+            self.say(ctx.rng.pick(['Заходим! За мной!', 'Пошли, пошли!', 'Колонной — вперёд!']), now, 1.6);
+          } else if (!this.boundTurn(f) && !(withLeader && lb.routeStarted)) {
             if (this.mover.status !== 'moving' || (fighting && this.gunner.target)) this.mover.stop();
+            if (!(fighting && this.gunner.target) && this.mover.status !== 'moving') this.suppress(f, dt);
             break;
           }
           this.routeStarted = true;
@@ -685,7 +800,10 @@ export class RebelBrain implements Brain {
           this.go(target());
         } else if (arrived) {
           this.mover.stop();
-          this.coverLeft -= dt;
+          // Прижали огнём — из укрытия не высовывается, но огрызается и давит огнём в ответ.
+          const pinned = self.suppress >= SUPPRESS.pinned;
+          this.coverLeft -= pinned ? 0 : dt;
+          if (!(fighting && this.gunner.target)) this.suppress(f, dt);
           if (this.coverLeft <= 0 && this.advance < 1 && this.boundTurn(f)) {
             this.advance = Math.min(1, this.advance + C.advanceStep);
             this.coverLeft = ctx.rng.range(C.coverWait[0], C.coverWait[1]);
@@ -697,7 +815,7 @@ export class RebelBrain implements Brain {
         this.phaseLeft -= dt;
         if (fighting && this.gunner.target) {
           if (this.phaseLeft <= 0) {
-            this.shooting = !this.shooting;
+            this.shooting = !this.shooting || self.suppress >= SUPPRESS.pinned;
             this.phaseLeft = this.shooting ? ctx.rng.range(C.shootStop[0], C.shootStop[1]) : ctx.rng.range(C.dash[0], C.dash[1]);
             if (!this.shooting) bark(self, 'advance', ctx.combat.now, ctx.rng);
           }
@@ -710,9 +828,11 @@ export class RebelBrain implements Brain {
       case 'hold': {
         const p = this.holdPost;
         if (!p) break;
-        if (this.goal < 0 || this.mover.status === 'failed') this.go(ctx.nav.nearestWalkable(p.x, p.y, 3));
-        if (fighting && this.gunner.target) this.mover.stop();
-        else if (this.mover.status === 'idle' && Math.hypot(p.x - self.x, p.y - self.y) > 20) this.go(this.goal);
+        if (!covered && (this.goal < 0 || this.mover.status === 'failed')) this.go(ctx.nav.nearestWalkable(p.x, p.y, 3));
+        // Держит пост: бой — из укрытия у поста.
+        if (fighting && this.gunner.target) {
+          if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt, p, TACTICS.postLeash)) this.mover.stop();
+        } else if (this.mover.status === 'idle' && Math.hypot(p.x - self.x, p.y - self.y) > 20) this.go(this.goal);
         break;
       }
       case 'storm': {
@@ -720,6 +840,11 @@ export class RebelBrain implements Brain {
         const N = WAR.nexus;
         const C = WAR.capture;
         const inside = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'nexus';
+        // В Нексусе — бой из-за углов коридоров, а не посреди зала.
+        if (inside && fighting && this.gunner.target && this.tactics.fight(self, ctx, this.gunner, this.mover, dt, null, TACTICS.leash)) {
+          this.goal = -1;
+          break;
+        }
         if (this.goal < 0 || this.mover.status === 'failed' || (this.mover.status === 'arrived' && (!inside || this.relocate <= 0))) {
           this.relocate = ctx.rng.range(N.relocate[0], N.relocate[1]);
           // Из нескольких точек Нексуса — где меньше своих (не толпой).
@@ -758,7 +883,7 @@ export class RebelBrain implements Brain {
       }
       case 'infiltrate': {
         if (fighting && this.gunner.target && self.health > self.maxHealth * 0.5) {
-          this.mover.stop();
+          if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt, null, TACTICS.leash)) this.mover.stop();
           this.goal = -1;
           break;
         }
@@ -805,6 +930,12 @@ export class RebelBrain implements Brain {
     }
     this.mover.update(self, ctx, dt);
     if (this.gunner.look(self, ctx, dt)) return;
+    if (this.tactics.face(self, dt)) return;
+    // В колонне на месте — каждый смотрит в свой сектор.
+    if (this.inCol && this.colLead && self.moveSpeed < 8) {
+      watchSector(self, this.colLead, this.colK, this.colLast, dt);
+      return;
+    }
     // На позиции смотрит на КПП (глаз на спине нет — иначе часовых не заметить).
     if ((this.mode === 'raid' || this.mode === 'gather') && f && self.moveSpeed < 8) {
       const post = f.posts[0] ?? f.outerGate;

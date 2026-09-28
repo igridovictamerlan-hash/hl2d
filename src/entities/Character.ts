@@ -170,6 +170,26 @@ export class Character {
   /** Ставит растяжку до этого времени (0 — нет) и из какой гранаты. */
   plantUntil = 0;
   plantKind: GrenadeId = 'grenade';
+  /** Подавление огнём 0..1 (config/tactics SUPPRESS) и когда последний раз прибавилось. */
+  suppress = 0;
+  suppressAt = -1e9;
+  /** Присел (C у игрока; NPC — сам, когда в бою стоит на месте). */
+  crouch = false;
+  /** Когда последний раз стрелял (присевшего за блоком снова видно). */
+  lastFired = -1e9;
+  /** NPC ведёт бой до этого времени (Gunner): стоит — садится. */
+  engagedUntil = -1e9;
+  /** Тяжело ранен: лежит до этого времени (0 — нет), потом смерть (config/tactics DOWNED). */
+  downedUntil = 0;
+  /** Когда упал (пули, выпущенные раньше, уходят поверх падающего). */
+  downedAt = -1e9;
+  /** Поднимает (или стабилизирует для ареста — reviveArrest) лежащего до этого времени (0 — нет). */
+  reviveUntil = 0;
+  reviving: Character | null = null;
+  reviveArrest = false;
+  /** Тащит лежащего / кто тащит его. */
+  dragging: Character | null = null;
+  draggedBy: Character | null = null;
   /** Последнее ранение: зона и время (для HUD игрока). */
   lastZone: 'head' | 'torso' | 'arm' | 'leg' | 'blast' | null = null;
   /** Оглушён (дубинкой) до этого времени. */
@@ -189,6 +209,16 @@ export class Character {
   role: RoleSpec | null = null;
   /** До какого времени в панике (бег от стрельбы — не нарушение). */
   panicUntil = 0;
+
+  /** Лежит тяжело раненый (жив, но не боец). */
+  get downed(): boolean {
+    return this.downedUntil > 0;
+  }
+
+  /** Боеспособен: жив и на ногах. */
+  get fit(): boolean {
+    return this.alive && this.downedUntil === 0;
+  }
 
   /** Экипировать оружие, если оно есть в инвентаре; null — убрать. */
   equip(id: WeaponId | null): boolean {

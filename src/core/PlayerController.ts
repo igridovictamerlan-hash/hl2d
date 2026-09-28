@@ -15,9 +15,10 @@ import { UNDERGROUND, INSURGENCY, PARTISANS } from '../config/underground';
 import type { Cell } from '../systems/LawSystem';
 import { ECONOMY } from '../config/economy';
 import { COMBAT, HITS, MINE } from '../config/combat';
+import { DOWNED } from '../config/tactics';
 import type { RepairSpot } from '../systems/EconomySystem';
 import type { TrashPile } from '../systems/LaborSystem';
-import { GRENADE_KINDS, type Corpse } from '../systems/CombatSystem';
+import { GRENADE_KINDS, isMedic, type Corpse } from '../systems/CombatSystem';
 import { LABOR } from '../config/labor';
 import { CWU_HQ } from '../config/cwuHq';
 import { CRIME } from '../config/crime';
@@ -88,6 +89,10 @@ export class PlayerController {
     const p = this.playerRef;
     const combat = this.combatRef;
     if (p && combat) {
+      if (p.reviveUntil > combat.now) {
+        const total = p.reviveArrest ? DOWNED.cuffTime : DOWNED.reviveTime * (isMedic(p) ? DOWNED.medicMul : 1);
+        return 1 - (p.reviveUntil - combat.now) / total;
+      }
       if (p.plantUntil > combat.now) return 1 - (p.plantUntil - combat.now) / MINE.plantTime;
       if (p.bandageUntil > combat.now) return 1 - (p.bandageUntil - combat.now) / HITS.bandageTime;
     }
@@ -112,6 +117,25 @@ export class PlayerController {
     this.riotCooldown -= dt;
     if (!p.alive) {
       p.wantX = p.wantY = 0;
+      return;
+    }
+    // Тяжело ранен: ползёт (скорость режет бой), ничего не может; E — не ждать помощи.
+    if (p.downed) {
+      this.reset();
+      p.aiming = false;
+      p.crouch = false;
+      let mx = (i.isDown('right') ? 1 : 0) - (i.isDown('left') ? 1 : 0);
+      let my = (i.isDown('down') ? 1 : 0) - (i.isDown('up') ? 1 : 0);
+      const len = Math.hypot(mx, my);
+      if (len > 0) {
+        mx /= len;
+        my /= len;
+      }
+      p.wantX = mx * CHARACTER.walkSpeed;
+      p.wantY = my * CHARACTER.walkSpeed;
+      if (len > 0) p.facing = Math.atan2(my, mx);
+      if (i.wasPressed('interact')) ctx.combat.kill(p, p.lastAttacker, 'не дождался помощи');
+      if (i.wasPressed('inventory')) this.hooks.toggleInventory();
       return;
     }
     // Люк: стоит на месте, по истечении — у парного люка на другом уровне.
@@ -141,7 +165,11 @@ export class PlayerController {
       // Прицеливание (ПКМ): медленный шаг, бег невозможен; конус сужается.
       const aw = p.weapon ? WEAPONS[p.weapon] : null;
       p.aiming = i.aimDown && !!aw && aw.mode !== 'melee';
-      const speed = p.aiming ? CHARACTER.walkSpeed * aw!.aimMove : i.isDown('run') ? CHARACTER.runSpeed : CHARACTER.walkSpeed;
+      // C — присесть; побежал — встал.
+      if (i.wasPressed('crouch')) p.crouch = !p.crouch;
+      const run = i.isDown('run') && len > 0 && !p.aiming;
+      if (run) p.crouch = false;
+      const speed = p.aiming ? CHARACTER.walkSpeed * aw!.aimMove : run ? CHARACTER.runSpeed : CHARACTER.walkSpeed;
       p.wantX = mx * speed;
       p.wantY = my * speed;
       if (i.mouseInside) {
@@ -195,7 +223,8 @@ export class PlayerController {
       else this.say(p.bleed > 0 ? 'Перевязываетесь…' : 'Обрабатываете раны…');
     }
     if (i.wasPressed('reload') && w?.ammo && !ctx.combat.reload(p) && ctx.combat.reserveAmmo(p) <= 0 && p.mag < w.magazine) this.say('Нет запасных патронов.');
-    if (i.wasPressed('interact')) this.interact(p, ctx);
+    if (i.wasPressed('drag')) this.drag(p, ctx);
+    if (i.wasPressed('interact') && !this.rescue(p, ctx)) this.interact(p, ctx);
     if (i.wasPressed('roleAction')) this.roleAction(p, ctx);
     if (i.wasPressed('special')) this.special(p, ctx);
     if (this.sabotaging) {
@@ -246,6 +275,56 @@ export class PlayerController {
         if (o !== p && o.law.handler === p && o.law.phase === 'fleeing') ctx.law.arrest(p, o, 'resisting');
       }
     }
+  }
+
+  /** Ближайший лежащий тяжелораненый в досягаемости (кроме себя) или null. */
+  private downedNear(p: Character, ctx: AiContext): Character | null {
+    let best: Character | null = null;
+    let bestD: number = DOWNED.reach + p.radius;
+    for (const o of ctx.entities.near(p.x, p.y, bestD, near)) {
+      const d = Math.hypot(o.x - p.x, o.y - p.y);
+      if (o !== p && o.alive && o.downed && d < bestD) {
+        bestD = d;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * E у лежащего: своего — поднять (нужен бинт или аптечка), врага Альянса (игрок-ГО) —
+   * стабилизировать и задержать. true — действие начато или объяснено (дальше E не идёт).
+   */
+  private rescue(p: Character, ctx: AiContext): boolean {
+    const t = this.downedNear(p, ctx);
+    if (!t) return false;
+    const combat = ctx.combat;
+    if (p.reviving === t) return true;
+    if (combat.canRevive(p, t, true)) {
+      combat.startRevive(p, t, true);
+      this.say(`Стабилизируете ${t.name} для задержания…`);
+      return true;
+    }
+    if (combat.isHostile(p, t)) return false;
+    if (!combat.hasDressing(p)) {
+      this.say('Чтобы поднять раненого, нужен бинт или аптечка. X — оттащить.');
+      return true;
+    }
+    if (combat.startRevive(p, t)) this.say(`Поднимаете ${t.name}… не отходите.`);
+    else this.say('Его уже поднимают.');
+    return true;
+  }
+
+  /** X: тащить ближайшего лежащего / отпустить. */
+  private drag(p: Character, ctx: AiContext): void {
+    if (p.dragging) {
+      ctx.combat.stopDrag(p);
+      return this.say('Отпустили раненого.');
+    }
+    const t = this.downedNear(p, ctx);
+    if (!t) return this.say('Рядом нет раненых, которых можно тащить.');
+    if (ctx.combat.startDrag(p, t)) this.say(`Тащите ${t.name}. X — отпустить.`);
+    else this.say('Сейчас не получится.');
   }
 
   /** Q: следующее оружие из инвентаря; после последнего — убрать. */

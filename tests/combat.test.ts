@@ -44,7 +44,8 @@ describe('попадания: зоны, броня, кровотечение', (
     sim.combat.applyHit(v, 'usp', 'torso', shooter);
     expect(v.alive).toBe(true);
     sim.combat.applyHit(v, 'usp', 'torso', shooter);
-    expect(v.alive).toBe(false);
+    // Падает тяжелораненым (жив, но не боец).
+    expect(v.fit).toBe(false);
     expect(sim.combat.headshots).toBe(5);
   });
 
@@ -119,7 +120,7 @@ describe('попадания: зоны, броня, кровотечение', (
     expect(cp.alive).toBe(true);
     sim.combat.update(1);
     sim.combat.fire(bandit, cp.x, cp.y);
-    expect(cp.alive).toBe(false);
+    expect(cp.fit).toBe(false);
     // Лицом к лицу два удара не убивают.
     const cp2 = patrolman(sim, p.x, p.y + 60);
     cp2.brain = null;

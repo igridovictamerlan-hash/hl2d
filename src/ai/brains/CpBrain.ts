@@ -19,6 +19,8 @@ import { LAW } from '../../config/law';
 import { VISION } from '../../config/vision';
 import { dist, type Vec2 } from '../../core/math';
 import { Gunner } from '../Gunner';
+import { Tactician, followColumn, watchSector } from '../Tactics';
+import { TACTICS } from '../../config/tactics';
 import { COMBAT } from '../../config/combat';
 import { ALARM } from '../../config/underground';
 import { hasLoyalty, loyaltyTier } from '../../systems/Loyalty';
@@ -122,6 +124,13 @@ export class CpBrain implements Brain {
   formation: FormationSlot | null = null;
   private leaderCache: Character | null = null;
   private leaderCheck = 0;
+  /** Тактика боя (углы, укрытия, раненые), место начала боя, колонна за ведущим. */
+  readonly tactics = new Tactician();
+  fightHome: Vec2 | null = null;
+  readonly column = { repath: 0 };
+  private colIndex = 1;
+  private colLast = true;
+  private colCheck = 0;
 
   constructor(
     public self: Character,
@@ -151,7 +160,8 @@ export class CpBrain implements Brain {
   get stateName(): string {
     const t = this.target ? ` → #${this.target.cid}` : this.gunner.target ? ` → ${this.gunner.target.name}` : '';
     const div = this.self.faction === 'cp' ? `${cpUnit(this.self.rank).short} · ` : '';
-    return `${div}${this.fsm.current}${t}`;
+    const tac = this.tactics.label;
+    return `${div}${this.fsm.current}${tac ? ` · ${tac}` : ''}${t}`;
   }
 
   /**
@@ -246,6 +256,24 @@ export class CpBrain implements Brain {
     if (this.duty === 'squad' && !this.lead && this.leader() && !(this.ctx.war && this.shouldHunt())) return 'follow';
     if (this.duty === 'inspector' || this.duty === 'epu' || this.duty === 'bodyguard' || this.duty === 'officer') return 'duty';
     return this.ctx.war && this.shouldHunt() ? 'hunt' : 'patrol';
+  }
+
+  /** Место в колонне за ведущим (1 — сразу за ним) по номерам ведомых; кэш на секунду. */
+  columnIndex(l: Character): number {
+    const now = this.ctx.law.now;
+    if (now >= this.colCheck) {
+      this.colCheck = now + 1;
+      let k = 1;
+      let n = 0;
+      for (const o of this.ctx.entities.list) {
+        if (!o.alive || o === l || o.squadLead !== l) continue;
+        n++;
+        if (o.id < this.self.id) k++;
+      }
+      this.colIndex = k;
+      this.colLast = k >= n;
+    }
+    return this.colIndex;
   }
 
   /** Ведущий своей патрульной группы (живой), кэш на секунду. */
@@ -349,12 +377,36 @@ export class CpBrain implements Brain {
     if (!engaged && (cur === 'patrol' || cur === 'post' || cur === 'guard') && ctx.rng.chance(BARKS.ambientPerSec * dt)) streetBark(self, ctx);
     if (engaged && this.gunner.target) ctx.war.sighted(this.gunner.target);
     const wounded = self.health < self.maxHealth * COMBAT.woundedFraction;
-    if (wounded && cur !== 'retreat' && cur !== 'escort') this.fsm.change('retreat');
+    if (wounded && cur !== 'retreat' && cur !== 'escort') {
+      // Отходит — кого остановил или проверял, отпускает (не стоять им до его возвращения).
+      const t = this.target;
+      if (t && t.law.handler === self && t.law.phase !== 'cuffed' && t.law.phase !== 'entering' && t.law.phase !== 'jailed') ctx.law.clear(t);
+      this.target = null;
+      this.fsm.change('retreat');
+    }
     else if (engaged && this.gunner.target && CAN_FIGHT.has(cur) && cur !== 'check') {
       // Отпускаем проверяемого — не до него.
       if (this.target && this.target.law.handler === self && this.target.law.phase !== 'cuffed') ctx.law.clear(this.target);
       this.target = null;
       this.fsm.change('fight');
+    }
+    cur = this.fsm.current;
+    // Свой тяжелораненый рядом — оттащить и поднять; лежащий враг в городе — задержать.
+    const free = cur !== 'escort' && cur !== 'check' && cur !== 'approach' && cur !== 'formation' && cur !== 'retreat' && cur !== 'scene' && cur !== 'chase';
+    if (free) {
+      let busy = this.tactics.rescue(self, ctx, this.gunner, this.mover, dt);
+      if (!busy && !this.guardPost && !(engaged && this.gunner.target)) {
+        const r = this.tactics.detain(self, ctx, this.mover, dt);
+        if (r.cuffed) {
+          this.target = r.cuffed;
+          this.fsm.change('escort');
+        } else busy = r.busy;
+      }
+      if (busy) {
+        this.mover.update(self, ctx, dt);
+        if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
+        return;
+      }
     }
     cur = this.fsm.current;
     // Не закончил на месте преступления (отвлёкся на бой, проверку) — назад к оцеплению.
@@ -377,6 +429,12 @@ export class CpBrain implements Brain {
     const now = this.fsm.current;
     // Цель или тревога (ранили, стреляют рядом) перебивают дежурный взгляд.
     if (this.gunner.look(self, ctx, dt)) return;
+    if (this.tactics.face(self, dt)) return;
+    // В колонне на месте — каждый смотрит в свой сектор.
+    if (now === 'follow' && self.moveSpeed < 8 && this.leaderCache) {
+      watchSector(self, this.leaderCache, this.colIndex, this.colLast, dt);
+      return;
+    }
     if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic' && now !== 'formation' && !(now === 'duty' && this.dutyArrived) && !(now === 'scene' && self.moveSpeed < 8)) faceMovement(self, ctx, dt);
   }
 
@@ -723,20 +781,31 @@ const ESCORT: State<CpBrain> = {
   },
 };
 
-/** Бой: стоит (часовой — на посту) и стреляет, пока есть цель. */
+/**
+ * Бой: из укрытия (ai/Tactics — за углом выглядывает на очередь, за блоком сидит), не отходя
+ * далеко от поста или места, где начался бой; укрытия нет — стоит (часовой — на посту) и стреляет.
+ */
 const FIGHT: State<CpBrain> = {
   name: 'fight',
   enter(b) {
     b.mover.stop();
+    b.fightHome = { x: b.self.x, y: b.self.y };
   },
-  update(b) {
+  update(b, dt) {
     if (!b.gunner.target) return b.idleState;
-    // Отошёл от поста — вернуться на пост (там укрытие).
     const gp = b.guardPost ? postOf(b) : null;
-    if (gp && dist(b.self.x, b.self.y, gp.x, gp.y) > 24 && b.mover.status !== 'moving' && b.mover.status !== 'pending') {
-      const a = b.ctx.nav.nearestWalkable(gp.x, gp.y, 3);
-      if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
-    }
+    if (b.tactics.fight(b.self, b.ctx, b.gunner, b.mover, dt, gp ?? b.fightHome, gp ? TACTICS.postLeash : TACTICS.leash)) return;
+    // Отошёл от поста — вернуться на пост (там укрытие).
+    if (gp && dist(b.self.x, b.self.y, gp.x, gp.y) > 24) {
+      if (b.mover.status !== 'moving' && b.mover.status !== 'pending') {
+        const a = b.ctx.nav.nearestWalkable(gp.x, gp.y, 3);
+        if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+      }
+    } else b.mover.stop();
+  },
+  exit(b) {
+    b.tactics.reset(b.self);
+    b.gunner.memory = 3;
   },
 };
 
@@ -974,16 +1043,8 @@ const FOLLOW: State<CpBrain> = {
     const l = b.leader();
     if (!l) return 'patrol';
     if (b.ctx.war && b.shouldHunt()) return 'hunt';
-    const F = SECURITY.follow;
-    const d = Math.hypot(l.x - b.self.x, l.y - b.self.y);
-    b.repath -= dt;
-    if (d > F.far && (b.repath <= 0 || b.mover.status === 'idle' || b.mover.status === 'arrived')) {
-      b.repath = 0.8;
-      const a = b.ctx.nav.nearestWalkable(l.x, l.y, 3);
-      if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
-    } else if (d < F.near) b.mover.stop();
-    b.mover.speed = d > F.far * 2 ? CHARACTER.runSpeed * 0.8 : LAW.cpWalkSpeed * 1.2;
-    if (d > F.far && b.repath > 0.4) b.repath = 0.4;
+    // Колонной: след в след за ведущим, каждый на своём месте.
+    followColumn(b.self, b.ctx, b.mover, l, b.columnIndex(l), dt, b.column);
   },
 };
 

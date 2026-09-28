@@ -185,7 +185,8 @@ export class LawSystem {
 
   /** Нарушение, которое observer видит прямо сейчас, или null. */
   observe(observer: Character, target: Character): Violation | null {
-    if (FACTIONS[target.faction].authority || target.law.phase !== 'none' || !target.alive) return null;
+    // Лежащего тяжелораненого не «замечают» как нарушителя: его задерживают отдельно (ai/Tactics).
+    if (FACTIONS[target.faction].authority || target.law.phase !== 'none' || !target.alive || target.downed) return null;
     // Переодетый в сотрудника Альянса — «свой».
     if (coverAuthority(target)) return null;
     // Вортигонтов-рабов Альянс не проверяет.
@@ -207,7 +208,7 @@ export class LawSystem {
   /** Можно ли сейчас устроить плановую проверку. */
   checkable(target: Character): boolean {
     return (
-      !FACTIONS[target.faction].authority && !coverAuthority(target) && target.faction !== 'vort' && target.law.phase === 'none' && target.alive &&
+      !FACTIONS[target.faction].authority && !coverAuthority(target) && target.faction !== 'vort' && target.law.phase === 'none' && target.alive && !target.downed &&
       this.time - target.law.lastCheck > LAW.recheckCooldown
     );
   }
@@ -230,9 +231,10 @@ export class LawSystem {
       : LINES.cpOrder;
     handler.say(this.rng.pick(lines), this.time);
     if (!target.isPlayer) {
-      // Подпольщик под личиной не бежит: бег выдал бы его.
-      const flee = target.disguised ? 0 : LAW.npc.fleeChance[target.profession ?? ''] ?? LAW.npc.fleeChance[target.faction] ?? 0.1;
-      const guilty = law.wanted || !law.hasCid;
+      // Подпольщик под личиной не бежит: бег выдал бы его. Лоялист (не в розыске) — тоже: ему незачем.
+      const loyal = target.faction === 'citizen' && target.loyalty >= LOYALTY.uniform.min && !law.wanted;
+      const flee = target.disguised || loyal ? 0 : LAW.npc.fleeChance[target.profession ?? ''] ?? LAW.npc.fleeChance[target.faction] ?? 0.1;
+      const guilty = !loyal && (law.wanted || !law.hasCid);
       if (this.rng.chance(guilty ? Math.max(flee, 0.5) : flee)) this.startFlee(target);
       else target.say(this.rng.pick(LINES.comply), this.time, 2);
     }

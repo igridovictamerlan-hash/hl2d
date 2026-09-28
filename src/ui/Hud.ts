@@ -2,6 +2,7 @@ import type { Character } from '../entities/Character';
 import { FACTIONS, CP_DIVISIONS, rankOf } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { hasLoyalty, loyaltyTier } from '../systems/Loyalty';
+import { SUPPRESS } from '../config/tactics';
 
 /** HUD в духе HL2: здоровье, токены, личность (имя, роль, CID). Обновляется, только если что-то изменилось. */
 export class Hud {
@@ -95,10 +96,15 @@ export class Hud {
   }
 }
 
-/** Ранения игрока: кровотечение, перевязка, нога, рука. */
+/** Состояние игрока: тяжёлое ранение, подавление, присед, раненый на руках, кровотечение, нога, рука. */
 function woundStatus(p: Character, now: number): string {
   if (!p.alive) return '';
+  if (p.downed) return `тяжело ранен · ${Math.max(0, Math.ceil(p.downedUntil - now))} с`;
   const out: string[] = [];
+  if (p.suppress >= SUPPRESS.pinned) out.push('прижат огнём');
+  if (p.crouch) out.push('присел');
+  if (p.dragging) out.push(`тащите ${p.dragging.name} · X — отпустить`);
+  if (p.reviveUntil > now) out.push(p.reviveArrest ? 'задержание…' : 'поднимаете раненого…');
   if (p.bandageUntil > now) out.push('перевязка…');
   else if (p.bleed > 0) out.push(`кровотечение −${p.bleed.toFixed(1)}/с · B — перевязать`);
   if (p.limpUntil > now) out.push('ранена нога');

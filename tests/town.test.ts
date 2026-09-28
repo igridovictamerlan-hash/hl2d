@@ -75,16 +75,24 @@ describe('городок с домиками', () => {
     const c = createCharacter(sim.entities, sim.ctx.rng, 'citizen', sim.nav.worldX(a), sim.nav.worldY(a));
     c.profession = 'citizen';
     c.loyalty = 80;
+    // Плановые проверки CID сбивают работу (после проверки — другое занятие): здесь их нет.
+    c.law.lastCheck = 1e9;
     c.brain = new CitizenBrain(c, sim.ctx);
     const b = c.brain as CitizenBrain;
     run(sim, 240, () => b.job?.kind === 'paper');
     expect(b.job?.kind).toBe('paper');
     // Дошёл до стола в Нексусе и получил плату за отчёт.
-    const money = c.money;
     const loyalty = c.loyalty;
-    // Раздача может прервать работу (сперва паёк) — время с запасом.
-    run(sim, 240, () => c.money >= money + LABOR.paperwork.pay);
-    expect(c.money).toBeGreaterThanOrEqual(money + LABOR.paperwork.pay);
+    // Раздача может прервать работу (сперва паёк — тоже токены) — ждём именно оплату его бумаг.
+    let paid = 0;
+    const pay = sim.labor.payPaperwork.bind(sim.labor);
+    sim.labor.payPaperwork = (who) => {
+      if (who === c) paid = c.money + LABOR.paperwork.pay;
+      pay(who);
+    };
+    run(sim, 240, () => paid > 0);
+    expect(paid).toBeGreaterThan(0);
+    expect(c.money).toBe(paid);
     expect(c.loyalty).toBeGreaterThan(loyalty);
     expect(sim.map.zoneAtWorld(c.x, c.y)?.kind).toBe('nexus');
   });

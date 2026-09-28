@@ -87,7 +87,18 @@ export const RENDER = {
     /** Терминал кодов тревоги в кабинете Администратора: корпус, рамка, экран по коду. */
     codeTerminal: { case: '#1b2530', rim: '#4f5d6f', screen: { green: '#4fd08a', yellow: '#ffd36b', red: '#ff5b4a' } },
     stun: 'rgba(150,210,255,0.9)',
+    /**
+     * Тяжелораненый: лужа крови под ним, кольцо — сколько осталось (радиус ring px мира), подпись
+     * роли — «тяжело ранен · N с»; присевший ниже ростом (CROUCH.squash).
+     */
+    downed: { blood: 'rgba(120,14,14,0.55)', ring: 'rgba(255,90,70,0.9)', ringBack: 'rgba(0,0,0,0.45)', ringR: 15, label: '#ff8a70', wobble: 0.06 },
   },
+  /**
+   * Экран игрока: под огнём — тёмные края (alpha × подавление; inner — доля, где затемнение
+   * начинается), тяжело ранен — красные края и надпись по центру.
+   */
+  suppressVignette: { inner: 0.18, color: '8,8,10', alpha: 0.85 },
+  downedScreen: { inner: 0.1, color: '70,0,0', alpha: 0.75, font: '700 22px "Segoe UI", Roboto, Arial, sans-serif', hintFont: '500 13px "Segoe UI", Roboto, Arial, sans-serif', text: '#ffb3a6', hint: 'rgba(255,230,220,0.85)' },
   effects: {
     /** Люк в городе (крышка) и в канализации (лестница, свет сверху). */
     hatchCover: '#2b2e30',

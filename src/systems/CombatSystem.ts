@@ -8,10 +8,12 @@ import type { LawSystem } from './LawSystem';
 import { castRayWith, lineOfSight } from '../world/visibility';
 import { T } from '../world/tiles';
 import { COMBAT, GRENADE, FIRE, HITS, ROCKET, MINE, type HitZone } from '../config/combat';
+import { SUPPRESS, CROUCH, DOWNED } from '../config/tactics';
+import { resolveCircleVsTiles } from '../world/collision';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, ITEMS, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
 import { armorOf, rollZone, behind } from './wounds';
-import { FACTIONS, type FactionId } from '../config/factions';
+import { FACTIONS, cpHas, type FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { muzzleWorld } from '../entities/weaponPose';
 import { BARKS } from '../config/barks';
@@ -53,6 +55,11 @@ export interface Bullet {
   /** Ракета: когда в последний раз оставила дымный след. */
   trailT: number;
   done: boolean;
+  /** Вес ствола для подавления (SUPPRESS) и кого эта пуля уже прижала (не дважды). */
+  press: number;
+  pressed: Character[] | null;
+  /** Когда выпущена (упавший после выстрела — пуля уходит поверх). */
+  t0: number;
 }
 
 /**
@@ -61,7 +68,7 @@ export interface Bullet {
  */
 export interface Fx {
   seq: number;
-  kind: 'muzzle' | 'hit' | 'wall' | 'blast' | 'stab' | 'smoke' | 'fire' | 'rocket' | 'bleed';
+  kind: 'muzzle' | 'hit' | 'wall' | 'blast' | 'stab' | 'smoke' | 'fire' | 'rocket' | 'bleed' | 'whiz';
   x: number;
   y: number;
   ang: number;
@@ -189,7 +196,14 @@ export function angleDiff(a: number, b: number): number {
 }
 
 const near: Character[] = [];
+/** Где луч пули входит в бетонные блоки (для присевшего за блоком). */
+const barrierAt: number[] = [];
 const FX_KEEP = 400;
+
+/** Медик: поднимает быстрее и крепче (ветеран-медик, медик ГСР, SU.02). */
+export function isMedic(c: Character): boolean {
+  return c.profession === 'rebel_medic' || c.profession === 'cwu_medic' || cpHas(c, 'medic');
+}
 
 /**
  * Бой. Пули летят с конечной скоростью (Bullet): куда попадёт, решается при выстреле внутри конуса
@@ -227,6 +241,10 @@ export class CombatSystem {
   kills = 0;
   headshots = 0;
   bledOut = 0;
+  /** Тяжёлые ранения, поднятые и добитые (для тестов и отладки). */
+  downs = 0;
+  revives = 0;
+  finished = 0;
   /** Куда ушли пули (для отладки баланса): стена, укрытие, мимо, попадание. */
   readonly stats = { wall: 0, barrier: 0, miss: 0, hit: 0 };
 
@@ -258,7 +276,8 @@ export class CombatSystem {
    * врагам и напавшим (безоружного повстанца ГО пытается задержать).
    */
   threat(a: Character, b: Character): boolean {
-    if (!this.isHostile(a, b)) return false;
+    // Лежащий и задержанный (в наручниках, в камере) — не угроза.
+    if (b.downed || !this.isHostile(a, b) || inCustody(b)) return false;
     if (!FACTIONS[a.faction].authority) return true;
     return b.weapon !== null || b.hostile;
   }
@@ -394,9 +413,9 @@ export class CombatSystem {
     return c.bandageUntil > this.time;
   }
 
-  /** Занят руками: перевязывается или ставит растяжку. */
+  /** Занят руками: перевязывается, ставит растяжку, поднимает раненого — или сам лежит. */
   busy(c: Character): boolean {
-    return c.bandageUntil > this.time || c.plantUntil > this.time;
+    return c.bandageUntil > this.time || c.plantUntil > this.time || c.reviveUntil > this.time || c.downed;
   }
 
   canFire(c: Character): boolean {
@@ -415,7 +434,8 @@ export class CombatSystem {
     const base = w.spreadHip + (w.spreadAim - w.spreadHip) * c.aim;
     const v = c.moveSpeed / CHARACTER.walkSpeed;
     const move = v < 0.15 ? 0 : w.moveSpread * (v <= 1 ? v : 1 + (v - 1) * COMBAT.runSpreadMul);
-    let s = base + move + c.recoil;
+    let s = base + move + c.recoil + c.suppress * SUPPRESS.spread;
+    if (c.crouch) s *= CROUCH.spreadMul;
     if (c.armUntil > this.time) s *= HITS.armSpread;
     if (!c.isPlayer) s *= COMBAT.ai.spreadMul;
     return Math.min(s, COMBAT.maxSpread);
@@ -443,6 +463,7 @@ export class CombatSystem {
     }
     c.mag--;
     c.nextShot = this.time + 1 / w.fireRate;
+    c.lastFired = this.time;
     this.shotsFired++;
     const aim = Math.atan2(ty - c.y, tx - c.x);
     c.facing = aim;
@@ -453,7 +474,7 @@ export class CombatSystem {
     for (let k = 0; k < w.pellets; k++) {
       // Треугольное распределение в [−1, 1]: гуще к центру, но всегда внутри конуса.
       const g = this.rng.next() + this.rng.next() - 1;
-      hit = this.bullet(c, w, dir + g * spread) ?? hit;
+      hit = this.bullet(c, w, dir + g * spread, tx, ty) ?? hit;
     }
     c.recoil = Math.min(w.maxRecoil, c.recoil + w.recoil);
     // Отдача уводит ствол вбок: чаще в ту же сторону, иногда разворачивается.
@@ -475,7 +496,7 @@ export class CombatSystem {
   }
 
   /** Пуля (дробина, болт, ракета) по направлению ang: решить, куда попадёт, и выпустить. */
-  private bullet(c: Character, w: WeaponDef, ang: number): Character | null {
+  private bullet(c: Character, w: WeaponDef, ang: number, aimX: number, aimY: number): Character | null {
     const dx = Math.cos(ang);
     const dy = Math.sin(ang);
     const ox = c.x + dx * (c.radius + 1);
@@ -485,6 +506,7 @@ export class CombatSystem {
     let stop: Bullet['stop'] = 'miss';
     // Блок из нескольких тайлов — одно укрытие: шанс остановки бросается при входе в него.
     let inBarrier = false;
+    barrierAt.length = 0;
     const wallT = castRayWith(this.map, ox, oy, dx, dy, w.range, (x, y, t) => {
       if (this.map.blocksShot(x, y)) {
         stop = 'wall';
@@ -493,6 +515,7 @@ export class CombatSystem {
       const barrier = this.map.tileAt(x, y) === T.BARRIER;
       const entering = barrier && !inBarrier;
       inBarrier = barrier;
+      if (entering) barrierAt.push(t);
       // Ракета бьёт в блок всегда (взрыв у укрытия).
       if (entering && t > COMBAT.ownCoverDistance && (rocket || this.rng.chance(stopChance))) {
         stop = 'barrier';
@@ -508,6 +531,8 @@ export class CombatSystem {
       const my = oy + (dy * wallT) / 2;
       for (const o of this.entities.near(mx, my, wallT / 2 + 16, near)) {
         if (o === c || !o.alive) continue;
+        // Лежащий раненый: пули летят поверх, если целятся не в него (в своего лежащего — никогда).
+        if (o.downed && (Math.hypot(o.x - aimX, o.y - aimY) > o.radius * 1.6 || FACTIONS[o.faction].authority === FACTIONS[c.faction].authority)) continue;
         const px = o.x - ox;
         const py = o.y - oy;
         const t = px * dx + py * dy;
@@ -522,17 +547,32 @@ export class CombatSystem {
         }
       }
     }
+    // Присевший за блоком: блок у него на линии огня почти всегда держит пулю.
+    if (hit && hit.crouch && !rocket) {
+      const pierce = Math.min(1, w.penetration * CROUCH.coverPierce);
+      for (const bt of barrierAt) {
+        if (bt > COMBAT.ownCoverDistance && bt <= hitT && hitT - bt <= CROUCH.coverReach && this.rng.chance(CROUCH.coverStop * (1 - pierce))) {
+          hit = null;
+          hitT = bt;
+          stop = 'barrier';
+          break;
+        }
+      }
+    }
     // Пуля вылетает из дульного среза (если ствол не упёрся в стену и цель не ближе ствола).
     const m = muzzleWorld(c, w.id);
     const md = (m.x - ox) * dx + (m.y - oy) * dy;
     const fromMuzzle = md > 0 && md < hitT && lineOfSight(this.map, c.x, c.y, m.x, m.y);
     const start = fromMuzzle ? md : 0;
-    const zone = hit ? rollZone(this.rng, c.aim) : 'torso';
+    const zone = hit ? rollZone(this.rng, c.aim, hit.crouch ? CROUCH.legMul : 1) : 'torso';
     this.bullets.push({
       x: ox + dx * start, y: oy + dy * start, px: ox + dx * start, py: oy + dy * start, ox, oy, dx, dy,
       dist: start, end: hitT, speed: w.speed, w, shooter: c, target: hit, zone,
       damage: w.damage * falloffMul(w, hitT + c.radius), stop, combine: FACTIONS[c.faction].authority, kind: w.class,
       rocket, trailT: 0, done: false,
+      t0: this.time,
+      press: Math.max(SUPPRESS.weight[0], Math.min(SUPPRESS.weight[1], (w.damage * w.pellets ** 0.5 * (rocket ? 3 : 1)) / SUPPRESS.weightDamage)) / (w.pellets > 1 ? w.pellets : 1),
+      pressed: null,
     });
     if (hit) {
       this.hits++;
@@ -551,7 +591,8 @@ export class CombatSystem {
       return;
     }
     const t = b.target;
-    if (t && t.alive) {
+    // Цель упала, пока пуля летела, — пуля уходит поверх.
+    if (t && t.alive && !(t.downed && t.downedAt >= b.t0)) {
       // Брызги крови позади раненого.
       if (this.rng.chance(COMBAT.decals.bloodChance)) {
         const bd = this.rng.range(4, 14);
@@ -587,7 +628,7 @@ export class CombatSystem {
     if (lethal) this.headshots++;
     this.emit('hit', x, y, ang, w.class, attacker, target, zone, dmg, lethal);
     this.wound(target, dmg, zone);
-    this.damage(target, dmg, attacker, zone);
+    this.damage(target, dmg, attacker, zone, lethal);
   }
 
   /** Кровотечение и последствия ранения в зону (урон — отдельно, через damage). */
@@ -652,20 +693,197 @@ export class CombatSystem {
    * Урон как есть (зоны и броня уже учтены вызывающим): пули — shotHit, взрыв — explode, огонь и
    * кровотечение — update. zone — для журнала и HUD.
    */
-  damage(target: Character, amount: number, attacker: Character | null, zone: HitZone | 'blast' | null = null): void {
+  damage(target: Character, amount: number, attacker: Character | null, zone: HitZone | 'blast' | null = null, instant = false): void {
     if (!target.alive) return;
+    // Лежащего тяжелораненого добивает любой урон.
+    if (target.downed) {
+      if (amount <= 0) return;
+      if (attacker) target.lastAttacker = attacker;
+      this.finished++;
+      this.kill(target, attacker ?? target.lastAttacker, 'добит');
+      this.onDamage(target, attacker, true);
+      return;
+    }
     target.health -= amount;
     target.lastHurt = this.time;
     target.lastAttacker = attacker;
     if (zone) target.lastZone = zone;
+    this.press(target, SUPPRESS.hit);
     // Под личиной ранивший остаётся неузнанным — выдаёт только убийство (kill).
     if (attacker && !attacker.disguised && !FACTIONS[attacker.faction].authority && FACTIONS[target.faction].authority && !attacker.hostile) {
       attacker.hostile = true;
       attacker.law.wanted = true;
       if (attacker.isPlayer) this.bus.emit('log', { text: 'Вы напали на Альянс — ГО будет стрелять без предупреждения.', kind: 'law' });
     }
-    if (target.health <= 0) this.kill(target, attacker);
+    if (target.health <= 0) {
+      // Тяжёлое ранение, если не в голову без шлема, не взрыв вплотную и не урон «с запасом».
+      if (!instant && -target.health <= target.maxHealth * DOWNED.overkill) this.down(target, attacker);
+      else this.kill(target, attacker);
+    }
     this.onDamage(target, attacker, !target.alive);
+  }
+
+  /** Прижать огнём: подавление + amount (не больше 1). */
+  press(c: Character, amount: number): void {
+    if (!c.alive || c.downed || amount <= 0) return;
+    c.suppress = Math.min(1, c.suppress + amount);
+    c.suppressAt = this.time;
+  }
+
+  /**
+   * Тяжёлое ранение: падает и DOWNED.time с истекает кровью (потом смерть от ранившего), если никто
+   * не поднимет. Не боец: не стреляет, не ходит (игрок ползёт), его не обстреливают.
+   */
+  down(c: Character, by: Character | null): void {
+    if (!c.alive || c.downed) return;
+    c.downedUntil = this.time + DOWNED.time;
+    c.downedAt = this.time;
+    c.health = 1;
+    c.bleed = 0;
+    c.bandageUntil = c.plantUntil = c.reloadUntil = 0;
+    this.cancelRevive(c);
+    this.stopDrag(c);
+    c.aiming = false;
+    c.aim = c.recoil = c.kick = 0;
+    c.crouch = false;
+    c.suppress = 0;
+    c.wantX = c.wantY = 0;
+    if (by) c.lastAttacker = by;
+    this.downs++;
+    // Кого он вёл или проверял — отпущены; его самого не проверяют.
+    for (const o of this.entities.list) if (o.law.handler === c && o !== c && o.law.phase !== 'jailed') this.law.clear(o);
+    if (c.law.phase === 'ordered' || c.law.phase === 'checking' || c.law.phase === 'fleeing') this.law.clear(c);
+    c.say(this.rng.pick(DOWNED.lines.down), this.time, 2.5);
+    if (c.isPlayer) this.bus.emit('log', { text: `Вы тяжело ранены: ${DOWNED.time} с, пока свои не поднимут. E — не ждать помощи.`, kind: 'law' });
+    else if (by?.isPlayer) this.bus.emit('log', { text: `Тяжело ранен: ${c.name}.`, kind: 'world' });
+  }
+
+  /** Кто сейчас поднимает лежащего (или null). */
+  reviverOf(t: Character): Character | null {
+    for (const o of this.entities.list) if (o.reviving === t && o.reviveUntil > 0) return o;
+    return null;
+  }
+
+  /**
+   * Может ли h поднять лежащего t (свой, рядом, есть бинт или аптечка) — или, если arrest,
+   * «стабилизировать» и задержать (сотрудник Альянса и враг Альянса).
+   */
+  canRevive(h: Character, t: Character, arrest = false): boolean {
+    if (!t.alive || !t.downed || !h.fit || h === t || this.busy(h)) return false;
+    if (Math.hypot(t.x - h.x, t.y - h.y) > DOWNED.reach + h.radius) return false;
+    const other = this.reviverOf(t);
+    if (other && other !== h) return false;
+    if (arrest) return FACTIONS[h.faction].authority && !FACTIONS[t.faction].authority && (t.faction === 'rebel' || t.hostile);
+    return !this.isHostile(h, t) && !(FACTIONS[h.faction].authority && !FACTIONS[t.faction].authority && (t.faction === 'rebel' || t.hostile)) && this.hasDressing(h);
+  }
+
+  /** Начать поднимать лежащего (DOWNED.reviveTime с, медик быстрее) или стабилизировать для ареста. */
+  startRevive(h: Character, t: Character, arrest = false): boolean {
+    if (!this.canRevive(h, t, arrest)) return false;
+    this.stopDrag(h);
+    h.reviveUntil = this.time + (arrest ? DOWNED.cuffTime : DOWNED.reviveTime * (isMedic(h) ? DOWNED.medicMul : 1));
+    h.reviving = t;
+    h.reviveArrest = arrest;
+    h.aim = 0;
+    const lines = arrest ? DOWNED.lines.cuff : FACTIONS[h.faction].authority ? DOWNED.lines.cpHelp : DOWNED.lines.help;
+    h.say(this.rng.pick(lines), this.time, 2);
+    return true;
+  }
+
+  /** Бросить поднимать (отошёл, сам ранен, лежащий умер). */
+  cancelRevive(h: Character): void {
+    h.reviveUntil = 0;
+    h.reviving = null;
+    h.reviveArrest = false;
+  }
+
+  /** Поднят (или стабилизирован и задержан): встаёт с долей здоровья, хромает. */
+  private finishRevive(h: Character): void {
+    const t = h.reviving;
+    const arrest = h.reviveArrest;
+    this.cancelRevive(h);
+    if (!t || !t.alive || !t.downed || !h.fit || Math.hypot(t.x - h.x, t.y - h.y) > DOWNED.reach + h.radius + 14) return;
+    if (arrest) {
+      this.raise(t, t.maxHealth * DOWNED.reviveHp * 0.6);
+      // Ствол отобран (в руки уже не взять), задержанный больше не «напавший».
+      this.equip(t, null);
+      t.hostile = false;
+      this.law.arrest(h, t, t.faction === 'rebel' ? 'rebel' : 'resisting');
+      return;
+    }
+    const medic = isMedic(h);
+    const id = h.inventory.has('medkit') && (medic || !h.inventory.has('bandage')) ? 'medkit' : 'bandage';
+    if (!h.inventory.remove(id, 1)) return;
+    this.raise(t, t.maxHealth * (id === 'medkit' ? DOWNED.kitHp : DOWNED.reviveHp) * (medic ? DOWNED.medicHp : 1));
+    this.revives++;
+    if (t.isPlayer) this.bus.emit('log', { text: `${h.name} поднял вас на ноги.`, kind: 'system' });
+    else if (h.isPlayer) this.bus.emit('log', { text: `Вы подняли ${t.name}.`, kind: 'system' });
+  }
+
+  /** Встать после тяжёлого ранения с hp здоровья (кровь остановлена, хромает). */
+  private raise(t: Character, hp: number): void {
+    t.downedUntil = 0;
+    t.health = Math.max(1, Math.min(t.maxHealth, hp));
+    t.bleed = 0;
+    t.limpUntil = this.time + HITS.limpTime;
+    t.lastHurt = this.time;
+    this.stopDrag(t);
+  }
+
+  /** Тащить лежащего (свой или пленный — кто угодно рядом, кого ещё не тащат). */
+  startDrag(h: Character, t: Character): boolean {
+    if (!t.alive || !t.downed || !h.fit || this.busy(h) || t.draggedBy || h.dragging) return false;
+    if (Math.hypot(t.x - h.x, t.y - h.y) > DOWNED.reach + h.radius) return false;
+    h.dragging = t;
+    t.draggedBy = h;
+    return true;
+  }
+
+  /** Отпустить (кого тащит c или кто тащит c). */
+  stopDrag(c: Character): void {
+    if (c.dragging) {
+      c.dragging.draggedBy = null;
+      c.dragging = null;
+    }
+    if (c.draggedBy) {
+      c.draggedBy.dragging = null;
+      c.draggedBy = null;
+    }
+  }
+
+  /** Лежащий на верёвке: в DOWNED.dragDist px позади тащащего (сквозь стены не тянется). */
+  private updateDrag(): void {
+    for (const c of this.entities.list) {
+      const t = c.dragging;
+      if (!t) continue;
+      const d = Math.hypot(t.x - c.x, t.y - c.y);
+      if (!t.alive || !t.downed || !c.fit || d > DOWNED.dragBreak) {
+        this.stopDrag(c);
+        continue;
+      }
+      if (d > DOWNED.dragDist) {
+        const k = (d - DOWNED.dragDist) / d;
+        t.x -= (t.x - c.x) * k;
+        t.y -= (t.y - c.y) * k;
+        resolveCircleVsTiles(this.map, t, t.radius);
+      }
+    }
+  }
+
+  /**
+   * Прячется ли присевший t за бетонным блоком от взгляда из (ox, oy): блок на линии не дальше
+   * CROUCH.coverReach от него, смотрящий дальше hideMinDist, t давно не стрелял.
+   */
+  concealed(t: Character, ox: number, oy: number): boolean {
+    if (!t.crouch || this.time - t.lastFired < CROUCH.revealAfterShot) return false;
+    const d = Math.hypot(ox - t.x, oy - t.y);
+    if (d < CROUCH.hideMinDist) return false;
+    let block = false;
+    castRayWith(this.map, t.x, t.y, (ox - t.x) / d, (oy - t.y) / d, CROUCH.coverReach, (x, y) => {
+      if (this.map.tileAt(x, y) === T.BARRIER) block = true;
+      return block || this.map.blocksShot(x, y);
+    });
+    return block;
   }
 
   /** Кто слушает гибель персонажей: постоянный состав (возрождение), выборы администратора. */
@@ -687,6 +905,11 @@ export class CombatSystem {
     c.speedMul = 1;
     c.recoil = c.kick = c.aim = 0;
     c.wantX = c.wantY = c.vx = c.vy = 0;
+    c.suppress = 0;
+    c.crouch = false;
+    c.downedUntil = 0;
+    this.cancelRevive(c);
+    this.stopDrag(c);
     this.kills++;
     const loot = c.inventory.takeAll();
     c.weapon = null;
@@ -723,7 +946,14 @@ export class CombatSystem {
 
   /** Лечение медиком / аптечкой: останавливает кровотечение. true — если было кого лечить. */
   heal(target: Character, amount: number): boolean {
-    if (!target.alive || (target.health >= target.maxHealth && target.bleed <= 0)) return false;
+    if (!target.alive) return false;
+    // Медик ставит тяжелораненого на ноги.
+    if (target.downed) {
+      this.raise(target, target.maxHealth * DOWNED.reviveHp * DOWNED.medicHp);
+      this.revives++;
+      return true;
+    }
+    if (target.health >= target.maxHealth && target.bleed <= 0) return false;
     target.health = Math.min(target.maxHealth, target.health + amount);
     target.bleed = 0;
     return true;
@@ -993,7 +1223,8 @@ export class CombatSystem {
         o.aim = 0;
         const dmg = G.damage * mul * k * cover * (1 - vest);
         this.wound(o, dmg, 'blast');
-        this.damage(o, dmg, by, 'blast');
+        // Вплотную к взрыву — насмерть, без тяжёлого ранения.
+        this.damage(o, dmg, by, 'blast', d <= R * DOWNED.blastInstant && cover >= 0.99);
       } else if (this.rng.chance(G.fragChance * cover)) {
         // Осколок на излёте — в руку или ногу.
         const zone: HitZone = this.rng.chance(0.5) ? 'arm' : 'leg';
@@ -1002,6 +1233,12 @@ export class CombatSystem {
         this.wound(o, dmg, zone);
         this.damage(o, dmg, by, zone);
       }
+    }
+    // Взрыв прижимает всех вокруг.
+    const S = R * SUPPRESS.blastReach;
+    for (const o of this.entities.near(x, y, S, near)) {
+      const d = Math.hypot(o.x - x, o.y - y);
+      if (d < S) this.press(o, SUPPRESS.blast * (1 - d / S));
     }
   }
 
@@ -1073,6 +1310,7 @@ export class CombatSystem {
     }
     this.updateBullets(dt);
     this.updateMines(dt);
+    this.updateDrag();
     for (let i = this.swings.length - 1; i >= 0; i--) if ((this.swings[i].t -= dt) <= 0) this.swings.splice(i, 1);
     for (let i = this.corpses.length - 1; i >= 0; i--) if (this.corpses[i].until < this.time) this.corpses.splice(i, 1);
     while (this.shots.length > 0 && this.time - this.shots[0].t > 2) this.shots.shift();
@@ -1081,6 +1319,30 @@ export class CombatSystem {
     this.dead.length = 0;
     for (const c of this.entities.list) {
       if (!c.alive) continue;
+      // Тяжелораненый: не дождался помощи — смерть от ранившего.
+      if (c.downed) {
+        if (this.time >= c.downedUntil) {
+          const killer = c.lastAttacker && (c.lastAttacker.alive || c.lastAttacker.isPlayer) ? c.lastAttacker : null;
+          this.bledOut++;
+          this.kill(c, killer, 'истёк кровью');
+          this.onDamage(c, killer, true);
+          continue;
+        }
+        c.speedMul = c.draggedBy ? 0 : c.isPlayer ? DOWNED.crawl : 0;
+        c.aim = 0;
+        if (this.rng.chance(COMBAT.decals.bleedDrip * 1.5 * dt)) {
+          this.addDecal(c.x + this.rng.range(-8, 8), c.y + this.rng.range(-6, 8), 'blood', COMBAT.decals.bloodTime, this.rng.range(0, Math.PI), this.rng.range(0.4, 0.8));
+        }
+        continue;
+      }
+      // Подавление спадает, если давно не прибавлялось.
+      if (c.suppress > 0 && this.time - c.suppressAt > SUPPRESS.hold) c.suppress = Math.max(0, c.suppress - SUPPRESS.decay * dt);
+      // Поднимает раненого: отошёл или тот умер — бросил; время вышло — поднял.
+      if (c.reviveUntil > 0) {
+        const t = c.reviving;
+        if (!t || !t.alive || !t.downed || Math.hypot(t.x - c.x, t.y - c.y) > DOWNED.reach + c.radius + 14) this.cancelRevive(c);
+        else if (this.time >= c.reviveUntil) this.finishRevive(c);
+      }
       const w = this.weaponOf(c);
       // Перезарядка: магазином или по патрону (дробовик — пока не полон или не кончится запас).
       if (c.reloadUntil > 0 && this.time >= c.reloadUntil) {
@@ -1102,12 +1364,13 @@ export class CombatSystem {
       // Оглушение, перевязка, хромота — медленнее.
       const stunned = c.stunUntil > this.time;
       const dressing = this.busy(c);
-      c.speedMul = (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1);
+      c.speedMul = (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1) * (c.crouch ? CROUCH.speedMul : 1) * (c.dragging ? DOWNED.dragSpeed : 1);
       // Прицеливание копится стоя (при ходьбе — медленнее), теряется на бегу, без ПКМ и при перезарядке.
       if (w && w.mode !== 'melee') {
         const running = c.moveSpeed > CHARACTER.walkSpeed * 1.2;
         if (c.aiming && !running && !stunned && !dressing && !this.reloading(c)) {
-          c.aim = Math.min(1, c.aim + (dt / w.aimTime) * (c.moveSpeed > 20 ? COMBAT.aimWhileMoving : 1));
+          const steady = (c.crouch ? CROUCH.aimMul : 1) * (1 - c.suppress * SUPPRESS.aimSlow);
+          c.aim = Math.min(1, c.aim + (dt / w.aimTime) * (c.moveSpeed > 20 ? COMBAT.aimWhileMoving : 1) * steady);
         } else c.aim = Math.max(0, c.aim - dt * (running ? COMBAT.aimLossRun : COMBAT.aimLoss));
         c.recoil = Math.max(0, c.recoil - w.recovery * dt);
         // Ствол возвращается на линию прицела.
@@ -1125,10 +1388,9 @@ export class CombatSystem {
           this.addDecal(c.x + this.rng.range(-6, 6), c.y + this.rng.range(-4, 8), 'blood', COMBAT.decals.bloodTime, this.rng.range(0, Math.PI), this.rng.range(0.25, 0.5));
         }
         if (c.health <= 0) {
+          // Истёк кровью до потери сознания — тяжёлое ранение (дальше таймер DOWNED.time).
           const killer = c.lastAttacker && (c.lastAttacker.alive || c.lastAttacker.isPlayer) ? c.lastAttacker : null;
-          this.bledOut++;
-          this.kill(c, killer, 'истёк кровью');
-          this.onDamage(c, killer, true);
+          this.down(c, killer);
           continue;
         }
       } else if (this.time - c.lastHurt > COMBAT.regenDelay && c.health < c.maxHealth * COMBAT.regenCap) {
@@ -1163,10 +1425,36 @@ export class CombatSystem {
       }
       b.x = b.ox + b.dx * b.dist;
       b.y = b.oy + b.dy * b.dist;
+      if (b.dist > from) this.nearMiss(b, from, b.dist);
       if (b.dist >= b.end) {
         b.done = true;
         this.land(b);
       }
+    }
+  }
+
+  /**
+   * Пуля на отрезке [t0, t1] пути прошла рядом: враги стрелка ближе SUPPRESS.radius прижаты (раз на
+   * пулю), игрок ближе whizRadius слышит щелчок пролёта.
+   */
+  private nearMiss(b: Bullet, t0: number, t1: number): void {
+    const R = SUPPRESS.radius;
+    const mx = b.ox + b.dx * ((t0 + t1) / 2);
+    const my = b.oy + b.dy * ((t0 + t1) / 2);
+    const side = FACTIONS[b.shooter.faction].authority;
+    for (const o of this.entities.near(mx, my, (t1 - t0) / 2 + R + 4, near)) {
+      if (o === b.shooter || o === b.target || !o.alive || o.downed || b.pressed?.includes(o)) continue;
+      const px = o.x - b.ox;
+      const py = o.y - b.oy;
+      const tc = Math.max(t0, Math.min(t1, px * b.dx + py * b.dy));
+      // Пуля ещё не дошла до него (или уже прошла на прошлом отрезке) — не сейчас.
+      if (tc <= t0 && t0 > 0) continue;
+      const d = Math.hypot(o.x - (b.ox + b.dx * tc), o.y - (b.oy + b.dy * tc));
+      if (d > R) continue;
+      (b.pressed ??= []).push(o);
+      if (o.isPlayer && d < SUPPRESS.whizRadius) this.emit('whiz', b.ox + b.dx * tc, b.oy + b.dy * tc, Math.atan2(b.dy, b.dx), b.kind, b.shooter, o, null, 1 - d / R);
+      // Свои пули не прижимают.
+      if (FACTIONS[o.faction].authority !== side) this.press(o, SUPPRESS.perShot * b.press * (1 - (d / R) * 0.5));
     }
   }
 
@@ -1199,6 +1487,12 @@ export class CombatSystem {
     }
     return null;
   }
+}
+
+/** Задержан: в наручниках, его заводят в камеру или он сидит. */
+export function inCustody(c: Character): boolean {
+  const p = c.law.phase;
+  return p === 'cuffed' || p === 'entering' || p === 'jailed';
 }
 
 /** Гранаты по порядку выбора (Y у игрока). */

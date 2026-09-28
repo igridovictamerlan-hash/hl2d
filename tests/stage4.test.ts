@@ -168,10 +168,11 @@ describe('сопротивление в городе', () => {
     partisan.alive = false;
     const hired = bandit.brain as HiredGunBrain;
     expect(hired).toBeInstanceOf(HiredGunBrain);
-    run(sim, 40, () => cp.health < cp.maxHealth || !cp.alive);
+    // Перестрелка: ранен патрульный — или он успел первым, и бандит лежит тяжелораненым.
+    run(sim, 40, () => cp.health < cp.maxHealth || !cp.fit || !bandit.fit);
     expect(hired.engaged).toBe(true);
     expect(bandit.law.wanted).toBe(true);
-    expect(cp.health < cp.maxHealth || !cp.alive).toBe(true);
+    expect(cp.health < cp.maxHealth || !cp.fit || !bandit.fit).toBe(true);
   });
 
   test('тревога: жёлтый код, отбой без нападавших через calmToGreen', () => {

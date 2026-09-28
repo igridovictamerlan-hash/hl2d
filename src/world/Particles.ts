@@ -5,6 +5,7 @@ import type { WeaponClass } from '../config/items';
 import { Rng } from '../core/rng';
 import { RENDER } from '../config/render';
 import { GRENADE } from '../config/combat';
+import { SUPPRESS } from '../config/tactics';
 
 /** Виды частиц (индекс — порядок отрисовки). */
 const enum K {
@@ -221,6 +222,10 @@ export class Particles {
       }
       case 'smoke':
         this.fan(K.Smoke, 10, f.x, f.y, 0, Math.PI, [40, 140], [0.8, 1.6], [6, 10], 16, 3);
+        break;
+      case 'whiz':
+        // Пуля над ухом — лёгкая дрожь.
+        if (f.target === player) this.addShake(SUPPRESS.shake * f.power);
         break;
       case 'rocket':
         this.add(K.DarkSmoke, f.x, f.y, r.range(-10, 10), r.range(-10, 10), r.range(0.7, 1.2), 3, 9, 2);

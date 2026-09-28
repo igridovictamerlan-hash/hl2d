@@ -5,6 +5,7 @@ import { GameLoop } from './GameLoop';
 import { Rng, randomSeed } from './rng';
 import { PlayerController } from './PlayerController';
 import { RENDER } from '../config/render';
+import { SUPPRESS } from '../config/tactics';
 import { VISION } from '../config/vision';
 import { CHARACTER } from '../config/entities';
 import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, rebelUnitOf } from '../config/factions';
@@ -110,6 +111,9 @@ export class Game {
   private readonly playerCtl: PlayerController;
   private rng = new Rng(randomSeed());
   private vignette: CanvasGradient | null = null;
+  /** Тёмные края под огнём и красные — при тяжёлом ранении (градиенты один раз на размер экрана). */
+  private pressVignette: CanvasGradient | null = null;
+  private downVignette: CanvasGradient | null = null;
   /** Выбранная роль игрока (сохраняется при смене карты). */
   private role: { faction: FactionId; rank: number; division: DivisionId | null; profession?: ProfessionId | null } | null = null;
   /** Гражданское имя игрока (для ролей без позывного). */
@@ -570,6 +574,8 @@ export class Game {
       const dx = c.x - p.x;
       const dy = c.y - p.y;
       c.visible = dx * dx + dy * dy < r2 && canSeeCircle(this.map, p.x, p.y, c.x, c.y, c.radius);
+      // Чужой, присевший за бетонным блоком, не виден, пока не выстрелит.
+      if (c.visible && c.crouch && FACTIONS[c.faction].authority !== FACTIONS[p.faction].authority && this.combat.concealed(c, p.x, p.y)) c.visible = false;
     }
   }
 
@@ -588,6 +594,16 @@ export class Game {
     g.addColorStop(0, 'rgba(0,0,0,0)');
     g.addColorStop(1, `rgba(0,0,0,${RENDER.vignette})`);
     this.vignette = g;
+    const edge = (inner: number, color: string, a: number) => {
+      const e = this.ctx.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * inner, cw / 2, ch / 2, Math.hypot(cw, ch) / 2);
+      e.addColorStop(0, `rgba(${color},0)`);
+      e.addColorStop(1, `rgba(${color},${a})`);
+      return e;
+    };
+    const SV = RENDER.suppressVignette;
+    const DS = RENDER.downedScreen;
+    this.pressVignette = edge(SV.inner, SV.color, SV.alpha);
+    this.downVignette = edge(DS.inner, DS.color, DS.alpha);
   }
 
   /** Раунд окончен — перезапустить карту в начале следующего тика. */
@@ -764,10 +780,38 @@ export class Game {
       ctx.fillStyle = this.vignette;
       ctx.fillRect(0, 0, v.width, v.height);
     }
+    this.drawCondition(v, dpr);
     this.effects.drawAlert(ctx, v, this.war.code, this.law.now, this.player);
     if (!sewer) this.effects.drawFrontMarkers(ctx, v, this.war, this.player, dpr, this.law.now);
     this.particles.drawHud(ctx, v, this.input.mouseInside ? this.input.mouseX * dpr : null, this.input.mouseInside ? this.input.mouseY * dpr : null, dpr);
     if (this.input.mouseInside) this.drawCrosshair(this.input.mouseX * dpr, this.input.mouseY * dpr, dpr);
+  }
+
+  /** Состояние игрока на экране: под огнём — тёмные края, тяжело ранен — красные и надпись. */
+  private drawCondition(v: View, dpr: number): void {
+    const ctx = this.ctx;
+    const p = this.player;
+    if (p.suppress > 0.02 && this.pressVignette) {
+      ctx.globalAlpha = Math.min(1, p.suppress * SUPPRESS.vignette);
+      ctx.fillStyle = this.pressVignette;
+      ctx.fillRect(0, 0, v.width, v.height);
+      ctx.globalAlpha = 1;
+    }
+    if (!p.alive || !p.downed || !this.downVignette) return;
+    const D = RENDER.downedScreen;
+    const left = Math.max(0, Math.ceil(p.downedUntil - this.combat.now));
+    ctx.globalAlpha = 0.75 + 0.25 * Math.sin(this.combat.now * 3);
+    ctx.fillStyle = this.downVignette;
+    ctx.fillRect(0, 0, v.width, v.height);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = D.font.replace(/(\d+)px/, (_, n) => `${Number(n) * dpr}px`);
+    ctx.fillStyle = D.text;
+    ctx.fillText(`ТЯЖЁЛОЕ РАНЕНИЕ · ${left} с`, v.width / 2, v.height * 0.3);
+    ctx.font = D.hintFont.replace(/(\d+)px/, (_, n) => `${Number(n) * dpr}px`);
+    ctx.fillStyle = D.hint;
+    ctx.fillText('Ждите, пока свои поднимут (им нужен бинт). WASD — ползти, E — не ждать помощи.', v.width / 2, v.height * 0.3 + 22 * dpr);
   }
 
   /** Терминал найма на площади. */

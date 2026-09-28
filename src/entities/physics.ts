@@ -12,7 +12,10 @@ const tmp: Character[] = [];
  */
 /** Связанная пара (конвоир и задержанный, охранник и подопечный, ведущий и ведомый) — друг другу не помеха. */
 export function linked(a: Character, b: Character): boolean {
-  return a.law.handler === b || b.law.handler === a || a.guarding === b || b.guarding === a || a.squadLead === b || b.squadLead === a;
+  return (
+    a.law.handler === b || b.law.handler === a || a.guarding === b || b.guarding === a || a.squadLead === b || b.squadLead === a ||
+    a.dragging === b || b.dragging === a || a.reviving === b || b.reviving === a
+  );
 }
 
 export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): void {
@@ -42,7 +45,8 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
       if (!a.alive) continue;
       entities.near(a.x, a.y, a.radius * 2 + 2, tmp);
       for (const b of tmp) {
-        if (b.id <= a.id || !b.alive) continue;
+        // Лежащий раненый не мешает проходу (через него переступают).
+        if (b.id <= a.id || !b.alive || a.downed || b.downed) continue;
         // Разбор затора: «призрак» проходит сквозь NPC, но не сквозь игрока.
         if ((a.ghost > 0 || b.ghost > 0) && !a.isPlayer && !b.isPlayer) continue;
         // Конвоир и его задержанный не толкают друг друга: в переулке в 2 тайла задержанный иначе

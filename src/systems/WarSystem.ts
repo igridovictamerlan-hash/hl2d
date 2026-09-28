@@ -582,7 +582,7 @@ export class WarSystem {
     const G = WAR.capture.gateHold;
     const pool = [...new Set([...attackers, ...f.squad])].filter((r) => {
       const m = rebelBrain(r)?.mode;
-      return r.alive && r.maxHealth >= G.minHp && (m === 'capture' || m === 'hold' || m === 'gather') && this.frontAt(r.x, r.y) === f;
+      return r.fit && r.maxHealth >= G.minHp && (m === 'capture' || m === 'hold' || m === 'gather') && this.frontAt(r.x, r.y) === f;
     });
     pool.sort((a, b) => b.maxHealth - a.maxHealth);
     const spots = this.gateSpots(f);
@@ -730,22 +730,23 @@ export class WarSystem {
     const W = WAR.capture;
     const list = this.ctx.entities.list;
     // На капт — бойцы отряда этого КПП у него (отходящие в лагерь не в счёт).
-    const rebels = f.squad.filter((c) => c.alive && rebelBrain(c) && rebelBrain(c)!.mode !== 'retreat' && this.frontAt(c.x, c.y) === f).length;
+    const rebels = f.squad.filter((c) => c.fit && rebelBrain(c) && rebelBrain(c)!.mode !== 'retreat' && this.frontAt(c.x, c.y) === f).length;
     if (f.held < f.points.length && !f.capture && rebels >= W.minAttackers && this.time >= f.nextCaptureAt) this.startCapture(f);
     const c = f.capture;
     if (c) {
       // Гарнизон точки перебит — захвачена; штурмующих не осталось (погибли, отошли) — отбита.
       // Защитников на точке не осталось (гарнизон перебит, ГО и OTA во дворе нет), а штурмующие уже
       // во дворе — точка взята сразу, без ожидания таймера.
-      const attackers = f.squad.filter((r) => rebelBrain(r)?.mode === 'capture').length;
+      // Тяжелораненые (лежат) — уже не бойцы ни с той, ни с другой стороны.
+      const attackers = f.squad.filter((r) => r.fit && rebelBrain(r)?.mode === 'capture').length;
       let inside = 0;
       let alliance = 0;
       for (const o of list) {
-        if (!o.alive || this.sectionAt(f, o.x, o.y) !== c.point * 2) continue;
+        if (!o.fit || this.sectionAt(f, o.x, o.y) !== c.point * 2) continue;
         if (o.faction === 'rebel') inside++;
         else if (FACTIONS[o.faction].authority) alliance++;
       }
-      const wiped = inside > 0 && alliance === 0 && c.defenders.every((d) => !d.alive);
+      const wiped = inside > 0 && alliance === 0 && c.defenders.every((d) => !d.fit);
       if (wiped) this.endCapture(f, true);
       else if (attackers === 0 && this.time - c.since > 2) this.endCapture(f, false);
       else if (this.time >= c.until) this.endCapture(f, c.rebelKills >= W.minKills && c.rebelKills > c.cpKills);
@@ -765,7 +766,7 @@ export class WarSystem {
     let rebelsIn = 0;
     let cpIn = 0;
     for (const o of list) {
-      if (!o.alive) continue;
+      if (!o.fit) continue;
       // Отбиваемая точка и всё, что ближе к городу (для внешнего двора — ещё шорт и лонг).
       const at = this.sectionAt(f, o.x, o.y);
       if (at < k * 2) continue;
@@ -903,7 +904,7 @@ export class WarSystem {
     let stormers = 0;
     let staged = 0;
     for (const c of entities.list) {
-      if (!c.alive) continue;
+      if (!c.fit) continue;
       const b = rebelBrain(c);
       if (b?.mode === 'storm' || (b?.mode === 'assault' && this.cityPush)) {
         stormers++;

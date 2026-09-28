@@ -12,11 +12,18 @@ import { roleHp } from './Roster';
 import { ARENA, type ArenaSide, type ArenaUnit } from '../config/arena';
 import { CHARACTER } from '../config/entities';
 import { CP_UNIT, rebelUnitOf } from '../config/factions';
+import { Tactician, followColumn, watchSector } from '../ai/Tactics';
 
-/** Боец арены: где база своего отряда и куда идти. */
+/**
+ * Боец арены: враг на виду или недавно видели — бой из укрытия (угол, блок; ai/Tactics), свой
+ * тяжело ранен — оттащить и поднять; иначе отряд идёт колонной за ведущим (первый боеспособный
+ * NPC), ведущий — перекатами к месту, где видели врага, или к его базе.
+ */
 class ArenaBrain implements Brain {
   readonly mover = new Mover(CHARACTER.walkSpeed);
   readonly gunner: Gunner;
+  readonly tactics = new Tactician();
+  private readonly column = { repath: 0 };
   private phase: 'advance' | 'hold' = 'advance';
   private phaseLeft = 0;
   private goal: Vec2 | null = null;
@@ -26,17 +33,34 @@ class ArenaBrain implements Brain {
   }
 
   get stateName(): string {
-    return this.gunner.target ? 'арена · бой' : `арена · ${this.phase === 'advance' ? 'вперёд' : 'держит'}`;
+    const tac = this.tactics.label;
+    return this.gunner.target ? `арена · бой${tac ? ` · ${tac}` : ''}` : tac ? `арена · ${tac}` : `арена · ${this.phase === 'advance' ? 'вперёд' : 'держит'}`;
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
     const fighting = this.gunner.update(self, ctx, dt);
     const t = this.gunner.target;
-    if (t) this.arena.spotted(this.side, t);
-    // Перевязка, или враг на виду — стоит и стреляет (прицел сужается стоя).
-    if (ctx.combat.bandaging(self) || (fighting && t && canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius))) {
-      this.mover.stop();
+    if (t && !t.downed) this.arena.spotted(this.side, t);
+    const lead = this.arena.pointman(this.side);
+    let column = false;
+    if (ctx.combat.bandaging(self)) this.mover.stop();
+    else if (!(fighting && t) && this.tactics.rescue(self, ctx, this.gunner, this.mover, dt)) {
+      // Поднимает своего.
+    } else if (fighting && t) {
+      // Бой из укрытия; укрытия нет — враг на виду: стоит и стреляет (прицел сужается стоя).
+      if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt) && canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius)) this.mover.stop();
+    } else if (lead && lead !== self) {
+      if (this.tactics.mode !== 'none') {
+        this.tactics.reset(self);
+        this.gunner.memory = 3;
+      }
+      column = true;
+      followColumn(self, ctx, this.mover, lead, this.arena.columnIndex(this.side, self), dt, this.column);
     } else {
+      if (this.tactics.mode !== 'none') {
+        this.tactics.reset(self);
+        this.gunner.memory = 3;
+      }
       this.phaseLeft -= dt;
       if (this.phaseLeft <= 0) {
         this.phase = this.phase === 'advance' ? 'hold' : 'advance';
@@ -56,7 +80,11 @@ class ArenaBrain implements Brain {
       }
     }
     this.mover.update(self, ctx, dt);
-    if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
+    if (this.gunner.look(self, ctx, dt) || this.tactics.face(self, dt)) return;
+    if (column && lead && self.moveSpeed < 8) {
+      const k = this.arena.columnIndex(this.side, self);
+      watchSector(self, lead, k, k >= this.arena.fitCount(this.side) - 1, dt);
+    } else faceMovement(self, ctx, dt);
   }
 }
 
@@ -159,6 +187,12 @@ export class SquadArena {
     c.bleed = 0;
     c.limpUntil = c.armUntil = c.bandageUntil = 0;
     c.burnUntil = 0;
+    c.downedUntil = 0;
+    c.suppress = 0;
+    c.crouch = false;
+    c.reviveUntil = 0;
+    c.reviving = null;
+    c.dragging = c.draggedBy = null;
     c.hostile = u.faction === 'rebel';
     c.disguised = false;
     c.cover = null;
@@ -169,8 +203,30 @@ export class SquadArena {
     equipKit(c, u.kit, this.ctx);
   }
 
+  /** Сколько бойцов стороны в строю (тяжелораненые — не в счёт: им уже не воевать). */
   alive(side: ArenaSide): number {
-    return this.members[side].filter((c) => c.alive).length;
+    return this.members[side].filter((c) => c.fit).length;
+  }
+
+  /** Сколько боеспособных NPC в отряде (колонна; игрок идёт сам по себе). */
+  fitCount(side: ArenaSide): number {
+    return this.members[side].filter((c) => c.fit && !c.isPlayer).length;
+  }
+
+  /** Ведущий колонны отряда: первый боеспособный NPC. */
+  pointman(side: ArenaSide): Character | null {
+    return this.members[side].find((c) => c.fit && !c.isPlayer) ?? null;
+  }
+
+  /** Место бойца в колонне за ведущим (1 — сразу за ним). */
+  columnIndex(side: ArenaSide, c: Character): number {
+    let k = 0;
+    for (const m of this.members[side]) {
+      if (!m.fit || m.isPlayer) continue;
+      if (m === c) return Math.max(1, k);
+      k++;
+    }
+    return 1;
   }
 
   update(dt: number): void {

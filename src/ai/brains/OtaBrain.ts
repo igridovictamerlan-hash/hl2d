@@ -7,6 +7,8 @@ import { Gunner } from '../Gunner';
 import { faceMovement, turnTowards } from '../facing';
 import { poiWorld } from '../../systems/Population';
 import { LAW } from '../../config/law';
+import { Tactician } from '../Tactics';
+import { TACTICS } from '../../config/tactics';
 
 export type OtaMode = 'reserve' | 'post' | 'home';
 
@@ -26,6 +28,9 @@ export class OtaBrain implements Brain {
   private repath = 0;
   /** Больше не используется: OTA возвращаются в резерв, а не уходят. */
   departed = false;
+  /** Тактика боя: укрытия у поста, помощь своим раненым. */
+  readonly tactics = new Tactician();
+  private fightHome: Vec2 | null = null;
 
   constructor(_self: Character, ctx: AiContext) {
     this.gunner = new Gunner(ctx.rng);
@@ -33,7 +38,8 @@ export class OtaBrain implements Brain {
 
   get stateName(): string {
     const m = { reserve: 'резерв', post: 'контрудар', home: 'возврат' }[this.mode];
-    return this.gunner.target ? `${m} · бой` : m;
+    const tac = this.tactics.label;
+    return this.gunner.target ? `${m} · бой${tac ? ` · ${tac}` : ''}` : m;
   }
 
   /** Свободен для приказа (в резерве). */
@@ -60,9 +66,13 @@ export class OtaBrain implements Brain {
     const fighting = this.gunner.update(self, ctx, dt);
     this.repath -= dt;
     const st = this.mover.status;
-    if (fighting && this.gunner.target) {
+    if (!(fighting && this.gunner.target) && this.tactics.rescue(self, ctx, this.gunner, this.mover, dt)) {
+      // Свой тяжелораненый — поднять.
+    } else if (fighting && this.gunner.target) {
       ctx.war.sighted(this.gunner.target);
-      this.mover.stop();
+      // Из укрытия у поста (или там, где начался бой).
+      this.fightHome ??= this.post ?? { x: self.x, y: self.y };
+      if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt, this.fightHome, this.post ? TACTICS.postLeash : TACTICS.leash)) this.mover.stop();
     } else if (this.mode === 'post' && this.post) {
       const p = this.post;
       const far = Math.hypot(p.x - self.x, p.y - self.y);
@@ -91,7 +101,11 @@ export class OtaBrain implements Brain {
         } else if (d <= near && st === 'arrived') this.mover.stop();
       }
     }
+    if (!fighting) {
+      this.fightHome = null;
+      if (this.tactics.mode !== 'none') this.tactics.reset(self);
+    }
     this.mover.update(self, ctx, dt);
-    if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
+    if (!this.gunner.look(self, ctx, dt) && !this.tactics.face(self, dt)) faceMovement(self, ctx, dt);
   }
 }

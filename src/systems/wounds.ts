@@ -16,14 +16,18 @@ export function armorOf(c: Character): ArmorProfile {
 
 const ZONES: HitZone[] = ['head', 'torso', 'arm', 'leg'];
 
-/** Куда попала пуля: по весам HITS.weights, прицелившийся (aim 0..1) чаще попадает в голову. */
-export function rollZone(rng: Rng, aim: number): HitZone {
+/**
+ * Куда попала пуля: по весам HITS.weights, прицелившийся (aim 0..1) чаще попадает в голову;
+ * у присевшего ноги поджаты — вес ног × legMul.
+ */
+export function rollZone(rng: Rng, aim: number, legMul = 1): HitZone {
   const W = HITS.weights;
   const head = W.head + HITS.headAim * aim;
-  const total = head + W.torso + W.arm + W.leg;
+  const leg = W.leg * legMul;
+  const total = head + W.torso + W.arm + leg;
   let r = rng.next() * total;
   for (const z of ZONES) {
-    r -= z === 'head' ? head : W[z];
+    r -= z === 'head' ? head : z === 'leg' ? leg : W[z];
     if (r <= 0) return z;
   }
   return 'torso';

@@ -12,9 +12,12 @@ import { pointSegmentDist2 } from '../core/math';
 import { FACTIONS } from '../config/factions';
 import { angleDiff } from '../systems/CombatSystem';
 import { bark } from '../systems/Barks';
+import { SUPPRESS, DOWNED, TACTICS } from '../config/tactics';
 
 const near: Character[] = [];
 const DEG = Math.PI / 180;
+/** Судьба лежащего раненого: добивает ли его каждая сторона (решается раз за падение). */
+const finishFate = new WeakMap<Character, { at: number; sides: Partial<Record<'ota' | 'rebel' | 'cp', boolean>> }>();
 
 /** Свой-чужой по стороне (Альянс / остальные): выстрел «своего» подсказывает, куда смотреть. */
 function differentSides(a: Character, b: Character): boolean {
@@ -50,6 +53,10 @@ export class Gunner {
   /** РПГ: взят для выстрела до этого времени (потом — обратно на автомат). */
   private rocketUntil = 0;
   private nextRocket = 0;
+  /** Сколько секунд помнит цель, пропавшую из виду (тактика в укрытии держит дольше). */
+  memory = 3;
+  /** Цель — лежащий враг, которого решил добить. */
+  private finishing = false;
 
   constructor(private readonly rng: Rng) {}
 
@@ -65,17 +72,60 @@ export class Gunner {
     if (range <= 0) return null;
     let best: Character | null = null;
     let bestD = range;
+    let downed: Character | null = null;
+    let downedD = range * 0.6;
     // Подпольщик под личиной, которому можно стрелять, сам выбирает цели из Альянса (его пока не узнают).
     const covert = self.faction === 'rebel' && self.disguised && !this.holdFire;
     for (const o of ctx.entities.near(self.x, self.y, range, near)) {
-      if (!ctx.combat.threat(self, o) && !(covert && o.alive && FACTIONS[o.faction].authority)) continue;
       const d = Math.hypot(o.x - self.x, o.y - self.y);
-      if (d < bestD && Gunner.inView(self, o.x, o.y) && canSeeCircle(ctx.map, self.x, self.y, o.x, o.y, o.radius)) {
+      if (o.downed) {
+        // Лежащий враг — не угроза; добить, если больше не в кого (решается раз на каждого).
+        if (d < downedD && ctx.combat.isHostile(self, o) && Gunner.inView(self, o.x, o.y) && canSeeCircle(ctx.map, self.x, self.y, o.x, o.y, o.radius)) {
+          downedD = d;
+          downed = o;
+        }
+        continue;
+      }
+      if (!ctx.combat.threat(self, o) && !(covert && o.alive && FACTIONS[o.faction].authority)) continue;
+      // Присевший за бетонным блоком не виден (пока не выстрелит).
+      if (d < bestD && Gunner.inView(self, o.x, o.y) && canSeeCircle(ctx.map, self.x, self.y, o.x, o.y, o.radius) && !ctx.combat.concealed(o, self.x, self.y)) {
         bestD = d;
         best = o;
       }
     }
+    this.finishing = false;
+    if (!best && downed && !this.holdFire && this.wantsFinish(self, downed, ctx)) {
+      this.finishing = true;
+      return downed;
+    }
     return best;
+  }
+
+  /**
+   * Добить ли лежащего врага: решается раз на лежащего и сторону (OTA чаще, повстанцы реже, ГО —
+   * только на фронте, в городе задерживает).
+   */
+  private wantsFinish(self: Character, o: Character, ctx: AiContext): boolean {
+    const side = self.faction === 'ota' || self.faction === 'rebel' || self.faction === 'cp' ? self.faction : null;
+    if (!side) return false;
+    let fate = finishFate.get(o);
+    if (!fate || fate.at !== o.downedAt) {
+      fate = { at: o.downedAt, sides: {} };
+      finishFate.set(o, fate);
+    }
+    let v = fate.sides[side];
+    if (v === undefined) {
+      const front = ctx.map.zoneAtWorld(o.x, o.y)?.kind;
+      const cpFront = front === 'checkpoint' || front === 'outlands' || front === 'wasteland';
+      v = (side !== 'cp' || cpFront) && this.rng.chance(DOWNED.finish[side]);
+      fate.sides[side] = v;
+    }
+    return v;
+  }
+
+  /** Где последний раз видел цель и когда (тактика: куда выглядывать, куда давить огнём). */
+  get lastSeenAt(): { x: number; y: number; t: number } {
+    return this.lastSeen;
   }
 
   /** Есть ли на линии огня свой (не враг цели). */
@@ -84,7 +134,8 @@ export class Gunner {
     const my = (self.y + t.y) / 2;
     const half = Math.hypot(t.x - self.x, t.y - self.y) / 2;
     for (const o of ctx.entities.near(mx, my, half + 14, near)) {
-      if (o === self || o === t || ctx.combat.isHostile(self, o)) continue;
+      // Лежащий свой — пули идут поверх.
+      if (o === self || o === t || o.downed || ctx.combat.isHostile(self, o)) continue;
       if (pointSegmentDist2(o.x, o.y, self.x, self.y, t.x, t.y) < (o.radius + 3) ** 2) return true;
     }
     return false;
@@ -167,20 +218,23 @@ export class Gunner {
       this.sense(self, ctx);
       const t = this.acquire(self, ctx);
       if (t && t !== this.target) {
-        if (!this.target) bark(self, 'contact', combat.now, this.rng);
+        if (!this.target && !t.downed) bark(self, 'contact', combat.now, this.rng);
         this.target = t;
         this.alert = null;
-        this.reaction = this.rng.range(COMBAT.ai.reaction[0], COMBAT.ai.reaction[1]);
+        // Под огнём реагирует медленнее.
+        this.reaction = this.rng.range(COMBAT.ai.reaction[0], COMBAT.ai.reaction[1]) * (1 + self.suppress * SUPPRESS.reactionMul);
       }
     }
     const t = this.target;
-    if (!t || !t.alive) {
+    // Цель упала (тяжело ранена) — не угроза, если не решил добить.
+    if (!t || !t.alive || (t.downed && !this.finishing)) {
       this.target = null;
       self.aiming = false;
       this.holster(self, ctx, dt);
       return false;
     }
     this.calm = 0;
+    self.engagedUntil = combat.now + 2.5;
     const d = Math.hypot(t.x - self.x, t.y - self.y);
     const now = combat.now;
     // Вплотную и с ножом — режет (бандит, партизан), если огнестрела нет или враг уже рядом.
@@ -215,7 +269,7 @@ export class Gunner {
     if (d > w.range * 1.1 || !canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius)) {
       this.lostFor += dt;
       self.aiming = false;
-      if (this.lostFor > 3) this.target = null;
+      if (this.lostFor > this.memory) this.target = null;
       if (self.mag < w.magazine / 2) combat.reload(self);
       return this.target !== null;
     }
@@ -238,10 +292,12 @@ export class Gunner {
       if (this.pause <= 0) this.burst = this.burstFor(w.mode);
       return true;
     }
-    if (this.burst <= 0) this.burst = this.burstFor(w.mode);
+    // Прижат огнём — стреляет вслепую короткими очередями, не дожидаясь сведения конуса.
+    const pinned = self.suppress >= SUPPRESS.pinned;
+    if (this.burst <= 0) this.burst = pinned ? this.rng.int(SUPPRESS.blindBurst[0], SUPPRESS.blindBurst[1]) : this.burstFor(w.mode);
     // Стреляет, когда конус у цели достаточно узкий (или уже целится изо всех сил) и не слишком далеко.
     const width = d * Math.tan(combat.spreadOf(self, w) * DEG);
-    const steady = width <= t.radius * COMBAT.ai.fireWidth || self.aim >= 0.95;
+    const steady = width <= t.radius * COMBAT.ai.fireWidth || self.aim >= 0.95 || (pinned && self.aim >= 0.3);
     const inReach = d <= Math.min(w.range, w.effectiveRange * COMBAT.ai.maxRangeMul);
     if (!this.holdFire && steady && inReach && combat.canFire(self) && !this.friendInLine(self, t, ctx)) {
       // Упреждение по скорости цели (пуля летит не мгновенно).
@@ -338,7 +394,9 @@ export class Gunner {
     // Куда граната реально упадёт (стена ближе — упадёт перед ней): не себе под ноги.
     const land = Math.min(d, castRay(ctx.map, self.x, self.y, dx, dy, d) - 8);
     if (land < G.radius + 12) return false;
-    if (!this.rng.chance(Math.min(1, G.ai.chance * (demo ? G.ai.demoMul : 1)))) return false;
+    // Цель прижата огнём за укрытием — самое время для гранаты.
+    const pressed = t.suppress >= SUPPRESS.pinned ? TACTICS.grenadeMul : 1;
+    if (!this.rng.chance(Math.min(1, G.ai.chance * (demo ? G.ai.demoMul : 1) * pressed))) return false;
     if (!combat.throwGrenade(self, px, py, kind)) return false;
     this.nextNade = now + this.rng.range(G.ai.cooldown[0], G.ai.cooldown[1]) / (demo ? G.ai.demoMul : 1);
     self.say(FACTIONS[self.faction].authority ? 'Граната! Ложись!' : 'Лови подарок!', now, 1.5);

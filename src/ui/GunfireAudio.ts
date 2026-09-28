@@ -148,6 +148,7 @@ export class GunfireAudio {
       if (f.kind === 'hit' || (f.kind === 'stab' && f.cls === 'blade')) this.flesh(ctx, d, pan, f.lethal);
       else if (f.kind === 'wall' && Math.random() < AUDIO.ricochet.chance) this.ricochet(ctx, d, pan);
       if (f.kind === 'stab') this.swish(ctx, d, pan);
+      if (f.kind === 'whiz' && f.target === listener) this.whiz(ctx, pan, f.power);
     }
   }
 
@@ -273,6 +274,31 @@ export class GunfireAudio {
     o.connect(og).connect(c.out);
     o.start(c.t0);
     o.stop(c.t0 + R.dur);
+  }
+
+  /** Пуля над ухом: щелчок и короткий свист с понижением (без задержки — пролетает рядом). */
+  private whiz(ctx: AudioContext, pan: number, power: number): void {
+    const W = AUDIO.whiz;
+    const c = this.chain(ctx, 0, pan * 3, W.gain * (0.5 + power * 0.7), 0.05);
+    if (!c) return;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3200;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(W.crack, c.t0);
+    g.gain.exponentialRampToValueAtTime(0.001, c.t0 + W.crackDur);
+    this.noiseSrc(ctx, c.t0, W.crackDur + 0.01).connect(hp).connect(g).connect(c.out);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 6;
+    const f = W.whistle * (0.8 + Math.random() * 0.4);
+    bp.frequency.setValueAtTime(f, c.t0);
+    bp.frequency.exponentialRampToValueAtTime(f * 0.55, c.t0 + W.dur);
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.001, c.t0);
+    g2.gain.exponentialRampToValueAtTime(0.7, c.t0 + 0.02);
+    g2.gain.exponentialRampToValueAtTime(0.001, c.t0 + W.dur);
+    this.noiseSrc(ctx, c.t0, W.dur + 0.02).connect(bp).connect(g2).connect(c.out);
   }
 
   /** Взмах ножом или дубинкой: свист воздуха. */
