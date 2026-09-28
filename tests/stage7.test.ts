@@ -183,12 +183,21 @@ describe('бандиты', () => {
     for (const a of [best]) {
       const at = { x: sim.nav.worldX(a), y: sim.nav.worldY(a) };
       bandit = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'bandit' }, at);
+      // Ещё двое из той же шайки неподалёку: кто-то да найдёт прохожего в подворотне.
+      for (let k = 0; k < 2; k++) {
+        const b = randomAnchorAround(at, sim.ctx, 2, 5, new Set());
+        if (b >= 0) spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'bandit' }, { x: sim.nav.worldX(b), y: sim.nav.worldY(b) });
+      }
       // Прохожие рядом, в тех же переулках.
       for (let k = 0; k < 24; k++) {
         const b = randomAnchorAround(at, sim.ctx, 1, 6, new Set());
         if (b < 0) continue;
         const v = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'citizen', division: null, rank: 0, kit: 'citizen' }, { x: sim.nav.worldX(b), y: sim.nav.worldY(b) });
-        if (v) v.money = 50;
+        // Сыты и при деньгах: грабить есть кого, в столовую им пока рано.
+        if (v) {
+          v.money = 50;
+          v.hunger = 100;
+        }
       }
       break;
     }

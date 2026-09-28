@@ -97,6 +97,11 @@ export const LIGHTING = {
     black_market: { color: [255, 175, 95], radius: 100, power: 0.8, night: false, flicker: 0.1 },
     ration_window: { color: [255, 215, 150], radius: 100, power: 0.9, night: true, bloom: true },
     shop_counter: { color: [255, 205, 130], radius: 90, power: 0.8, night: true, bloom: true },
+    // Улица старого города: лавки и кафе светят витринами, столовая — большим залом, ларёк — окошком.
+    vendor_spot: { color: [255, 200, 125], radius: 95, power: 0.85, night: true, bloom: true },
+    shop_front: { color: [255, 210, 140], radius: 70, power: 0.6, night: true, bloom: true },
+    canteen: { color: [255, 205, 135], radius: 150, power: 0.9, night: true, bloom: true },
+    kiosk: { color: [255, 215, 150], radius: 55, power: 0.7, night: true, bloom: true },
     rebel_camp: { color: [255, 140, 60], radius: 170, power: 1, night: false, flicker: 0.25 },
     rebel_base: { color: [255, 170, 90], radius: 150, power: 0.9, night: false, flicker: 0.12 },
     rebel_cache: { color: [255, 180, 100], radius: 80, power: 0.7, night: false, flicker: 0.1 },

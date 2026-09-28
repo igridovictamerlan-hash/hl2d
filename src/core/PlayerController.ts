@@ -2,6 +2,7 @@ import type { Input } from './Input';
 import type { Camera } from './Camera';
 import type { EventBus } from './EventBus';
 import type { Character } from '../entities/Character';
+import type { StreetShop } from '../systems/StreetShops';
 import type { AiContext } from '../ai/AiContext';
 import type { CheckChoice } from '../ui/CheckPanel';
 import type { AlertCode } from '../systems/WarSystem';
@@ -60,7 +61,7 @@ export class PlayerController {
     private readonly hooks: {
       openRoleMenu(): void;
       menuOpen(): boolean;
-      openShop(kind: 'cwu' | 'black'): void;
+      openShop(kind: 'cwu' | 'black' | 'street', street?: StreetShop): void;
       toggleInventory(): void;
       placeBarrier(): string | null;
       checkPanelTarget(): Character | null;
@@ -362,6 +363,18 @@ export class PlayerController {
     }
     if (d(eco.shopCounter) < REACH + 8) return this.hooks.openShop('cwu');
     if (d(ctx.insurgency.market) < REACH + 8) return this.hooks.openShop('black');
+    // Лавки, кафе и ларьки проспекта; стол общей столовой — поесть.
+    const street = ctx.shops?.shopAt(p, REACH);
+    if (street) {
+      if (!street.stock.length) return this.say(`${street.name}: сегодня только поглазеть — товара нет.`);
+      return this.hooks.openShop('street', street);
+    }
+    const seat = ctx.shops?.seats.find((s) => !s.taken && Math.hypot(s.x - p.x, s.y - p.y) < REACH * 0.6);
+    if (seat) {
+      if (!ctx.shops.foodOf(p)) return this.say('Общая столовая: сюда приходят со своим пайком — а у вас нечего есть.');
+      ctx.shops.eat(p);
+      return this.say(`Пообедали за столом общей столовой. Сытость: ${Math.round(p.hunger)}.`);
+    }
     // Люк: спуститься / подняться.
     const hatch = ctx.underground.hatchNear(p.x, p.y);
     if (hatch && !ctx.underground.canUse(p)) return this.say('Люк заварен. Ходы под городом знают только партизаны.');

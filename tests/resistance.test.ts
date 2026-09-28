@@ -368,8 +368,22 @@ describe('подполье группами', () => {
       expect(m.hostile).toBe(true);
     }
     expect(sim.log.some((l) => l.includes('нападение на конвой'))).toBe(true);
-    // Экипаж отстреливается (ящики падают) — партизаны забирают.
-    run(sim, 60, () => sim.insurgency.stats.looted > 0);
+    // Экипаж отстреливается — носильщики бросают ящики; кто уцелел из засады, забирает.
+    let dropped = 0;
+    run(sim, 60, () => {
+      dropped = Math.max(dropped, A.crates.filter((c) => c.convoy).length);
+      return sim.insurgency.stats.looted > 0 || g.members.every((m) => !m.fit);
+    });
+    expect(dropped).toBeGreaterThan(0);
+    // Исход боя трёх против четырёх SU.03 — дело случая (голова без шлема — смерть). Засаду перебили —
+    // брошенный ящик берёт первый же партизан, дошедший до него.
+    if (sim.insurgency.stats.looted === 0) {
+      const crate = A.crates.find((c) => c.convoy)!;
+      const p = sim.entities.list.find((c) => c.alive && c.profession === 'partisan')!;
+      p.x = p.prevX = crate.x;
+      p.y = p.prevY = crate.y;
+      expect(sim.insurgency.lootCrate(p)).toBe(true);
+    }
     expect(sim.insurgency.stats.looted).toBeGreaterThan(0);
     expect(A.stats.looted).toBe(sim.insurgency.stats.looted);
   });

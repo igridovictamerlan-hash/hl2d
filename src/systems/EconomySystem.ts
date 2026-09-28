@@ -218,10 +218,17 @@ export class EconomySystem {
 
   /** Выдать рацион первому в очереди (вызывает работник ГСР). */
   serveNext(worker: Character): Character | null {
-    const c = this.queue[0];
-    if (!c || !this.open) return null;
+    if (!this.queue.length || !this.open) return null;
     const slot = this.queueSlot(0);
-    if (Math.hypot(c.x - slot.x, c.y - slot.y) > 30) return null;
+    // Первый ещё идёт через полгорода — выдают тому, кто уже стоит у окна (он становится первым).
+    let c = this.queue[0];
+    if (Math.hypot(c.x - slot.x, c.y - slot.y) > 30) {
+      const near = this.queue.find((o) => Math.hypot(o.x - slot.x, o.y - slot.y) <= 30);
+      if (!near) return null;
+      this.queue.splice(this.queue.indexOf(near), 1);
+      this.queue.unshift(near);
+      c = near;
+    }
     if (this.rationStock <= 0) {
       this.onEmpty();
       return null;

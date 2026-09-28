@@ -47,6 +47,7 @@ import { FamilySystem } from '../systems/Families';
 import { SecuritySystem } from '../systems/Security';
 import { CwuHqSystem } from '../systems/CwuHq';
 import { ArsenalSystem } from '../systems/Arsenal';
+import { StreetShops } from '../systems/StreetShops';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
@@ -154,7 +155,7 @@ export class Game {
     this.playerCtl = new PlayerController(this.input, this.camera, this.bus, {
       openRoleMenu: () => this.ui.roles.open(false),
       menuOpen: () => this.ui.roles.isOpen,
-      openShop: (kind) => this.ui.shop.open(kind),
+      openShop: (kind, street) => this.ui.shop.open(kind, street ?? null),
       toggleInventory: () => this.ui.inventory.toggle(),
       placeBarrier: () => this.placeBarrier(),
       checkPanelTarget: () => this.ui.check.target,
@@ -258,6 +259,7 @@ export class Game {
       security: null as unknown as SecuritySystem,
       cwuHq: null as unknown as CwuHqSystem,
       arsenal: null as unknown as ArsenalSystem,
+      shops: null as unknown as StreetShops,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -274,6 +276,7 @@ export class Game {
     this.ai.security = new SecuritySystem(this.ai);
     this.ai.cwuHq = new CwuHqSystem(this.ai);
     this.ai.arsenal = new ArsenalSystem(this.ai);
+    this.ai.shops = new StreetShops(this.ai);
     this.entityRenderer.families = this.ai.families;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
@@ -765,6 +768,7 @@ export class Game {
     this.ai.street.update(dt);
     this.ai.security.update(dt);
     this.ai.cwuHq.update(dt);
+    this.ai.shops.update();
     this.ai.arsenal.update(dt);
     // Красный код (штурм Нексуса) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();

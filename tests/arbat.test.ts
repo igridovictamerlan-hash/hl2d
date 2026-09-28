@@ -88,3 +88,43 @@ describe('проспект старого города', () => {
     expect(tops.size).toBeGreaterThanOrEqual(5);
   });
 });
+
+describe('жизнь проспекта', () => {
+  test('горожане едят за столами общей столовой и ходят по лавкам', { timeout: 400_000 }, async () => {
+    const { makeSim } = await import('./simHarness');
+    const { spawnPopulation } = await import('../src/systems/Population');
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.insurgency.paused = true;
+    spawnPopulation(sim.ctx, 40);
+    const shops = sim.ctx.shops;
+    expect(shops.seats.length).toBeGreaterThanOrEqual(6);
+    expect(shops.shops.filter((s) => s.kind === 'kiosk').length).toBeGreaterThanOrEqual(2);
+    // Паёк на руках и лёгкий голод — после раздачи.
+    for (const c of sim.entities.list) {
+      if (c.faction !== 'citizen') continue;
+      c.inventory.add('ration', 1);
+      c.hunger = 55;
+      c.money = Math.max(c.money, 20);
+    }
+    let seated = 0;
+    for (let t = 0; t < 180 * 60; t++) {
+      sim.step();
+      if (t % 60 === 0) seated = Math.max(seated, shops.seats.filter((s) => s.taken && Math.hypot(s.taken.x - s.x, s.taken.y - s.y) < 12).length);
+    }
+    console.log(`за 180 с: ${JSON.stringify(shops.stats)}, одновременно за столами ${seated}`);
+    expect(shops.stats.meals).toBeGreaterThan(3);
+    expect(seated).toBeGreaterThanOrEqual(2);
+    // Сытые и при деньгах — по лавкам.
+    for (const c of sim.entities.list) {
+      if (c.faction !== 'citizen') continue;
+      c.hunger = 100;
+      c.money = Math.max(c.money, 30);
+    }
+    const before = { ...shops.stats };
+    for (let t = 0; t < 180 * 60; t++) sim.step();
+    console.log(`ещё 180 с: ${JSON.stringify(shops.stats)}`);
+    expect(shops.stats.visits - before.visits).toBeGreaterThan(2);
+    expect(shops.stats.purchases - before.purchases).toBeGreaterThan(0);
+  });
+});

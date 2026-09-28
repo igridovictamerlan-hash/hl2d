@@ -60,7 +60,7 @@ export class MapView {
       [C.fight, 'КПП: бой'],
       [C.capture, 'КПП: капт / захвачен'],
       [C.nexus, 'Нексус'],
-      [C.ration, 'раздача'],
+      [C.ration, 'раздача и столовая'],
       [C.shop, 'магазин ГСР'],
       [C.cwuHq, 'штаб ГСР'],
       [C.arsenal, 'склад Альянса'],
@@ -313,6 +313,7 @@ export class MapView {
       for (const p of poi('nexus_gate')) dot(p.x, p.y, 3.5, C.nexus);
       for (const p of poi('ration_window')) dot(p.x, p.y, 3, economy.open ? C.ration : 'rgba(255,211,107,0.4)');
       for (const p of poi('shop_counter')) dot(p.x, p.y, 2.5, C.shop);
+      for (const p of poi('canteen_serve')) dot(p.x, p.y, 3, C.ration);
       for (const p of poi('cwu_hire')) dot(p.x, p.y, 3, C.cwuHq);
       for (const p of poi('arsenal_desk')) dot(p.x, p.y, 3, C.arsenal);
       for (const n of economy.nodes) if (n.broken) dot(n.x, n.y, 2.5, C.nodeBroken);

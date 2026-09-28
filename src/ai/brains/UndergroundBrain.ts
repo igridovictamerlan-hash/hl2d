@@ -60,8 +60,9 @@ export class UndergroundBrain implements Brain {
   depotAct: DepotAct | null = null;
   private jailWait = 0;
   private work = 0;
-  /** Засада: граната в колонну по сигналу уже брошена. */
+  /** Засада: граната в колонну по сигналу уже брошена; ведущий уже пошёл на перехват. */
   private volley = false;
+  private intercepting = false;
   private idle = 0;
   private repath = 0;
   private outingWait = 0;
@@ -146,6 +147,7 @@ export class UndergroundBrain implements Brain {
   startAmbush(self: Character, ctx: AiContext, spot: Vec2): void {
     this.mode = 'ambush';
     this.volley = false;
+    this.intercepting = false;
     this.spot = spot;
     this.work = 0;
     this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
@@ -483,7 +485,9 @@ export class UndergroundBrain implements Brain {
       return;
     }
     // Собрались: рядом с ведущим хотя бы двое (или все, если группа меньше).
-    const near = g.members.filter((m) => ctx.map.levelAt(m.x, m.y) === 'city' && Math.hypot(m.x - self.x, m.y - self.y) < A.huddle).length;
+    // На перехвате (ведущий бежит к колонне, остальные чуть отстают) — в двойном радиусе.
+    const huddle = this.intercepting ? A.huddle * 2 : A.huddle;
+    const near = g.members.filter((m) => ctx.map.levelAt(m.x, m.y) === 'city' && Math.hypot(m.x - self.x, m.y - self.y) < huddle).length;
     const assembled = near >= Math.min(2, g.members.length);
     if (city && assembled && v.phase === 'march' && d < A.engage && canSeeCircle(ctx.map, self.x, self.y, lead.x, lead.y, lead.radius)) {
       ctx.insurgency.groupAttack(g, self);
@@ -493,6 +497,8 @@ export class UndergroundBrain implements Brain {
         mb.travel.stop(mb.mover);
         const w = ctx.combat.bestWeapon(m, Math.hypot(lead.x - m.x, lead.y - m.y));
         if (w) ctx.combat.equip(m, w);
+        // Ждали колонну с прицелом наготове: первая очередь — с полным прицелом.
+        m.aim = 1;
         // Первым — носильщика (ящик упадёт), иначе ведущего колонны.
         const carrier = v.crew.find((o) => o.fit && o.carrying && Math.hypot(o.x - m.x, o.y - m.y) < A.engage * 1.3);
         mb.gunner.target = carrier ?? lead;
@@ -500,6 +506,7 @@ export class UndergroundBrain implements Brain {
       return;
     }
     if (city && assembled && v.phase === 'march' && d < A.intercept && !this.travel.climbing) {
+      this.intercepting = true;
       if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
         this.repath = 2;
         this.travel.start(self, ctx, this.mover, { x: lead.x, y: lead.y });

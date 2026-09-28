@@ -53,7 +53,8 @@ describe('NPC в тесном городе', () => {
     }
     console.log(`прибытий: ${arrivals}, макс. застревание: ${maxStuck.toFixed(1)} с, касаний стен: ${wallHits}`);
     expect(wallHits).toBe(0);
-    expect(arrivals).toBeGreaterThan(40);
+    // Часть времени жители сидят в столовой и стоят у прилавков — прибытий меньше, чем при одних прогулках.
+    expect(arrivals).toBeGreaterThan(30);
     expect(maxStuck).toBeLessThan(8);
   });
 

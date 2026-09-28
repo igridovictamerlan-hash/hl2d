@@ -183,7 +183,7 @@ export class UI {
       this.capture.update(this.host.war);
     }
     this.mapView.update(this.host, GAME.hudInterval);
-    this.shop.update(player, this.shop.kind === 'black' ? this.host.blackMarketCounter : economy.shopCounter);
+    this.shop.update(player, this.shop.kind === 'black' ? this.host.blackMarketCounter : this.shop.kind === 'street' ? this.shop.street?.front ?? null : economy.shopCounter);
     const arena = this.host.arena;
     this.death.update(player, combat.now, this.host.war.code === 'red', arena ? `Отряд на отряд: вернётесь в бой в следующем раунде (живы: ${arena.alive(arena.playerSide)} из вашего отряда)` : null);
     this.dev.update();

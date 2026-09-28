@@ -2,7 +2,9 @@ import type { Character } from '../entities/Character';
 import { ITEMS, type ItemId } from '../config/items';
 import { ECONOMY } from '../config/economy';
 
-export type ShopKind = 'cwu' | 'black';
+import type { StreetShop } from '../systems/StreetShops';
+
+export type ShopKind = 'cwu' | 'black' | 'street';
 
 export interface ShopHandlers {
   /** Цена в магазине ГСР для игрока (со скидкой лоялиста). */
@@ -25,6 +27,8 @@ export class ShopPanel {
   private readonly msg: HTMLElement;
   private sellSig = '';
   kind: ShopKind = 'cwu';
+  /** Лавка или ларёк проспекта (kind = 'street'). */
+  street: StreetShop | null = null;
   isOpen = false;
 
   constructor(parent: HTMLElement, private readonly h: ShopHandlers) {
@@ -65,16 +69,17 @@ export class ShopPanel {
     });
   }
 
-  open(kind: ShopKind = 'cwu'): void {
+  open(kind: ShopKind = 'cwu', street: StreetShop | null = null): void {
     this.kind = kind;
+    this.street = street;
     this.isOpen = true;
     this.el.hidden = false;
     this.msg.textContent = '';
     this.sellSig = '';
     this.el.classList.toggle('black', kind === 'black');
-    if (kind === 'cwu') {
-      this.title.textContent = 'МАГАЗИН ГСР';
-      this.list.innerHTML = ECONOMY.shop.stock
+    if (kind === 'cwu' || kind === 'street') {
+      this.title.textContent = kind === 'street' && street ? street.name.toUpperCase() : 'МАГАЗИН ГСР';
+      this.list.innerHTML = (kind === 'street' && street ? street.stock : ECONOMY.shop.stock)
         .map((id) => {
           const d = ITEMS[id];
           const price = this.h.price(id) ?? d.price;

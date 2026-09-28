@@ -15,6 +15,8 @@ import { CHARACTER } from '../../config/entities';
 import { LAW } from '../../config/law';
 import { FACTIONS } from '../../config/factions';
 import { ECONOMY } from '../../config/economy';
+import { ARBAT } from '../../config/arbat';
+import type { CanteenSeat, StreetShop } from '../../systems/StreetShops';
 import { ITEMS, WEAPONS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
 import type { TrashPile } from '../../systems/LaborSystem';
@@ -72,7 +74,7 @@ const near: Character[] = [];
 const near2: Character[] = [];
 
 /** Состояния, в которых мозг сам решает, куда смотреть (не «по ходу движения»). */
-const SELF_FACING = new Set(['stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice']);
+const SELF_FACING = new Set(['stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice', 'canteen', 'shopping']);
 
 /**
  * Житель города (гражданин, ГСР, повстанец): стоит → идёт → стоит. Иногда нарушает:
@@ -107,6 +109,9 @@ export class CitizenBrain implements Brain {
   bench: { bench: Bench; seat: number } | null = null;
   /** Место за столом для карт, доска объявлений. */
   table: { table: CardTable; seat: number } | null = null;
+  /** Место за столом общей столовой и лавка, куда идёт за покупкой. */
+  seat: CanteenSeat | null = null;
+  shopGo: StreetShop | null = null;
   board: NoticeBoard | null = null;
   stayUntil = 0;
   /** На какое обращение Администратора уже решали, идти ли. */
@@ -130,7 +135,7 @@ export class CitizenBrain implements Brain {
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
-    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT], 'idle');
+    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT, CANTEEN, SHOPPING], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
   }
@@ -281,7 +286,10 @@ export class CitizenBrain implements Brain {
     // Рабочим ГСР засиживаться за картами некогда.
     const cards = st.tables.length && this.self.faction !== 'cwu' ? W.cards : 0;
     const notice = st.boards.length ? W.notice : 0;
-    let r = ctx.rng.range(0, W.chat + W.barrel + W.home + bench + family + cards + W.smoke + notice);
+    // По лавкам проспекта — при зелёном коде и если лавка неподалёку.
+    const shopping = ctx.war.code === 'green' && ctx.shops?.shopNear(this.self) ? ARBAT.visit.weight : 0;
+    let r = ctx.rng.range(0, W.chat + W.barrel + W.home + bench + family + cards + W.smoke + notice + shopping);
+    if ((r -= shopping) < 0) return 'shopping';
     if ((r -= W.chat) < 0) return this.startChat() ? 'chat' : null;
     if ((r -= W.barrel) < 0) return 'barrel';
     if ((r -= bench) < 0) return 'bench';
@@ -371,6 +379,10 @@ export class CitizenBrain implements Brain {
       this.consideredCycle = eco.cycle;
       if (ctx.rng.chance(ECONOMY.rations.npcJoinChance)) return 'queue';
     }
+    // Горожанин с едой проголодался — поесть за столом в общей столовой (не при красном коде; у ГСР
+    // своя столовая в штабе).
+    const hustler = self.profession === 'thief' || self.profession === 'bandit';
+    if (self.faction === 'citizen' && !hustler && ctx.war.code !== 'red' && ctx.shops?.wantsMeal(self) && ctx.rng.chance(ARBAT.meal.chance)) return 'canteen';
     if (eco.shopCounter && self.money >= 6 && self.hunger < 75 && ctx.rng.chance(ECONOMY.shop.npcVisitChance)) return 'shop';
     return this.streetActivity() ?? 'walk';
   }
@@ -1519,6 +1531,94 @@ const CARDS: State<CitizenBrain> = {
   exit(b) {
     b.ctx.street.releaseTableSeat(b.self);
     b.table = null;
+    b.stayUntil = 0;
+  },
+};
+
+/** Общая столовая: сесть за стол, поесть (паёк из инвентаря), перекинуться словом с соседями. */
+const CANTEEN: State<CitizenBrain> = {
+  name: 'canteen',
+  enter(b) {
+    b.stayUntil = 0;
+    b.meetUntil = b.ctx.law.now + 120;
+    b.seat = b.ctx.shops.takeSeat(b.self, b.ctx.rng);
+    if (!b.seat || !b.goToPoint(b.seat)) b.idleLeft = 0.5;
+  },
+  update(b, dt) {
+    const M = ARBAT.meal;
+    const { ctx, self } = b;
+    const now = ctx.law.now;
+    const seat = b.seat;
+    if (!seat) return 'idle';
+    const st = b.mover.status;
+    if (!b.stayUntil) {
+      if (st === 'failed' || now > b.meetUntil) return 'idle';
+      if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
+        b.mover.stop();
+        b.stayUntil = now + ctx.rng.range(M.eat[0], M.eat[1]);
+        b.nextLine = now + ctx.rng.range(1, 4);
+      } else if (st === 'idle') b.goToPoint(seat);
+      return;
+    }
+    b.mover.stop();
+    faceTowards(self, seat.lookX, seat.lookY, dt);
+    // За столом с соседями — разговор.
+    const others = ctx.shops.seats.some((o) => o !== seat && o.table === seat.table && o.taken && o.taken.alive && o.taken.brain instanceof CitizenBrain && o.taken.brain.fsm.current === 'canteen' && o.taken.brain.stayUntil > 0);
+    if (others && now >= b.nextLine) {
+      b.nextLine = now + ctx.rng.range(M.lineEvery[0], M.lineEvery[1]);
+      if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(ARBAT.lines.canteen), now, 2.4);
+    }
+    if (now >= b.stayUntil) {
+      ctx.shops.eat(self);
+      b.idleLeft = ctx.rng.range(1, 3);
+      return 'idle';
+    }
+  },
+  exit(b) {
+    b.ctx.shops.releaseSeat(b.self);
+    b.seat = null;
+    b.stayUntil = 0;
+  },
+};
+
+/** По лавкам проспекта: дойти до прилавка или окошка ларька, постоять, купить что по карману. */
+const SHOPPING: State<CitizenBrain> = {
+  name: 'shopping',
+  enter(b) {
+    b.stayUntil = 0;
+    b.meetUntil = b.ctx.law.now + 90;
+    b.shopGo = b.ctx.shops.pickShop(b.self, b.ctx.rng);
+    if (!b.shopGo || !b.goToPoint(b.shopGo.front)) b.idleLeft = 0.5;
+    else b.ctx.shops.stats.visits++;
+  },
+  update(b, dt) {
+    const V = ARBAT.visit;
+    const { ctx, self } = b;
+    const now = ctx.law.now;
+    const s = b.shopGo;
+    if (!s) return 'idle';
+    const st = b.mover.status;
+    if (!b.stayUntil) {
+      if (st === 'failed' || now > b.meetUntil) return 'idle';
+      if (st === 'arrived' || Math.hypot(s.front.x - self.x, s.front.y - self.y) < 12) {
+        b.mover.stop();
+        b.stayUntil = now + ctx.rng.range(V.stay[0], V.stay[1]);
+      } else if (st === 'idle') b.goToPoint(s.front);
+      return;
+    }
+    b.mover.stop();
+    faceTowards(self, s.look.x, s.look.y, dt);
+    if (now >= b.stayUntil) {
+      const L = ARBAT.lines;
+      const bought = s.stock.length && self.money >= V.minMoney ? ctx.shops.npcBuy(self, s, ctx.rng) : null;
+      const line = bought ? L.buy : s.stock.length && self.money < V.minMoney ? L.broke : L.browse;
+      if (ctx.rng.chance(0.5)) self.say(ctx.rng.pick(line), now, 2);
+      b.idleLeft = ctx.rng.range(1, 3);
+      return 'idle';
+    }
+  },
+  exit(b) {
+    b.shopGo = null;
     b.stayUntil = 0;
   },
 };

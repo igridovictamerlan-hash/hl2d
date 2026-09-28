@@ -73,6 +73,40 @@ export const RENDER = {
     shadow: 'rgba(0,0,0,0.38)',
     shadowSize: 5,
   },
+  /**
+   * Улица старого города (дома вдоль проспектов, лавки, ларьки — POI facade/kiosk/planter). У дома —
+   * свой цвет штукатурки из plaster (приглушённые пастели старой Европы), контур, окна по фасаду
+   * (window, раз в windowEvery тайлов), у лавок — витрина во всю ширину тайла и маркиза над входом
+   * (полосы awning, глубина awningDepth тайла над улицей) с вывеской; прилавки и столы — дерево.
+   * Проспект вымощен брусчаткой (cobble: камни cobbleW × cobbleH px со швами).
+   */
+  facade: {
+    plaster: [
+      { h: 38, s: 40, l: 62 }, { h: 14, s: 32, l: 60 }, { h: 95, s: 16, l: 56 }, { h: 205, s: 20, l: 60 },
+      { h: 48, s: 30, l: 72 }, { h: 22, s: 42, l: 50 }, { h: 350, s: 22, l: 58 }, { h: 170, s: 14, l: 54 },
+    ] as readonly { h: number; s: number; l: number }[],
+    noise: 1.5,
+    line: 'rgba(40,28,20,0.6)',
+    plinth: 'rgba(40,30,24,0.45)',
+    window: '#2b3440',
+    windowLit: '#6f5a3a',
+    windowFrame: 'rgba(255,248,235,0.75)',
+    windowEvery: 2,
+    vitrine: '#34414d',
+    vitrineGlint: 'rgba(210,230,255,0.35)',
+    awning: [['#8a2f2a', '#e8dcc8'], ['#2f5d4a', '#e8dcc8'], ['#2c4a78', '#e8dcc8'], ['#7a5a26', '#efe2c4']] as readonly (readonly [string, string])[],
+    awningDepth: 0.7,
+    awningShade: 'rgba(0,0,0,0.25)',
+    sign: '#f3ead6',
+    signShadow: 'rgba(0,0,0,0.55)',
+    signFont: 600,
+    wood: '#7a5634',
+    woodTop: '#9a7048',
+    woodEdge: 'rgba(30,18,8,0.55)',
+    kiosk: { body: '#3d6b52', roof: '#29493a', window: '#e9d9a8', sign: '#f3ead6' },
+    planter: { rim: '#8c8378', soil: '#4a3a2a', leaf: '#4f7a3a', leafDark: '#355a28', flowers: ['#d8594a', '#e8c14a', '#d98ab8', '#f2efe6'] as readonly string[] },
+    cobble: { h: 30, s: 9, l: 31, noise: 2.5, joint: 'rgba(0,0,0,0.28)', w: 8, h2: 6 },
+  },
   entity: {
     nameFont: '600 11px "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     roleFont: '500 9px "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
