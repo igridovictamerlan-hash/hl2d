@@ -20,10 +20,17 @@ const hsl = (h: number, s: number, l: number): string => {
   return '#' + [f(0), f(8), f(4)].map((c) => c.toString(16).padStart(2, '0')).join('');
 };
 
+/** Кусок карты, отрисованный в холст (MapRenderer.draw). */
+interface Chunk {
+  canvas: HTMLCanvasElement;
+  cx: number;
+  cy: number;
+}
+
 /**
- * Отрисовка тайлов. Каждый кадр рисуются только видимые тайлы (~52×35 при масштабе 820×550),
- * координаты округляются в пространстве экрана — без щелей между тайлами и без размытия.
- * Цвета и маски соседей считаются один раз при загрузке карты.
+ * Отрисовка тайлов: куски карты в кэше (холсты по уровням масштаба), двери поверх; координаты
+ * округляются в пространстве экрана — без щелей между тайлами. Цвета и маски соседей считаются
+ * один раз при загрузке карты.
  */
 export class MapRenderer {
   private readonly color: string[];
@@ -57,6 +64,7 @@ export class MapRenderer {
     const seed = map.seed | 0;
     this.placeChimneys(seed);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.computeTile(x, y);
+    for (let i = 0; i < n; i++) if (map.tiles[i] === T.DOOR) this.doorTiles.push(i);
   }
 
   private readonly roofColor = new Map<number, [number, number, number]>();
@@ -65,6 +73,11 @@ export class MapRenderer {
   refresh(tx: number, ty: number): void {
     for (let y = ty - 1; y <= ty + 1; y++) {
       for (let x = tx - 1; x <= tx + 1; x++) if (this.map.inBounds(x, y)) this.computeTile(x, y);
+    }
+    // Куски в кэше, которых касается изменение, — перерисовать.
+    const n = RENDER.mapCache.chunk;
+    for (const [key, c] of this.chunks) {
+      if (c.cx >= Math.floor((tx - 1) / n) && c.cx <= Math.floor((tx + 1) / n) && c.cy >= Math.floor((ty - 1) / n) && c.cy <= Math.floor((ty + 1) / n)) this.chunks.delete(key);
     }
   }
 
@@ -170,22 +183,149 @@ export class MapRenderer {
   }
 
 
+  /** Куски карты в кэше (LRU: порядок вставки в Map), ключ — кусок и уровень масштаба. */
+  private readonly chunks = new Map<string, Chunk>();
+  /** Все тайлы дверей — их состояние меняется, рисуются поверх кэша каждый кадр. */
+  private readonly doorTiles: number[] = [];
+
+  /**
+   * Видимая часть карты. Куски по MAP_CACHE.chunk тайлов рисуются один раз в холст на уровне
+   * масштаба (ближайший не меньше текущего из MAP_CACHE.levels) и дальше только копируются —
+   * тысячи заливок на кадр превращаются в пару десятков drawImage (при прицеле камера отъезжает,
+   * тайлов на экране больше — раньше из-за этого кадр проседал). Не больше buildPerFrame новых
+   * кусков за кадр: остальные этот кадр — растянутым куском другого уровня, если он есть, иначе
+   * напрямую. Двери — поверх, по состоянию.
+   */
   draw(ctx: CanvasRenderingContext2D, v: View): void {
     const map = this.map;
     const ts = map.tileSize;
-    const w = map.width;
     const s = v.scale;
     const tx0 = Math.max(0, Math.floor(v.left / ts));
     const ty0 = Math.max(0, Math.floor(v.top / ts));
-    const tx1 = Math.min(w - 1, Math.floor((v.left + v.width / s) / ts));
+    const tx1 = Math.min(map.width - 1, Math.floor((v.left + v.width / s) / ts));
     const ty1 = Math.min(map.height - 1, Math.floor((v.top + v.height / s) / ts));
+    if (tx1 < tx0 || ty1 < ty0) return;
+    if (typeof document === 'undefined') {
+      this.paint(ctx, tx0, ty0, tx1, ty1, v.left, v.top, s, true);
+      return;
+    }
+    const C = RENDER.mapCache;
+    let q: number = C.levels[C.levels.length - 1];
+    for (const l of C.levels) {
+      if (l >= s - 1e-6) {
+        q = l;
+        break;
+      }
+    }
+    const n = C.chunk;
+    let budget: number = C.buildPerFrame;
+    for (let cy = Math.floor(ty0 / n); cy <= Math.floor(ty1 / n); cy++) {
+      for (let cx = Math.floor(tx0 / n); cx <= Math.floor(tx1 / n); cx++) {
+        const ax = cx * n;
+        const ay = cy * n;
+        const bx = Math.min(map.width, ax + n);
+        const by = Math.min(map.height, ay + n);
+        const dx0 = Math.round((ax * ts - v.left) * s);
+        const dy0 = Math.round((ay * ts - v.top) * s);
+        const dx1 = Math.round((bx * ts - v.left) * s);
+        const dy1 = Math.round((by * ts - v.top) * s);
+        const key = `${cx},${cy},${q}`;
+        let c = this.chunks.get(key);
+        if (c) {
+          // LRU: свежий — в конец.
+          this.chunks.delete(key);
+          this.chunks.set(key, c);
+        } else if (budget > 0) {
+          budget--;
+          c = this.buildChunk(cx, cy, ax, ay, bx, by, q);
+          this.chunks.set(key, c);
+          if (this.chunks.size > C.max) this.chunks.delete(this.chunks.keys().next().value as string);
+        }
+        // Нет в кэше и бюджет исчерпан — тот же кусок другого уровня (камера только что сменила
+        // масштаб: чуть мягче или резче один-два кадра лучше, чем рисовать десяток кусков напрямую).
+        c ??= this.fallback(cx, cy, q);
+        if (c) ctx.drawImage(c.canvas, dx0, dy0, dx1 - dx0, dy1 - dy0);
+        else this.paint(ctx, Math.max(ax, tx0), Math.max(ay, ty0), Math.min(bx - 1, tx1), Math.min(by - 1, ty1), v.left, v.top, s, false);
+      }
+    }
+    this.drawDoors(ctx, v, tx0, ty0, tx1, ty1);
+  }
+
+  /** Кусок (cx, cy) в кэше на любом уровне, кроме q: сперва ближайшие к q. */
+  private fallback(cx: number, cy: number, q: number): Chunk | undefined {
+    const L = RENDER.mapCache.levels;
+    const i = L.indexOf(q);
+    for (let d = 1; d < L.length; d++) {
+      for (const j of [i + d, i - d]) {
+        if (j < 0 || j >= L.length) continue;
+        const c = this.chunks.get(`${cx},${cy},${L[j]}`);
+        if (c) return c;
+      }
+    }
+    return undefined;
+  }
+
+  /** Кусок карты в холст на масштабе q (двери — только основой, полотно рисуется поверх). */
+  private buildChunk(cx: number, cy: number, ax: number, ay: number, bx: number, by: number, q: number): Chunk {
+    const ts = this.map.tileSize;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round((bx - ax) * ts * q));
+    canvas.height = Math.max(1, Math.round((by - ay) * ts * q));
+    const g = canvas.getContext('2d')!;
+    this.paint(g, ax, ay, bx - 1, by - 1, ax * ts, ay * ts, q, false);
+    return { canvas, cx, cy };
+  }
+
+  /** Полотна дверей по их текущему состоянию (закрыта, открыта, заперта). */
+  private drawDoors(ctx: CanvasRenderingContext2D, v: View, tx0: number, ty0: number, tx1: number, ty1: number): void {
+    const map = this.map;
+    const ts = map.tileSize;
+    const s = v.scale;
+    const w = map.width;
+    const P = RENDER.tiles;
+    const inset = Math.max(1, Math.round(2 * s));
+    for (const i of this.doorTiles) {
+      const tx = i % w;
+      const ty = (i - tx) / w;
+      if (tx < tx0 || tx > tx1 || ty < ty0 || ty > ty1) continue;
+      const x0 = Math.round((tx * ts - v.left) * s);
+      const y0 = Math.round((ty * ts - v.top) * s);
+      const cw = Math.round(((tx + 1) * ts - v.left) * s) - x0;
+      const ch = Math.round(((ty + 1) * ts - v.top) * s) - y0;
+      this.doorFace(ctx, i, x0, y0, cw, ch, inset, P);
+    }
+  }
+
+  private doorFace(ctx: CanvasRenderingContext2D, i: number, x0: number, y0: number, cw: number, ch: number, inset: number, P: typeof RENDER.tiles): void {
+    const map = this.map;
+    if (map.doorClosed[i]) {
+      ctx.fillStyle = P.door;
+      ctx.fillRect(x0 + inset, y0 + inset, cw - inset * 2, ch - inset * 2);
+      if (map.doorLocked[i]) {
+        ctx.fillStyle = P.doorLocked;
+        ctx.fillRect(x0 + inset, y0 + (ch >> 1) - inset, cw - inset * 2, inset * 2);
+      }
+    } else {
+      ctx.fillStyle = P.doorOpen;
+      ctx.fillRect(x0 + inset, y0 + inset, cw - inset * 2, ch - inset * 2);
+    }
+  }
+
+  /**
+   * Нарисовать тайлы tx0..tx1 × ty0..ty1: мировая точка (ox, oy) — в (0, 0) холста, s — пикселей на
+   * пиксель мира; координаты округляются — без щелей. doors — рисовать и полотна дверей.
+   */
+  private paint(ctx: CanvasRenderingContext2D, tx0: number, ty0: number, tx1: number, ty1: number, ox: number, oy: number, s: number, doors: boolean): void {
+    const map = this.map;
+    const ts = map.tileSize;
+    const w = map.width;
     if (tx1 < tx0 || ty1 < ty0) return;
     const cols = tx1 - tx0 + 2;
     const rows = ty1 - ty0 + 2;
     if (this.xs.length < cols) this.xs = new Float64Array(cols);
     if (this.ys.length < rows) this.ys = new Float64Array(rows);
-    for (let k = 0; k < cols; k++) this.xs[k] = Math.round(((tx0 + k) * ts - v.left) * s);
-    for (let k = 0; k < rows; k++) this.ys[k] = Math.round(((ty0 + k) * ts - v.top) * s);
+    for (let k = 0; k < cols; k++) this.xs[k] = Math.round(((tx0 + k) * ts - ox) * s);
+    for (let k = 0; k < rows; k++) this.ys[k] = Math.round(((ty0 + k) * ts - oy) * s);
     const xs = this.xs;
     const ys = this.ys;
     const px = (world: number) => Math.max(1, Math.round(world * s));
@@ -379,22 +519,10 @@ export class MapRenderer {
             ctx.fillStyle = P.archRoof;
             ctx.fillRect(x0, y0, cw, ch);
             break;
-          case T.DOOR: {
-            // Закрытая — полотно двери, открытая — проём, запертая — с красной полосой.
-            const inset = px(2);
-            if (map.doorClosed[i]) {
-              ctx.fillStyle = P.door;
-              ctx.fillRect(x0 + inset, y0 + inset, cw - inset * 2, ch - inset * 2);
-              if (map.doorLocked[i]) {
-                ctx.fillStyle = P.doorLocked;
-                ctx.fillRect(x0 + inset, y0 + (ch >> 1) - inset, cw - inset * 2, inset * 2);
-              }
-            } else {
-              ctx.fillStyle = P.doorOpen;
-              ctx.fillRect(x0 + inset, y0 + inset, cw - inset * 2, ch - inset * 2);
-            }
+          case T.DOOR:
+            // Закрытая — полотно двери, открытая — проём, запертая — с красной полосой (в кэше — поверх).
+            if (doors) this.doorFace(ctx, i, x0, y0, cw, ch, px(2), P);
             break;
-          }
           case T.GATE:
             ctx.fillStyle = P.gateStripe;
             for (let k = 0; k < 4; k++) ctx.fillRect(x0 + ((cw * k) >> 2), y0 + ((ch * k) >> 2), cw >> 3, ch >> 2);

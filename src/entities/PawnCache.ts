@@ -1,22 +1,22 @@
 import { PAWN } from '../config/pawns';
 import { drawPawn, type PawnDir, type PawnLook } from './PawnRenderer';
+import { LruCache, scaleLevel } from '../core/spriteCache';
 
 /**
  * Кэш спрайтов пешек. Пешка — десятки кривых, заливок и клипов; в бою у КПП на экране десятки
  * пешек и тел, и векторная отрисовка каждой каждый кадр съедает кадр. Внешность неизменна
  * (фракция, ранг, зерно, профессия, сторона), поэтому пешка рисуется один раз в холст и дальше
- * копируется drawImage. Масштаб квантуется (PAWN.cache.step), отличие от точного — растяжением
- * при копировании; при переполнении кэш сбрасывается.
+ * копируется drawImage. Масштаб — по уровням (PAWN.cache.perOctave на удвоение, core/spriteCache),
+ * отличие от точного — уменьшением при копировании; при переполнении уходят самые давние.
  */
-const cache = new Map<string, HTMLCanvasElement>();
+const cache = new LruCache<HTMLCanvasElement>(PAWN.cache.max);
 
 export function drawPawnCached(ctx: CanvasRenderingContext2D, look: PawnLook, x: number, y: number, s: number, dir: PawnDir): void {
   const C = PAWN.cache;
-  const q = Math.max(C.step, Math.round(s / C.step) * C.step);
+  const q = scaleLevel(s, C.perOctave);
   const key = `${look.faction}|${look.rank}|${look.color}|${look.seed}|${look.profession ?? ''}|${look.kin ?? ''}|${look.band ?? ''}|${dir}|${q}`;
   let sprite = cache.get(key);
   if (!sprite) {
-    if (cache.size >= C.max) cache.clear();
     sprite = document.createElement('canvas');
     sprite.width = Math.ceil((C.left + C.right) * q);
     sprite.height = Math.ceil((C.top + C.bottom) * q);

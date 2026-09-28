@@ -78,12 +78,17 @@ export class GunfireAudio {
     const R = AUDIO.reverb;
     const rl = Math.floor(ctx.sampleRate * R.time);
     const ir = ctx.createBuffer(2, rl, ctx.sampleRate);
+    // Огибающая (1 − t)^decay — по блокам с линейной интерполяцией: pow на каждый отсчёт
+    // (сотни тысяч) заметно задерживал первый звук.
+    const block = 256;
+    const env = (i: number) => Math.pow(1 - Math.min(1, i / rl), R.decay) * (i < rl * 0.05 ? 0.6 : 1);
     for (let ch = 0; ch < 2; ch++) {
       const d = ir.getChannelData(ch);
-      for (let i = 0; i < rl; i++) {
-        const t = i / rl;
-        // Ранние отражения чуть плотнее, хвост затухает.
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, R.decay) * (t < 0.05 ? 0.6 : 1);
+      for (let b = 0; b < rl; b += block) {
+        const e0 = env(b);
+        const de = (env(b + block) - e0) / block;
+        const end = Math.min(rl, b + block);
+        for (let i = b, e = e0; i < end; i++, e += de) d[i] = (Math.random() * 2 - 1) * e;
       }
     }
     const conv = ctx.createConvolver();

@@ -1,6 +1,7 @@
 import type { View } from '../core/Camera';
 import type { Furniture, FurnitureKind } from './furnish';
 import { FURNITURE } from '../config/furniture';
+import { LruCache, scaleLevel } from '../core/spriteCache';
 
 type Ctx = CanvasRenderingContext2D;
 const P = FURNITURE.palette;
@@ -11,7 +12,7 @@ const P = FURNITURE.palette;
  * стене сверху: ширина a — вдоль стены, глубина b — от стены; поворот rot разворачивает его к своей
  * стене.
  */
-const cache = new Map<string, HTMLCanvasElement>();
+const cache = new LruCache<HTMLCanvasElement>(FURNITURE.cache.max);
 
 const pick = <T>(arr: readonly T[], v: number, salt = 0): T => arr[((v >>> salt) & 0xffff) % arr.length];
 
@@ -269,7 +270,6 @@ function sprite(f: Furniture, q: number): HTMLCanvasElement {
   const key = `${f.kind}|${f.w}|${f.h}|${f.rot}|${f.variant & 0xffff}|${q}`;
   let c = cache.get(key);
   if (c) return c;
-  if (cache.size >= FURNITURE.cache.max) cache.clear();
   c = document.createElement('canvas');
   const pad = 2;
   c.width = Math.ceil((f.w + pad * 2) * q);
@@ -290,7 +290,7 @@ function sprite(f: Furniture, q: number): HTMLCanvasElement {
 
 export function drawFurnitureList(ctx: Ctx, v: View, list: readonly Furniture[]): void {
   const s = v.scale;
-  const q = Math.max(FURNITURE.cache.step, Math.round(s / FURNITURE.cache.step) * FURNITURE.cache.step);
+  const q = scaleLevel(s, FURNITURE.cache.perOctave);
   const k = s / q;
   const pad = 2;
   // Ковры — первыми (под мебелью).
