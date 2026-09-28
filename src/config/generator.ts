@@ -113,7 +113,12 @@ export const GENERATOR = {
    * road — подъезд: площадка перед фасадом глубиной apron и проезд шириной width до улицы (не длиннее
    * maxLen) — улицей, а не переулком.
    */
-  arsenal: { gap: 2, tries: 500, road: { width: 4, apron: 3, maxLen: 40 } },
+  /**
+   * Склад Альянса (шаблон с крыльцом): tries случайных мест на окраине; проезд шириной width от
+   * полосы apron перед крыльцом до улицы от проспекта — не длиннее maxLen тайлов; место годится,
+   * если до такой улицы не дальше reach; за каждый тайл проезда место «ближе» к проспекту на penalty.
+   */
+  arsenal: { tries: 900, road: { width: 4, apron: 3, maxLen: 80, reach: 60, penalty: 0.6 } },
 
   restricted: {
     size: [38, 44] as const,

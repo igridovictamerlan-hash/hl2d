@@ -110,6 +110,10 @@ export const LIGHTING = {
     arsenal_guardroom: { color: [255, 200, 130], radius: 70, power: 0.8, night: true, bloom: true },
     arsenal_post: { color: [205, 225, 255], radius: 110, power: 0.8, night: true },
     arsenal_beacon: { color: [255, 70, 50], radius: 60, power: 0.7, night: false },
+    arsenal_mast: { color: [225, 238, 255], radius: 150, power: 0.85, night: true, bloom: true },
+    arsenal_issue_room: { color: [255, 214, 150], radius: 80, power: 0.85, night: true, bloom: true },
+    arsenal_breakroom: { color: [255, 190, 115], radius: 90, power: 0.9, night: true, bloom: true },
+    arsenal_vault_room: { color: [200, 220, 255], radius: 70, power: 0.6, night: true },
   } as Record<string, PoiLight>,
   /** Свечение (bloom) источников поверх картинки: доля радиуса и яркость. */
   bloom: { radius: 0.3, alpha: 0.4 },

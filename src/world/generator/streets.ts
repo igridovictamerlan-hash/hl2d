@@ -224,20 +224,31 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   const villas = place(VILLA_TEMPLATE, rng.int(V.count[0], V.count[1]), V.gap, V.tries);
 
   // Склад Альянса — последним и на своём генераторе (fork не сдвигает общий — штаб, общежития и
-  // особняки остаются где были): на окраине, у улицы, которая начинается у проспекта (не переулок,
-  // не отдельная улица, к которой ведут переулки), — из мест вдоль таких улиц самое далёкое от проспекта.
+  // особняки остаются где были). Здание с крыльцом велико для места «вдоль улицы», поэтому — любое
+  // свободное место на окраине, откуда до улицы, начинающейся у проспекта (не переулок, не отдельная
+  // улица, к которой ведут переулки), не дальше road.reach: из таких — самое далёкое от проспекта
+  // (с поправкой на длину проезда). Крыльцо — в сторону проспекта.
   const AR = GENERATOR.arsenal;
   const arng = rng.fork(0xa75e);
-  const rootedEdges = arteries.filter((a) => a.rooted).flatMap((a) => a.edges);
+  const rootedRects = arteries.filter((a) => a.rooted).flatMap((a) => a.edges.map((id) => lat.edgeBounds(lat.edges[id], a.width)));
+  const aw = ARSENAL_TEMPLATE[0].length;
+  const ah = ARSENAL_TEMPLATE.length;
+  const avY = avenueNodes.length ? avenueNodes[0].y : mapH / 2;
   let arsenal: Placement | null = null;
-  let arsenalD = -1;
-  for (let t = 0; t < AR.tries && rootedEdges.length && avenueNodes.length; t++) {
-    const p = candidate(ARSENAL_TEMPLATE, AR.gap, rootedEdges, arng);
-    if (!p) continue;
-    const d = toAvenue(p.rect);
-    if (d > arsenalD) {
-      arsenal = p;
-      arsenalD = d;
+  let arsenalScore = -Infinity;
+  for (let t = 0; t < AR.tries && rootedRects.length && avenueNodes.length; t++) {
+    const rect: Rect = { x: arng.int(margin, mapW - margin - aw), y: arng.int(margin, mapH - margin - ah), w: aw, h: ah };
+    if (!fits(rect)) continue;
+    const face: Placement['face'] = rect.y + ah / 2 < avY ? 'S' : 'N';
+    const fx = rect.x + aw / 2;
+    const fy = face === 'S' ? rect.y + ah : rect.y;
+    let road = Infinity;
+    for (const r of rootedRects) road = Math.min(road, Math.hypot(Math.max(r.x - fx, 0, fx - r.x - r.w), Math.max(r.y - fy, 0, fy - r.y - r.h)));
+    if (road > AR.road.reach) continue;
+    const score = toAvenue(rect) - road * AR.road.penalty;
+    if (score > arsenalScore) {
+      arsenal = { rect, face };
+      arsenalScore = score;
     }
   }
   if (arsenal) taken.push(arsenal.rect);

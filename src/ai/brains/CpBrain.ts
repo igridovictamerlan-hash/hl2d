@@ -426,9 +426,20 @@ export class CpBrain implements Brain {
     }
     cur = this.fsm.current;
     // Патроны на исходе — к окну выдачи склада (патрульный, не на посту и не в строю).
-    if ((cur === 'patrol' || cur === 'post' || cur === 'patrol-again') && !this.guardPost && !this.medicStation && ctx.law.now >= this.resupplyCheck) {
-      this.resupplyCheck = ctx.law.now + ARSENAL.issue.checkEvery;
-      if (ctx.arsenal?.needsAmmo(self)) this.fsm.change('resupply');
+    // Снабжение (склад Альянса): ГО города без табельного или с пустыми подсумками — к окну выдачи
+    // склада (из группы и со службы тоже, если нет табельного); часовой КПП в затишье — к пункту
+    // боепитания в проходной.
+    if (ctx.arsenal?.present && ctx.law.now >= this.resupplyCheck && !this.formation && !this.scene) {
+      const A = ctx.arsenal;
+      if (this.front >= 0 && this.guardPost && !this.medicStation && cur === 'guard') {
+        this.resupplyCheck = ctx.law.now + ARSENAL.kpp.checkEvery;
+        const calm = !this.gunner.target && ctx.combat.now - self.lastFired > ARSENAL.kpp.calm;
+        if (calm && A.needsPoint(self, this.front)) this.fsm.change('resupply');
+      } else if (!this.guardPost && !this.medicStation && (cur === 'patrol' || cur === 'post' || cur === 'patrol-again' || cur === 'follow' || cur === 'duty')) {
+        this.resupplyCheck = ctx.law.now + ARSENAL.issue.checkEvery;
+        const free = cur === 'patrol' || cur === 'post' || cur === 'patrol-again';
+        if ((A.needsKit(self) && (free || A.missingKit(self))) || A.shiftCalled(self)) this.fsm.change('resupply');
+      }
     }
     cur = this.fsm.current;
     if (WATCHING.has(cur)) {
@@ -520,6 +531,8 @@ export class CpBrain implements Brain {
     for (const o of near) {
       // Работника ГСР на раздаче плановой проверкой не дёргают.
       if (o === self || !law.checkable(o) || o === ctx.economy.dispenser) continue;
+      // Грузчиков и оружейника склада (с допуском, на службе) плановой проверкой не дёргают.
+      if (o.profession === 'loader' || o.profession === 'armorer') continue;
       const inCheckpoint = ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint';
       // Код жёлтый — проверки чаще.
       // Неблагонадёжных проверяют чаще, лоялистов — реже.
@@ -638,21 +651,35 @@ const RESUPPLY: State<CpBrain> = {
     b.mover.speed = LAW.cpWalkSpeed;
     b.resupplyWait = 0;
     b.resupplyUntil = b.ctx.law.now + ARSENAL.issue.giveUp;
-    const w = b.ctx.arsenal.window;
+    const w = resupplySpot(b);
     const a = w ? b.ctx.nav.nearestWalkable(w.x, w.y, 3) : -1;
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    // Часовой — бегом (пост пустует), остальные шагом.
+    if (b.front >= 0) b.mover.speed = LAW.cpRunSpeed;
   },
   update(b, dt) {
     const A = b.ctx.arsenal;
-    const w = A.window;
+    const w = resupplySpot(b);
     if (!w || b.ctx.law.now > b.resupplyUntil) return b.idleState;
-    if (dist(b.self.x, b.self.y, w.x, w.y) < ARSENAL.issue.reach) {
+    const reach = b.front >= 0 ? ARSENAL.kpp.reach : ARSENAL.issue.reach;
+    if (dist(b.self.x, b.self.y, w.x, w.y) < reach) {
       b.mover.stop();
-      if (A.desk) turnTowards(b.self, Math.atan2(A.desk.y - b.self.y, A.desk.x - b.self.x), dt, 3);
+      const look = b.front >= 0 ? w : A.desk;
+      if (look) turnTowards(b.self, Math.atan2(look.y - b.self.y, look.x - b.self.x), dt, 3);
       b.resupplyWait += dt;
       if (b.resupplyWait < ARSENAL.issue.every) return;
-      const why = A.issue(b.self);
-      if (why) b.self.say(b.ctx.rng.pick(ARSENAL.lines.refused), b.ctx.law.now, 2);
+      if (b.front >= 0) {
+        const why = A.drawAtPoint(b.self, b.front);
+        b.self.say(why ?? b.ctx.rng.pick(ARSENAL.lines.point), b.ctx.law.now, 2);
+      } else {
+        const why = A.issue(b.self);
+        if (why) b.self.say(b.ctx.rng.pick(ARSENAL.lines.refused), b.ctx.law.now, 2);
+        else {
+          // Табельное — в руки, на улице ГО всё равно возьмёт дубинку, если не бой.
+          const gun = b.ctx.combat.bestWeapon(b.self, 200);
+          if (gun) b.ctx.combat.equip(b.self, gun);
+        }
+      }
       return b.idleState;
     }
     if (b.mover.status === 'failed' || b.mover.status === 'idle') {
@@ -660,7 +687,18 @@ const RESUPPLY: State<CpBrain> = {
       if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
     }
   },
+  exit(b) {
+    b.mover.speed = LAW.cpWalkSpeed;
+  },
 };
+
+/** Куда за снабжением: часовому КПП — к пункту боепитания в проходной, остальным — к окну склада. */
+function resupplySpot(b: CpBrain): Vec2 | null {
+  const A = b.ctx.arsenal;
+  if (b.front >= 0) return A.pointOf(b.front);
+  return A.window;
+}
+
 
 /** Пост далеко (подкрепление из Цитадели) — к нему бегом. */
 /** Где стоять часовому: на рейде — у лагеря, иначе — на своём посту. */

@@ -47,6 +47,8 @@ function freeSpot(ctx: AiContext, around: { x: number; y: number }, rMin: number
     if (a < 0 || avoid.has(ctx.nav.zone[a])) continue;
     const x = ctx.nav.worldX(a);
     const y = ctx.nav.worldY(a);
+    // Не в камере КПЗ и не в клетке у Администратора (клетки без двери — рядом с кабинетом).
+    if (ctx.law.inAnyCell(x, y, 12)) continue;
     if (ctx.entities.list.some((c) => dist(c.x, c.y, x, y) < minGap)) continue;
     return { x, y };
   }
@@ -191,7 +193,8 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   const ars = ctx.arsenal;
   if (ars?.present && ars.desk) {
     const face = ars.window ? Math.atan2(ars.window.y - ars.desk.y, ars.window.x - ars.desk.x) : 0;
-    put(cpSpec('qm', 'qm', { post: ars.desk, facing: face }), freeSpot(ctx, ars.desk, 0, 1, none, 10) ?? ars.desk);
+    const seat = ars.deskSpot ?? ars.desk;
+    put(cpSpec('qm', 'qm', { post: seat, facing: face }), seat);
     for (const p of ars.posts.slice(0, ARSENAL.guards)) {
       const post = { x: p.x, y: p.y };
       put(cpSpec('depot', 'guard', { post, facing: p.facing }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);

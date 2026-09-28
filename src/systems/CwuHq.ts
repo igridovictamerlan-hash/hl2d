@@ -179,6 +179,8 @@ export class CwuHqSystem {
     c.division = null;
     const kit = PROFESSIONS[prof].kit ?? 'cwu';
     for (const [id, qty] of KITS[kit] ?? []) c.inventory.add(id, qty);
+    // На склад Альянса — с допуском (документы выправлены при найме).
+    if (prof === 'loader' || prof === 'armorer') c.law.hasCid = true;
     if (c.role) c.role = { ...c.role, kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit, name: c.name, family: undefined };
     adjustLoyalty(c, CWU_HQ.hire.loyalty, 'устройство в ГСР', ctx.bus);
     this.stats.hired++;

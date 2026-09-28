@@ -135,6 +135,8 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   const hp = roleHp(spec.faction, spec.rank, spec.profession);
   if (hp) c.maxHealth = c.health = hp;
   if (spec.faction === 'cp') c.division = cpUnit(spec.rank).group;
+  // Грузчики и оружейник склада Альянса — с допуском: документы всегда в порядке.
+  if (spec.profession === 'loader' || spec.profession === 'armorer') c.law.hasCid = true;
   c.role = { ...spec, name: c.name };
   switch (spec.kind) {
     case 'patrol':

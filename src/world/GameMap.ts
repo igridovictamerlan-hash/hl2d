@@ -96,7 +96,14 @@ export type PoiType =
   | 'arsenal_pad'
   | 'arsenal_office'
   | 'arsenal_guardroom'
-  | 'arsenal_workshop';
+  | 'arsenal_workshop'
+  | 'arsenal_repair'
+  | 'arsenal_issue'
+  | 'arsenal_table'
+  | 'arsenal_mast'
+  | 'arsenal_issue_room'
+  | 'arsenal_breakroom'
+  | 'arsenal_vault_room';
 
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)

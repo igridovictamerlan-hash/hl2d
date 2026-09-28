@@ -24,8 +24,10 @@ describe('NPC в тесном городе', () => {
   test('20 граждан 2 минуты: не застревают, не проходят сквозь стены', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const { nav, entities, ctx, map } = sim;
+    // Жители — в городе (не в канализации: оттуда им без люка никуда).
+    const city = nav.walkable.filter((a) => nav.level[a] === 0);
     for (let k = 0; k < 20; k++) {
-      const a = ctx.rng.pick(nav.walkable);
+      const a = ctx.rng.pick(city);
       const c = createCharacter(entities, ctx.rng, 'citizen', nav.worldX(a), nav.worldY(a));
       c.brain = new CitizenBrain(c, ctx);
     }

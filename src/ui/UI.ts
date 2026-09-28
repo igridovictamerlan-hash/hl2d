@@ -162,8 +162,11 @@ export class UI {
     const ars = this.host.arsenal;
     if (!this.host.arena && ars?.present && (player.faction === 'cp' || player.profession === 'loader' || player.profession === 'armorer')) {
       const st = ars.stock;
-      const ship = ars.ship.phase !== 'none' ? 'борт над площадкой' : ars.beaconBroken ? 'маяк сломан — борт не сядет' : this.host.war.code === 'red' ? 'рейсы отменены' : `борт через ${mmss(ars.flightIn)}`;
-      ration += `\nСклад: патроны ${st.ammo} · гранаты ${st.grenades} · стволы ${st.weapons} (ящ.) · ${ship}${ars.closed ? ' · выдача закрыта' : ''}`;
+      const ship = ars.ship.phase !== 'none' ? 'борт над крыльцом' : ars.beaconBroken ? 'маяк сломан — борт не сядет' : this.host.war.code === 'red' ? 'рейсы отменены' : `борт через ${mmss(ars.flightIn)}`;
+      ration += `\nСклад: патроны ${st.ammo} ящ. · гранаты ${st.grenades} ящ. · стволы ${st.weapons} (+${st.parts} в консервации) · ${ship}${ars.closed ? ' · выдача закрыта' : ''}`;
+      if (player.faction === 'cp' && ars.points.length) {
+        ration += `\nПункты боепитания КПП: ${ars.points.map((p) => `${this.host.war.fronts[p.front]?.name.split(' ').pop() ?? p.front} ${p.kits}${p.convoy ? ' (конвой)' : ''}`).join(' · ')}`;
+      }
     }
     this.hud.update(player, now, weapon, ration, this.host.war.command.rallyCooldown);
     this.hud.setClock(this.host.clock);

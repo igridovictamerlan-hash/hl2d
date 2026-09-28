@@ -78,7 +78,8 @@ export function validateMap(map: GameMap): string[] {
     ['checkpoint_post', 10], ['gate_post', 4], ['dorm', 2], ['villa', 2], ['outlands_exit', 2], ['shop_counter', 1],
     ['cwu_hq', 1], ['partisan_cage', 2], ['cwu_hire', 1], ['cwu_head_desk', 1], ['ration_line', 3], ['cwu_store', 1],
     ['arsenal', 1], ['arsenal_desk', 1], ['arsenal_window', 2], ['arsenal_ledger', 1], ['arsenal_drop', 8], ['arsenal_beacon', 1],
-    ['arsenal_post', 4], ['arsenal_bench', 1], ['arsenal_pad', 1], ['arsenal_hall', 1],
+    ['arsenal_post', 4], ['arsenal_bench', 1], ['arsenal_pad', 1], ['arsenal_hall', 1], ['arsenal_issue', 4], ['arsenal_repair', 1],
+    ['arsenal_breakroom', 1], ['arsenal_issue_room', 1], ['arsenal_ammo', 40], ['arsenal_grenades', 12], ['arsenal_rack', 20],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -215,8 +216,11 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     g.zones[i] = inH ? zHAv : zVAv;
   }
   // Улицы-артерии — свои зоны (вид avenue: асфальт, фонари, туда выходят жители).
+  // Куда может выходить проезд к складу: проспект, площадь и улицы, что начинаются у проспекта.
+  const roadTargets = new Set<number>([zHAv, zVAv]);
   arteryRects.forEach((rects, k) => {
     const z = addZone('avenue', ZONE_NAMES.streets[k % ZONE_NAMES.streets.length], null);
+    if (streets.arteries[k]?.rooted) roadTargets.add(z);
     for (const r of rects) {
       for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (g.get(x, y) === T.STREET && !hRects.some((h) => x >= h.x && y >= h.y && x < h.x + h.w && y < h.y + h.h)) g.zones[y * W + x] = z;
     }
@@ -291,7 +295,8 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     // Подъезд — улицей: площадка перед фасадом и проезд до ближайшей улицы (не переулок).
     const A = G.arsenal;
     const road = addZone('avenue', ZONE_NAMES.arsenalRoad, null);
-    if (!carveAccessRoad(g, p.rect, p.face, A.road.width, A.road.apron, A.road.maxLen, road)) {
+    roadTargets.add(zPlaza);
+    if (!carveAccessRoad(g, p.rect, p.face, A.road.width, A.road.apron, A.road.maxLen, road, (i) => roadTargets.has(g.zones[i]))) {
       for (const exit of res.exits) if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
     }
     const area = (mark: string, type: Poi['type']) => {
@@ -299,7 +304,10 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     };
     area('s', 'arsenal_hall');
     area('Y', 'arsenal_pad');
-    area('f', 'arsenal_office');
+    area('f', 'arsenal_issue_room');
+    area('e', 'arsenal_office');
+    area('1', 'arsenal_breakroom');
+    area('j', 'arsenal_vault_room');
     area('z', 'arsenal_guardroom');
     area('N', 'arsenal_workshop');
     pois.push({ type: 'arsenal', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });

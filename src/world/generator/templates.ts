@@ -102,29 +102,63 @@ export const CWU_HQ_TEMPLATE: readonly string[] = [
 ];
 
 /**
- * Склад Альянса (вход внизу, на улицу): зал хранения s — стеллажи оружия S и ящики патронов A; двор
- * Y — посадочная площадка корабля с маяком Q и местами под ящики X, двойная дверь в зал, калитка
- * на улицу; коридор (главная дверь) с постами охраны E у входа и на площадке; гранатный отсек j
- * (ящики G, тяжёлая двойная дверь L — всегда заперта); кабинет кладовщика f — стол K, стол описи I, окно
- * выдачи W в коридор; караулка z с койками V; мастерская оружейника N с верстаком O.
+ * Склад Альянса (каноническая ориентация — вход внизу), размером с Нексус: здание 36×28 и перед ним
+ * большое квадратное крыльцо за стеной Альянса. Вход один: проём в ограде крыльца и дверь D в здание.
+ *  s — зал хранения: S стойки для стволов вдоль стен, A стеллажи с ящиками патронов (рядами, между
+ *      ними проходы); j — гранатный отсек за запертой дверью L, G — стеллажи с ящиками гранат;
+ *  N — мастерская оружейника: O верстак, U ящики со стволами в консервации (на расконсервацию);
+ *  , — коридоры; 1 — бытовка грузчиков, 2 — стол; f — выдача: W окно в коридор, K стол кладовщика,
+ *      5 — расходный стеллаж выдачи; e — контора, I — стол описи; z — караулка, V — койки;
+ *  3 — посты охраны у двери; Y — крыльцо (посадочная площадка): X места сброса, Q маяк, 4 мачты
+ *      прожекторов, E посты у проёма; # — застройка по бокам от крыльца.
  */
 export const ARSENAL_TEMPLATE: readonly string[] = [
-  '########################',
-  '#SSSSSSSSSS#,,,,#GGjjGG#',
-  '#ssssssssss#,,,,Ljjjjjj#',
-  '#sAAsAAsAAs#,,,,LGGjjGG#',
-  '#sAAsAAsAAsD,,,,########',
-  '#ssssssssssD,,,,WKfffff#',
-  '#sAAsAAsAAs#,,,,Wffffff#',
-  '#ssssssssss#,,,,DffffIf#',
-  '#SSSSSSSSSS#,,,,Dffffff#',
-  '#####dd#####,,,,########',
-  '#XYYXYYXYYX#,,,,dzVVzVV#',
-  '#YYYYYYYYYY#,,,,dzzzzzz#',
-  '#YYYYQYYYYY#,,,,########',
-  '#XYYXYYXYYX#,,,,dOOONNN#',
-  '#EYYYYYYYYE#E,,EdNNNNNN#',
-  '###dd########DD#########',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MSSSSSSSSSSSSSSSSSSSSSSMjjGGGGGGGGGM',
+  'MssssssssssssssssssssssLjjjjjjjjjjjM',
+  'MssssssssssssssssssssssLjjjjjjjjjjjM',
+  'MssAAAAAssAAAAAAssAAAssLjjjjjjjjjjjM',
+  'MssAAAAAssAAAAAAssAAAssMjjGGGGGGGjjM',
+  'MssssssssssssssssssssssMMMMMMMMMMMMM',
+  'MssssssssssssssssssssssMNNOOOUUUNNNM',
+  'MssAAAAAssAAAAAAssAAAssMNNNNNNNNNNNM',
+  'MssAAAAAssAAAAAAssAAAssMNNNNNNNNNNNM',
+  'MssssssssssssssssssssssMNNNNNNNNNNNM',
+  'MSssssssssssssssssssssSMNNNNNNNNNNNM',
+  'MMMMMMMMMMMMMMMMddddMMMMMMMMMMMMddMM',
+  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
+  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
+  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
+  'MMMMMMddMMMMMMMM,,,,MMMMMMMMMMMddMMM',
+  'M11111111111111M,,,,WKffff5555fffffM',
+  'M11111111111111M,,,,WKfffffffffffffM',
+  'M11112222221111M,,,,MffffffffffffffM',
+  'M11111111111111M,,,,MffffffffffffffM',
+  'M11111111111111M,,,,MffffffffffffffM',
+  'MMMMMMMMMMMMMMMM,,,,MMMMMMMMMMMMMMMM',
+  'MzzVzzVzzVzzVzzM,,,,MeeeeeeeeeeIIeeM',
+  'Mzzzzzzzzzzzzzzd,,,,deeeeeeeeeeeeeeM',
+  'Mzzzzzzzzzzzzzzd,,,,deeeeeeeeeeeeeeM',
+  'MzzzzzzzzzzzzzzM3,,3MeeeeeeeeeeeeeeM',
+  'MMMMMMMMMMMMMMMMDDDDMMMMMMMMMMMMMMMM',
+  '#########M4YYYYYYYYYYYYYY4M#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYXYYXYYYYXYYXYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYYYYYQYYYYYYYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYXYYXYYYYXYYXYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYYYYYYYYYYYYYYM#########',
+  '#########MYYYEYYYYYYYYEYYYM#########',
+  '#########M4YYYYYYYYYYYYYY4M#########',
+  '#########MMMMMMYYYYYYMMMMMM#########',
 ];
 
 /**

@@ -451,6 +451,12 @@ export class LawSystem {
     p.wantX = p.wantY = 0;
   }
 
+  /** Точка в какой-нибудь камере или клетке (с запасом r px) — туда никого не ставят при заселении. */
+  inAnyCell(x: number, y: number, r = 0): boolean {
+    const ts = this.map.tileSize;
+    return this.cells.some((c) => x > c.bounds.x0 * ts - r && y > c.bounds.y0 * ts - r && x < (c.bounds.x1 + 1) * ts + r && y < (c.bounds.y1 + 1) * ts + r);
+  }
+
   private inside(c: Cell, x: number, y: number): boolean {
     const ts = this.map.tileSize;
     return x > c.bounds.x0 * ts && y > c.bounds.y0 * ts && x < (c.bounds.x1 + 1) * ts && y < (c.bounds.y1 + 1) * ts;

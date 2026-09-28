@@ -49,21 +49,28 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   a: T.INTERIOR,
   J: T.INTERIOR,
   Z: T.INTERIOR,
-  // Склад Альянса.
-  S: T.INTERIOR,
+  // Склад Альянса: стеллажи, стойки, верстак, столы и койки — мебель, за которой можно укрыться
+  // (BARRIER: не пройти, видно поверх); полы — INTERIOR, крыльцо — бетон.
+  S: T.BARRIER,
+  A: T.BARRIER,
+  G: T.BARRIER,
+  O: T.BARRIER,
+  U: T.BARRIER,
+  K: T.BARRIER,
+  W: T.BARRIER,
+  I: T.BARRIER,
+  V: T.BARRIER,
+  '2': T.BARRIER,
+  '4': T.BARRIER,
+  '5': T.BARRIER,
   s: T.INTERIOR,
-  A: T.INTERIOR,
-  G: T.INTERIOR,
   j: T.INTERIOR,
-  L: T.DOOR,
-  W: T.WALL,
-  f: T.INTERIOR,
-  K: T.INTERIOR,
-  I: T.INTERIOR,
-  z: T.INTERIOR,
-  V: T.INTERIOR,
-  O: T.INTERIOR,
   N: T.INTERIOR,
+  f: T.INTERIOR,
+  z: T.INTERIOR,
+  '1': T.INTERIOR,
+  '3': T.INTERIOR,
+  L: T.DOOR,
   Y: T.BUNKER,
   X: T.BUNKER,
   Q: T.BUNKER,
@@ -81,9 +88,14 @@ const ARSENAL_POIS: Record<string, Poi['type']> = {
   I: 'arsenal_ledger',
   V: 'arsenal_cot',
   O: 'arsenal_bench',
+  U: 'arsenal_repair',
+  '5': 'arsenal_issue',
+  '2': 'arsenal_table',
+  '4': 'arsenal_mast',
   X: 'arsenal_drop',
   Q: 'arsenal_beacon',
   E: 'arsenal_post',
+  '3': 'arsenal_post',
 };
 
 export interface StampResult {
@@ -96,7 +108,7 @@ export interface StampResult {
   commons: Rect[];
   /**
    * Помещения по символам: штаб ГСР — l отдых, n столовая, e кабинет, a приёмная, p цех; склад —
-   * s зал, f кабинет кладовщика, z караулка, N мастерская, Y площадка, j гранатный отсек.
+   * s зал, j гранатный отсек, N мастерская, f выдача, e контора, 1 бытовка, z караулка, Y крыльцо.
    */
   areas: Record<string, Rect[]>;
 }
@@ -171,7 +183,7 @@ export function stampTemplate(
   const rooms = regions('r');
   const commons = regions('m');
   const areas: Record<string, Rect[]> = {};
-  for (const mark of 'lneapsfzNYj') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
+  for (const mark of 'lneapsfzNYj1') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];
@@ -425,10 +437,11 @@ export function stampShop(g: GenGrid, rng: Rng, cx: number, cy: number, zone: nu
 /**
  * Подъезд к зданию по улице, а не переулком: перед фасадом (сторона входа face) — асфальтовая
  * площадка глубиной apron на всю ширину здания, от неё проезд шириной width до ближайшей улицы
- * (кратчайший путь по сетке, не через заблокированные штампы). Тайлы — улица, зона — zone.
+ * из тех, что годятся (target — проспект и улицы от него; кратчайший путь по сетке, не через
+ * заблокированные штампы). Тайлы — улица, зона — zone.
  * false — улицы в пределах maxLen нет (тогда хватит обычных выходов).
  */
-export function carveAccessRoad(g: GenGrid, rect: Rect, face: 'N' | 'S' | 'E' | 'W', width: number, apron: number, maxLen: number, zone: number): boolean {
+export function carveAccessRoad(g: GenGrid, rect: Rect, face: 'N' | 'S' | 'E' | 'W', width: number, apron: number, maxLen: number, zone: number, target: (i: number) => boolean = () => true): boolean {
   const W = g.w;
   const H = g.h;
   const inRect = (x: number, y: number) => x >= rect.x && y >= rect.y && x < rect.x + rect.w && y < rect.y + rect.h;
@@ -467,7 +480,7 @@ export function carveAccessRoad(g: GenGrid, rect: Rect, face: 'N' | 'S' | 'E' | 
       const j = ny * W + nx;
       if (dist[j] >= 0) continue;
       const t = g.tiles[j];
-      if ((t === T.STREET || t === T.PLAZA) && !inApron(nx, ny)) {
+      if ((t === T.STREET || t === T.PLAZA) && !inApron(nx, ny) && target(j)) {
         prev[j] = i;
         found = j;
         break;
