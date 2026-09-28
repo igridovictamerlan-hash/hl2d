@@ -11,8 +11,8 @@ export const UNDERGROUND = {
 export const INSURGENCY = {
   /** Партизан в схроне — ROSTER.partisans (постоянный состав, config/roster.ts). */
   /** Операции из убежища: первая через…, потом раз в… */
-  firstOp: [15, 30] as const,
-  opEvery: [25, 50] as const,
+  firstOp: [10, 20] as const,
+  opEvery: [15, 32] as const,
   /**
    * Вылазки поодиночке и парами, пока нет операции и в убежище остаётся ≥ minAtBase бойцов:
    * раз в outingEvery с — обход тоннелей до случайного люка, поход на рынок или разведка в город
@@ -21,13 +21,13 @@ export const INSURGENCY = {
    */
   outingEvery: [6, 12] as const,
   minAtBase: 1,
-  outingKinds: { tunnels: 0.5, market: 0.2, scout: 0.3 },
+  outingKinds: { tunnels: 0.35, market: 0.2, scout: 0.45 },
   /** Разведчик не стреляет первым: заметил ГО — уходит к люку; отвечает, если ранили за … с. */
   returnFireFor: 5,
   outingWait: [3, 8] as const,
   scoutRadius: [6, 16] as const,
-  /** Размер группы саботажа. */
-  sabotageTeam: [1, 1] as const,
+  /** Размер группы саботажа (второй — дозорный). */
+  sabotageTeam: [2, 2] as const,
   /** Сколько возиться с узлом Альянса; награда повстанцу-игроку. */
   sabotageTime: 5,
   sabotageReward: 15,
@@ -40,7 +40,7 @@ export const INSURGENCY = {
 } as const;
 
 /**
- * Партизаны (2 подпольщика) и спецагент (1) — systems/InsurgencySystem.ts, ai/brains/AgentBrain.ts,
+ * Партизаны (3 подпольщика) и спецагенты (2) — systems/InsurgencySystem.ts, ai/brains/AgentBrain.ts,
  * ai/brains/HiredGunBrain.ts. Время — секунды, расстояния — px.
  */
 export const PARTISANS = {
@@ -56,7 +56,24 @@ export const PARTISANS = {
    * минирование (растяжка на свежем теле ГО, у ворот Нексуса, у выхода проходной КПП в город или на
    * пути патрульного). В схроне подпольщикам пополняют гранаты до cacheGrenades.
    */
-  ops: { arm: 0.25, sabotage: 0.1, jailbreak: 0.35, mine: 0.15, depot: 0.15 },
+  ops: { arm: 0.18, sabotage: 0.14, jailbreak: 0.26, mine: 0.12, depot: 0.1, ambush: 0.2 },
+  /**
+   * Группы (ячейки): ведущий делает дело, остальные — прикрытие (cover: рядом, в coverRing якорей от
+   * места) или дозор (lookout: в lookoutRing, видит ГО ближе watch px — «шухер», все уходят). Задел
+   * под банды и мафию — союзники группы (UndergroundGroup.allies).
+   */
+  group: { coverRing: [2, 4] as const, lookoutRing: [4, 7] as const, watch: 240 },
+  /**
+   * Засада на конвой ГО: группа из 2–3 (size) через люк к месту на пути конвоя (доля along пути от
+   * склада к пункту; не у Нексуса и КПП), ждёт под личиной не дольше wait с; колонна ближе intercept px —
+   * идут наперерез, ближе engage px и на виду — огонь; бой до fight с, ящики, брошенные конвоем, —
+   * забрать (grab px), потом к люку. Ящик патронов — mags магазинов к каждому стволу, гранат — grenades.
+   */
+  ambush: {
+    size: [2, 3] as const, along: [0.55, 0.8] as const, wait: 150, intercept: 560, engage: 230, fight: 30, grab: 260, mags: 4, grenades: 3,
+    /** Группа собрана — все в huddle px от ведущего (сигнал даёт только ведущий); на засаду из схрона берут weapon и ammo патронов. */
+    huddle: 130, weapon: 'ak74' as const, ammo: 90,
+  },
   cacheGrenades: 2,
   /** Подпольщик или спецагент сидит — операция (и миссия агента) «взлом» с этим шансом. */
   rescueChance: 0.85,
@@ -87,7 +104,7 @@ export const PARTISANS = {
    * выходят за стену и штурмуют лагерь сопротивления duration с (точки — в кольце ring якорей вокруг
    * лагеря); потом возвращаются на посты.
    */
-  raid: { duration: 150, ring: [2, 10] as const },
+  raid: { duration: 150, ring: [2, 10] as const, caged: 2 },
   /**
    * Спецагент: переодевание (у тела — dress с; у шкафа OTA — то же), цели покушения (по порядку
    * важности), дистанция выстрела, время на покушение; взлом камеры (breakTime с); бунт.
@@ -104,6 +121,8 @@ export const PARTISANS = {
     missions: { assassinate: 0.28, jailbreak: 0.4, riot: 0.2, requisition: 0.12 },
     /** Тела моложе этого (с) годятся для переодевания. */
     corpseFresh: 120,
+    /** Второй в паре держится не дальше backupGap px за ведущим. */
+    backupGap: 110,
   },
   /**
    * Бунт: до count горожан в radius px от зачинщика бегают по кругу, кричат лозунги time с — это
@@ -127,6 +146,11 @@ export const PARTISANS = {
     riot: ['Долой Альянс!', 'Хлеба! Свободы!', 'Хватит терпеть!', 'Они нас травят!', 'Свобода Сити-17!'],
     agent: ['Тихо… свои.', 'Смена караула.', 'Всё под контролем.'],
     kill: ['За Сити-17.', 'Это за наших.'],
+    ambush: ['Конвой! Огонь!', 'Бей по носильщикам!', 'Ящики — наши!', 'Сейчас!'],
+    loot: ['Ящик взял — уходим!', 'Патроны наши. Отходим.', 'Есть! К люку!'],
+    lookout: ['Шухер! ГО!', 'Патруль — сворачиваемся!', 'Уходим, нас видят!'],
+    cover: ['Прикрываю.', 'Чисто. Работай.', 'Я на углу.'],
+    backup: ['Я рядом. Начинай — поддержу.', 'Прикрою отход.'],
   },
 } as const;
 

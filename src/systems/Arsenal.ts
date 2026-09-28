@@ -4,7 +4,7 @@ import type { Vec2 } from '../core/math';
 import { ARSENAL, type CrateKind } from '../config/arsenal';
 import { KITS, ITEMS, WEAPONS, AMMO_ITEM, type WeaponId } from '../config/items';
 import { T } from '../world/tiles';
-import { cpKit } from './Population';
+import { cpKit, poiWorld } from './Population';
 import { adjustLoyalty } from './Loyalty';
 import { LOYALTY } from '../config/loyalty';
 import { canSeeCircle, lineOfSight } from '../world/visibility';
@@ -12,6 +12,7 @@ import { FACTIONS, isCpUnit } from '../config/factions';
 import { GRENADE } from '../config/combat';
 import { CpBrain } from '../ai/brains/CpBrain';
 import type { DoorGroup } from './DoorSystem';
+import { randomAnchorAround } from '../ai/destinations';
 
 /** Груз: ящик (патроны, гранаты, стволы в консервации) или один ствол (gun: исправный или на ремонт). */
 /** Помещение склада (для разметки). */
@@ -54,36 +55,61 @@ export interface Slot {
   wy: number;
 }
 
-/** Пункт боепитания КПП (в проходной): комплекты патронов и гранаты для гарнизона. */
+/**
+ * Пункт боепитания: в проходной КПП (front — номер фронта) или в Нексусе (front = -1): комплекты
+ * патронов и гранаты. Пополняют конвои ГО со склада.
+ */
 export interface KppPoint {
   front: number;
+  name: string;
   x: number;
   y: number;
   kits: number;
   grenades: number;
+  /** Потолок и порог «пора везти» (комплекты, гранаты). */
+  cap: number;
+  low: number;
+  grenadesCap: number;
+  grenadesLow: number;
   /** Сколько комплектов из порченых ящиков. */
   tainted: number;
   /** Идёт ли туда конвой. */
   convoy: Convoy | null;
 }
 
-/** Конвой: сколько ящиков ещё назначить грузчикам и кто сопровождает. */
+/**
+ * Конвой ГО: экипаж (lead — ведущий, без ящика; остальные — носильщики) берёт ящики со стеллажей
+ * (load), строится на крыльце (form), колонной идёт к пункту (march) и сдаёт ящики (unload).
+ */
+export type ConvoyPhase = 'load' | 'form' | 'march' | 'unload';
 export interface Convoy {
   point: KppPoint;
-  ammo: number;
-  grenades: number;
-  /** В пути (назначено, ещё не донесли). */
-  carrying: number;
-  escort: Character | null;
+  lead: Character;
+  crew: Character[];
+  /** Что должен взять носильщик и из какой ячейки (бронь). */
+  loads: Map<Character, { kind: CrateKind; from: Slot | null }>;
+  phase: ConvoyPhase;
+  since: number;
   until: number;
+  delivered: number;
+}
+
+/** Куда идти бойцу конвоя сейчас (ConvoyState в CpBrain). */
+export interface ConvoyOrder {
+  /** Точка (null — стоять). */
+  to: Vec2 | null;
+  /** Колонной за ведущим (k — место). */
+  follow?: Character;
+  k?: number;
+  /** Куда смотреть, стоя. */
+  face?: Vec2 | null;
 }
 
 /** Работа грузчика. */
 export type HaulTask =
   | { type: 'beacon' }
   | { type: 'store'; crate: Crate; to: Slot }
-  | { type: 'restock'; from: Slot; to: Slot }
-  | { type: 'convoy'; from: Slot | null; crate: Crate | null; convoy: Convoy; kind: CrateKind };
+  | { type: 'restock'; from: Slot; to: Slot };
 
 /** Работа оружейника: расконсервация ствола (ящик → верстак → стойка) или проверка ящика патронов. */
 export type ArmorerTask = { type: 'repair'; from: Slot; to: Slot } | { type: 'check'; slot: Slot };
@@ -149,6 +175,8 @@ export class ArsenalSystem {
   /** Дверь гранатного отсека (группа дверей) и тайлы двери. */
   private vaultDoor: DoorGroup | null = null;
   readonly vaultDoorTiles: Vec2[] = [];
+  /** Двери здания и проём крыльца (px) — охрана там не встаёт. */
+  readonly doorTiles: Vec2[] = [];
   /** Ячейки хранения. */
   readonly slots: Slot[] = [];
   /** Ящики на земле (крыльцо после сброса, брошенные в пути). */
@@ -157,6 +185,11 @@ export class ArsenalSystem {
   /** Пункты боепитания КПП и конвои к ним. */
   readonly points: KppPoint[] = [];
   readonly convoys: Convoy[] = [];
+  /** Места экипажа конвоя в караулке. */
+  readonly crewSpots: Vec2[] = [];
+  /** Где строится конвой: на крыльце у двери. */
+  formSpot: Vec2 | null = null;
+  private nextConvoy: number = ARSENAL.convoy.first;
   readonly ledger: Stock = { ammo: 0, grenades: 0, weapons: 0, parts: 0 };
   /** Верстак: ствол на нём и сколько уже сделано (для отрисовки). */
   workbench: { gun: boolean; progress: number } = { gun: false, progress: 0 };
@@ -189,6 +222,7 @@ export class ArsenalSystem {
     flights: 0, aborted: 0, delivered: 0, stored: 0, restocked: 0, convoys: 0, convoyCrates: 0, pointDraws: 0, pointEmpty: 0,
     issued: 0, drawn: 0, repaired: 0, checked: 0, caught: 0, stolen: 0, tainted: 0, jams: 0, bombs: 0, defused: 0,
     shortages: 0, inspections: 0, requisitions: 0, requests: 0, repairedBeacon: 0, shifts: 0, shiftChecks: 0,
+    convoysDone: 0, convoyLost: 0, looted: 0,
   };
 
   constructor(private readonly ctx: AiContext) {
@@ -311,8 +345,15 @@ export class ArsenalSystem {
       const d = Math.hypot(this.desk.x - this.window.x, this.desk.y - this.window.y) || 1;
       this.deskSpot = walk({ x: this.desk.x + ((this.desk.x - this.window.x) / d) * ts * 1.2, y: this.desk.y + ((this.desk.y - this.window.y) / d) * ts * 1.2 }, 2);
     }
-    this.ledgerSpot = this.ledgerDesk ? walk({ x: this.ledgerDesk.x, y: this.ledgerDesk.y + ts * 1.5 }, 3) : null;
-    this.benchSpot = this.bench ? walk({ x: this.bench.x, y: this.bench.y + ts * 1.5 }, 2) : null;
+    // У стола описи и верстака — со стороны комнаты (склад бывает развёрнут: «ниже» может быть стена).
+    const middle = (t: 'arsenal_ledger' | 'arsenal_bench') => {
+      const ps = [...map.poisOf(t)].sort((p, q) => p.x - q.x || p.y - q.y);
+      return ps.length ? ps[Math.floor((ps.length - 1) / 2)] : null;
+    };
+    const lm = middle('arsenal_ledger');
+    const bm = middle('arsenal_bench');
+    this.ledgerSpot = lm ? access(lm.x, lm.y) : null;
+    this.benchSpot = bm ? access(bm.x, bm.y) : null;
     // Дверь зала: тайлы двери, у которых с одной стороны зал; заряд — со стороны зала.
     const hr = map.poisOf('arsenal_hall')[0];
     let bx = 0;
@@ -330,6 +371,13 @@ export class ArsenalSystem {
       }
     }
     this.bombSpot = bn ? walk({ x: bx / bn, y: by / bn }, 2) : this.hall;
+    // Двери и проём (проходимые тайлы по краю здания).
+    for (let y = a.y; y < a.y + (a.h ?? 1); y++) {
+      for (let x = a.x; x < a.x + (a.w ?? 1); x++) {
+        const edge = x === a.x || y === a.y || x === a.x + (a.w ?? 1) - 1 || y === a.y + (a.h ?? 1) - 1;
+        if (map.tileAt(x, y) === T.DOOR || (edge && !map.isSolid(x, y))) this.doorTiles.push(at({ x, y }));
+      }
+    }
     // Крыльцо: приёмка — посередине ближе к двери, ожидание грузчиков — у двери, проём — дальний край.
     if (this.padRect && this.pad) {
       const P = this.padRect;
@@ -337,6 +385,7 @@ export class ArsenalSystem {
       const edge = (k: number) => ({ x: this.pad!.x - d.x * (P.w / 2) * k, y: this.pad!.y - d.y * (P.h / 2) * k });
       this.receiveSpot = walk(edge(0.35), 3);
       this.waitSpot = walk(edge(0.8), 3);
+      this.formSpot = walk(edge(0.55), 3);
       this.gate = { x: this.pad.x + d.x * (P.w / 2), y: this.pad.y + d.y * (P.h / 2) };
     }
     // Бытовка: места вокруг стола.
@@ -353,6 +402,18 @@ export class ArsenalSystem {
       }
     }
     if (!this.restSpots.length && this.waitSpot) this.restSpots.push(this.waitSpot);
+    // Караулка: места экипажа конвоя (не у двери).
+    const gr = map.poisOf('arsenal_guardroom')[0];
+    if (gr) {
+      for (let y = gr.y + 1; y < gr.y + (gr.h ?? 1); y += 2) {
+        for (let x = gr.x + 1; x < gr.x + (gr.w ?? 1); x += 2) {
+          const q = walk(at({ x, y }), 1);
+          if (!q || this.nearDoor(q.x, q.y, ts * 2) || this.crewSpots.some((s) => Math.hypot(s.x - q.x, s.y - q.y) < ts * 1.8)) continue;
+          this.crewSpots.push(q);
+        }
+      }
+    }
+    if (!this.crewSpots.length && this.formSpot) this.crewSpots.push(this.formSpot);
     // Гранатный отсек заперт; отпирается, пока туда идут по делу.
     for (const p of map.poisOf('arsenal_vault')) {
       this.vaultDoorTiles.push(at(p));
@@ -394,43 +455,62 @@ export class ArsenalSystem {
     Object.assign(this.ledger, this.stock);
   }
 
-  /** Пункты боепитания: в проходной каждого КПП — в нише у стены, не на проходе. */
+  /**
+   * Пункты боепитания: в проходной каждого КПП и в Нексусе у казармы — в нише у стены, не на проходе.
+   */
   private buildPoints(): void {
     const { ctx } = this;
     const { nav, map } = ctx;
-    for (const f of ctx.war.fronts) {
-      if (f.gatehouse < 0) continue;
-      let best = -1;
-      let bestScore = -Infinity;
+    const niche = (zone: (k: number) => boolean, around: Vec2 | null, within: number): number => {
       let cx = 0;
       let cy = 0;
       let n = 0;
       for (const k of nav.walkable) {
-        if (nav.zone[k] !== f.gatehouse) continue;
+        if (!zone(k)) continue;
         cx += nav.worldX(k);
         cy += nav.worldY(k);
         n++;
       }
-      if (!n) continue;
-      cx /= n;
-      cy /= n;
+      if (!n) return -1;
+      const c = around ?? { x: cx / n, y: cy / n };
+      let best = -1;
+      let bestScore = -Infinity;
       for (const k of nav.walkable) {
-        if (nav.zone[k] !== f.gatehouse) continue;
+        if (!zone(k)) continue;
         const x = nav.worldX(k);
         const y = nav.worldY(k);
+        const d = Math.hypot(x - c.x, y - c.y);
+        if (d > within) continue;
         const tx = Math.floor(x / map.tileSize);
         const ty = Math.floor(y / map.tileSize);
         let walls = 0;
         for (let dy = -2; dy <= 1; dy++) for (let dx = -2; dx <= 1; dx++) if (map.isSolid(tx + dx, ty + dy)) walls++;
-        const score = walls * 40 - Math.hypot(x - cx, y - cy);
+        const score = walls * 40 - d;
         if (score > bestScore) {
           bestScore = score;
           best = k;
         }
       }
-      if (best < 0) continue;
-      const K = ARSENAL.kpp;
-      this.points.push({ front: f.index, x: nav.worldX(best), y: nav.worldY(best), kits: K.start, grenades: K.grenadesStart, tainted: 0, convoy: null });
+      return best;
+    };
+    const K = ARSENAL.kpp;
+    for (const f of ctx.war.fronts) {
+      if (f.gatehouse < 0) continue;
+      const k = niche((q) => nav.zone[q] === f.gatehouse, null, Infinity);
+      if (k < 0) continue;
+      this.points.push({ front: f.index, name: f.name, x: nav.worldX(k), y: nav.worldY(k), kits: K.start, grenades: K.grenadesStart, cap: K.cap, low: K.low, grenadesCap: K.grenadesCap, grenadesLow: K.grenadesLow, tainted: 0, convoy: null });
+    }
+    // Нексус: у казармы ГО (нары), в зоне Нексуса, не в камерах.
+    const bunks = map.poisOf('bunk');
+    const nexus = new Set(map.zones.filter((z) => z.kind === 'nexus').map((z) => z.id));
+    if (nexus.size) {
+      const ts = map.tileSize;
+      const at = bunks.length
+        ? { x: (bunks.reduce((sum, p) => sum + p.x, 0) / bunks.length + 0.5) * ts, y: (bunks.reduce((sum, p) => sum + p.y, 0) / bunks.length + 0.5) * ts }
+        : poiWorld(ctx, 'nexus_yard');
+      const N = ARSENAL.nexus;
+      const k = niche((q) => nexus.has(nav.zone[q]) && !ctx.law.inAnyCell(nav.worldX(q), nav.worldY(q), 12), at, N.within);
+      if (k >= 0) this.points.push({ front: -1, name: N.name, x: nav.worldX(k), y: nav.worldY(k), kits: N.start, grenades: N.grenadesStart, cap: N.cap, low: N.low, grenadesCap: N.grenadesCap, grenadesLow: N.grenadesLow, tainted: 0, convoy: null });
     }
   }
 
@@ -741,6 +821,27 @@ export class ArsenalSystem {
     return this.rooms.find((q) => q.kind === 'vault') ?? null;
   }
 
+  /** Рядом ли точка с дверью или проёмом склада. */
+  nearDoor(x: number, y: number, r: number): boolean {
+    return this.doorTiles.some((d) => Math.hypot(d.x - x, d.y - y) < r);
+  }
+
+  /** Точка обхода охранника: вокруг поста, на крыльце, не у двери и проёма. */
+  sentrySpot(post: Vec2): Vec2 | null {
+    const { ctx } = this;
+    const S = ARSENAL.sentry;
+    const none = new Set<number>();
+    for (let k = 0; k < 12; k++) {
+      const a = randomAnchorAround(post, ctx, S.radius[0], S.radius[1], none);
+      if (a < 0) continue;
+      const x = ctx.nav.worldX(a);
+      const y = ctx.nav.worldY(a);
+      if (!this.onPad(x, y) || this.nearDoor(x, y, S.doorClear)) continue;
+      return { x, y };
+    }
+    return null;
+  }
+
   get vaultOpen(): boolean {
     return !this.vaultLocked;
   }
@@ -751,64 +852,276 @@ export class ArsenalSystem {
     this.updateVault();
   }
 
-  // ————— Конвои на КПП —————
+  // ————— Конвои ГО: склад → пункты боепитания КПП и Нексуса —————
 
+  /** Боец конвоя (роль convoy) свободен и у склада. */
+  private crewReady(c: Character): boolean {
+    const b = c.brain;
+    if (!c.fit || c.isPlayer || c.role?.kind !== 'convoy' || !(b instanceof CpBrain)) return false;
+    if (b.fsm.current !== 'guard' || b.gunner.target) return false;
+    const post = b.guardPost;
+    return !!post && Math.hypot(c.x - post.x, c.y - post.y) < ARSENAL.convoy.ready;
+  }
+
+  /** Конвой, в котором боец (null — не в конвое). */
+  convoyOf(c: Character): Convoy | null {
+    for (const v of this.convoys) if (v.crew.includes(c)) return v;
+    return null;
+  }
+
+  /** Пункт боепитания Нексуса. */
+  get nexusPoint(): KppPoint | null {
+    return this.points.find((p) => p.front < 0) ?? null;
+  }
+
+  /**
+   * Раз в convoy.dispatchEvery с: закончить дошедшие и сорванные конвои; экипаж свободен — к пункту,
+   * где запаса меньше всего (по расписанию раз в every с или сразу, если пункт ниже low).
+   */
   private dispatchConvoys(): void {
     const { ctx } = this;
-    const K = ARSENAL.kpp;
+    const C = ARSENAL.convoy;
     for (let i = this.convoys.length - 1; i >= 0; i--) {
       const v = this.convoys[i];
-      const f = ctx.war.fronts[v.point.front];
-      const lost = f?.owner === 'rebels' || this.time > v.until;
-      if ((v.ammo + v.grenades + v.carrying > 0) && !lost) continue;
-      this.convoys.splice(i, 1);
-      v.point.convoy = null;
-      this.releaseEscort(v);
-      for (const cr of this.crates) if (cr.convoy === v) cr.convoy = null;
+      const lost = v.point.front >= 0 && ctx.war.fronts[v.point.front]?.owner === 'rebels';
+      v.crew = v.crew.filter((c) => c.alive);
+      if (!v.crew.length || lost || this.time > v.until || ctx.war.code === 'red') this.endConvoy(v, lost ? 'КПП прорван' : !v.crew.length ? 'экипаж погиб' : ctx.war.code === 'red' ? 'красный код' : 'не дошли');
     }
-    if (this.convoys.length >= ARSENAL.convoy.max || ctx.war.code === 'red') return;
-    for (const p of this.points) {
-      if (p.convoy || p.kits >= K.low) continue;
-      const f = ctx.war.fronts[p.front];
-      if (!f || f.owner === 'rebels') continue;
-      const hall = this.slots.filter((s) => s.area === 'hall' && s.crate && !this.held(s)).length;
-      if (hall <= 1) continue;
-      const ammo = Math.min(K.crates, Math.ceil((K.cap - p.kits) / ARSENAL.perCrate.ammo), hall - 1);
-      const vault = this.slots.filter((s) => s.area === 'vault' && s.crate && !this.held(s)).length;
-      const grenades = p.grenades < K.grenadesLow && vault > 1 ? 1 : 0;
-      const v: Convoy = { point: p, ammo, grenades, carrying: 0, escort: null, until: this.time + ARSENAL.convoy.escortTime };
-      p.convoy = v;
-      this.convoys.push(v);
-      this.stats.convoys++;
-      ctx.law.log(`Склад Альянса: пункт боепитания ${f.name} пустеет — конвой, ящиков: ${ammo + grenades}.`, 'radio');
+    if (this.convoys.length || ctx.war.code === 'red') return;
+    const urgent = this.points.some((p) => this.pointOpen(p) && p.kits < p.low);
+    if (!urgent && this.time < this.nextConvoy) return;
+    const point = this.points
+      .filter((p) => this.pointOpen(p) && p.kits <= p.cap - ARSENAL.perCrate.ammo)
+      .sort((p, q) => p.kits / p.cap - q.kits / q.cap)[0];
+    if (!point) {
+      this.nextConvoy = this.time + C.every;
       return;
     }
+    const crew = ctx.entities.list.filter((c) => this.crewReady(c)).sort((p, q) => p.id - q.id);
+    if (crew.length < C.minCrew) return;
+    // Носильщики — все, кроме ведущего; ящики — из зала (резерв для выдачи остаётся), гранаты — из отсека.
+    const hall = this.slots.filter((s) => s.area === 'hall' && s.crate && !this.held(s)).length;
+    const vault = this.slots.filter((s) => s.area === 'vault' && s.crate && !this.held(s)).length;
+    const carriers = crew.slice(1);
+    const grenades = point.grenades < point.grenadesLow && vault > 1 && carriers.length > 0 ? 1 : 0;
+    const ammo = Math.max(0, Math.min(carriers.length - grenades, hall - C.reserve, Math.ceil((point.cap - point.kits) / ARSENAL.perCrate.ammo)));
+    if (ammo + grenades <= 0) return;
+    const v: Convoy = { point, lead: crew[0], crew: [crew[0]], loads: new Map(), phase: 'load', since: this.time, until: this.time + C.giveUp, delivered: 0 };
+    for (let k = 0; k < ammo + grenades; k++) {
+      const c = carriers[k];
+      v.crew.push(c);
+      v.loads.set(c, { kind: k < ammo ? 'ammo' : 'grenades', from: null });
+    }
+    point.convoy = v;
+    this.convoys.push(v);
+    this.stats.convoys++;
+    this.nextConvoy = this.time + C.every;
+    for (const c of v.crew) (c.brain as CpBrain).fsm.change('convoy');
+    ctx.law.log(`Склад Альянса: конвой ГО — на пункт боепитания ${point.name}, ящиков: ${ammo + grenades}.`, 'radio');
+    v.lead.say(ctx.rng.pick(ARSENAL.lines.convoy), ctx.law.now, 2.5);
   }
 
-  /** Охранник склада сопровождает конвой (первого грузчика). */
-  private assignEscort(v: Convoy, loader: Character): void {
-    if (v.escort?.fit) return;
-    let best: Character | null = null;
-    let bestD = Infinity;
-    for (const c of this.ctx.entities.list) {
+  /** Пункт принимает конвои: КПП не прорван. */
+  private pointOpen(p: KppPoint): boolean {
+    return p.front < 0 || this.ctx.war.fronts[p.front]?.owner !== 'rebels';
+  }
+
+  /** Конвой окончен: брони снять; ящики в руках — на землю (по дороге — списаны, на складе — уберут). */
+  private endConvoy(v: Convoy, why: string | null): void {
+    const i = this.convoys.indexOf(v);
+    if (i >= 0) this.convoys.splice(i, 1);
+    v.point.convoy = null;
+    for (const [c, l] of v.loads) {
+      if (l.from?.reserved === c) l.from.reserved = null;
+      this.useVault(c, false);
+    }
+    for (const c of v.crew) {
+      if (this.carried.has(c)) this.drop(c);
+    }
+    let lost = 0;
+    for (const cr of this.crates) {
+      if (cr.convoy !== v) continue;
+      cr.convoy = null;
+      if (this.inside(cr.x, cr.y)) continue;
+      // Брошен в городе: из описи списан — достанется тому, кто подберёт.
+      lost++;
+      if (cr.kind === 'ammo' || cr.kind === 'grenades') this.ledger[cr.kind] = Math.max(0, this.ledger[cr.kind] - 1);
+    }
+    this.stats.convoyLost += lost;
+    if (why) this.ctx.law.log(`Склад Альянса: конвой на ${v.point.name} сорван (${why})${lost ? ` — брошено ящиков: ${lost}` : ''}.`, 'radio');
+    else this.stats.convoysDone++;
+    for (const c of v.crew) {
       const b = c.brain;
-      if (!c.fit || c.isPlayer || c.role?.kind !== 'depot' || !(b instanceof CpBrain) || b.ward) continue;
-      const d = Math.hypot(c.x - loader.x, c.y - loader.y);
-      if (d < bestD) {
-        bestD = d;
-        best = c;
+      if (b instanceof CpBrain && b.fsm.current === 'convoy') b.fsm.change(b.idleState);
+    }
+  }
+
+  /**
+   * Шаг бойца конвоя: куда идти и что делать. null — не в конвое (или конвой окончен).
+   * load — носильщик берёт ящик своей ячейки (зал, отсек), остальные — на крыльцо; form — ждут, пока
+   * соберутся (не дольше gather с); march — ведущий к пункту, остальные колонной за ним (отставших ждёт;
+   * ящик, брошенный в бою, подбирают); unload — носильщики сдают ящики на пункт.
+   */
+  convoyStep(c: Character): ConvoyOrder | null {
+    const v = this.convoyOf(c);
+    if (!v) return null;
+    const { ctx } = this;
+    const C = ARSENAL.convoy;
+    if (!v.lead.fit) {
+      const next = v.crew.find((o) => o.fit);
+      if (!next) return null;
+      v.lead = next;
+    }
+    const form = this.formSpot ?? this.waitSpot ?? v.lead;
+    const load = v.loads.get(c);
+    const has = this.carried.get(c);
+    const reach: number = C.reach;
+    const near = (p: Vec2, r: number = reach) => Math.hypot(p.x - c.x, p.y - c.y) < r;
+    // Свой ящик, брошенный в бою, — подобрать (где бы ни шли).
+    if (load && !has && v.phase !== 'load') {
+      const lost = this.lostCrate(v, c, load.kind);
+      if (lost) {
+        if (near(lost, ARSENAL.work.reach)) {
+          this.crates.splice(this.crates.indexOf(lost), 1);
+          lost.convoy = null;
+          this.carried.set(c, lost);
+          c.carrying = true;
+        }
+        return { to: lost };
       }
     }
-    if (!best) return;
-    v.escort = best;
-    (best.brain as CpBrain).assignGuard(loader, v.until);
-    loader.say(this.ctx.rng.pick(ARSENAL.lines.convoy), this.ctx.law.now, 2.5);
+    if (v.phase === 'load' || v.phase === 'form') {
+      if (load && !has && v.phase === 'load') {
+        if (!load.from || !load.from.crate) {
+          load.from = this.fullSlot(load.kind === 'ammo' ? 'hall' : 'vault', c.x, c.y);
+          if (load.from) {
+            load.from.reserved = c;
+            if (load.from.area === 'vault') this.useVault(c, true);
+          }
+        }
+        const from = load.from;
+        if (from?.crate) {
+          if (!near({ x: from.ax, y: from.ay }, ARSENAL.work.reach)) return { to: { x: from.ax, y: from.ay } };
+          const crate = from.crate;
+          from.crate = null;
+          from.reserved = null;
+          load.from = null;
+          this.useVault(c, false);
+          this.carried.set(c, crate);
+          c.carrying = true;
+          if (ctx.rng.chance(0.3)) c.say(ctx.rng.pick(ARSENAL.lines.loader), ctx.law.now, 2);
+        } else {
+          // Взять нечего — идёт без ящика.
+          v.loads.delete(c);
+        }
+      }
+      const ready = v.crew.every((o) => !o.fit || (Math.hypot(o.x - form.x, o.y - form.y) < C.formRadius && (!v.loads.has(o) || this.carried.has(o))));
+      if (v.phase === 'load' && v.crew.every((o) => !v.loads.has(o) || this.carried.has(o) || !o.fit)) {
+        v.phase = 'form';
+        v.since = this.time;
+      }
+      if (v.phase === 'form' && (ready || this.time - v.since > C.gather)) {
+        v.phase = 'march';
+        v.since = this.time;
+        ctx.law.log(`Склад Альянса: конвой вышел на ${v.point.name}.`, 'radio');
+      }
+      if (near(form, C.formRadius * 0.6)) return { to: null, face: this.gate };
+      return { to: form };
+    }
+    const dest = { x: v.point.x, y: v.point.y };
+    // Кто-то из экипажа в бою — колонна стоит (своих не бросают), остальные смотрят на стрельбу.
+    if (v.phase === 'march' && v.crew.some((o) => o !== c && o.fit && (o.brain as CpBrain | null)?.fsm.current === 'fight')) return { to: null, face: null };
+    if (v.phase === 'march') {
+      if (c === v.lead) {
+        if (near(dest, reach * 1.5)) {
+          v.phase = 'unload';
+          v.since = this.time;
+          return { to: null, face: dest };
+        }
+        // Отстали — подождать (иначе ведущий уйдёт один).
+        const behind = v.crew.some((o) => o !== c && o.fit && Math.hypot(o.x - c.x, o.y - c.y) > C.waitFor);
+        if (behind) return { to: null, face: null };
+        return { to: dest };
+      }
+      const k = v.crew.filter((o) => o !== v.lead).indexOf(c) + 1;
+      return { to: dest, follow: v.lead, k: Math.max(1, k) };
+    }
+    // unload
+    if (has) {
+      if (!near(dest)) return { to: dest };
+      this.carried.delete(c);
+      c.carrying = false;
+      v.loads.delete(c);
+      this.deliver(v.point, has);
+      v.delivered++;
+      this.stats.convoyCrates++;
+    }
+    const done = v.crew.every((o) => !o.fit || !this.carried.has(o)) && ![...this.crates].some((cr) => cr.convoy === v);
+    if (done || this.time - v.since > C.unloadMax) {
+      ctx.law.log(`Склад Альянса: конвой дошёл — пункт боепитания ${v.point.name} пополнен (${v.point.kits} компл., гранат ${v.point.grenades}).`, 'radio');
+      this.endConvoy(v, null);
+      return null;
+    }
+    return { to: null, face: dest };
   }
 
-  private releaseEscort(v: Convoy): void {
-    const b = v.escort?.brain;
-    if (b instanceof CpBrain) b.wardUntil = 0;
-    v.escort = null;
+  /** Ящик этого конвоя на земле рядом с бойцом (свой вид — в первую очередь). */
+  private lostCrate(v: Convoy, c: Character, kind: CrateKind): Crate | null {
+    let best: Crate | null = null;
+    let bestD: number = ARSENAL.convoy.pickup;
+    for (const cr of this.crates) {
+      if (cr.convoy !== v) continue;
+      if ([...v.crew].some((o) => o !== c && this.carried.get(o) === cr)) continue;
+      const d = Math.hypot(cr.x - c.x, cr.y - c.y) + (cr.kind === kind ? 0 : 60);
+      if (d < bestD) {
+        bestD = d;
+        best = cr;
+      }
+    }
+    return best;
+  }
+
+  /** Ящик — на пункт: комплекты или гранаты (до потолка пункта), из описи — расход. */
+  private deliver(p: KppPoint, crate: Crate): void {
+    if (crate.kind === 'ammo') {
+      p.kits = Math.min(p.cap + ARSENAL.perCrate.ammo, p.kits + crate.left);
+      if (crate.tainted) p.tainted += crate.left;
+      this.ledger.ammo = Math.max(0, this.ledger.ammo - 1);
+    } else if (crate.kind === 'grenades') {
+      p.grenades = Math.min(p.grenadesCap + ARSENAL.perCrate.grenades, p.grenades + crate.left);
+      this.ledger.grenades = Math.max(0, this.ledger.grenades - 1);
+    }
+  }
+
+  /**
+   * Ящик конвоя, брошенный в бою (или после разгрома) вне склада, рядом с by — забрать (подполье, бандиты).
+   * Что взяли или null.
+   */
+  lootConvoy(by: Character, r: number): CrateKind | null {
+    let best: Crate | null = null;
+    let bestD = r;
+    for (const cr of this.crates) {
+      if (this.inside(cr.x, cr.y) || cr.kind === 'gun') continue;
+      const d = Math.hypot(cr.x - by.x, cr.y - by.y);
+      if (d < bestD) {
+        bestD = d;
+        best = cr;
+      }
+    }
+    if (!best) return null;
+    this.crates.splice(this.crates.indexOf(best), 1);
+    if (best.convoy) {
+      // Ещё в описи конвоя — теперь недостача: списываем.
+      if (best.kind === 'ammo' || best.kind === 'grenades') this.ledger[best.kind] = Math.max(0, this.ledger[best.kind] - 1);
+      best.convoy = null;
+    }
+    this.stats.looted++;
+    return best.kind as CrateKind;
+  }
+
+  /** Ящики конвоя на земле вне склада (для засады подполья). */
+  get looseOutside(): Crate[] {
+    return this.crates.filter((cr) => !this.inside(cr.x, cr.y) && cr.kind !== 'gun');
   }
 
   // ————— Работа ГСР: грузчики —————
@@ -824,7 +1137,7 @@ export class ArsenalSystem {
     let bestCrate: Crate | null = null;
     let bestD = Infinity;
     for (const cr of this.crates) {
-      if (this.claimed(cr) || (cr.convoy && this.convoys.includes(cr.convoy))) continue;
+      if (this.claimed(cr) || (cr.convoy && this.convoys.includes(cr.convoy)) || !this.inside(cr.x, cr.y)) continue;
       if (!this.freeSlot(AREA_OF[cr.kind as CrateKind], cr.x, cr.y)) continue;
       const d = Math.hypot(cr.x - c.x, cr.y - c.y);
       if (d < bestD) {
@@ -842,31 +1155,6 @@ export class ArsenalSystem {
     // 2) Расходный стеллаж у окна пуст по какому-то виду — поднести.
     const restock = this.restockTask(c, true);
     if (restock) return restock;
-    // 3) Конвой на КПП.
-    for (const v of this.convoys) {
-      // Брошенный по дороге ящик этого конвоя — подобрать первым.
-      const lost = this.crates.find((cr) => cr.convoy === v && !this.claimed(cr));
-      if (lost) {
-        const kind = lost.kind as CrateKind;
-        this.crateClaims.set(lost, c);
-        if (kind === 'ammo') v.ammo = Math.max(0, v.ammo - 1);
-        else v.grenades = Math.max(0, v.grenades - 1);
-        v.carrying++;
-        this.assignEscort(v, c);
-        return { type: 'convoy', from: null, crate: lost, convoy: v, kind };
-      }
-      const kind: CrateKind | null = v.ammo > 0 ? 'ammo' : v.grenades > 0 ? 'grenades' : null;
-      if (!kind) continue;
-      const from = this.fullSlot(AREA_OF[kind], c.x, c.y);
-      if (!from) continue;
-      from.reserved = c;
-      if (from.area === 'vault') this.useVault(c, true);
-      if (kind === 'ammo') v.ammo--;
-      else v.grenades--;
-      v.carrying++;
-      this.assignEscort(v, c);
-      return { type: 'convoy', from, crate: null, convoy: v, kind };
-    }
     // 4) Стеллаж выдачи не полон — поднести.
     return this.restockTask(c, false);
   }
@@ -884,6 +1172,8 @@ export class ArsenalSystem {
   private working(c: Character | null): boolean {
     if (!c || !c.fit) return false;
     if (c.isPlayer) return true;
+    // Боец конвоя — пока в состоянии конвоя (в бою ящик бросает).
+    if (c.brain instanceof CpBrain) return c.brain.fsm.current === 'convoy' && !!this.convoyOf(c);
     const kind = (c.brain as { job?: { kind?: string } | null } | null)?.job?.kind;
     return kind === 'haul' || kind === 'armory';
   }
@@ -961,14 +1251,12 @@ export class ArsenalSystem {
   pickTarget(task: HaulTask): Vec2 | null {
     if (task.type === 'beacon') return this.beacon;
     if (task.type === 'store') return { x: task.crate.x, y: task.crate.y };
-    if (task.type === 'convoy' && !task.from) return task.crate ? { x: task.crate.x, y: task.crate.y } : null;
     return task.from ? { x: task.from.ax, y: task.from.ay } : null;
   }
 
   /** Куда нести. */
   dropTarget(task: HaulTask): Vec2 | null {
     if (task.type === 'beacon') return this.beacon;
-    if (task.type === 'convoy') return { x: task.convoy.point.x, y: task.convoy.point.y };
     return { x: task.to.ax, y: task.to.ay };
   }
 
@@ -976,7 +1264,6 @@ export class ArsenalSystem {
   taskValid(task: HaulTask): boolean {
     if (task.type === 'beacon') return this.beaconBroken;
     if (task.type === 'store') return this.crates.includes(task.crate) || [...this.carried.values()].includes(task.crate);
-    if (task.type === 'convoy') return this.ctx.war.fronts[task.convoy.point.front]?.owner !== 'rebels' && this.convoys.includes(task.convoy);
     return true;
   }
 
@@ -984,13 +1271,13 @@ export class ArsenalSystem {
   pickUp(c: Character, task: HaulTask): boolean {
     if (task.type === 'beacon') return false;
     let crate: Crate | null = null;
-    const loose = task.type === 'store' ? task.crate : task.type === 'convoy' && !task.from ? task.crate : null;
+    const loose = task.type === 'store' ? task.crate : null;
     if (loose) {
       const i = this.crates.indexOf(loose);
       if (i < 0) return false;
       this.crates.splice(i, 1);
       crate = loose;
-    } else if (task.type !== 'store' && task.from) {
+    } else if (task.type === 'restock') {
       crate = task.from.crate;
       if (!crate || crate.left <= 0) return false;
       task.from.crate = null;
@@ -1011,25 +1298,7 @@ export class ArsenalSystem {
     this.crateClaims.delete(crate);
     const W = ARSENAL.work;
     let pay = 0;
-    if (task.type === 'convoy') {
-      crate.convoy = null;
-      const p = task.convoy.point;
-      const K = ARSENAL.kpp;
-      if (crate.kind === 'ammo') {
-        p.kits = Math.min(K.cap + ARSENAL.perCrate.ammo, p.kits + crate.left);
-        if (crate.tainted) p.tainted += crate.left;
-        this.ledger.ammo--;
-      } else if (crate.kind === 'grenades') {
-        p.grenades = Math.min(K.grenadesCap + ARSENAL.perCrate.grenades, p.grenades + crate.left);
-        this.ledger.grenades--;
-      }
-      task.convoy.carrying = Math.max(0, task.convoy.carrying - 1);
-      this.stats.convoyCrates++;
-      this.useVault(c, false);
-      pay = W.payConvoy;
-      const f = this.ctx.war.fronts[p.front];
-      if (task.convoy.carrying + task.convoy.ammo + task.convoy.grenades === 0) this.ctx.law.log(`Склад Альянса: конвой дошёл — пункт боепитания ${f?.name ?? 'КПП'} пополнен (${p.kits} компл.).`, 'radio');
-    } else {
+    {
       const to = task.to;
       to.reserved = null;
       this.incoming.delete(to);
@@ -1063,7 +1332,6 @@ export class ArsenalSystem {
    * брони ячеек, ящика и места в конвое снимаются.
    */
   abandon(c: Character, task: HaulTask | null): void {
-    const had = this.carried.get(c) ?? null;
     this.drop(c);
     if (!task) return;
     this.useVault(c, false);
@@ -1075,19 +1343,9 @@ export class ArsenalSystem {
       if (this.crateClaims.get(task.crate) === c) this.crateClaims.delete(task.crate);
       if (task.to.reserved === c) task.to.reserved = null;
     } else {
-      if (task.from?.reserved === c) task.from.reserved = null;
-      if (task.type === 'restock') {
-        if (task.to.reserved === c) task.to.reserved = null;
-        this.incoming.delete(task.to);
-      } else {
-        // Не донёс или не успел взять — ящик снова в очереди конвоя (брошенный — подберут первым).
-        task.convoy.carrying = Math.max(0, task.convoy.carrying - 1);
-        if (task.kind === 'ammo') task.convoy.ammo++;
-        else task.convoy.grenades++;
-        const lost = had ?? (task.from ? null : task.crate);
-        if (lost && this.crates.includes(lost)) lost.convoy = task.convoy;
-        if (task.crate && this.crateClaims.get(task.crate) === c) this.crateClaims.delete(task.crate);
-      }
+      if (task.from.reserved === c) task.from.reserved = null;
+      if (task.to.reserved === c) task.to.reserved = null;
+      this.incoming.delete(task.to);
     }
   }
 
@@ -1100,6 +1358,9 @@ export class ArsenalSystem {
     this.crateClaims.delete(crate);
     crate.x = c.x;
     crate.y = c.y;
+    // Боец конвоя бросил ящик (бой, ранение) — ящик за конвоем: подберут, когда отобьются.
+    const v = this.convoyOf(c);
+    if (v && crate.kind !== 'gun') crate.convoy = v;
     if (crate.kind === 'gun') {
       // Ствол из рук — назад в ящик на ремонт (или на свободную стойку, если исправен).
       const back = crate.broken ? this.slots.find((s) => s.area === 'repair' && s.crate?.kind === 'weapons') : this.freeSlot('rack', c.x, c.y);
@@ -1449,11 +1710,33 @@ export class ArsenalSystem {
    * issue.lowMags магазинов (и патроны есть). Склад закрыт — нет.
    */
   needsKit(c: Character): boolean {
-    if (!this.present || this.closed) return false;
+    if (!this.present) return false;
+    return !!this.supplyFor(c);
+  }
+
+  /**
+   * Куда ГО города за снабжением: нет табельного — к окну склада (стволы только там); мало патронов — к
+   * ближайшему из окна склада (открыто, патроны есть) и пункта боепитания Нексуса (не пуст). null — не нужно.
+   */
+  supplyFor(c: Character): { spot: Vec2; point: KppPoint | null } | null {
+    if (!this.present) return null;
+    const open = !this.closed && !!this.window;
     const missing = this.kitGuns(c).some((id) => !c.inventory.has(id));
-    if (missing && (this.shelfCrate('gun') || this.slots.some((s) => s.area === 'rack' && s.crate && !s.crate.broken))) return true;
-    const ammo = this.slots.some((s) => (s.area === 'shelf' || s.area === 'hall') && s.crate?.kind === 'ammo' && s.crate.left > 0);
-    return ammo && this.lowAmmo(c, ARSENAL.issue.lowMags);
+    if (missing && open && (this.shelfCrate('gun') || this.slots.some((s) => s.area === 'rack' && s.crate && !s.crate.broken))) return { spot: this.window!, point: null };
+    if (!this.lowAmmo(c, ARSENAL.issue.lowMags)) return null;
+    const ammo = open && this.slots.some((s) => (s.area === 'shelf' || s.area === 'hall') && s.crate?.kind === 'ammo' && s.crate.left > 0);
+    const nx = this.nexusPoint;
+    const nexus = nx && nx.kits > 0 ? nx : null;
+    const dw = ammo ? Math.hypot(this.window!.x - c.x, this.window!.y - c.y) : Infinity;
+    const dn = nexus ? Math.hypot(nexus.x - c.x, nexus.y - c.y) : Infinity;
+    if (dw === Infinity && dn === Infinity) return null;
+    return dn < dw ? { spot: nexus!, point: nexus } : { spot: this.window!, point: null };
+  }
+
+  /** OTA резерва (или любой боец Нексуса): мало патронов и пункт Нексуса не пуст. */
+  needsNexus(c: Character): boolean {
+    const p = this.nexusPoint;
+    return !!p && p.kits > 0 && this.lowAmmo(c, ARSENAL.issue.lowMags);
   }
 
   /** Совместимость: нужны ли патроны. */
@@ -1503,7 +1786,11 @@ export class ArsenalSystem {
 
   /** Пополниться у пункта: магазины и гранаты. Причина отказа или null. */
   drawAtPoint(c: Character, front: number): string | null {
-    const p = this.pointOf(front);
+    return this.drawAt(c, this.pointOf(front));
+  }
+
+  /** Пополниться у пункта боепитания (КПП или Нексус). Причина отказа или null. */
+  drawAt(c: Character, p: KppPoint | null): string | null {
     if (!p) return 'пункта нет';
     const K = ARSENAL.kpp;
     if (p.kits <= 0) {

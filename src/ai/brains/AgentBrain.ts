@@ -40,7 +40,11 @@ export class AgentBrain implements Brain {
   private corpse: Corpse | null = null;
   private dressAt: Vec2 | null = null;
   private work = 0;
-  private fightUntil = 0;
+  /** Покушение идёт до этого времени (0 — ещё не стреляли). */
+  fightUntil = 0;
+  /** Пара: второй спецагент идёт прикрытием за ведущим (backup — это я прикрываю partner). */
+  partner: Character | null = null;
+  backup = false;
   private restUntil: number;
   private repath = 0;
   private idle = 0;
@@ -76,6 +80,8 @@ export class AgentBrain implements Brain {
     this.mission = m;
     this.target = null;
     this.cell = null;
+    this.backup = false;
+    this.partner = null;
     if (m === 'assassinate') {
       this.target = this.pickTarget(ctx);
       if (!this.target) return false;
@@ -86,7 +92,30 @@ export class AgentBrain implements Brain {
     // Покушение, взлом и «наряд» на складе — в личине сотрудника Альянса; бунт — и под видом горожанина.
     if (m !== 'riot' && !coverAuthority(self)) this.beginDress(self, ctx);
     else this.beginMission(self, ctx);
+    // Покушение и взлом — парой: свободный второй спецагент идёт прикрытием.
+    if (m === 'assassinate' || m === 'jailbreak') {
+      const mate = ctx.insurgency.agents.find((o) => o !== self && o.alive && !o.isPlayer && o.brain instanceof AgentBrain && o.brain.mode === 'base' && o.law.phase === 'none');
+      if (mate) {
+        this.partner = mate;
+        (mate.brain as AgentBrain).joinBackup(mate, ctx, self, m);
+      }
+    }
     return true;
+  }
+
+  /** Прикрыть ведущего спецагента на его миссии: переодеться (если надо) и держаться рядом. */
+  joinBackup(self: Character, ctx: AiContext, lead: Character, mission: AgentMission): void {
+    const lb = lead.brain as AgentBrain;
+    this.mission = mission;
+    this.backup = true;
+    this.partner = lead;
+    this.target = lb.target;
+    this.cell = lb.cell;
+    this.fightUntil = 0;
+    self.say(ctx.rng.pick(PARTISANS.lines.backup), ctx.law.now, 2);
+    ctx.insurgency.radio(`спецагенты идут парой: ${mission === 'assassinate' ? 'покушение' : 'взлом'} — второй прикрывает.`);
+    if (!coverAuthority(self)) this.beginDress(self, ctx);
+    else this.beginMission(self, ctx);
   }
 
   private pickTarget(ctx: AiContext): Character | null {
@@ -141,6 +170,7 @@ export class AgentBrain implements Brain {
   }
 
   private missionPoint(ctx: AiContext): Vec2 | null {
+    if (this.backup) return this.partner?.alive ? { x: this.partner.x, y: this.partner.y } : null;
     if (this.mission === 'assassinate') return this.target?.alive ? { x: this.target.x, y: this.target.y } : null;
     if (this.mission === 'jailbreak') return this.cell ? { x: this.cell.frontX, y: this.cell.frontY } : null;
     if (this.mission === 'requisition') return ctx.arsenal.window;
@@ -155,6 +185,8 @@ export class AgentBrain implements Brain {
     this.mission = null;
     this.target = null;
     this.cell = null;
+    this.backup = false;
+    this.partner = null;
     this.mover.speed = CHARACTER.runSpeed * 0.8;
     const base = ctx.insurgency.base;
     if (base) this.travel.start(self, ctx, this.mover, base);
@@ -234,10 +266,62 @@ export class AgentBrain implements Brain {
     if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
   }
 
+  /**
+   * Прикрытие ведущего: держаться в backupGap px за ним; ведущий открыл огонь по цели — тоже огонь;
+   * ведущий ушёл или погиб — к люку.
+   */
+  private updateBackup(self: Character, ctx: AiContext, dt: number, fighting: boolean): void {
+    const p = this.partner;
+    const pb = p?.brain instanceof AgentBrain ? p.brain : null;
+    const now = ctx.combat.now;
+    if (!p || !p.alive || !pb || pb.mode === 'return' || pb.mode === 'base') {
+      this.goHome(self, ctx);
+      return;
+    }
+    const t = pb.target ?? this.target;
+    if (this.mission === 'assassinate' && pb.fightUntil > 0 && t?.alive) {
+      // Ведущий стреляет — поддержать огнём.
+      this.target = t;
+      this.fightUntil = pb.fightUntil;
+      if (!this.gunner.target) {
+        const w = ctx.combat.bestWeapon(self, Math.hypot(t.x - self.x, t.y - self.y));
+        if (w) ctx.combat.equip(self, w);
+        this.gunner.target = t;
+      }
+      if (fighting && this.gunner.target) this.mover.stop();
+      else if (this.repath <= 0) {
+        this.repath = 1;
+        const a = ctx.nav.nearestWalkable(t.x, t.y, 3);
+        if (a >= 0) this.mover.goTo(self, ctx, a);
+      }
+      return;
+    }
+    if (now > this.fightUntil && this.fightUntil > 0) {
+      this.goHome(self, ctx);
+      return;
+    }
+    const d = Math.hypot(p.x - self.x, p.y - self.y);
+    const same = ctx.map.levelAt(p.x, p.y) === ctx.map.levelAt(self.x, self.y);
+    if (same && d < PARTISANS.agent.backupGap) {
+      this.travel.stop(this.mover);
+      faceTowards(self, p.x, p.y, dt);
+      return;
+    }
+    if (this.repath <= 0 && !this.travel.climbing) {
+      this.repath = 2;
+      this.travel.start(self, ctx, this.mover, { x: p.x, y: p.y });
+    }
+    if (this.travel.update(self, ctx, this.mover, dt) === 'failed' && this.repath <= 0) this.goHome(self, ctx);
+  }
+
   private updateMission(self: Character, ctx: AiContext, dt: number, fighting: boolean): void {
     const A = PARTISANS.agent;
     const now = ctx.combat.now;
     const city = ctx.map.levelAt(self.x, self.y) === 'city';
+    if (this.backup) {
+      this.updateBackup(self, ctx, dt, fighting);
+      return;
+    }
     if (this.mission === 'assassinate') {
       const t = this.target;
       if (!t || !t.alive) {

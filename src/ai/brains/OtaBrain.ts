@@ -9,6 +9,7 @@ import { poiWorld } from '../../systems/Population';
 import { LAW } from '../../config/law';
 import { Tactician } from '../Tactics';
 import { TACTICS } from '../../config/tactics';
+import { ARSENAL } from '../../config/arsenal';
 
 export type OtaMode = 'reserve' | 'post' | 'home';
 
@@ -31,6 +32,9 @@ export class OtaBrain implements Brain {
   /** Тактика боя: укрытия у поста, помощь своим раненым. */
   readonly tactics = new Tactician();
   private fightHome: Vec2 | null = null;
+  /** Резерв: за патронами к пункту боепитания Нексуса (когда проверить снова). */
+  private supply = false;
+  private supplyCheck = 0;
 
   constructor(_self: Character, ctx: AiContext) {
     this.gunner = new Gunner(ctx.rng);
@@ -62,6 +66,39 @@ export class OtaBrain implements Brain {
     this.repath = 0;
   }
 
+  /** Резерв с пустыми подсумками — к пункту боепитания Нексуса и назад. true — занят этим. */
+  private supplyStep(self: Character, ctx: AiContext, dt: number): boolean {
+    const A = ctx.arsenal;
+    if (!A?.present) return false;
+    if (!this.supply) {
+      this.supplyCheck -= dt;
+      if (this.supplyCheck > 0) return false;
+      this.supplyCheck = ARSENAL.kpp.checkEvery;
+      if (!A.needsNexus(self)) return false;
+      this.supply = true;
+      this.repath = 0;
+    }
+    const p = A.nexusPoint;
+    if (!p) {
+      this.supply = false;
+      return false;
+    }
+    if (Math.hypot(p.x - self.x, p.y - self.y) < ARSENAL.kpp.reach) {
+      this.mover.stop();
+      const why = A.drawAt(self, p);
+      self.say(why ?? ctx.rng.pick(ARSENAL.lines.point), ctx.law.now, 2);
+      this.supply = false;
+      return true;
+    }
+    if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
+      this.repath = 3;
+      this.mover.speed = 95;
+      const a = ctx.nav.nearestWalkable(p.x, p.y, 3);
+      if (a >= 0) this.mover.goTo(self, ctx, a);
+    }
+    return true;
+  }
+
   update(self: Character, ctx: AiContext, dt: number): void {
     const fighting = this.gunner.update(self, ctx, dt);
     this.repath -= dt;
@@ -85,6 +122,8 @@ export class OtaBrain implements Brain {
         const a = ctx.nav.nearestWalkable(p.x, p.y, 3);
         if (a >= 0) this.mover.goTo(self, ctx, a);
       }
+    } else if (this.mode === 'reserve' && this.supplyStep(self, ctx, dt)) {
+      // Резерв: за патронами к пункту Нексуса.
     } else {
       // Резерв и возврат: в комнате OTA, у своего шкафа (нет комнаты — у ворот Нексуса).
       const spots = ctx.map.poisOf('ota_spot');

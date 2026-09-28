@@ -165,7 +165,7 @@ export class UI {
       const ship = ars.ship.phase !== 'none' ? 'борт над крыльцом' : ars.beaconBroken ? 'маяк сломан — борт не сядет' : this.host.war.code === 'red' ? 'рейсы отменены' : `борт через ${mmss(ars.flightIn)}`;
       ration += `\nСклад: патроны ${st.ammo} ящ. · гранаты ${st.grenades} ящ. · стволы ${st.weapons} (+${st.parts} в консервации) · ${ship}${ars.closed ? ' · выдача закрыта' : ''}`;
       if (player.faction === 'cp' && ars.points.length) {
-        ration += `\nПункты боепитания КПП: ${ars.points.map((p) => `${this.host.war.fronts[p.front]?.name.split(' ').pop() ?? p.front} ${p.kits}${p.convoy ? ' (конвой)' : ''}`).join(' · ')}`;
+        ration += `\nПункты боепитания: ${ars.points.map((p) => `${p.name.split(' ').pop()} ${p.kits}${p.convoy ? ' (конвой)' : ''}`).join(' · ')}`;
       }
     }
     this.hud.update(player, now, weapon, ration, this.host.war.command.rallyCooldown);

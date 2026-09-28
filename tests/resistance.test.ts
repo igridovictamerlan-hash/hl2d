@@ -7,6 +7,7 @@ import { createCharacter } from '../src/entities/factory';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { AgentBrain } from '../src/ai/brains/AgentBrain';
+import { UndergroundBrain } from '../src/ai/brains/UndergroundBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { REBEL_RANKS, REBEL_UNIT, rebelUnitOf } from '../src/config/factions';
 import { ROSTER } from '../src/config/roster';
@@ -71,7 +72,7 @@ describe('юниты сопротивления', () => {
     expect(cmd[0].rank).toBe(REBEL_UNIT.commando);
   });
 
-  test('подполье: 2 партизана в личине горожанина или ГСР и спецагент', () => {
+  test('подполье: 3 партизана в личине горожанина или ГСР и 2 спецагента', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     const g = sim.insurgency.garrison;
@@ -81,10 +82,12 @@ describe('юниты сопротивления', () => {
       expect(['citizen', 'cwu']).toContain(p.cover?.faction);
       expect(p.weapon).toBeNull();
     }
-    const agent = sim.insurgency.agent!;
-    expect(agent.profession).toBe('spec_agent');
-    expect(agent.brain).toBeInstanceOf(AgentBrain);
-    expect(sim.map.levelAt(agent.x, agent.y)).toBe('sewer');
+    expect(sim.insurgency.agents).toHaveLength(ROSTER.agents);
+    for (const agent of sim.insurgency.agents) {
+      expect(agent.profession).toBe('spec_agent');
+      expect(agent.brain).toBeInstanceOf(AgentBrain);
+      expect(sim.map.levelAt(agent.x, agent.y)).toBe('sewer');
+    }
   });
 });
 
@@ -279,5 +282,111 @@ describe('подполье: взлом и растяжки', () => {
     expect(sim.combat.mineStats.planted).toBeGreaterThan(0);
     const m = sim.combat.mines[0] ?? null;
     if (m) expect(sim.map.levelAt(m.x, m.y)).toBe('city');
+  });
+});
+
+describe('подполье группами', () => {
+  test('саботаж вдвоём: первый ломает узел, второй — дозорный; заметил ГО — группа уходит', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    spawnPopulation(sim.ctx, 10);
+    sim.insurgency.paused = true;
+    const op = sim.insurgency.startOperation('sabotage')!;
+    expect(op.kind).toBe('sabotage');
+    expect(op.team.length).toBe(2);
+    const g = op.group!;
+    expect(g.task).toBe('sabotage');
+    expect(g.roles.get(op.team[0])).toBe('lead');
+    expect(g.roles.get(op.team[1])).toBe('lookout');
+    expect((op.team[1].brain as UndergroundBrain).mode).toBe('cover');
+    expect(sim.insurgency.groupOf(op.team[1])).toBe(g);
+    // «Шухер»: оба бросают дело и уходят.
+    sim.insurgency.groupAlarm(g, op.team[1]);
+    run(sim, 1);
+    expect(op.team.every((c) => ['return', 'base'].includes((c.brain as UndergroundBrain).mode))).toBe(true);
+    expect(sim.insurgency.stats.alarms).toBe(1);
+  });
+
+  test('взлом вдвоём: второй прикрывает у камер', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    spawnPopulation(sim.ctx, 10);
+    sim.insurgency.paused = true;
+    const op = sim.insurgency.startOperation('jailbreak')!;
+    expect(op.kind).toBe('jailbreak');
+    expect(op.team.length).toBe(2);
+    expect(op.group?.roles.get(op.team[1])).toBe('cover');
+    expect((op.team[0].brain as UndergroundBrain).mode).toBe('jailbreak');
+    expect((op.team[1].brain as UndergroundBrain).mode).toBe('cover');
+  });
+
+  test('засада на конвой ГО: группа ждёт на пути, открывает огонь, раскрывается и забирает брошенные ящики', { timeout: 240_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    spawnPopulation(sim.ctx, 20);
+    sim.insurgency.paused = true;
+    const A = sim.arsenal;
+    run(sim, 200, () => A.convoys.length > 0);
+    const v = A.convoys[0];
+    expect(v).toBeTruthy();
+    // Место засады выбирают сами — в городе, на пути от склада к пункту.
+    const auto = sim.insurgency.ambushSpot(v)!;
+    expect(sim.map.levelAt(auto.x, auto.y)).toBe('city');
+    // Колонна вышла — группа уже поднялась в город и ждёт впереди на её пути.
+    run(sim, 90, () => v.phase === 'march');
+    run(sim, 3);
+    const path = (v.lead.brain as CpBrain).mover.remaining(40);
+    let spot = path[path.length - 1];
+    let acc = 0;
+    for (let i = 1; i < path.length; i++) {
+      acc += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+      if (acc > 380) {
+        spot = path[i];
+        break;
+      }
+    }
+    const op = sim.insurgency.startAmbush(v, spot)!;
+    expect(op.kind).toBe('ambush');
+    for (const m of op.team) {
+      const a = sim.nav.nearestWalkable(spot.x + sim.ctx.rng.range(-24, 24), spot.y + sim.ctx.rng.range(-24, 24), 4);
+      m.x = m.prevX = sim.nav.worldX(a);
+      m.y = m.prevY = sim.nav.worldY(a);
+      (m.brain as UndergroundBrain).startAmbush(m, sim.ctx, { x: m.x, y: m.y });
+    }
+    sim.entities.rebuildHash();
+    expect(op.team.length).toBeGreaterThanOrEqual(PARTISANS.ambush.size[0]);
+    const g = op.group!;
+    expect(g.convoy).toBe(v);
+    // Автомат из схрона.
+    expect(op.team.every((m) => m.inventory.has(PARTISANS.ambush.weapon))).toBe(true);
+    run(sim, 60, () => g.attack);
+    expect(g.attack).toBe(true);
+    expect(sim.insurgency.stats.ambushes).toBe(1);
+    // Открыли огонь — личины нет, враги Альянса.
+    for (const m of g.members) {
+      expect(m.disguised).toBe(false);
+      expect(m.hostile).toBe(true);
+    }
+    expect(sim.log.some((l) => l.includes('нападение на конвой'))).toBe(true);
+    // Экипаж отстреливается (ящики падают) — партизаны забирают.
+    run(sim, 60, () => sim.insurgency.stats.looted > 0);
+    expect(sim.insurgency.stats.looted).toBeGreaterThan(0);
+    expect(A.stats.looted).toBe(sim.insurgency.stats.looted);
+  });
+
+  test('спецагенты парой: второй идёт прикрытием к покушению', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    spawnPopulation(sim.ctx, 10);
+    sim.insurgency.paused = true;
+    const [a, b] = sim.insurgency.agents;
+    expect((a.brain as AgentBrain).start(a, sim.ctx, 'assassinate')).toBe(true);
+    const ab = a.brain as AgentBrain;
+    const bb = b.brain as AgentBrain;
+    expect(ab.partner).toBe(b);
+    expect(bb.backup).toBe(true);
+    expect(bb.partner).toBe(a);
+    expect(bb.mission).toBe('assassinate');
+    expect(bb.mode === 'dress' || bb.mode === 'mission').toBe(true);
   });
 });

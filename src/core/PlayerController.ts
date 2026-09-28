@@ -448,8 +448,12 @@ export class PlayerController {
     }
     // Склад Альянса на окраине: выдача ГО, работа грузчиков и оружейника, диверсии подполья.
     if (ctx.arsenal?.present && ctx.map.zoneAtWorld(p.x, p.y)?.kind === 'arsenal' && this.arsenal(p, ctx)) return;
-    // Пункт боепитания в проходной КПП.
+    // Пункт боепитания в проходной КПП и в Нексусе.
     if (this.kppPoint(p, ctx)) return;
+    // Ящик, брошенный конвоем ГО (засада): повстанцу или бандиту — забрать себе.
+    if ((p.faction === 'rebel' || p.profession === 'bandit') && ctx.arsenal?.present && ctx.arsenal.looseOutside.some((c) => d(c) < REACH + 6)) {
+      if (ctx.insurgency.lootCrate(p, REACH + 6)) return this.say('Ящик с конвоя — ваш: патроны или гранаты в подсумок.', 'world');
+    }
     // Штаб ГСР: гражданин у стойки найма — устроиться (глава оформляет туда, где не хватает рук).
     const hq = ctx.cwuHq;
     if (hq?.present && p.faction === 'citizen' && (d(hq.counter) < REACH + 12 || d(hq.applicantSpot) < REACH + 12)) {

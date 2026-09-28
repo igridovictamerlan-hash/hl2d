@@ -28,6 +28,7 @@ import { hasLoyalty, loyaltyTier } from '../../systems/Loyalty';
 import { FACTIONS, cpHas, cpUnit } from '../../config/factions';
 import { SECURITY } from '../../config/security';
 import { CWU_HQ } from '../../config/cwuHq';
+import type { KppPoint } from '../../systems/Arsenal';
 
 const near: Character[] = [];
 
@@ -42,14 +43,16 @@ export interface CpOptions {
   /**
    * Служба: post — постовой RCT в городе; squad — в патрульной группе (lead — ведущий);
    * officer — офицер PCU.OFC (обход постов, построения); inspector — SU.INSP; bodyguard — SU.GUARD;
-   * epu — глава силового блока; qm — кладовщик склада (стоит у стола выдачи, за нарушителями не ходит).
+   * epu — глава силового блока; qm — кладовщик склада (стоит у стола выдачи, за нарушителями не ходит);
+   * sentry — охрана склада: пост, обход вокруг поста, у дверей не стоит; convoy — экипаж конвоя склада
+   * (ждёт в караулке, по приказу склада носит ящики на пункты боепитания).
    */
   duty?: CpDuty;
   squad?: number;
   lead?: boolean;
 }
 
-export type CpDuty = 'post' | 'squad' | 'officer' | 'inspector' | 'bodyguard' | 'epu' | 'qm';
+export type CpDuty = 'post' | 'squad' | 'officer' | 'inspector' | 'bodyguard' | 'epu' | 'qm' | 'sentry' | 'convoy';
 
 /** Место в строю построения (Security) — пока задано, юнит стоит в строю. */
 export interface FormationSlot {
@@ -59,7 +62,7 @@ export interface FormationSlot {
 }
 
 /** Состояния, из которых можно сразу перейти в бой. */
-const CAN_FIGHT = new Set(['patrol', 'patrol-again', 'post', 'guard', 'hunt', 'approach', 'chase', 'medic', 'heal', 'check', 'bodyguard', 'follow', 'duty', 'formation', 'scene', 'resupply']);
+const CAN_FIGHT = new Set(['patrol', 'patrol-again', 'post', 'guard', 'hunt', 'approach', 'chase', 'medic', 'heal', 'check', 'bodyguard', 'follow', 'duty', 'formation', 'scene', 'resupply', 'convoy']);
 
 /** Из этих состояний юнит возвращается на место преступления, если ещё не закончил там. */
 const SCENE_RESUME = new Set(['patrol', 'patrol-again', 'post', 'follow', 'duty', 'hunt']);
@@ -136,6 +139,14 @@ export class CpBrain implements Brain {
   resupplyCheck = 0;
   resupplyWait = 0;
   resupplyUntil = 0;
+  /** Куда за снабжением: пункт боепитания (КПП, Нексус) или null — окно склада. */
+  resupplyPoint: KppPoint | null = null;
+  resupplyAt: Vec2 | null = null;
+  /** Конвой: куда шли в прошлый раз (сменилась цель — новый путь). */
+  convoyGoal: Vec2 | null = null;
+  /** Охрана склада: точка обхода (null — на посту) и сколько ещё стоять. */
+  sentrySpot: Vec2 | null = null;
+  sentryLeft = 0;
 
   constructor(
     public self: Character,
@@ -156,7 +167,7 @@ export class CpBrain implements Brain {
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
       this,
-      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD, SCAN, FOLLOW, DUTY, FORMATION, SCENE, RESUPPLY],
+      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD, SCAN, FOLLOW, DUTY, FORMATION, SCENE, RESUPPLY, CONVOY],
       this.idleState,
     );
     this.scan = ctx.rng.range(0, LAW.scanInterval);
@@ -256,6 +267,8 @@ export class CpBrain implements Brain {
   get idleState(): string {
     if (this.medicStation) return 'medic';
     if (this.formation) return 'formation';
+    // Экипаж конвоя в деле — назад к конвою (после боя, отхода).
+    if (this.duty === 'convoy' && this.ctx.arsenal?.convoyOf(this.self)) return 'convoy';
     if (this.guardPost) return 'guard';
     if (this.ward?.alive && this.ctx.law.now < this.wardUntil) return 'bodyguard';
     if (this.duty === 'squad' && !this.lead && this.leader() && !(this.ctx.war && this.shouldHunt())) return 'follow';
@@ -519,15 +532,15 @@ export class CpBrain implements Brain {
       // Вооружённого врага берёт на себя бой (Gunner), остальных — задерживаем.
       if (ctx.combat.threat(self, o)) continue;
       // Часовой не уходит с поста ради беготни по городу; постовой RCT — только рядом с постом.
-      if (this.guardPost && !atCheckpoint && !(this.duty === 'post' && dist(this.guardPost.x, this.guardPost.y, o.x, o.y) < SECURITY.postReach)) continue;
+      if (this.guardPost && !atCheckpoint && !((this.duty === 'post' || this.duty === 'sentry') && dist(this.guardPost.x, this.guardPost.y, o.x, o.y) < SECURITY.postReach)) continue;
       // Командование, охрана и кладовщик за нарушителями не бегают — это работа PCU.
-      if (this.duty === 'inspector' || this.duty === 'epu' || this.duty === 'bodyguard' || this.duty === 'qm') continue;
+      if (this.duty === 'inspector' || this.duty === 'epu' || this.duty === 'bodyguard' || this.duty === 'qm' || this.duty === 'convoy') continue;
       this.engage(o, v);
       return;
     }
     if (ctx.war.code === 'red' || this.medicStation) return;
     // Плановые проверки CID — работа PCU (и следователей), не командования и не охраны.
-    if (this.duty === 'inspector' || this.duty === 'epu' || this.duty === 'bodyguard' || this.duty === 'qm' || this.formation) return;
+    if (this.duty === 'inspector' || this.duty === 'epu' || this.duty === 'bodyguard' || this.duty === 'qm' || this.duty === 'convoy' || this.formation) return;
     for (const o of near) {
       // Работника ГСР на раздаче плановой проверкой не дёргают.
       if (o === self || !law.checkable(o) || o === ctx.economy.dispenser) continue;
@@ -651,6 +664,7 @@ const RESUPPLY: State<CpBrain> = {
     b.mover.speed = LAW.cpWalkSpeed;
     b.resupplyWait = 0;
     b.resupplyUntil = b.ctx.law.now + ARSENAL.issue.giveUp;
+    pickSupply(b);
     const w = resupplySpot(b);
     const a = w ? b.ctx.nav.nearestWalkable(w.x, w.y, 3) : -1;
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
@@ -661,15 +675,15 @@ const RESUPPLY: State<CpBrain> = {
     const A = b.ctx.arsenal;
     const w = resupplySpot(b);
     if (!w || b.ctx.law.now > b.resupplyUntil) return b.idleState;
-    const reach = b.front >= 0 ? ARSENAL.kpp.reach : ARSENAL.issue.reach;
+    const reach = b.resupplyPoint ? ARSENAL.kpp.reach : ARSENAL.issue.reach;
     if (dist(b.self.x, b.self.y, w.x, w.y) < reach) {
       b.mover.stop();
-      const look = b.front >= 0 ? w : A.desk;
+      const look = b.resupplyPoint ? w : A.desk;
       if (look) turnTowards(b.self, Math.atan2(look.y - b.self.y, look.x - b.self.x), dt, 3);
       b.resupplyWait += dt;
       if (b.resupplyWait < ARSENAL.issue.every) return;
-      if (b.front >= 0) {
-        const why = A.drawAtPoint(b.self, b.front);
+      if (b.resupplyPoint) {
+        const why = A.drawAt(b.self, b.resupplyPoint);
         b.self.say(why ?? b.ctx.rng.pick(ARSENAL.lines.point), b.ctx.law.now, 2);
       } else {
         const why = A.issue(b.self);
@@ -692,11 +706,26 @@ const RESUPPLY: State<CpBrain> = {
   },
 };
 
-/** Куда за снабжением: часовому КПП — к пункту боепитания в проходной, остальным — к окну склада. */
-function resupplySpot(b: CpBrain): Vec2 | null {
+/**
+ * Куда за снабжением: часовому КПП — к пункту боепитания в проходной; ГО города — вызвали на смену или
+ * нет табельного — к окну склада, мало патронов — к ближайшему из окна и пункта Нексуса.
+ */
+function pickSupply(b: CpBrain): void {
   const A = b.ctx.arsenal;
-  if (b.front >= 0) return A.pointOf(b.front);
-  return A.window;
+  b.resupplyPoint = null;
+  b.resupplyAt = null;
+  if (b.front >= 0) {
+    b.resupplyPoint = A.pointOf(b.front);
+    b.resupplyAt = b.resupplyPoint;
+    return;
+  }
+  const s = A.shiftCalled(b.self) ? null : A.supplyFor(b.self);
+  b.resupplyPoint = s?.point ?? null;
+  b.resupplyAt = s?.spot ?? A.window;
+}
+
+function resupplySpot(b: CpBrain): Vec2 | null {
+  return b.resupplyAt;
 }
 
 
@@ -715,11 +744,14 @@ const GUARD: State<CpBrain> = {
   name: 'guard',
   enter(b) {
     b.mover.speed = guardSpeed(b);
+    b.sentrySpot = null;
+    b.sentryLeft = b.ctx.rng.range(ARSENAL.sentry.stay[0], ARSENAL.sentry.stay[1]);
     const p = postOf(b);
     const a = b.ctx.nav.nearestWalkable(p.x, p.y, 3);
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
   },
   update(b, dt) {
+    if (b.duty === 'sentry' && !b.raidPost) return sentry(b, dt);
     const p = postOf(b);
     if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, p.x, p.y) < 12) {
       b.mover.stop();
@@ -731,6 +763,90 @@ const GUARD: State<CpBrain> = {
         if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
       }
     }
+  },
+};
+
+/**
+ * Охрана склада: на посту постоять, потом обход — пара шагов вокруг поста (не у дверей и проёма),
+ * осмотреться, иногда обронить реплику — и назад. Проходящих пропускает (Mover отводит в сторону).
+ */
+function sentry(b: CpBrain, dt: number): void {
+  const S = ARSENAL.sentry;
+  const post = b.guardPost!;
+  const to = b.sentrySpot ?? post;
+  const far = dist(b.self.x, b.self.y, post.x, post.y) > LAW.cpRunToPost;
+  if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, to.x, to.y) < 12) {
+    b.mover.stop();
+    b.sentryLeft -= dt;
+    if (b.sentrySpot) {
+      if (b.ctx.rng.chance(dt * 0.6)) b.postFacing = b.ctx.rng.range(0, Math.PI * 2);
+      turnTowards(b.self, b.postFacing, dt, 2.5);
+    } else turnTowards(b.self, b.guardFacing, dt, 3);
+    if (b.sentryLeft > 0) return;
+    if (b.sentrySpot) {
+      b.sentrySpot = null;
+      b.sentryLeft = b.ctx.rng.range(S.stay[0], S.stay[1]);
+    } else {
+      b.sentrySpot = b.ctx.arsenal.sentrySpot(post);
+      b.sentryLeft = b.ctx.rng.range(S.beat[0], S.beat[1]);
+      b.postFacing = b.ctx.rng.range(0, Math.PI * 2);
+      if (b.sentrySpot && b.ctx.rng.chance(S.talk)) b.self.say(b.ctx.rng.pick(ARSENAL.lines.sentry), b.ctx.law.now, 2.5);
+    }
+    const next = b.sentrySpot ?? post;
+    const a = b.ctx.nav.nearestWalkable(next.x, next.y, 2);
+    if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    return;
+  }
+  b.mover.speed = far ? LAW.cpRunSpeed : LAW.cpWalkSpeed * S.speed;
+  if (b.mover.status === 'failed' || b.mover.status === 'idle') {
+    // Не дойти до точки обхода — назад на пост.
+    if (b.mover.status === 'failed') b.sentrySpot = null;
+    const q = b.sentrySpot ?? post;
+    const a = b.ctx.nav.nearestWalkable(q.x, q.y, 3);
+    if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+  }
+}
+
+/**
+ * Конвой склада: шаг за шагом по приказам ArsenalSystem.convoyStep — к ячейке за ящиком, на крыльцо,
+ * колонной за ведущим к пункту боепитания, сдать ящик. Бой — из этого состояния (ящик падает на землю).
+ */
+const CONVOY: State<CpBrain> = {
+  name: 'convoy',
+  enter(b) {
+    b.mover.speed = LAW.cpWalkSpeed;
+    b.convoyGoal = null;
+    b.repath = 0;
+  },
+  update(b, dt) {
+    const o = b.ctx.arsenal?.convoyStep(b.self);
+    if (!o) return b.duty === 'convoy' && b.ctx.arsenal?.convoyOf(b.self) ? undefined : b.idleState;
+    if (o.follow) {
+      b.convoyGoal = null;
+      if (!followColumn(b.self, b.ctx, b.mover, o.follow, o.k ?? 1, dt, b.column)) watchSector(b.self, o.follow, o.k ?? 1, false, dt);
+      return;
+    }
+    if (!o.to) {
+      b.mover.stop();
+      b.convoyGoal = null;
+      if (o.face) turnTowards(b.self, Math.atan2(o.face.y - b.self.y, o.face.x - b.self.x), dt, 3);
+      return;
+    }
+    b.mover.speed = LAW.cpWalkSpeed * ARSENAL.convoy.speed;
+    const g = b.convoyGoal;
+    const st = b.mover.status;
+    if (!g || Math.hypot(g.x - o.to.x, g.y - o.to.y) > 16 || st === 'failed' || st === 'idle' || st === 'arrived') {
+      b.repath -= dt;
+      if (g && Math.hypot(g.x - o.to.x, g.y - o.to.y) <= 16 && b.repath > 0) return;
+      b.repath = 1;
+      b.convoyGoal = { x: o.to.x, y: o.to.y };
+      const a = b.ctx.nav.nearestWalkable(o.to.x, o.to.y, 3);
+      if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    }
+  },
+  exit(b) {
+    b.mover.speed = LAW.cpWalkSpeed;
+    b.convoyGoal = null;
   },
 };
 

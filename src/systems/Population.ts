@@ -199,6 +199,12 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
       const post = { x: p.x, y: p.y };
       put(cpSpec('depot', 'guard', { post, facing: p.facing }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);
     }
+    // Экипаж конвоя — в караулке склада, у каждого своё место.
+    const C = ARSENAL.convoy;
+    for (let k = 0; k < C.crew && ars.crewSpots.length; k++) {
+      const post = ars.crewSpots[k % ars.crewSpots.length];
+      put(cpSpec('convoy', C.unit, { post, facing: ctx.rng.range(0, Math.PI * 2) }), post);
+    }
   }
   // Гарнизоны КПП: спецназ SU.03 на всех постах обоих дворов лицом к пустоши, RCT.PCU в проходной,
   // медик SU.02 в бункере.

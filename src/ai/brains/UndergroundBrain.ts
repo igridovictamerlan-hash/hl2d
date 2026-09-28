@@ -5,6 +5,9 @@ import type { Vec2 } from '../../core/math';
 import type { RepairSpot } from '../../systems/EconomySystem';
 import type { Cell } from '../../systems/LawSystem';
 import type { DepotAct } from '../../systems/Arsenal';
+import type { UndergroundGroup } from '../../systems/InsurgencySystem';
+import { canSeeCircle } from '../../world/visibility';
+import { FACTIONS } from '../../config/factions';
 import { Mover } from '../Mover';
 import { complyWithCp } from '../comply';
 import { Gunner } from '../Gunner';
@@ -15,7 +18,9 @@ import { COMBAT, MINE } from '../../config/combat';
 import { CHARACTER } from '../../config/entities';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
 
-export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'depot' | 'return' | 'outing';
+export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'return' | 'outing';
+
+const coverNear: Character[] = [];
 
 /** Связь сопротивления: дело на складе сделано. */
 const DEPOT_DONE: Record<DepotAct, string> = {
@@ -34,6 +39,9 @@ const DEPOT_DONE: Record<DepotAct, string> = {
  *    оставить растяжку (прикрыть побег) и уйти;
  *  mine — поставить растяжку (на свежем теле ГО, у ворот Нексуса, у выхода проходной, на пути патруля);
  *  depot — в робе грузчика на склад Альянса: унести ящик, подмешать брак, заложить заряд, испортить маяк;
+ *  ambush — группой в засаду на пути конвоя ГО: ждут под личиной, колонна близко — наперерез и огонь,
+ *    брошенные ящики — забрать, потом к люку;
+ *  cover — второй в группе: прикрытие у камер (взлом) или дозор у узла (саботаж: видит ГО — «шухер»);
  *  return — к ближайшему люку и вниз, в убежище (раненый — сразу сюда).
  */
 export class UndergroundBrain implements Brain {
@@ -132,6 +140,24 @@ export class UndergroundBrain implements Brain {
     this.travel.start(self, ctx, this.mover, spot);
   }
 
+  /** Засада на конвой: к своему месту (у ведущего — место засады, у остальных — рядом). */
+  startAmbush(self: Character, ctx: AiContext, spot: Vec2): void {
+    this.mode = 'ambush';
+    this.spot = spot;
+    this.work = 0;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    this.travel.start(self, ctx, this.mover, spot);
+  }
+
+  /** Прикрытие или дозор в группе: встать у места дела и смотреть по сторонам. */
+  startCover(self: Character, ctx: AiContext, _g: UndergroundGroup, spot: Vec2): void {
+    this.mode = 'cover';
+    this.spot = spot;
+    this.work = 0;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    this.travel.start(self, ctx, this.mover, spot);
+  }
+
   /** Растяжку ставит — стоит, пока не поставит, потом уходит. true — ещё занят. */
   private plantAndLeave(self: Character, ctx: AiContext): boolean {
     if (!this.planting) {
@@ -168,7 +194,10 @@ export class UndergroundBrain implements Brain {
   update(self: Character, ctx: AiContext, dt: number): void {
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
     // Скрытные дела (ствол бандиту, взлом, растяжка) — огня не открывает, пока не ранят.
-    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
+    const group = this.mode === 'base' ? null : ctx.insurgency.groupOf(self);
+    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot' || this.mode === 'cover') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
+    // Засада: до сигнала — под личиной, огня не открывают (разве что ранили).
+    else if (this.mode === 'ambush') this.gunner.holdFire = !group?.attack && ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     else if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
     // Под личиной ствол в кармане, пока не стреляет.
@@ -195,7 +224,8 @@ export class UndergroundBrain implements Brain {
       }
       case 'sabotage': {
         const node = this.node;
-        if (!node || node.broken) {
+        // Дозорный крикнул «шухер» — бросить узел и уходить.
+        if (!node || node.broken || group?.alarm) {
           this.goHome(self, ctx);
           break;
         }
@@ -313,6 +343,12 @@ export class UndergroundBrain implements Brain {
         } else if (st === 'failed') this.goHome(self, ctx);
         break;
       }
+      case 'ambush':
+        this.updateAmbush(self, ctx, dt, group, fighting);
+        break;
+      case 'cover':
+        this.updateCover(self, ctx, dt, group, fighting);
+        break;
       case 'outing': {
         // Вылазка скрытная: заметил ГО и по нему не стреляли — не выдаёт себя, уходит вниз.
         const hurt = now - self.lastHurt < INSURGENCY.returnFireFor;
@@ -348,6 +384,161 @@ export class UndergroundBrain implements Brain {
     }
     if (!this.travel.climbing) this.mover.update(self, ctx, dt);
     if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
+  }
+
+  /**
+   * Засада на конвой ГО: ждать на месте под личиной (не дольше ambush.wait с); колонна на марше ближе
+   * intercept — наперерез к ведущему; ближе engage и на виду — сигнал группе и огонь; после сигнала —
+   * бой до fight с, брошенные конвоем ящики — забрать; конвоя нет и ящиков рядом нет — к люку.
+   */
+  private updateAmbush(self: Character, ctx: AiContext, dt: number, g: UndergroundGroup | null, fighting: boolean): void {
+    const A = PARTISANS.ambush;
+    const v = g?.convoy ?? null;
+    const live = !!v && ctx.arsenal.convoys.includes(v);
+    const city = ctx.map.levelAt(self.x, self.y) === 'city';
+    if (!g) {
+      this.goHome(self, ctx);
+      return;
+    }
+    if (g.attack) {
+      // Ящик, брошенный конвоем, рядом — забрать (под огнём — только если близко).
+      const crate = city ? this.nearestLoose(self, ctx, A.grab) : null;
+      if (crate && (!fighting || Math.hypot(crate.x - self.x, crate.y - self.y) < 60)) {
+        if (Math.hypot(crate.x - self.x, crate.y - self.y) < 28) {
+          this.mover.stop();
+          if (ctx.insurgency.lootCrate(self)) this.work = 0;
+        } else if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
+          this.repath = 1;
+          const a = ctx.nav.nearestWalkable(crate.x, crate.y, 2);
+          if (a >= 0) this.mover.goTo(self, ctx, a);
+        }
+        return;
+      }
+      if (fighting && this.gunner.target) {
+        this.mover.stop();
+        return;
+      }
+      if (ctx.insurgency.now - g.firedAt > A.fight || !live) this.goHome(self, ctx);
+      else if (live && v && (this.repath <= 0 || this.mover.status === 'idle')) {
+        // Огонь открыт, цель не видна — к конвою.
+        this.repath = 2;
+        const a = ctx.nav.nearestWalkable(v.lead.x, v.lead.y, 3);
+        if (a >= 0) this.mover.goTo(self, ctx, a);
+      }
+      return;
+    }
+    if (!live || !v) {
+      this.goHome(self, ctx);
+      return;
+    }
+    const lead = v.lead;
+    const d = Math.hypot(lead.x - self.x, lead.y - self.y);
+    // Сигнал и перехват — дело ведущего группы; остальные держатся рядом с ним.
+    if (g.lead !== self) {
+      const gl = g.lead;
+      const dl = Math.hypot(gl.x - self.x, gl.y - self.y);
+      const glCity = ctx.map.levelAt(gl.x, gl.y) === 'city';
+      if (city && glCity && dl < A.huddle * 0.5) {
+        this.travel.stop(this.mover);
+        faceTowards(self, lead.x, lead.y, dt);
+      } else if (glCity) {
+        if (this.repath <= 0 && !this.travel.climbing) {
+          this.repath = 1.5;
+          this.travel.start(self, ctx, this.mover, { x: gl.x, y: gl.y });
+        }
+        if (this.travel.update(self, ctx, this.mover, dt) === 'failed' && this.repath <= 0) this.goHome(self, ctx);
+      } else {
+        // Ведущий ещё под землёй — к своему месту у точки засады.
+        const st = this.travel.update(self, ctx, this.mover, dt);
+        if (st === 'failed') this.goHome(self, ctx);
+      }
+      return;
+    }
+    // Собрались: рядом с ведущим хотя бы двое (или все, если группа меньше).
+    const near = g.members.filter((m) => ctx.map.levelAt(m.x, m.y) === 'city' && Math.hypot(m.x - self.x, m.y - self.y) < A.huddle).length;
+    const assembled = near >= Math.min(2, g.members.length);
+    if (city && assembled && v.phase === 'march' && d < A.engage && canSeeCircle(ctx.map, self.x, self.y, lead.x, lead.y, lead.radius)) {
+      ctx.insurgency.groupAttack(g, self);
+      for (const m of g.members) {
+        const mb = m.brain;
+        if (!(mb instanceof UndergroundBrain)) continue;
+        mb.travel.stop(mb.mover);
+        const w = ctx.combat.bestWeapon(m, Math.hypot(lead.x - m.x, lead.y - m.y));
+        if (w) ctx.combat.equip(m, w);
+        // Первым — носильщика (ящик упадёт), иначе ведущего колонны.
+        const carrier = v.crew.find((o) => o.fit && o.carrying && Math.hypot(o.x - m.x, o.y - m.y) < A.engage * 1.3);
+        mb.gunner.target = carrier ?? lead;
+      }
+      return;
+    }
+    if (city && assembled && v.phase === 'march' && d < A.intercept && !this.travel.climbing) {
+      if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
+        this.repath = 2;
+        this.travel.start(self, ctx, this.mover, { x: lead.x, y: lead.y });
+      }
+      this.travel.update(self, ctx, this.mover, dt);
+      return;
+    }
+    const to = this.spot;
+    const st = this.travel.update(self, ctx, this.mover, dt);
+    if (to && city && (st === 'arrived' || Math.hypot(to.x - self.x, to.y - self.y) < 24)) {
+      this.travel.stop(this.mover);
+      faceTowards(self, lead.x, lead.y, dt);
+      this.work += dt;
+      if (this.work > A.wait) this.goHome(self, ctx);
+    } else if (st === 'failed') this.goHome(self, ctx);
+  }
+
+  /** Ящик вне склада рядом (брошенный конвоем). */
+  private nearestLoose(self: Character, ctx: AiContext, r: number): Vec2 | null {
+    let best: Vec2 | null = null;
+    let bestD = r;
+    for (const cr of ctx.arsenal.looseOutside) {
+      const d = Math.hypot(cr.x - self.x, cr.y - self.y);
+      if (d < bestD) {
+        bestD = d;
+        best = cr;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Прикрытие (взлом) или дозор (саботаж): встать у своего места и смотреть по сторонам. Дозорный видит
+   * ГО ближе group.watch — «шухер», группа уходит. Ведущий закончил (ушёл, погиб) — и сам к люку.
+   */
+  private updateCover(self: Character, ctx: AiContext, dt: number, g: UndergroundGroup | null, fighting: boolean): void {
+    const lead = g?.lead ?? null;
+    const leadBusy = !!lead && lead !== self && lead.alive && lead.brain instanceof UndergroundBrain && lead.brain.mode !== 'return' && lead.brain.mode !== 'base';
+    if (!g || g.alarm || !leadBusy) {
+      this.goHome(self, ctx);
+      return;
+    }
+    if (fighting && this.gunner.target) {
+      this.mover.stop();
+      return;
+    }
+    const to = this.spot;
+    const st = this.travel.update(self, ctx, this.mover, dt);
+    const city = ctx.map.levelAt(self.x, self.y) === 'city';
+    if (to && city && (st === 'arrived' || Math.hypot(to.x - self.x, to.y - self.y) < 24)) {
+      this.travel.stop(this.mover);
+      this.work += dt;
+      // Осматривается: от места дела — наружу.
+      const out = Math.atan2(self.y - g.spot.y, self.x - g.spot.x) + Math.sin(this.work * 0.7) * 1.2;
+      faceTowards(self, self.x + Math.cos(out) * 50, self.y + Math.sin(out) * 50, dt);
+      if (this.work > 2 && ctx.rng.chance(dt * 0.05)) self.say(ctx.rng.pick(PARTISANS.lines.cover), ctx.law.now, 2);
+      if (g.roles.get(self) === 'lookout') {
+        for (const o of ctx.entities.near(self.x, self.y, PARTISANS.group.watch, coverNear)) {
+          if (!o.fit || !FACTIONS[o.faction].authority || o.disguised) continue;
+          if (canSeeCircle(ctx.map, self.x, self.y, o.x, o.y, o.radius)) {
+            ctx.insurgency.groupAlarm(g, self);
+            this.goHome(self, ctx);
+            return;
+          }
+        }
+      }
+    } else if (st === 'failed') this.goHome(self, ctx);
   }
 
   /** Куда идёт (для отладки). */

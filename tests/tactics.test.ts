@@ -309,7 +309,7 @@ describe('тактика ИИ', () => {
     const sim = makeSim(12345);
     const p = plaza(sim);
     let found = 0;
-    for (let k = 0; k < 20; k++) {
+    for (let k = 0; k < 40; k++) {
       const a = sim.nav.nearestWalkable(p.x + sim.ctx.rng.range(-400, 400), p.y + sim.ctx.rng.range(-400, 400), 6);
       if (a < 0) continue;
       const self = dummy(sim, 'cp', sim.nav.worldX(a), sim.nav.worldY(a));

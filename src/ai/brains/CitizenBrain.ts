@@ -155,8 +155,7 @@ export class CitizenBrain implements Brain {
       const now = ctx.law.now;
       const shot = self.panicUntil < now ? ctx.combat.heardShot(self, 220, 0.4) : null;
       // Грузчик с ящиком в конвое на КПП от выстрелов не разбегается — там всегда стреляют.
-      const convoy = this.job?.kind === 'haul' && this.job.task.type === 'convoy';
-      if (shot && self.faction !== 'rebel' && !convoy) {
+      if (shot && self.faction !== 'rebel') {
         // Стрельба рядом — бежать прочь.
         self.panicUntil = now + ctx.rng.range(4, 6);
         this.panicFrom = { x: shot.x, y: shot.y };
@@ -968,7 +967,7 @@ const WORK: State<CitizenBrain> = {
             if (!A.pickUp(b.self, t)) return done();
             job.carry = true;
             b.mover.speed = b.walkSpeed * ARSENAL.work.carrySpeedMul;
-            if (b.ctx.rng.chance(0.25)) b.self.say(b.ctx.rng.pick(t.type === 'convoy' ? ARSENAL.lines.convoy : ARSENAL.lines.loader), now, 2);
+            if (b.ctx.rng.chance(0.25)) b.self.say(b.ctx.rng.pick(ARSENAL.lines.loader), now, 2);
             const next = haulTarget(b, job);
             if (next) b.goToPoint(next);
             return;
@@ -1646,8 +1645,7 @@ function haulTarget(b: CitizenBrain, job: Extract<Job, { kind: 'haul' }>): Vec2 
 function haulLook(t: HaulTask, carry: boolean): Vec2 {
   if (t.type === 'beacon') return { x: 0, y: 0 };
   if (t.type === 'store') return carry ? t.to : t.crate;
-  if (t.type === 'restock') return carry ? t.to : t.from;
-  return carry ? t.convoy.point : t.from ?? t.crate ?? t.convoy.point;
+  return carry ? t.to : t.from;
 }
 
 /** Куда идти оружейнику: к ящику на ремонт, к верстаку, к стойке; к проверяемому ящику. */

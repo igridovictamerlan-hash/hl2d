@@ -102,63 +102,60 @@ export const CWU_HQ_TEMPLATE: readonly string[] = [
 ];
 
 /**
- * Склад Альянса (каноническая ориентация — вход внизу), размером с Нексус: здание 36×28 и перед ним
- * большое квадратное крыльцо за стеной Альянса. Вход один: проём в ограде крыльца и дверь D в здание.
- *  s — зал хранения: S стойки для стволов вдоль стен, A стеллажи с ящиками патронов (рядами, между
- *      ними проходы); j — гранатный отсек за запертой дверью L, G — стеллажи с ящиками гранат;
- *  N — мастерская оружейника: O верстак, U ящики со стволами в консервации (на расконсервацию);
+ * Склад Альянса (каноническая ориентация — вход внизу): здание 32×27 и перед ним большое квадратное
+ * крыльцо 14×14 за стеной Альянса (всё вместе 32×42 — чуть меньше Нексуса с двором). Вход один: проём в
+ * ограде крыльца и дверь D в здание. Проходы везде не уже 2 тайлов — всё достижимо пешкой 2×2.
+ *  s — зал хранения: S стойки для стволов вдоль стен, A стеллажи с ящиками патронов (три блока, между
+ *      ними проходы); j — гранатный отсек за запертой дверью L (3 тайла), G — полки с ящиками гранат;
+ *  N — мастерская оружейника: O верстак, U ящики со стволами в консервации;
  *  , — коридоры; 1 — бытовка грузчиков, 2 — стол; f — выдача: W окно в коридор, K стол кладовщика,
- *      5 — расходный стеллаж выдачи; e — контора, I — стол описи; z — караулка, V — койки;
- *  3 — посты охраны у двери; Y — крыльцо (посадочная площадка): X места сброса, Q маяк, 4 мачты
- *      прожекторов, E посты у проёма; # — застройка по бокам от крыльца.
+ *      5 — расходный стеллаж выдачи; e — контора, I — стол описи; z — караулка (экипаж конвоя), V — койки;
+ *  Y — крыльцо (посадочная площадка): X места сброса, Q маяк, 4 мачты прожекторов, E посты охраны
+ *      (по бокам двери и проёма — не в проходе); # — застройка по бокам от крыльца.
  */
 export const ARSENAL_TEMPLATE: readonly string[] = [
-  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'MSSSSSSSSSSSSSSSSSSSSSSMjjGGGGGGGGGM',
-  'MssssssssssssssssssssssLjjjjjjjjjjjM',
-  'MssssssssssssssssssssssLjjjjjjjjjjjM',
-  'MssAAAAAssAAAAAAssAAAssLjjjjjjjjjjjM',
-  'MssAAAAAssAAAAAAssAAAssMjjGGGGGGGjjM',
-  'MssssssssssssssssssssssMMMMMMMMMMMMM',
-  'MssssssssssssssssssssssMNNOOOUUUNNNM',
-  'MssAAAAAssAAAAAAssAAAssMNNNNNNNNNNNM',
-  'MssAAAAAssAAAAAAssAAAssMNNNNNNNNNNNM',
-  'MssssssssssssssssssssssMNNNNNNNNNNNM',
-  'MSssssssssssssssssssssSMNNNNNNNNNNNM',
-  'MMMMMMMMMMMMMMMMddddMMMMMMMMMMMMddMM',
-  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
-  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
-  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
-  'MMMMMMddMMMMMMMM,,,,MMMMMMMMMMMddMMM',
-  'M11111111111111M,,,,WKffff5555fffffM',
-  'M11111111111111M,,,,WKfffffffffffffM',
-  'M11112222221111M,,,,MffffffffffffffM',
-  'M11111111111111M,,,,MffffffffffffffM',
-  'M11111111111111M,,,,MffffffffffffffM',
-  'MMMMMMMMMMMMMMMM,,,,MMMMMMMMMMMMMMMM',
-  'MzzVzzVzzVzzVzzM,,,,MeeeeeeeeeeIIeeM',
-  'Mzzzzzzzzzzzzzzd,,,,deeeeeeeeeeeeeeM',
-  'Mzzzzzzzzzzzzzzd,,,,deeeeeeeeeeeeeeM',
-  'MzzzzzzzzzzzzzzM3,,3MeeeeeeeeeeeeeeM',
-  'MMMMMMMMMMMMMMMMDDDDMMMMMMMMMMMMMMMM',
-  '#########M4YYYYYYYYYYYYYY4M#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYXYYXYYYYXYYXYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYYYYYQYYYYYYYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYXYYXYYYYXYYXYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYYYYYYYYYYYYYYM#########',
-  '#########MYYYEYYYYYYYYEYYYM#########',
-  '#########M4YYYYYYYYYYYYYY4M#########',
-  '#########MMMMMMYYYYYYMMMMMM#########',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'MSSSSSSSSSSSSSSSSSSSSMjjGGGGGGGM',
+  'MssssssssssssssssssssLjjjjjjjjjM',
+  'MssssssssssssssssssssLjjjjjjjjjM',
+  'MssAAAAssAAAAssAAAAssLjjjjjjjjjM',
+  'MssAAAAssAAAAssAAAAssMjjGGGGGjjM',
+  'MssssssssssssssssssssMMMMMMMMMMM',
+  'MssssssssssssssssssssMNNOOOUUNNM',
+  'MssAAAAssAAAAssAAAAssMNNNNNNNNNM',
+  'MssAAAAssAAAAssAAAAssMNNNNNNNNNM',
+  'MssssssssssssssssssssMNNNNNNNNNM',
+  'MSssssssssssssssssssSMNNNNNNNNNM',
+  'MMMMMMMMMddddMMMMMMMMMMMMddMMMMM',
+  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
+  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
+  'M,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,M',
+  'MddMMMMMMMMMMM,,,,MMMMMMMddMMMMM',
+  'M111222222111M,,,,WKfffffff5555M',
+  'M111111111111M,,,,WKfffffffffffM',
+  'M111111111111M,,,,MffffffffffffM',
+  'M111111111111M,,,,MffffffffffffM',
+  'MMMMMMMMMMMMMM,,,,MMMMMMMMMMMMMM',
+  'MzzVzzVzzVzzzM,,,,MeeeeeeeIIeeeM',
+  'Mzzzzzzzzzzzzd,,,,deeeeeeeeeeeeM',
+  'Mzzzzzzzzzzzzd,,,,deeeeeeeeeeeeM',
+  'MzzzzzzzzzzzzM,,,,MeeeeeeeeeeeeM',
+  'MMMMMMMMMMMMMMDDDDMMMMMMMMMMMMMM',
+  '########M4YYEYYYYYYEYY4M########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########MYYXYYXYYXYYXYYM########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########MYYYYYYYQYYYYYYM########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########MYYXYYXYYXYYXYYM########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########MYYYYYYYYYYYYYYM########',
+  '########M4YEYYYYYYYYEY4M########',
+  '########MMMMMYYYYYYMMMMM########',
 ];
 
 /**

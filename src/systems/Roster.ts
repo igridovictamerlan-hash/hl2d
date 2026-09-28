@@ -24,7 +24,9 @@ export type RoleKind =
   | 'army' | 'leader' | 'hydra' | 'partisan' | 'agent'
   | 'trader' | 'admin'
   /** Склад Альянса: кладовщик SU.QM у стола выдачи и охрана SU.GUARD на постах. */
-  | 'qm' | 'depot';
+  | 'qm' | 'depot'
+  /** Экипаж конвоя склада (ГО): носит ящики на пункты боепитания КПП и Нексуса. */
+  | 'convoy';
 
 /**
  * Роль персонажа в постоянном составе (как игрок на сервере): кто он, с каким набором, и — у
@@ -85,6 +87,7 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'bodyguard':
     case 'qm':
     case 'depot':
+    case 'convoy':
     case 'epu': {
       // ГО — из казармы Нексуса (нары), нет казармы — у ворот.
       const n = ctx.map.poisOf('bunk').length;
@@ -144,8 +147,13 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
       c.brain = new CpBrain(c, ctx);
       break;
     case 'post':
-    case 'depot':
       c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'post' });
+      break;
+    case 'depot':
+      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'sentry' });
+      break;
+    case 'convoy':
+      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'convoy' });
       break;
     case 'qm':
       c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'qm' });

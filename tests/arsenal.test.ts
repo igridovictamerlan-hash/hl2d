@@ -8,6 +8,7 @@ import { ARSENAL } from '../src/config/arsenal';
 import { CP_UNIT, cpUnit, type CpUnitId } from '../src/config/factions';
 import { SOLID, T } from '../src/world/tiles';
 import type { Character } from '../src/entities/Character';
+import { CpBrain } from '../src/ai/brains/CpBrain';
 
 type Sim = ReturnType<typeof makeSim>;
 
@@ -44,16 +45,16 @@ function worker(sim: Sim, profession: 'loader' | 'armorer', at = sim.arsenal.wai
 const onPad = (sim: Sim) => sim.arsenal.crates.filter((c) => sim.arsenal.onPad(c.x, c.y)).length;
 
 describe('склад Альянса 2.0', () => {
-  test('генератор: здание с Нексус, квадратное крыльцо, вход один — с крыльца на улицу', () => {
+  test('генератор: склад с крыльцом 32×42, квадратное крыльцо, вход один — с крыльца на улицу', () => {
     for (const seed of [12345, 7919, 2024]) {
       const map = generateCity(seed);
       expect(validateMap(map), `сид ${seed}`).toEqual([]);
       const a = map.poisOf('arsenal')[0];
       expect(a, `сид ${seed}`).toBeTruthy();
-      expect(a.w! * a.h!).toBe(36 * 46);
+      expect(a.w! * a.h!).toBe(32 * 42);
       const pad = map.poisOf('arsenal_pad')[0];
       expect(Math.abs(pad.w! - pad.h!)).toBeLessThanOrEqual(2);
-      expect(pad.w! * pad.h!).toBeGreaterThanOrEqual(16 * 16);
+      expect(pad.w! * pad.h!).toBeGreaterThanOrEqual(14 * 14);
       expect(map.poisOf('arsenal_drop')).toHaveLength(8);
       expect(map.poisOf('arsenal_post')).toHaveLength(4);
       expect(map.poisOf('arsenal_window')).toHaveLength(2);
@@ -155,13 +156,16 @@ describe('склад Альянса 2.0', () => {
     expect(guard.inventory.count('ammo_556')).toBe(g0);
   });
 
-  test('пункт боепитания КПП: часовой пополняется у пункта; пункт пустеет — конвой грузчика с охраной', { timeout: 180_000 }, () => {
+  test('пункты боепитания: в проходных КПП и в Нексусе; часовой пополняется у своего', () => {
     const sim = makeSim(12345);
-    sim.war.command.paused = true;
     const A = sim.arsenal;
-    expect(A.points.length).toBe(sim.war.fronts.length);
+    expect(A.points.filter((p) => p.front >= 0).length).toBe(sim.war.fronts.length);
+    const nx = A.nexusPoint!;
+    expect(nx).toBeTruthy();
+    expect(sim.map.zoneAtWorld(nx.x, nx.y)?.kind).toBe('nexus');
     const p = A.points[0];
     const f = sim.war.fronts[p.front];
+    expect(sim.map.zoneAtWorld(p.x, p.y)?.id).toBe(f.gatehouse);
     const guard = spawnRole(sim.ctx, cp('guard', 'su3', { front: f.index, post: f.posts[0], facing: 0 }), f.posts[0])!;
     guard.inventory.remove('ammo_556', guard.inventory.count('ammo_556'));
     expect(A.needsPoint(guard, p.front)).toBe(true);
@@ -169,18 +173,81 @@ describe('склад Альянса 2.0', () => {
     expect(A.drawAtPoint(guard, p.front)).toBeNull();
     expect(guard.inventory.count('ammo_556')).toBeGreaterThan(0);
     expect(p.kits).toBe(k0 - 1);
-    // Конвой: пункт почти пуст.
-    p.kits = 2;
-    for (const post of A.posts) spawnRole(sim.ctx, cp('depot', 'guard', { post, facing: post.facing }), post);
-    worker(sim, 'loader');
+  });
+
+  test('конвой ГО: экипаж берёт ящики со стеллажей, строится на крыльце, колонной несёт на пункт и возвращается', { timeout: 180_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    const A = sim.arsenal;
+    const crew = [0, 1, 2, 3].map((k) => {
+      const post = A.crewSpots[k % A.crewSpots.length];
+      return spawnRole(sim.ctx, cp('convoy', 'su3', { post, facing: 0 }), post)!;
+    });
+    // Пункт Нексуса почти пуст — конвой туда первым.
+    const nx = A.nexusPoint!;
+    nx.kits = 2;
+    const hall0 = A.fill('hall').used;
     run(sim, ARSENAL.convoy.dispatchEvery + 1);
     expect(A.stats.convoys).toBe(1);
-    // Охранник склада идёт с грузчиком конвоя.
-    expect(until(sim, 20, () => !!A.convoys[0]?.escort)).toBe(true);
-    expect(A.convoys[0].escort!.role?.kind).toBe('depot');
-    expect(until(sim, 200, () => p.kits > 2)).toBe(true);
+    const v = A.convoys[0];
+    expect(v.point).toBe(nx);
+    expect(v.crew.length).toBeGreaterThanOrEqual(2);
+    expect(crew.every((c) => (c.brain as CpBrain).fsm.current === 'convoy')).toBe(true);
+    // Носильщики взяли ящики из зала — и все на крыльце, потом марш.
+    expect(until(sim, 60, () => v.phase === 'march')).toBe(true);
+    expect(A.fill('hall').used).toBeLessThan(hall0);
+    expect(v.crew.filter((c) => c.carrying).length).toBeGreaterThan(0);
+    expect(v.crew.every((c) => !A.formSpot || Math.hypot(c.x - A.formSpot.x, c.y - A.formSpot.y) < ARSENAL.convoy.formRadius * 2)).toBe(true);
+    expect(until(sim, 240, () => A.stats.convoysDone > 0)).toBe(true);
+    expect(nx.kits).toBeGreaterThan(2);
     expect(A.stats.convoyCrates).toBeGreaterThan(0);
-    expect(sim.log.some((l) => l.includes('конвой'))).toBe(true);
+    expect(crew.every((c) => !c.carrying)).toBe(true);
+    expect(sim.log.some((l) => l.includes('конвой дошёл'))).toBe(true);
+    // Экипаж — назад в караулку.
+    expect(until(sim, 90, () => crew.every((c) => (c.brain as CpBrain).fsm.current === 'guard'))).toBe(true);
+  });
+
+  test('ГО города: мало патронов — к ближайшему из окна склада и пункта Нексуса; OTA резерва — к пункту Нексуса', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    const A = sim.arsenal;
+    const nx = A.nexusPoint!;
+    quartermaster(sim);
+    run(sim, 1);
+    // У самого Нексуса — к пункту Нексуса.
+    const pat = spawnRole(sim.ctx, cp('patrol', 'pcu1'), { x: nx.x + 30, y: nx.y })!;
+    pat.inventory.remove('ammo_smg', pat.inventory.count('ammo_smg'));
+    expect(A.supplyFor(pat)?.point).toBe(nx);
+    const k0 = nx.kits;
+    expect(until(sim, 60, () => pat.inventory.count('ammo_smg') > 0)).toBe(true);
+    expect(nx.kits).toBe(k0 - 1);
+    // У склада — к окну.
+    const near = spawnRole(sim.ctx, cp('patrol', 'pcu1'), A.window!)!;
+    near.inventory.remove('ammo_smg', near.inventory.count('ammo_smg'));
+    expect(A.supplyFor(near)?.point).toBeNull();
+    // OTA в резерве с пустыми подсумками.
+    const ota = spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_alpha', division: null, rank: 0, kit: 'ota' })!;
+    for (const id of ['ammo_ar2', 'ammo_pistol']) ota.inventory.remove(id as never, ota.inventory.count(id as never));
+    expect(A.needsNexus(ota)).toBe(true);
+    const k1 = nx.kits;
+    expect(until(sim, 90, () => nx.kits < k1)).toBe(true);
+  });
+
+  test('охрана склада не стоит истуканом: ходит вокруг поста, у двери и проёма не встаёт', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    const A = sim.arsenal;
+    const guards = A.posts.map((post) => spawnRole(sim.ctx, cp('depot', 'guard', { post, facing: post.facing }), post)!);
+    let moved = 0;
+    for (let s = 0; s < 60; s++) {
+      run(sim, 1);
+      guards.forEach((g, k) => {
+        const post = A.posts[k];
+        if (Math.hypot(g.x - post.x, g.y - post.y) > 24) moved++;
+        // Стоя — не в проходе.
+        if (g.moveSpeed < 5 && Math.hypot(g.x - post.x, g.y - post.y) > 24) expect(A.nearDoor(g.x, g.y, ARSENAL.sentry.doorClear - 8)).toBe(false);
+      });
+    }
+    expect(moved).toBeGreaterThan(10);
+    expect(guards.every((g) => (g.brain as CpBrain).duty === 'sentry')).toBe(true);
   });
 
   test('смена: патрульная группа вызвана на склад и отмечается у окна', { timeout: 240_000 }, () => {
