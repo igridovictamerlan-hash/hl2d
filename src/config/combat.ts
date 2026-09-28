@@ -51,6 +51,7 @@ export const ARMOR = {
     guard: { head: 0.45, torso: 0.5 },
     insp: { head: 0.4, torso: 0.5 },
     epu: { head: 0.7, torso: 0.65 },
+    qm: { head: 0.35, torso: 0.45 },
   } as Record<string, ArmorProfile>,
   /** Профессии: OTA и армия сопротивления (Патрик в берете — голова открыта). */
   profession: {

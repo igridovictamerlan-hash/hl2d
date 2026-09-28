@@ -19,7 +19,7 @@ import { randomAnchorAround, zoneIds } from '../ai/destinations';
 
 /** Текущая операция подпольщиков в городе. */
 export interface Operation {
-  kind: 'sabotage' | 'arm' | 'jailbreak' | 'mine';
+  kind: 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'depot';
   team: Character[];
   where: string;
 }
@@ -187,7 +187,8 @@ export class InsurgencySystem {
     if (!type) {
       // Доли операций; невозможные (некого освобождать, нечем минировать) — не выбираются.
       const O = PARTISANS.ops;
-      const opts: [Operation['kind'], number][] = [['arm', O.arm], ['sabotage', O.sabotage], ['jailbreak', cell ? O.jailbreak : 0], ['mine', mineSpot ? O.mine : 0]];
+      const depot = ctx.arsenal?.present ? O.depot : 0;
+      const opts: [Operation['kind'], number][] = [['arm', O.arm], ['sabotage', O.sabotage], ['jailbreak', cell ? O.jailbreak : 0], ['mine', mineSpot ? O.mine : 0], ['depot', depot]];
       let r = ctx.rng.next() * opts.reduce((n, [, w]) => n + w, 0);
       type = 'sabotage';
       for (const [k, w] of opts) {
@@ -211,6 +212,16 @@ export class InsurgencySystem {
       this.op = { kind: 'mine', team: [c], where };
       this.ops.push(this.op);
       this.say(`подпольщик идёт ставить растяжку — ${where}.`);
+    } else if (type === 'depot') {
+      // Склад Альянса на окраине: в робе грузчика ГСР — кража, брак в патроны, заряд, маяк.
+      const job = ctx.arsenal?.pickSabotage(c);
+      if (!job) return null;
+      c.cover = { faction: 'cwu', rank: 0, profession: 'loader', name: c.cover?.name ?? null };
+      brain.startDepot(c, ctx, job.act, job.spot);
+      const what = { steal: 'унести ящик', taint: 'подмешать брак в патроны', bomb: 'заложить заряд у зала', beacon: 'испортить маяк площадки' }[job.act];
+      this.op = { kind: 'depot', team: [c], where: 'склад Альянса' };
+      this.ops.push(this.op);
+      this.say(`подпольщик в робе грузчика идёт на склад Альянса — ${what}.`);
     } else if (type === 'sabotage') {
       const nodes = ctx.economy.nodes.filter((n) => !n.broken);
       if (!nodes.length) return null;

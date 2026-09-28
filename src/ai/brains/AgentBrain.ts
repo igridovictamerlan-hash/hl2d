@@ -1,3 +1,4 @@
+import { ARSENAL } from '../../config/arsenal';
 import type { Brain } from '../Brain';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
@@ -18,7 +19,7 @@ import { COMBAT } from '../../config/combat';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
 import { poiWorld } from '../../systems/Population';
 
-export type AgentMission = 'assassinate' | 'jailbreak' | 'riot';
+export type AgentMission = 'assassinate' | 'jailbreak' | 'riot' | 'requisition';
 export type AgentMode = 'base' | 'dress' | 'mission' | 'return';
 
 /**
@@ -46,7 +47,7 @@ export class AgentBrain implements Brain {
   /** Ставит растяжку у выбитой двери (прикрыть побег) — потом домой. */
   private planting = false;
   /** Итоги (для тестов и отладки). */
-  stats = { dressed: 0, assassinations: 0, jailbreaks: 0, riots: 0 };
+  stats = { dressed: 0, assassinations: 0, jailbreaks: 0, riots: 0, requisitions: 0 };
 
   constructor(self: Character, ctx: AiContext) {
     this.gunner = new Gunner(ctx.rng);
@@ -68,7 +69,9 @@ export class AgentBrain implements Brain {
     if (!m && ctx.insurgency.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) m = 'jailbreak';
     if (!m) {
       const r = ctx.rng.next();
-      m = r < W.assassinate ? 'assassinate' : r < W.assassinate + W.jailbreak ? 'jailbreak' : 'riot';
+      m = r < W.assassinate ? 'assassinate' : r < W.assassinate + W.jailbreak ? 'jailbreak' : r < W.assassinate + W.jailbreak + W.riot ? 'riot' : 'requisition';
+      // «По наряду» — только если склад есть и выдача открыта.
+      if (m === 'requisition' && (!ctx.arsenal?.present || ctx.arsenal.closed || !ctx.arsenal.window)) m = 'riot';
     }
     this.mission = m;
     this.target = null;
@@ -80,7 +83,7 @@ export class AgentBrain implements Brain {
       this.cell = ctx.law.cells.find((c) => c.cage && c.slots.some((s) => s.occupant)) ?? ctx.law.cells.find((c) => c.slots.some((s) => s.occupant)) ?? null;
       if (!this.cell) return false;
     }
-    // Покушение и взлом — в личине сотрудника Альянса; бунт — и под видом горожанина.
+    // Покушение, взлом и «наряд» на складе — в личине сотрудника Альянса; бунт — и под видом горожанина.
     if (m !== 'riot' && !coverAuthority(self)) this.beginDress(self, ctx);
     else this.beginMission(self, ctx);
     return true;
@@ -140,6 +143,7 @@ export class AgentBrain implements Brain {
   private missionPoint(ctx: AiContext): Vec2 | null {
     if (this.mission === 'assassinate') return this.target?.alive ? { x: this.target.x, y: this.target.y } : null;
     if (this.mission === 'jailbreak') return this.cell ? { x: this.cell.frontX, y: this.cell.frontY } : null;
+    if (this.mission === 'requisition') return ctx.arsenal.window;
     const plaza = poiWorld(ctx, 'plaza_center');
     const a = plaza ? ctx.nav.nearestWalkable(plaza.x + ctx.rng.range(-60, 60), plaza.y + ctx.rng.range(-60, 60), 6) : randomAnchorInZone(ctx, 'avenue');
     return a >= 0 ? { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) } : null;
@@ -289,7 +293,7 @@ export class AgentBrain implements Brain {
       this.travel.stop(this.mover);
       if (this.mission === 'jailbreak' && this.cell) faceTowards(self, this.cell.x, this.cell.y, dt);
       this.work += dt;
-      const need = this.mission === 'jailbreak' ? A.breakTime : A.dress;
+      const need = this.mission === 'jailbreak' ? A.breakTime : this.mission === 'requisition' ? ARSENAL.issue.every : A.dress;
       if (this.work >= need) {
         if (this.mission === 'jailbreak' && this.cell) {
           if (ctx.insurgency.jailbreak(self, this.cell) > 0) this.stats.jailbreaks++;
@@ -300,6 +304,13 @@ export class AgentBrain implements Brain {
           }
         } else if (this.mission === 'riot') {
           if (ctx.insurgency.startRiot(self, self.x, self.y) > 0) this.stats.riots++;
+        } else if (this.mission === 'requisition') {
+          // В форме Альянса «по наряду»: кладовщик выдаёт гранаты и записывает — это не кража.
+          const n = ctx.arsenal.requisition(self);
+          if (n > 0) {
+            this.stats.requisitions++;
+            ctx.insurgency.radio(`спецагент получил на складе Альянса «по наряду» гранат: ${n}.`);
+          }
         }
         this.goHome(self, ctx);
       }

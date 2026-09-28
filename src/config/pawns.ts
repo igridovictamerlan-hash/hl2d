@@ -100,6 +100,7 @@ export const PAWN = {
     guard: { style: 'recon', head: 'recon', acc: 'bigPads radio pouches', accMaybe: 'lamp', armor: '#4c5560' },
     insp: { style: 'recon', head: 'peaked', acc: 'coat epaulettes scanner', accMaybe: '', armor: '#3b434d', coat: '#1f2328' },
     epu: { style: 'marine', head: 'helmet', acc: 'cape epaulettes bigPads', accMaybe: '', base: '#1b1d21', armor: '#2b2e33', helmet: '#26292e', belt: '#141518', trim: '#d9b24a', visor: '#0d0f12', shine: '#e8c870', eye: '#ffcf4a', eyes: 1, cape: '#6e1414' },
+    qm: { style: 'recon', head: 'recon', acc: 'scanner pouches', accMaybe: 'lamp', armor: '#55604f' },
   } as Record<CpUnitId, Record<string, string | boolean | number>>,
   /** Доля юнитов с необязательным аксессуаром (accMaybe). */
   accChance: 0.5,
@@ -167,6 +168,8 @@ export const PAWN = {
     cook: { head: 'chef', chef: '#f4f2ec', apron: '#f1efe8' },
     courier: { cap: '#8b6a3e', bag: '#7a5a38' },
     janitor: { cap: '#7d848c', hivis: '#e8e04a' },
+    loader: { cap: '#5e6b47', hivis: '#e8943a' },
+    armorer: { head: 'hair', apron: '#5a4632' },
     thief: { base: '#3a3d44', head: 'hood', hood: '#2e3137', zip: false, collar: false },
     outcast: { base: '#6b5d48', patch: '#4d4234', zip: false, collar: false },
     /**

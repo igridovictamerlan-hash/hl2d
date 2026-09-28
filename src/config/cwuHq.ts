@@ -17,7 +17,7 @@ export const CWU_HQ = {
     /** Не больше стольких в очереди. */
     queueMax: 4,
     /** Сколько нужно рабочих по профессиям (берут ту, где больше всего не хватает). */
-    needs: { packer: 3, courier: 3, janitor: 3, cook: 3, cwu_medic: 1 } as Partial<Record<ProfessionId, number>>,
+    needs: { packer: 3, courier: 3, janitor: 3, cook: 3, cwu_medic: 1, loader: 3, armorer: 1 } as Partial<Record<ProfessionId, number>>,
     /** Всего ГСР не больше (иначе «мест нет»). */
     maxWorkers: 20,
     /** Граждан не меньше этой доли от начального числа (город не пустеет). */

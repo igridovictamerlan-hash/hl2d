@@ -65,7 +65,7 @@ describe('городок с домиками', () => {
     expect(Math.min(...spots.map((s) => Math.hypot(o.x - (s.x + 0.5) * ts, o.y - (s.y + 0.5) * ts)))).toBeLessThan(40);
   });
 
-  test('лоялист ходит в канцелярию Нексуса, работает с бумагами и получает плату', { timeout: 240_000 }, () => {
+  test('лоялист ходит в канцелярию Нексуса, работает с бумагами и получает плату', { timeout: 360_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;
@@ -79,7 +79,8 @@ describe('городок с домиками', () => {
     c.law.lastCheck = 1e9;
     c.brain = new CitizenBrain(c, sim.ctx);
     const b = c.brain as CitizenBrain;
-    run(sim, 240, () => b.job?.kind === 'paper');
+    // Бумаги — с шансом при каждом решении (и не во время раздачи): ждём, пока выберет.
+    run(sim, 600, () => b.job?.kind === 'paper');
     expect(b.job?.kind).toBe('paper');
     // Дошёл до стола в Нексусе и получил плату за отчёт.
     const loyalty = c.loyalty;
@@ -133,7 +134,7 @@ describe('Нексус: общая камера, лоялисты, проспе�
     // Одного отпускают: дверь открывается, он выходит — и дверь снова запирается за ним.
     const out = prisoners[0];
     out.law.jailUntil = law.now;
-    run(sim, 1);
+    run(sim, 1, () => out.law.phase === 'releasing');
     expect(out.law.phase).toBe('releasing');
     expect(common.door?.locked).toBe(false);
     run(sim, 20, () => out.law.phase === 'none' && !!common.door?.locked);

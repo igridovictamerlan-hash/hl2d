@@ -33,8 +33,9 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(by('ofc')).toHaveLength(ROSTER.cp.officers);
     expect(by('insp')).toHaveLength(ROSTER.cp.inspectors);
     expect(by('epu')).toHaveLength(ROSTER.cp.epu);
-    // Охранников меньше, чем целей охраны (инспекторы, глава, Администратор, лоялисты).
-    expect(by('guard').length).toBeLessThan(ROSTER.cp.inspectors + ROSTER.cp.epu + 1 + SECURITY.guard.loyalists);
+    // Охранников меньше, чем целей охраны (инспекторы, глава, Администратор, лоялисты); охрана склада
+    // стоит на своих постах и в очередь охраны не входит.
+    expect(by('guard').filter((c) => c.role?.kind === 'bodyguard').length).toBeLessThan(ROSTER.cp.inspectors + ROSTER.cp.epu + 1 + SECURITY.guard.loyalists);
     // Оружие: PCU.03 — пистолет без MP7, сержант — MP7, SU.03 — M4A4, OTA.KING — ещё и РПГ.
     expect(by('pcu3')[0].inventory.has('mp7')).toBe(false);
     expect(by('pcu3')[0].inventory.has('usp')).toBe(true);

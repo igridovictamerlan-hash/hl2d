@@ -19,6 +19,8 @@ export type ProfessionId =
   | 'janitor'
   | 'cwu_medic'
   | 'cwu_head'
+  | 'loader'
+  | 'armorer'
   // Сопротивление.
   | 'rebel_recruit'
   | 'rebel_soldier'
@@ -99,6 +101,16 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
     id: 'cwu_medic', faction: 'cwu', name: 'Медик ГСР', kit: 'cwu_medic', selectable: true,
     desc: 'Лечит граждан за токены, сотрудников ГО — бесплатно.',
     perks: ['G — вылечить того, кто перед вами (гражданин платит)', 'Аптечки в наборе, пополняются у прилавка магазина'],
+  },
+  loader: {
+    id: 'loader', faction: 'cwu', name: 'Грузчик склада ГСР', kit: 'cwu', selectable: true,
+    desc: 'Работает на складе Альянса на окраине: разгружает контейнер с корабля Цитадели и грузит ящики для гарнизонов КПП.',
+    perks: ['E у ящика на площадке — взять, E в зале склада — сдать (оплата за ящик)', 'E в зале — ящик для КПП, E на площадке — поставить на борт', 'E у маяка площадки — починить'],
+  },
+  armorer: {
+    id: 'armorer', faction: 'cwu', name: 'Оружейник ГСР', kit: 'cwu', selectable: true,
+    desc: 'Чинит и чистит стволы Альянса за верстаком склада; находит брак в патронах.',
+    perks: ['E у верстака склада — работать (оплата за ствол)', 'Находит порченые патроны раньше, чем их выдадут'],
   },
   rebel_recruit: {
     id: 'rebel_recruit', faction: 'rebel', name: 'Новобранец', kit: 'rebel_recruit', selectable: true,

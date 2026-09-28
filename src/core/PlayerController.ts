@@ -23,6 +23,9 @@ import { LABOR } from '../config/labor';
 import { CWU_HQ } from '../config/cwuHq';
 import { CRIME } from '../config/crime';
 import { CP_UNITS } from '../config/cpUnits';
+import { ARSENAL } from '../config/arsenal';
+import { isQuartermaster, type DepotAct } from '../systems/Arsenal';
+import { coverAuthority } from '../entities/cover';
 
 const near: Character[] = [];
 
@@ -45,7 +48,7 @@ export class PlayerController {
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
   private packing = false;
-  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'dressOta' | 'break'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell } | null = null;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'dressOta' | 'break' | 'depot' | 'beacon' | 'bench' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct } | null = null;
   /** Откат бунта у игрока-спецагента (G). */
   private riotCooldown = 0;
   private healCooldown = 0;
@@ -443,6 +446,8 @@ export class PlayerController {
         return this.say(`Взламываете раздатчик… ${CRIME.hack.time} с. Если увидит ГО — арест.`, 'world');
       }
     }
+    // Склад Альянса на окраине: выдача ГО, работа грузчиков и оружейника, диверсии подполья.
+    if (ctx.arsenal?.present && ctx.map.zoneAtWorld(p.x, p.y)?.kind === 'arsenal' && this.arsenal(p, ctx)) return;
     // Штаб ГСР: гражданин у стойки найма — устроиться (глава оформляет туда, где не хватает рук).
     const hq = ctx.cwuHq;
     if (hq?.present && p.faction === 'citizen' && (d(hq.counter) < REACH + 12 || d(hq.applicantSpot) < REACH + 12)) {
@@ -518,18 +523,97 @@ export class PlayerController {
       const n = eco.joinQueue(p);
       return this.say(n >= 0 ? `Вы в очереди за рационом: ${n + 1}-й. Подойдите к отметке у окна.` : 'Очередь заполнена — подождите.', 'world');
     }
-    // ГО: пополнить боекомплект у стойки дежурного.
+    // ГО: у стойки дежурного Нексуса — только медицина; патроны и гранаты — на складе Альянса.
     const desk = poiWorld(ctx, 'nexus_desk');
     if (p.faction === 'cp' && d(desk) < REACH * 1.5) {
-      // Выдать недостающее из табельного набора и пополнить патроны; свои вещи не трогаем.
       for (const [id, qty] of KITS[cpKit(p.rank)] ?? []) {
-        if (ITEMS[id].kind === 'weapon' && !p.inventory.has(id)) p.inventory.add(id, 1);
-        else if (ITEMS[id].kind === 'medical' && p.inventory.count(id) < qty) p.inventory.add(id, qty - p.inventory.count(id));
+        if (ITEMS[id].kind === 'medical' && p.inventory.count(id) < qty) p.inventory.add(id, qty - p.inventory.count(id));
       }
-      eco.refillAmmo(p, 3);
-      return this.say('Боекомплект пополнен.', 'world');
+      return this.say(ctx.arsenal?.present ? 'Аптечка пополнена. Патроны и гранаты — на складе Альянса, у окна выдачи.' : 'Аптечка пополнена.', 'world');
     }
     this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Альянса и тел.');
+  }
+
+  /**
+   * E на складе Альянса. ГО — окно выдачи (кладовщик — стол); грузчик — ящики и маяк; оружейник —
+   * верстак; повстанец — кража, брак, заряд, маяк; спецагент в форме — «по наряду». true — обработано.
+   */
+  private arsenal(p: Character, ctx: AiContext): boolean {
+    const A = ctx.arsenal;
+    const d = (q: { x: number; y: number } | null) => (q ? Math.hypot(q.x - p.x, q.y - p.y) : Infinity);
+    const R = ARSENAL.issue.reach + 8;
+    // Спецагент в форме Альянса у окна — гранаты «по наряду».
+    if (p.faction === 'rebel' && p.profession === 'spec_agent' && coverAuthority(p) && d(A.window) < R) {
+      this.task = { kind: 'requisition', x: p.x, y: p.y, left: ARSENAL.issue.every, total: ARSENAL.issue.every };
+      this.say('Кладовщику: «Наряд на гранаты, подпись Надзора»…', 'world');
+      return true;
+    }
+    if (p.faction === 'cp') {
+      if (isQuartermaster(p) && d(A.desk) < ARSENAL.issue.deskReach) {
+        this.say(`Стол кладовщика: выдача идёт, пока вы на месте. Запасы — патроны ${A.stock.ammo}, гранаты ${A.stock.grenades}, стволы ${A.stock.weapons} (ящ.).`, 'world');
+        return true;
+      }
+      if (d(A.window) < R) {
+        const why = A.issue(p);
+        this.say(why ? `Окно выдачи: ${why}` : 'Окно выдачи: боекомплект получен, распишитесь в описи.', 'world');
+        return true;
+      }
+    }
+    if (p.profession === 'loader' && p.faction === 'cwu') {
+      const cargo = A.cargo(p);
+      if (cargo) {
+        if (cargo.dir === 'in' && d(A.hallSpot) < R + 16) {
+          A.putDown(p);
+          this.say(`Ящик сдан в зал: +${ARSENAL.work.payIn} токенов.`, 'world');
+          return true;
+        }
+        if (cargo.dir === 'out' && A.onPad(p.x, p.y)) {
+          A.putDown(p);
+          this.say(`Ящик для КПП на площадке — заберёт борт. +${ARSENAL.work.payOut} токенов.`, 'world');
+          return true;
+        }
+        this.say(cargo.dir === 'in' ? 'Несите ящик в зал склада (дверь с площадки).' : 'Поставьте ящик на площадку — его заберёт борт.');
+        return true;
+      }
+      if (A.beaconBroken && d(A.beacon) < R) {
+        const T = ARSENAL.beacon.repair - A.beaconProgress;
+        this.task = { kind: 'beacon', x: p.x, y: p.y, left: T, total: ARSENAL.beacon.repair };
+        this.say('Чините маяк площадки…', 'world');
+        return true;
+      }
+      const crate = A.crateNear(p.x, p.y, REACH, (c) => c.dir === 'in');
+      if (crate) {
+        crate.carrier = p;
+        A.pickUp(p, { type: 'in', crate });
+        this.say('Взяли ящик — несите в зал склада.', 'world');
+        return true;
+      }
+      if (d(A.hallSpot) < R + 16) {
+        const kind = A.loadOut(p);
+        this.say(kind ? 'Взяли ящик для гарнизонов КПП — поставьте на площадку.' : 'Грузить для КПП нечего: погрузка на этот рейс закончена (или запасы на исходе).', 'world');
+        return true;
+      }
+    }
+    if (p.profession === 'armorer' && p.faction === 'cwu' && d(A.benchSpot) < R) {
+      const T = ARSENAL.armorer.every;
+      this.task = { kind: 'bench', x: p.x, y: p.y, left: T, total: T };
+      this.say('За верстаком: чистите и чините стволы…', 'world');
+      return true;
+    }
+    if (p.faction === 'rebel') {
+      let act: DepotAct | null = null;
+      if (!A.beaconBroken && d(A.beacon) < R) act = 'beacon';
+      else if (d(A.bombSpot) < R && p.inventory.has('grenade') && !A.bomb) act = 'bomb';
+      else if (A.crateNear(p.x, p.y, REACH, (c) => c.dir === 'in' && c.kind === 'ammo' && !c.tainted)) act = 'taint';
+      else if (A.crateNear(p.x, p.y, REACH, (c) => c.dir === 'in') || d(A.hallSpot) < R + 16) act = 'steal';
+      if (act) {
+        const T = A.sabotageTime(act);
+        this.task = { kind: 'depot', x: p.x, y: p.y, left: T, total: T, act };
+        this.say({ steal: 'Уносите ящик…', taint: 'Подмешиваете брак в патроны…', bomb: `Закладываете заряд у двери зала (взрыв через ${ARSENAL.bomb.fuse} с)…`, beacon: 'Портите маяк площадки…' }[act], 'world');
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Действие с таймером: отошли — прервано; время вышло — результат. */
@@ -587,6 +671,22 @@ export class PlayerController {
     if (t.kind === 'break' && t.cell) {
       const n = ctx.insurgency.jailbreak(p, t.cell);
       return this.say(n > 0 ? `Камера вскрыта: сбежали ${n}. Уходите!` : 'В камере уже никого.', 'world');
+    }
+    if (t.kind === 'depot' && t.act) {
+      const ok = ctx.arsenal.doSabotage(p, t.act);
+      return this.say(ok ? { steal: 'Ящик ваш — уходите, пока не хватились.', taint: 'Брак в ящике — у ГО будут осечки.', bomb: 'Заряд заложен — уходите!', beacon: 'Маяк не работает — борт не сядет.' }[t.act] : 'Не вышло — уже нечего.', 'world');
+    }
+    if (t.kind === 'beacon') {
+      ctx.arsenal.repairBeacon(p, ARSENAL.beacon.repair);
+      return this.say('Маяк площадки работает.', 'world');
+    }
+    if (t.kind === 'bench') {
+      ctx.arsenal.benchWork(p, ARSENAL.armorer.every);
+      return this.say(`Ствол вычищен и починен: +${ARSENAL.armorer.pay} токенов.`, 'world');
+    }
+    if (t.kind === 'requisition') {
+      const n = ctx.arsenal.requisition(p);
+      return this.say(n > 0 ? `Кладовщик выдал гранат: ${n}. Записал — не кража.` : 'Кладовщик: «Гранат нет» (или выдача закрыта).', 'world');
     }
     if (t.kind === 'hack') {
       const n = ctx.crime.hackDispenser(p);

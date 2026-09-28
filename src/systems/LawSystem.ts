@@ -14,7 +14,7 @@ import { loyalistPerk } from './Loyalty';
 import { FACTIONS, cpHas } from '../config/factions';
 import { LINES, fill } from '../config/lines';
 import { T } from '../world/tiles';
-import { coverAuthority } from '../entities/cover';
+import { apparentFaction, coverAuthority } from '../entities/cover';
 import { PrisonerBrain } from '../ai/brains/PrisonerBrain';
 import { CHARACTER } from '../config/entities';
 import { PARTISANS } from '../config/underground';
@@ -198,7 +198,10 @@ export class LawSystem {
     if ((target.law.crimeUntil ?? -1) > this.time) return 'theft';
     if ((target.law.riotUntil ?? -1) > this.time) return 'riot';
     if (target.weapon) return 'weapon';
-    if (this.map.zoneAtWorld(target.x, target.y)?.kind === 'restricted') return 'restricted';
+    const zk = this.map.zoneAtWorld(target.x, target.y)?.kind;
+    if (zk === 'restricted') return 'restricted';
+    // На склад Альянса посторонним нельзя (рабочие ГСР — по работе).
+    if (zk === 'arsenal' && apparentFaction(target) === 'citizen') return 'restricted';
     if (this.curfewCheck(target)) return 'curfew';
     // Лоялистам бегать разрешено.
     if (target.moveSpeed > LAW.runSpeed && !this.panicking(target) && !loyalistPerk(target, 'run')) return 'running';

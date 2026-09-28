@@ -149,8 +149,10 @@ describe('присед и низкое укрытие', () => {
     expect(sim.combat.spreadOf(c)).toBeCloseTo(stand * CROUCH.spreadMul, 5);
     expect(c.speedMul).toBeCloseTo(CROUCH.speedMul, 5);
     // NPC-патрульный видит вооружённого повстанца: стоит и стреляет — присел.
-    const cp = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.su3, kit: 'cp_su' }, { x: p.x - 180, y: p.y })!;
-    cp.facing = 0;
+    // С той стороны, откуда повстанца видно (зависит от карты).
+    const from = [[-180, 0], [180, 0], [0, -180], [0, 180]].map(([dx, dy]) => ({ x: p.x + dx, y: p.y + dy })).find((q) => lineOfSight(sim.map, q.x, q.y, p.x, p.y) && !sim.map.isSolid(Math.floor(q.x / 16), Math.floor(q.y / 16)))!;
+    const cp = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.su3, kit: 'cp_su' }, from)!;
+    cp.facing = Math.atan2(p.y - from.y, p.x - from.x);
     let crouched = false;
     run(sim, 6, () => (crouched ||= cp.crouch && cp.moveSpeed < 5) && false);
     expect(crouched).toBe(true);

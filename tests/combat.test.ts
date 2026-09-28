@@ -188,7 +188,9 @@ describe('пули и отдача', () => {
     const c = createCharacter(sim.entities, sim.ctx.rng, 'rebel', p.x, p.y);
     equipKit(c, 'rebel_leader', sim.ctx);
     sim.combat.equip(c, 'rpg');
-    const v = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x + 200, p.y);
+    // Цель в 200 px по чистой линии огня (с какой стороны площади — зависит от карты).
+    const to = [[200, 0], [-200, 0], [0, 200], [0, -200]].map(([dx, dy]) => ({ x: p.x + dx, y: p.y + dy })).find((q) => lineOfSight(sim.map, p.x, p.y, q.x, q.y))!;
+    const v = createCharacter(sim.entities, sim.ctx.rng, 'cp', to.x, to.y);
     sim.entities.rebuildHash();
     sim.combat.update(WEAPONS.rpg.draw + 0.01);
     c.aim = 1;

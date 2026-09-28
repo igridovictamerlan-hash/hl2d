@@ -1,5 +1,6 @@
 import type { SecuritySystem } from '../systems/Security';
 import type { CwuHqSystem } from '../systems/CwuHq';
+import type { ArsenalSystem } from '../systems/Arsenal';
 import type { FamilySystem } from '../systems/Families';
 import type { GameMap } from '../world/GameMap';
 import type { NavGrid } from '../world/NavGrid';
@@ -63,4 +64,6 @@ export interface AiContext {
   security: SecuritySystem;
   /** Штаб ГСР: приёмная и наём, перерывы, инспекция главы. */
   cwuHq: CwuHqSystem;
+  /** Склад Альянса: запасы, поставки кораблём, выдача ГО, работа ГСР, диверсии. */
+  arsenal: ArsenalSystem;
 }

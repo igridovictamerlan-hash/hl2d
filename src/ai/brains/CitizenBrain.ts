@@ -1,3 +1,5 @@
+import { ARSENAL } from '../../config/arsenal';
+import type { HaulTask } from '../../systems/Arsenal';
 import type { Brain } from '../Brain';
 import { BARKS } from '../../config/barks';
 import { streetBark } from '../streetBark';
@@ -46,7 +48,9 @@ type Job =
   | { kind: 'rob'; victim: Character; left: number; until: number; repath: number; threatened: boolean }
   | { kind: 'loot'; corpse: Corpse; left: number; until: number }
   | { kind: 'shank'; victim: Character; until: number; repath: number }
-  | { kind: 'paper'; desk: Vec2; until: number; nextPay: number };
+  | { kind: 'paper'; desk: Vec2; until: number; nextPay: number }
+  | { kind: 'haul'; task: HaulTask; carry: boolean; until: number }
+  | { kind: 'armory'; until: number };
 
 /** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
 export interface StreetProfile {
@@ -122,7 +126,7 @@ export class CitizenBrain implements Brain {
     const [smin, smax] = CHARACTER.npcWalkSpeed;
     this.walkSpeed = ctx.rng.range(smin, smax);
     this.mover = new Mover(this.walkSpeed);
-    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
+    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal']);
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
@@ -395,7 +399,9 @@ export class CitizenBrain implements Brain {
       if (self.faction === 'citizen' && self.profession === 'citizen' && self.loyalty < PW.minLoyalty && !self.isPlayer && self.law.phase === 'none' && ctx.rng.chance(H.hire.chance) && hq.vacancy() && hq.apply(self)) {
         return { kind: 'apply', until: ctx.law.now + H.hire.waitMax };
       }
-      if (self.faction === 'cwu' && self.profession !== 'cwu_head' && !self.carrying && hq.restSpots.length && ctx.rng.chance(H.rest.chance)) {
+      // Склад на окраине — его рабочие отдыхают там же, в штаб не ходят.
+      const depot = self.profession === 'loader' || self.profession === 'armorer';
+      if (self.faction === 'cwu' && self.profession !== 'cwu_head' && !depot && !self.carrying && hq.restSpots.length && ctx.rng.chance(H.rest.chance)) {
         return { kind: 'rest', spot: ctx.rng.pick(hq.restSpots), until: ctx.law.now + ctx.rng.range(H.rest.time[0], H.rest.time[1]), lines: H.lines.rest };
       }
     }
@@ -422,6 +428,19 @@ export class CitizenBrain implements Brain {
         if (!labor.factory || labor.boxes >= LABOR.factory.maxBoxes) return null;
         const st = labor.claimStation(self);
         return st ? { kind: 'pack', until: ctx.law.now + ctx.rng.range(40, 90), station: st, belt: st.belt } : null;
+      }
+      case 'loader': {
+        // Склад Альянса: ящики с площадки в зал, из зала на площадку для КПП, маяк; нечего — ждать борт.
+        const A = ctx.arsenal;
+        if (!A?.present) return null;
+        const task = A.loaderTask(self);
+        if (task) return { kind: 'haul', task, carry: false, until: ctx.law.now + ARSENAL.work.giveUp };
+        const w = A.waitSpot;
+        return w ? { kind: 'rest', spot: { x: w.x + ctx.rng.range(-20, 20), y: w.y + ctx.rng.range(4, 24) }, until: ctx.law.now + ctx.rng.range(8, 16), lines: ARSENAL.lines.loader } : null;
+      }
+      case 'armorer': {
+        const A = ctx.arsenal;
+        return A?.present && A.benchSpot ? { kind: 'armory', until: ctx.law.now + ctx.rng.range(ARSENAL.armorer.shift[0], ARSENAL.armorer.shift[1]) } : null;
       }
       case 'courier':
         if (self.carrying) return { kind: 'deliver', carry: true };
@@ -756,6 +775,11 @@ const WORK: State<CitizenBrain> = {
       // В Нексус жителю обычно не нужно (избегает), в канцелярию — можно.
       b.mover.avoidZones = undefined;
       b.goToPoint(job.desk);
+    } else if (job.kind === 'haul' || job.kind === 'armory') {
+      // На склад Альянса жителю нельзя — рабочему склада можно.
+      b.mover.avoidZones = undefined;
+      const to = haulTarget(b, job);
+      if (to) b.goToPoint(to);
     } else if (eco.shopCounter) b.goToPoint(eco.shopCounter);
   },
   update(b, dt) {
@@ -772,6 +796,7 @@ const WORK: State<CitizenBrain> = {
       }
       if (job?.kind === 'apply') b.ctx.cwuHq.leave(b.self);
       if (job?.kind === 'paper') labor.releaseDesk(b.self);
+      if (job?.kind === 'haul') b.ctx.arsenal.abandon(b.self, job.carry ? null : job.task);
       b.mover.avoidZones = b.avoid;
       b.mover.speed = b.walkSpeed;
       b.job = null;
@@ -904,6 +929,56 @@ const WORK: State<CitizenBrain> = {
             return done();
           }
         } else if (st === 'idle' || st === 'arrived') b.goToPoint(to);
+        return;
+      }
+      case 'haul': {
+        const A = b.ctx.arsenal;
+        const now = b.ctx.law.now;
+        const t = job.task;
+        if (now > job.until || b.ctx.war.code === 'red') return done();
+        if (t.type === 'in' && !job.carry && t.crate.carrier !== b.self) return done();
+        if (t.type === 'beacon' && !A.beaconBroken) return done();
+        const to = haulTarget(b, job);
+        if (!to) return done();
+        if (Math.hypot(to.x - b.self.x, to.y - b.self.y) < ARSENAL.work.reach) {
+          b.mover.stop();
+          faceTowards(b.self, to.x, to.y, dt);
+          if (t.type === 'beacon') {
+            if (A.repairBeacon(b.self, dt)) return done();
+            return;
+          }
+          if (!job.carry) {
+            if (!A.pickUp(b.self, t)) return done();
+            job.carry = true;
+            b.mover.speed = b.walkSpeed * ARSENAL.work.carrySpeedMul;
+            if (b.ctx.rng.chance(0.3)) b.self.say(b.ctx.rng.pick(ARSENAL.lines.loader), now, 2);
+            const next = haulTarget(b, job);
+            if (next) b.goToPoint(next);
+            return;
+          }
+          A.putDown(b.self);
+          // Сдал — сразу следующий ящик, если есть (без паузы на безделье).
+          const more = A.loaderTask(b.self);
+          if (!more) return done();
+          b.job = { kind: 'haul', task: more, carry: false, until: now + ARSENAL.work.giveUp };
+          b.mover.speed = b.walkSpeed;
+          const next = haulTarget(b, b.job);
+          if (next) b.goToPoint(next);
+          return;
+        }
+        if (st === 'idle' || st === 'arrived') b.goToPoint(to);
+        return;
+      }
+      case 'armory': {
+        const A = b.ctx.arsenal;
+        const now = b.ctx.law.now;
+        const p = A.benchSpot;
+        if (!p || now > job.until || b.ctx.war.code === 'red') return done();
+        if (Math.hypot(p.x - b.self.x, p.y - b.self.y) < 16) {
+          b.mover.stop();
+          if (A.bench) faceTowards(b.self, A.bench.x, A.bench.y, dt);
+          if (A.benchWork(b.self, dt) && b.ctx.rng.chance(0.6)) b.self.say(b.ctx.rng.pick(ARSENAL.lines.armorer), now, 2.5);
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(p);
         return;
       }
       case 'clean': {
@@ -1507,3 +1582,13 @@ const LISTEN: State<CitizenBrain> = {
     }
   },
 };
+
+/** Куда идти грузчику: за ящиком (площадка или зал), с ящиком (зал или место на площадке), к маяку. */
+function haulTarget(b: CitizenBrain, job: Extract<Job, { kind: 'haul' | 'armory' }>): Vec2 | null {
+  const A = b.ctx.arsenal;
+  if (job.kind === 'armory') return A.benchSpot;
+  const t = job.task;
+  if (t.type === 'beacon') return A.beacon;
+  if (!job.carry) return t.type === 'in' ? { x: t.crate.x, y: t.crate.y } : A.hallSpot;
+  return t.type === 'in' ? A.hallSpot : A.loadSpot();
+}

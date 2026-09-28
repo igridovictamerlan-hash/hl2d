@@ -49,6 +49,41 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   a: T.INTERIOR,
   J: T.INTERIOR,
   Z: T.INTERIOR,
+  // Склад Альянса.
+  S: T.INTERIOR,
+  s: T.INTERIOR,
+  A: T.INTERIOR,
+  G: T.INTERIOR,
+  j: T.INTERIOR,
+  L: T.DOOR,
+  W: T.WALL,
+  f: T.INTERIOR,
+  K: T.INTERIOR,
+  I: T.INTERIOR,
+  z: T.INTERIOR,
+  V: T.INTERIOR,
+  O: T.INTERIOR,
+  N: T.INTERIOR,
+  Y: T.BUNKER,
+  X: T.BUNKER,
+  Q: T.BUNKER,
+  E: T.BUNKER,
+};
+
+/** Точки интереса склада по символам шаблона (ARSENAL_TEMPLATE). */
+const ARSENAL_POIS: Record<string, Poi['type']> = {
+  S: 'arsenal_rack',
+  A: 'arsenal_ammo',
+  G: 'arsenal_grenades',
+  L: 'arsenal_vault',
+  W: 'arsenal_window',
+  K: 'arsenal_desk',
+  I: 'arsenal_ledger',
+  V: 'arsenal_cot',
+  O: 'arsenal_bench',
+  X: 'arsenal_drop',
+  Q: 'arsenal_beacon',
+  E: 'arsenal_post',
 };
 
 export interface StampResult {
@@ -59,7 +94,10 @@ export interface StampResult {
   /** Жилые комнаты (r) и общие комнаты / гостиные (m). */
   rooms: Rect[];
   commons: Rect[];
-  /** Помещения штаба ГСР по символам: l — отдых, n — столовая, e — кабинет, a — приёмная, p — цех. */
+  /**
+   * Помещения по символам: штаб ГСР — l отдых, n столовая, e кабинет, a приёмная, p цех; склад —
+   * s зал, f кабинет кладовщика, z караулка, N мастерская, Y площадка, j гранатный отсек.
+   */
   areas: Record<string, Rect[]>;
 }
 
@@ -97,6 +135,8 @@ export function stampTemplate(
       if (ch === 'u') pois.push({ type: 'cwu_store', x: x0 + x, y: y0 + y });
       if (ch === 'H') pois.push({ type: 'cwu_head_desk', x: x0 + x, y: y0 + y });
       if (ch === 'J') pois.push({ type: 'cwu_hire', x: x0 + x, y: y0 + y });
+      const ap = ARSENAL_POIS[ch];
+      if (ap) pois.push({ type: ap, x: x0 + x, y: y0 + y });
     }
   }
   g.lockRect({ x: x0, y: y0, w, h });
@@ -131,7 +171,7 @@ export function stampTemplate(
   const rooms = regions('r');
   const commons = regions('m');
   const areas: Record<string, Rect[]> = {};
-  for (const mark of 'lneap') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
+  for (const mark of 'lneapsfzNYj') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];
@@ -380,4 +420,71 @@ export function stampShop(g: GenGrid, rng: Rng, cx: number, cy: number, zone: nu
     return true;
   }
   return false;
+}
+
+/**
+ * Подъезд к зданию по улице, а не переулком: перед фасадом (сторона входа face) — асфальтовая
+ * площадка глубиной apron на всю ширину здания, от неё проезд шириной width до ближайшей улицы
+ * (кратчайший путь по сетке, не через заблокированные штампы). Тайлы — улица, зона — zone.
+ * false — улицы в пределах maxLen нет (тогда хватит обычных выходов).
+ */
+export function carveAccessRoad(g: GenGrid, rect: Rect, face: 'N' | 'S' | 'E' | 'W', width: number, apron: number, maxLen: number, zone: number): boolean {
+  const W = g.w;
+  const H = g.h;
+  const inRect = (x: number, y: number) => x >= rect.x && y >= rect.y && x < rect.x + rect.w && y < rect.y + rect.h;
+  const ap: Rect =
+    face === 'S' ? { x: rect.x, y: rect.y + rect.h, w: rect.w, h: apron }
+    : face === 'N' ? { x: rect.x, y: rect.y - apron, w: rect.w, h: apron }
+    : face === 'E' ? { x: rect.x + rect.w, y: rect.y, w: apron, h: rect.h }
+    : { x: rect.x - apron, y: rect.y, w: apron, h: rect.h };
+  const inApron = (x: number, y: number) => x >= ap.x && y >= ap.y && x < ap.x + ap.w && y < ap.y + ap.h;
+  const put = (x: number, y: number) => {
+    if (!g.inside(x, y) || g.isLocked(x, y) || inRect(x, y)) return;
+    g.set(x, y, T.STREET);
+    g.zones[y * W + x] = zone;
+  };
+  // Кратчайший путь от площадки до улицы (или площади).
+  const dist = new Int32Array(W * H).fill(-1);
+  const prev = new Int32Array(W * H).fill(-1);
+  const queue: number[] = [];
+  for (let y = ap.y; y < ap.y + ap.h; y++) {
+    for (let x = ap.x; x < ap.x + ap.w; x++) {
+      if (!g.inside(x, y) || g.isLocked(x, y)) continue;
+      dist[y * W + x] = 0;
+      queue.push(y * W + x);
+    }
+  }
+  let found = -1;
+  for (let q = 0; q < queue.length && found < 0; q++) {
+    const i = queue[q];
+    const x = i % W;
+    const y = (i - x) / W;
+    if (dist[i] >= maxLen) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!g.inside(nx, ny) || inRect(nx, ny)) continue;
+      const j = ny * W + nx;
+      if (dist[j] >= 0) continue;
+      const t = g.tiles[j];
+      if ((t === T.STREET || t === T.PLAZA) && !inApron(nx, ny)) {
+        prev[j] = i;
+        found = j;
+        break;
+      }
+      if (g.isLocked(nx, ny)) continue;
+      dist[j] = dist[i] + 1;
+      prev[j] = i;
+      queue.push(j);
+    }
+  }
+  if (found < 0) return false;
+  for (let y = ap.y; y < ap.y + ap.h; y++) for (let x = ap.x; x < ap.x + ap.w; x++) put(x, y);
+  const half = Math.floor(width / 2);
+  for (let i = prev[found]; i >= 0 && dist[i] > 0; i = prev[i]) {
+    const x = i % W;
+    const y = (i - x) / W;
+    for (let dy = -half; dy < width - half; dy++) for (let dx = -half; dx < width - half; dx++) put(x + dx, y + dy);
+  }
+  return true;
 }

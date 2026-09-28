@@ -46,6 +46,8 @@ import { ElectionSystem } from '../systems/ElectionSystem';
 import { FamilySystem } from '../systems/Families';
 import { SecuritySystem } from '../systems/Security';
 import { CwuHqSystem } from '../systems/CwuHq';
+import { ArsenalSystem } from '../systems/Arsenal';
+import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
 import { StreetLifeSystem } from '../systems/StreetLife';
@@ -107,6 +109,7 @@ export class Game {
   /** Свет и время суток, дымок из труб, пылинки, зерно (только картинка). */
   private readonly lighting = new Lighting();
   private readonly ambience = new Ambience();
+  private readonly arsenalView = new ArsenalRenderer();
   private readonly aim = new AimRenderer();
   /** Частицы боя, тряска экрана, маркер попадания (только отрисовка). */
   private readonly particles = new Particles();
@@ -254,6 +257,7 @@ export class Game {
       families: null as unknown as FamilySystem,
       security: null as unknown as SecuritySystem,
       cwuHq: null as unknown as CwuHqSystem,
+      arsenal: null as unknown as ArsenalSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -269,6 +273,7 @@ export class Game {
     this.ai.families = new FamilySystem(this.ai);
     this.ai.security = new SecuritySystem(this.ai);
     this.ai.cwuHq = new CwuHqSystem(this.ai);
+    this.ai.arsenal = new ArsenalSystem(this.ai);
     this.entityRenderer.families = this.ai.families;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
@@ -454,6 +459,11 @@ export class Game {
 
   get darkness(): number {
     return this.lighting.darkness(this.time);
+  }
+
+  /** Склад Альянса (для строки HUD). */
+  get arsenal(): ArsenalSystem | null {
+    return this.ai?.arsenal ?? null;
   }
 
   /** Часы и время суток для HUD: «19:40 · вечер». */
@@ -755,6 +765,7 @@ export class Game {
     this.ai.street.update(dt);
     this.ai.security.update(dt);
     this.ai.cwuHq.update(dt);
+    this.ai.arsenal.update(dt);
     // Красный код (штурм Нексуса) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
@@ -819,6 +830,7 @@ export class Game {
     this.drawTerminal(v);
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
+    this.arsenalView.drawGround(ctx, v, this.ai.arsenal, this.map.tileSize, this.law.now);
     drawFurnitureList(ctx, v, this.furnishings);
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);
@@ -827,6 +839,7 @@ export class Game {
     this.effects.drawScenes(ctx, v, this.war.scenes.list);
     this.effects.drawMines(ctx, v, this.combat, this.player, this.map);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
+    this.arsenalView.drawCarried(ctx, v, this.ai.arsenal, alpha);
     this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
     this.effects.drawCages(ctx, v, this.law.cells, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
@@ -835,6 +848,7 @@ export class Game {
     this.ambience.drawSmoke(ctx, v);
     this.lighting.draw(ctx, v, this.time, this.player, this.combat, this.entities.list, sewer);
     this.lighting.drawBloom(ctx, v, this.time, sewer);
+    if (!sewer) this.arsenalView.drawGlow(ctx, v, this.ai.arsenal, this.law.now);
     if (!sewer) this.ambience.drawMotes(ctx, v, this.lighting.litLamps(), this.lighting.day(this.time).lamps, this.time);
     this.particles.draw(ctx, v);
     this.effects.drawShots(ctx, v, this.combat);
@@ -843,6 +857,7 @@ export class Game {
     this.aim.drawSwings(ctx, v, this.combat);
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);
     this.particles.drawOver(ctx, v, this.combat);
+    if (!sewer) this.arsenalView.drawShip(ctx, v, this.ai.arsenal, this.law.now);
     this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);
     this.effects.drawProgress(ctx, v, this.player, this.playerCtl.progress);
     this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll);

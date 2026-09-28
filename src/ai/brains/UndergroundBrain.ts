@@ -4,6 +4,7 @@ import type { Character } from '../../entities/Character';
 import type { Vec2 } from '../../core/math';
 import type { RepairSpot } from '../../systems/EconomySystem';
 import type { Cell } from '../../systems/LawSystem';
+import type { DepotAct } from '../../systems/Arsenal';
 import { Mover } from '../Mover';
 import { complyWithCp } from '../comply';
 import { Gunner } from '../Gunner';
@@ -14,7 +15,15 @@ import { COMBAT, MINE } from '../../config/combat';
 import { CHARACTER } from '../../config/entities';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
 
-export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'return' | 'outing';
+export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'depot' | 'return' | 'outing';
+
+/** Связь сопротивления: дело на складе сделано. */
+const DEPOT_DONE: Record<DepotAct, string> = {
+  steal: 'со склада Альянса унесён ящик — ГО недосчитается.',
+  taint: 'в ящик патронов на площадке склада подмешан брак — у ГО будут осечки.',
+  bomb: 'заряд у зала склада Альянса заложен — рванёт через 20 секунд.',
+  beacon: 'маяк площадки склада испорчен — борт не сядет.',
+};
 
 /**
  * Боец убежища сопротивления в канализации.
@@ -24,6 +33,7 @@ export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'retur
  *  jailbreak — под личиной через люк в Нексус к занятой камере или клетке, выбить дверь, у двери
  *    оставить растяжку (прикрыть побег) и уйти;
  *  mine — поставить растяжку (на свежем теле ГО, у ворот Нексуса, у выхода проходной, на пути патруля);
+ *  depot — в робе грузчика на склад Альянса: унести ящик, подмешать брак, заложить заряд, испортить маяк;
  *  return — к ближайшему люку и вниз, в убежище (раненый — сразу сюда).
  */
 export class UndergroundBrain implements Brain {
@@ -38,6 +48,8 @@ export class UndergroundBrain implements Brain {
   cell: Cell | null = null;
   spot: Vec2 | null = null;
   private planting = false;
+  /** Дело на складе Альянса. */
+  depotAct: DepotAct | null = null;
   private jailWait = 0;
   private work = 0;
   private idle = 0;
@@ -110,6 +122,16 @@ export class UndergroundBrain implements Brain {
     this.travel.start(self, ctx, this.mover, spot);
   }
 
+  /** Дело на складе Альянса (через люк и город, в робе грузчика). */
+  startDepot(self: Character, ctx: AiContext, act: DepotAct, spot: Vec2): void {
+    this.mode = 'depot';
+    this.depotAct = act;
+    this.spot = spot;
+    this.work = 0;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    this.travel.start(self, ctx, this.mover, spot);
+  }
+
   /** Растяжку ставит — стоит, пока не поставит, потом уходит. true — ещё занят. */
   private plantAndLeave(self: Character, ctx: AiContext): boolean {
     if (!this.planting) {
@@ -146,7 +168,7 @@ export class UndergroundBrain implements Brain {
   update(self: Character, ctx: AiContext, dt: number): void {
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
     // Скрытные дела (ствол бандиту, взлом, растяжка) — огня не открывает, пока не ранят.
-    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
+    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     else if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
     // Под личиной ствол в кармане, пока не стреляет.
@@ -268,6 +290,26 @@ export class UndergroundBrain implements Brain {
         if (ctx.map.levelAt(self.x, self.y) === 'city' && (st === 'arrived' || Math.hypot(to.x - self.x, to.y - self.y) < 22)) {
           this.travel.stop(this.mover);
           this.plantAndLeave(self, ctx);
+        } else if (st === 'failed') this.goHome(self, ctx);
+        break;
+      }
+      case 'depot': {
+        const to = this.spot;
+        const act = this.depotAct;
+        if (!to || !act) {
+          this.goHome(self, ctx);
+          break;
+        }
+        const st = this.travel.update(self, ctx, this.mover, dt);
+        if (ctx.map.levelAt(self.x, self.y) === 'city' && (st === 'arrived' || Math.hypot(to.x - self.x, to.y - self.y) < 24)) {
+          this.travel.stop(this.mover);
+          faceTowards(self, to.x, to.y, dt);
+          this.work += dt;
+          if (this.work >= ctx.arsenal.sabotageTime(act)) {
+            if (ctx.arsenal.doSabotage(self, act)) ctx.insurgency.radio(DEPOT_DONE[act]);
+            this.depotAct = null;
+            this.goHome(self, ctx);
+          }
         } else if (st === 'failed') this.goHome(self, ctx);
         break;
       }

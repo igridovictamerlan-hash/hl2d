@@ -17,7 +17,8 @@ export type ZoneKind =
   | 'black_market'
   | 'wasteland'
   | 'rebel_camp'
-  | 'cwu_hq';
+  | 'cwu_hq'
+  | 'arsenal';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -77,7 +78,25 @@ export type PoiType =
   | 'cwu_office'
   | 'cwu_lobby'
   | 'cwu_production'
-  | 'partisan_cage';
+  | 'partisan_cage'
+  | 'arsenal'
+  | 'arsenal_rack'
+  | 'arsenal_ammo'
+  | 'arsenal_grenades'
+  | 'arsenal_vault'
+  | 'arsenal_window'
+  | 'arsenal_desk'
+  | 'arsenal_ledger'
+  | 'arsenal_cot'
+  | 'arsenal_bench'
+  | 'arsenal_drop'
+  | 'arsenal_beacon'
+  | 'arsenal_post'
+  | 'arsenal_hall'
+  | 'arsenal_pad'
+  | 'arsenal_office'
+  | 'arsenal_guardroom'
+  | 'arsenal_workshop';
 
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)

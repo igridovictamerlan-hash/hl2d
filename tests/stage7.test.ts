@@ -166,13 +166,26 @@ describe('бандиты', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     let bandit = null as ReturnType<typeof spawnRole>;
-    for (const a of sim.nav.walkable) {
-      if (zoneKind(sim, sim.nav.worldX(a), sim.nav.worldY(a)) !== 'residential') continue;
+    // Самый «жилой» пятачок карты: больше всего жилых якорей вокруг (подворотни, а не проспект).
+    const res = sim.nav.walkable.filter((a) => zoneKind(sim, sim.nav.worldX(a), sim.nav.worldY(a)) === 'residential');
+    let bestN = -1;
+    let best = res[0];
+    for (let i = 0; i < res.length; i += 25) {
+      const x = sim.nav.worldX(res[i]);
+      const y = sim.nav.worldY(res[i]);
+      let n = 0;
+      for (let j = 0; j < res.length; j += 5) if (Math.abs(sim.nav.worldX(res[j]) - x) < 200 && Math.abs(sim.nav.worldY(res[j]) - y) < 200) n++;
+      if (n > bestN) {
+        bestN = n;
+        best = res[i];
+      }
+    }
+    for (const a of [best]) {
       const at = { x: sim.nav.worldX(a), y: sim.nav.worldY(a) };
       bandit = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'bandit' }, at);
-      // Прохожие в соседних переулках.
+      // Прохожие рядом, в тех же переулках.
       for (let k = 0; k < 24; k++) {
-        const b = randomAnchorAround(at, sim.ctx, 2, 18, new Set());
+        const b = randomAnchorAround(at, sim.ctx, 1, 6, new Set());
         if (b < 0) continue;
         const v = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'citizen', division: null, rank: 0, kit: 'citizen' }, { x: sim.nav.worldX(b), y: sim.nav.worldY(b) });
         if (v) v.money = 50;

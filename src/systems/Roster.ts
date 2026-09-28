@@ -22,7 +22,9 @@ export type RoleKind =
   | 'patrol' | 'guard' | 'gate' | 'medic' | 'ota'
   | 'post' | 'squad' | 'tech' | 'officer' | 'inspector' | 'bodyguard' | 'epu'
   | 'army' | 'leader' | 'hydra' | 'partisan' | 'agent'
-  | 'trader' | 'admin';
+  | 'trader' | 'admin'
+  /** Склад Альянса: кладовщик SU.QM у стола выдачи и охрана SU.GUARD на постах. */
+  | 'qm' | 'depot';
 
 /**
  * Роль персонажа в постоянном составе (как игрок на сервере): кто он, с каким набором, и — у
@@ -81,6 +83,8 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'officer':
     case 'inspector':
     case 'bodyguard':
+    case 'qm':
+    case 'depot':
     case 'epu': {
       // ГО — из казармы Нексуса (нары), нет казармы — у ворот.
       const n = ctx.map.poisOf('bunk').length;
@@ -138,7 +142,11 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
       c.brain = new CpBrain(c, ctx);
       break;
     case 'post':
+    case 'depot':
       c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'post' });
+      break;
+    case 'qm':
+      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'qm' });
       break;
     case 'squad':
       c.brain = new CpBrain(c, ctx, { duty: 'squad', squad: spec.squad, lead: spec.lead });
@@ -254,6 +262,8 @@ export class RosterSystem {
       }
       this.queue.splice(i, 1);
       const c = spawnRole(this.ctx, q.spec);
+      // ГО и OTA из Цитадели — с набором со склада (пусто — патронов по минимуму).
+      if (c && (c.faction === 'cp' || c.faction === 'ota')) this.ctx.arsenal?.kitOnRespawn(c);
       if (c) this.respawned++;
       else this.queue.push({ spec: q.spec, at: this.time + 5 });
     }

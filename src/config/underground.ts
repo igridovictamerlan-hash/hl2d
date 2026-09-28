@@ -56,7 +56,7 @@ export const PARTISANS = {
    * минирование (растяжка на свежем теле ГО, у ворот Нексуса, у выхода проходной КПП в город или на
    * пути патрульного). В схроне подпольщикам пополняют гранаты до cacheGrenades.
    */
-  ops: { arm: 0.3, sabotage: 0.1, jailbreak: 0.4, mine: 0.2 },
+  ops: { arm: 0.25, sabotage: 0.1, jailbreak: 0.35, mine: 0.15, depot: 0.15 },
   cacheGrenades: 2,
   /** Подпольщик или спецагент сидит — операция (и миссия агента) «взлом» с этим шансом. */
   rescueChance: 0.85,
@@ -101,7 +101,7 @@ export const PARTISANS = {
     fight: 25,
     /** Пауза в схроне между миссиями; доли миссий: покушение, взлом КПЗ, бунт. */
     rest: [20, 40] as const,
-    missions: { assassinate: 0.3, jailbreak: 0.45, riot: 0.25 },
+    missions: { assassinate: 0.28, jailbreak: 0.4, riot: 0.2, requisition: 0.12 },
     /** Тела моложе этого (с) годятся для переодевания. */
     corpseFresh: 120,
   },

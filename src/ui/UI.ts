@@ -1,3 +1,4 @@
+import type { ArsenalSystem } from '../systems/Arsenal';
 import type { ProfessionId } from '../config/professions';
 import type { EventBus } from '../core/EventBus';
 import type { Character } from '../entities/Character';
@@ -40,6 +41,8 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly economy: EconomySystem;
   readonly combat: CombatSystem;
   readonly war: WarSystem;
+  /** Склад Альянса (запасы, борт) — для строки HUD. */
+  readonly arsenal: ArsenalSystem | null;
   /** Режим «отряд на отряд» (null — обычная игра). */
   readonly arena: SquadArena | null;
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null): void;
@@ -127,7 +130,7 @@ export class UI {
     const map = this.host.map;
     const level = map.levelAt(player.x, player.y);
     this.audio.update(this.host.combat.shots, player, this.host.combat.now, (x, y) => map.levelAt(x, y) === level, this.host.combat.fx);
-    this.audio.ambient(player, this.host.fireSpots, this.host.darkness, level === 'sewer', dt);
+    this.audio.ambient(player, this.host.fireSpots, this.host.darkness, level === 'sewer', dt, this.host.arsenal?.shipView() ?? null);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
@@ -155,6 +158,13 @@ export class UI {
       const where = economy.hasBeenServed(player) ? 'вы получили' : i >= 0 ? `вы ${i + 1}-й в очереди` : `в очереди ${economy.queue.length}`;
       ration = `Раздача рационов открыта (${mmss(economy.timer)}) · ${where}`;
     } else ration = `Раздача рационов через ${mmss(economy.timer)}`;
+    // Склад Альянса: ГО и рабочим склада — запасы и когда борт.
+    const ars = this.host.arsenal;
+    if (!this.host.arena && ars?.present && (player.faction === 'cp' || player.profession === 'loader' || player.profession === 'armorer')) {
+      const st = ars.stock;
+      const ship = ars.ship.phase !== 'none' ? 'борт над площадкой' : ars.beaconBroken ? 'маяк сломан — борт не сядет' : this.host.war.code === 'red' ? 'рейсы отменены' : `борт через ${mmss(ars.flightIn)}`;
+      ration += `\nСклад: патроны ${st.ammo} · гранаты ${st.grenades} · стволы ${st.weapons} (ящ.) · ${ship}${ars.closed ? ' · выдача закрыта' : ''}`;
+    }
     this.hud.update(player, now, weapon, ration, this.host.war.command.rallyCooldown);
     this.hud.setClock(this.host.clock);
     // Журнал событий — над HUD, какой бы высоты тот ни был.

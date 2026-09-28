@@ -1,3 +1,4 @@
+import { ARSENAL } from '../config/arsenal';
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
 import type { Stack } from '../entities/Inventory';
@@ -239,6 +240,8 @@ export class CombatSystem {
   private readonly dead: Character[] = [];
   /** Сколько выстрелов сделано (для тестов и отладки). */
   shotsFired = 0;
+  /** Осечки порченых патронов (склад). */
+  jams = 0;
   hits = 0;
   kills = 0;
   headshots = 0;
@@ -461,6 +464,13 @@ export class CombatSystem {
     if (w.perRound && this.reloading(c) && c.mag > 0) c.reloadUntil = 0;
     if (!this.canFire(c)) {
       if (c.mag <= 0) this.reload(c);
+      return null;
+    }
+    // Порченые патроны со склада: осечка — ствол клинит.
+    if (c.badAmmo && this.rng.chance(ARSENAL.taint.jam)) {
+      c.nextShot = this.time + ARSENAL.taint.jamTime;
+      this.jams++;
+      c.say('Осечка!', this.time, 1.2);
       return null;
     }
     c.mag--;
@@ -910,6 +920,7 @@ export class CombatSystem {
     c.suppress = 0;
     c.crouch = false;
     c.downedUntil = 0;
+    c.badAmmo = false;
     this.cancelRevive(c);
     this.stopDrag(c);
     this.kills++;

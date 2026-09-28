@@ -101,6 +101,15 @@ export const LIGHTING = {
     rebel_base: { color: [255, 170, 90], radius: 150, power: 0.9, night: false, flicker: 0.12 },
     rebel_cache: { color: [255, 180, 100], radius: 80, power: 0.7, night: false, flicker: 0.1 },
     trader: { color: [255, 190, 110], radius: 90, power: 0.8, night: false, flicker: 0.1 },
+    // Склад Альянса: зал и контора — холодный белый, площадка — прожекторы у постов, мастерская и
+    // караулка — тёплые лампы, маяк площадки — красный (мигает — ArsenalRenderer).
+    arsenal_hall: { color: [215, 230, 255], radius: 120, power: 0.75, night: true },
+    arsenal_office: { color: [220, 232, 255], radius: 80, power: 0.75, night: true },
+    arsenal_window: { color: [255, 220, 160], radius: 50, power: 0.6, night: true, bloom: true },
+    arsenal_workshop: { color: [255, 196, 120], radius: 90, power: 0.9, night: true, bloom: true },
+    arsenal_guardroom: { color: [255, 200, 130], radius: 70, power: 0.8, night: true, bloom: true },
+    arsenal_post: { color: [205, 225, 255], radius: 110, power: 0.8, night: true },
+    arsenal_beacon: { color: [255, 70, 50], radius: 60, power: 0.7, night: false },
   } as Record<string, PoiLight>,
   /** Свечение (bloom) источников поверх картинки: доля радиуса и яркость. */
   bloom: { radius: 0.3, alpha: 0.4 },

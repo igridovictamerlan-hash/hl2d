@@ -205,10 +205,11 @@ describe('место преступления', () => {
     const at = spotNear(sim, plaza, 0, 4);
     const victim = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, at)!;
     sim.combat.damage(victim, 9999, null);
-    const bandit = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 6, 10))!;
-    run(sim, 60, () => sim.crime.stats.corpseLoots > 0);
+    // Несколько бандитов вокруг: каждый решает сам (с шансом CRIME.loot.chance), кто-то да обберёт.
+    const bandits = [0, 1, 2].map(() => spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 6, 10))!);
+    run(sim, 90, () => sim.crime.stats.corpseLoots > 0);
     expect(sim.crime.stats.corpseLoots).toBeGreaterThan(0);
-    expect(bandit.inventory.has('usp')).toBe(true);
+    expect(bandits.some((b) => b.inventory.has('usp'))).toBe(true);
   });
 });
 

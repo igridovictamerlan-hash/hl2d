@@ -27,6 +27,7 @@ export class GunfireAudio {
   private windGain: GainNode | null = null;
   private crackleAcc = 0;
   private ambientT = 0;
+  private shipGain: GainNode | null = null;
 
   constructor() {
     try {
@@ -160,7 +161,7 @@ export class GunfireAudio {
    * Фон улицы: ветер с порывами (ночью слышнее, в канализации глуше) и треск огня, если рядом бочка
    * или костёр. fires — где горит, dark — насколько темно (0..1).
    */
-  ambient(listener: Character, fires: readonly { x: number; y: number }[], dark: number, sewer: boolean, dt: number): void {
+  ambient(listener: Character, fires: readonly { x: number; y: number }[], dark: number, sewer: boolean, dt: number, ship: { x: number; y: number } | null = null): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || !this.noise || ctx.state !== 'running') return;
     const A = AUDIO.ambient;
@@ -182,6 +183,34 @@ export class GunfireAudio {
     const gust = 1 - W.gust * 0.5 * (1 + Math.sin(this.ambientT * W.gustRate) * Math.sin(this.ambientT * W.gustRate * 2.3 + 1));
     const level = W.gain * (1 + (W.nightMul - 1) * dark) * (sewer ? W.sewerMul : 1) * gust * (this.muted ? 0 : 1);
     this.windGain.gain.setTargetAtTime(level, ctx.currentTime, 0.5);
+    // Гул корабля Альянса (поставка на склад).
+    const S = A.ship;
+    if (ship && !this.shipGain) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      src.playbackRate.value = 0.3;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = S.cutoff;
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = S.hum;
+      const og = ctx.createGain();
+      og.gain.value = S.humGain;
+      this.shipGain = ctx.createGain();
+      this.shipGain.gain.value = 0;
+      src.connect(lp).connect(this.shipGain);
+      osc.connect(og).connect(lp);
+      this.shipGain.connect(this.master);
+      src.start();
+      osc.start();
+    }
+    if (this.shipGain) {
+      const d = ship && !sewer ? Math.hypot(ship.x - listener.x, ship.y - listener.y) : Infinity;
+      const k = d < S.range ? 1 - d / S.range : 0;
+      this.shipGain.gain.setTargetAtTime(this.muted ? 0 : S.gain * k * k, ctx.currentTime, 0.4);
+    }
     if (this.muted) return;
     // Треск огня: ближайший костёр или бочка.
     const C = A.crackle;

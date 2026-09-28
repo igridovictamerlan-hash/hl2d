@@ -73,5 +73,7 @@ export const AUDIO = {
   ambient: {
     wind: { cutoff: 420, gain: 0.05, nightMul: 1.5, sewerMul: 0.35, gust: 0.45, gustRate: 0.13 },
     crackle: { range: 240, rate: 9, gain: 0.22, freq: [1400, 4200] as const, dur: [0.006, 0.022] as const },
+    /** Корабль Альянса над складом: низкий гул (шум + пила) — слышно до range px. */
+    ship: { range: 1400, gain: 0.16, cutoff: 260, hum: 46, humGain: 0.35 },
   },
 } as const;

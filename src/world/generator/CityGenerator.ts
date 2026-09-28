@@ -10,10 +10,10 @@ import { buildingRatio, longestAlleyRun, type MapStats } from '../mapStats';
 import { GenGrid } from './GenGrid';
 import { planLayout, avenueOffsetAt, avenueRects } from './layout';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
-import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked } from './stamps';
+import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked, carveAccessRoad } from './stamps';
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
@@ -77,6 +77,8 @@ export function validateMap(map: GameMap): string[] {
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 7], ['common_cell', 1], ['bunk', 10], ['clerk_desk', 6], ['ota_spot', 6], ['restricted_gate', 1],
     ['checkpoint_post', 10], ['gate_post', 4], ['dorm', 2], ['villa', 2], ['outlands_exit', 2], ['shop_counter', 1],
     ['cwu_hq', 1], ['partisan_cage', 2], ['cwu_hire', 1], ['cwu_head_desk', 1], ['ration_line', 3], ['cwu_store', 1],
+    ['arsenal', 1], ['arsenal_desk', 1], ['arsenal_window', 2], ['arsenal_ledger', 1], ['arsenal_drop', 8], ['arsenal_beacon', 1],
+    ['arsenal_post', 4], ['arsenal_bench', 1], ['arsenal_pad', 1], ['arsenal_hall', 1],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -279,6 +281,28 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     area('a', 'cwu_lobby');
     area('p', 'cwu_production');
     pois.push({ type: 'cwu_hq', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
+  }
+
+  // Склад Альянса на окраине: зал хранения, площадка корабля, кабинет кладовщика, караулка, мастерская.
+  if (streets.arsenal) {
+    const p = streets.arsenal;
+    const z = addZone('arsenal', ZONE_NAMES.arsenal, null);
+    const res = stampTemplate(g, faceTemplate(ARSENAL_TEMPLATE, p.face), p.rect.x, p.rect.y, () => z, pois);
+    // Подъезд — улицей: площадка перед фасадом и проезд до ближайшей улицы (не переулок).
+    const A = G.arsenal;
+    const road = addZone('avenue', ZONE_NAMES.arsenalRoad, null);
+    if (!carveAccessRoad(g, p.rect, p.face, A.road.width, A.road.apron, A.road.maxLen, road)) {
+      for (const exit of res.exits) if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
+    }
+    const area = (mark: string, type: Poi['type']) => {
+      for (const r of res.areas[mark] ?? []) pois.push({ type, x: r.x, y: r.y, w: r.w, h: r.h });
+    };
+    area('s', 'arsenal_hall');
+    area('Y', 'arsenal_pad');
+    area('f', 'arsenal_office');
+    area('z', 'arsenal_guardroom');
+    area('N', 'arsenal_workshop');
+    pois.push({ type: 'arsenal', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
   }
 
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);

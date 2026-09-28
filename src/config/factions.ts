@@ -33,7 +33,7 @@ export interface FactionDef {
 }
 
 /** Юниты силового блока: PCU — городская полиция, SU — спецотряд, CMD — командование. */
-export type CpUnitId = 'rct' | 'pcu3' | 'pcu2' | 'pcu1' | 'ofc' | 'su3' | 'su2' | 'su1' | 'guard' | 'insp' | 'epu';
+export type CpUnitId = 'rct' | 'pcu3' | 'pcu2' | 'pcu1' | 'ofc' | 'su3' | 'su2' | 'su1' | 'guard' | 'insp' | 'epu' | 'qm';
 
 /**
  * Умения юнита: investigate — сканирует тела и находит убийц, проверка CID быстрее, штрафы выше;
@@ -61,6 +61,8 @@ export interface CpUnitDef extends RankDef {
  *  SU.01 — следователь с патрулями (сканирует тела, ищет убийц); SU.GUARD — охрана инспекторов,
  *  Администратора и лоялистов (охраняют по очереди); SU.INSP — инспектор (2 на город).
  *  CMD.EPU — глава силового блока: с Администратором, из Нексуса — только с охраной.
+ *  SU.QM — кладовщик склада Альянса (опись, выдача боекомплекта у окна); в конце списка, чтобы номера
+ *  прежних юнитов в сохранениях не сдвинулись.
  */
 const CP_RANKS: readonly CpUnitDef[] = [
   { id: 'rct', unit: 'rct', name: 'Рекрут (RCT.PCU)', short: 'RCT.PCU', color: '#a9dcff', outline: '#4f86ad', group: 'pcu', hp: 75, kit: 'cp', command: 0, skills: [], desc: 'Стоит на посту у входов в КПП и Нексус, в людных местах; дубинка и пистолет.' },
@@ -74,6 +76,7 @@ const CP_RANKS: readonly CpUnitDef[] = [
   { id: 'guard', unit: 'guard', name: 'Охрана (SU.GUARD)', short: 'SU.GUARD', color: '#3f9c86', outline: '#1d4d42', group: 'su', hp: 140, kit: 'cp_guard', command: 2, skills: [], desc: 'Охраняет инспекторов, Администратора, EPU и лоялистов — по очереди. MP7.' },
   { id: 'insp', unit: 'insp', name: 'Инспектор (SU.INSP)', short: 'SU.INSP', color: '#2f7fa0', outline: '#143c4d', group: 'su', hp: 140, kit: 'cp_guard', command: 5, skills: ['investigate'], desc: 'Надзор за SU и работой ГСР, указания офицерам. Всегда с охраной.' },
   { id: 'epu', unit: 'epu', name: 'Глава силового блока (CMD.EPU)', short: 'CMD.EPU', color: '#d9b24a', outline: '#6e5516', group: 'cmd', hp: 200, kit: 'cp_guard', command: 6, skills: [], desc: 'Командует всеми. Сидит с Администратором, из Нексуса — только с охраной.' },
+  { id: 'qm', unit: 'qm', name: 'Кладовщик (SU.QM)', short: 'SU.QM', color: '#7fae7a', outline: '#3a5a36', group: 'su', hp: 110, kit: 'cp_qm', command: 1, skills: [], desc: 'Ведёт склад Альянса на окраине: опись, выдача боекомплекта ГО у окна (E). Пистолет.' },
 ];
 
 /** Номер юнита (Character.rank) по id. */

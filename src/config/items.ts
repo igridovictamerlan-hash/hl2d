@@ -286,6 +286,7 @@ export const KITS: Record<string, [ItemId, number][]> = {
   /** Медик-техник SU.02: MP7, пистолет, аптечки. */
   cp_su_medic: [['mp7', 1], ['ammo_smg', 90], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 3], ['bandage', 4], ['smoke_grenade', 1]],
   /** Охрана, инспектор, глава силового блока: MP7 и пистолет. */
+  cp_qm: [['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['bandage', 1]],
   cp_guard: [['mp7', 1], ['ammo_smg', 120], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 1]],
   /** OTA.ALPHA и OTA.KING: энерговинтовка AR2, пистолет, гранаты. */
   ota_alpha: [['ar2', 1], ['ammo_ar2', 120], ['usp', 1], ['ammo_pistol', 36], ['grenade', 2], ['bandage', 1]],

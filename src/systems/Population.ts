@@ -1,3 +1,4 @@
+import { ARSENAL } from '../config/arsenal';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { FactionId } from '../config/factions';
@@ -78,7 +79,7 @@ export function armyKit(profession: ProfessionId): string {
  */
 export function spawnPopulation(ctx: AiContext, citizens: number): void {
   const P = AI.population;
-  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
+  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   // Силовой блок — постоянный состав: не нашлось места у точки — появляется там же, где при возрождении.
@@ -111,8 +112,10 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     if (prof !== 'fugitive') residents.push(c);
   }
   const factory = ctx.labor?.factory;
+  const none0 = new Set<number>();
   for (const prof of P.cwuProfessions) {
-    const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : freeSpot(ctx, plaza, 3, 30, civAvoid);
+    const depot = (prof === 'loader' || prof === 'armorer') && ctx.arsenal?.waitSpot;
+    const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : depot ? freeSpot(ctx, depot, 0, 4, none0, 20) : freeSpot(ctx, plaza, 3, 30, civAvoid);
     put({ kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'cwu' }, at);
   }
   // Глава ГСР — за столом в кабинете штаба.
@@ -134,7 +137,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const rank = CP_UNIT[unit];
     return { kind, faction: 'cp', profession: null, division: cpUnit(rank).group, rank, kit: cpUnit(rank).kit, ...extra };
   };
-  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted']);
+  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'arsenal']);
   const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
   // RCT.PCU на постах: у ворот Нексуса (лицом наружу) и в людных местах — площадь и улицы.
   const inside = zoneIds(ctx, ['nexus', 'cells']);
@@ -184,6 +187,16 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   for (let k = 0; k < C.inspectors; k++) put(cpSpec('inspector', 'insp'), freeSpot(ctx, desk, 0, 3, none, 24));
   for (let k = 0; k < C.guards; k++) put(cpSpec('bodyguard', 'guard'), freeSpot(ctx, office, 0, 4, none, 24));
   for (let k = 0; k < C.epu; k++) put(cpSpec('epu', 'epu'), freeSpot(ctx, office, 0, 2, none, 24));
+  // Склад Альянса на окраине: кладовщик SU.QM за столом (лицом к окну выдачи), охрана SU.GUARD на постах.
+  const ars = ctx.arsenal;
+  if (ars?.present && ars.desk) {
+    const face = ars.window ? Math.atan2(ars.window.y - ars.desk.y, ars.window.x - ars.desk.x) : 0;
+    put(cpSpec('qm', 'qm', { post: ars.desk, facing: face }), freeSpot(ctx, ars.desk, 0, 1, none, 10) ?? ars.desk);
+    for (const p of ars.posts.slice(0, ARSENAL.guards)) {
+      const post = { x: p.x, y: p.y };
+      put(cpSpec('depot', 'guard', { post, facing: p.facing }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);
+    }
+  }
   // Гарнизоны КПП: спецназ SU.03 на всех постах обоих дворов лицом к пустоши, RCT.PCU в проходной,
   // медик SU.02 в бункере.
   for (const f of ctx.war.fronts) {
@@ -244,7 +257,7 @@ export function roleSpawn(ctx: AiContext, faction: FactionId, profession: Profes
     spot = freeSpot(ctx, poiWorld(ctx, 'rebel_camp')!, 0, 6, none, 30);
   } else if (faction === 'rebel') {
     // Подальше от Нексуса, в жилых кварталах.
-    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp']);
+    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp', 'arsenal']);
     const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
     for (let k = 0; k < 20 && !spot; k++) {
       const s = freeSpot(ctx, { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 }, 20, 110, avoid);

@@ -42,6 +42,7 @@ export const MINIMAP = {
     ration: '#ffd36b',
     shop: '#9fd7a0',
     cwuHq: '#e0c060',
+    arsenal: '#8fb88a',
     hatch: '#b8b0a0',
     node: '#6ec2ff',
     nodeBroken: '#ff6a3a',
