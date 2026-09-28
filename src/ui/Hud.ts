@@ -25,6 +25,7 @@ export class Hud {
     this.el = document.createElement('div');
     this.el.className = 'hud panel';
     this.el.innerHTML = `
+      <div class="hud-clock" data-clock></div>
       <div class="hud-row"><span class="hud-label">ЗДОРОВЬЕ</span><span class="hud-value" data-hp></span></div>
       <div class="hp-bar"><div class="hp-fill" data-hpfill></div></div>
       <div class="hud-wound" data-wound></div>
@@ -48,6 +49,17 @@ export class Hud {
     this.rationEl = this.el.querySelector('[data-ration]')!;
     this.loyaltyEl = this.el.querySelector('[data-loyalty]')!;
     this.woundEl = this.el.querySelector('[data-wound]')!;
+    this.clockEl = this.el.querySelector('[data-clock]')!;
+  }
+
+  private clockEl: HTMLElement;
+  private lastClock = '';
+
+  /** Часы и время суток в углу HUD. */
+  setClock(text: string): void {
+    if (text === this.lastClock) return;
+    this.lastClock = text;
+    this.clockEl.textContent = text;
   }
 
   /** rallyCooldown — до готовности клича главы восстания, с (-1 — не глава). */

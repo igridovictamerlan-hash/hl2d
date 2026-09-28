@@ -9,6 +9,11 @@ export interface GameMenuHost {
   changeRole(): void;
   toggleSound(): boolean;
   readonly soundMuted: boolean;
+  /** Атмосфера: свет и время суток, дымок, зерно. */
+  toggleLighting(): boolean;
+  readonly lightingOn: boolean;
+  /** Упрощена под слабую машину. */
+  readonly lightingLite: boolean;
   /** Экспериментальный режим «отряд на отряд»: начать за сторону, идёт ли, выйти в город. */
   startArena(side: 'combine' | 'rebel'): void;
   readonly inArena: boolean;
@@ -101,6 +106,9 @@ export class GameMenu {
       case 'sound':
         h.toggleSound();
         break;
+      case 'light':
+        h.toggleLighting();
+        break;
       case 'controls':
         this.screen = 'controls';
         break;
@@ -147,6 +155,7 @@ export class GameMenu {
     }
     const btn = (act: string, text: string, primary = false) => `<button data-act="${act}"${primary ? ' class="primary"' : ''}>${text}</button>`;
     const sound = `Звук: ${h.soundMuted ? 'выкл' : 'вкл'}`;
+    const light = `Атмосфера (свет, время суток): ${h.lightingOn ? (h.lightingLite ? 'вкл, упрощённая' : 'вкл') : 'выкл'}`;
     const buttons =
       this.mode === 'main'
         ? [
@@ -155,15 +164,17 @@ export class GameMenu {
             btn('arena', 'Отряд на отряд (эксперимент)'),
             btn('controls', 'Управление'),
             btn('sound', sound),
+            btn('light', light),
           ]
         : h.inArena
-          ? [btn('continue', 'Продолжить', true), btn('controls', 'Управление'), btn('sound', sound), btn('leaveArena', 'Выйти из режима «отряд на отряд»')]
+          ? [btn('continue', 'Продолжить', true), btn('controls', 'Управление'), btn('sound', sound), btn('light', light), btn('leaveArena', 'Выйти из режима «отряд на отряд»')]
           : [
             btn('continue', 'Продолжить', true),
             btn('save', 'Сохранить'),
             btn('role', 'Сменить роль'),
             btn('controls', 'Управление'),
             btn('sound', sound),
+            btn('light', light),
             btn('exit', 'Выйти в главное меню'),
           ];
     this.box.innerHTML = `${title}<div class="gm-buttons">${buttons.join('')}</div><div class="gm-note">${this.note}</div>

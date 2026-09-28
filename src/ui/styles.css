@@ -1,11 +1,11 @@
-/* Интерфейс в духе HUD Half-Life 2: янтарный текст на полупрозрачной тёмной подложке. */
+/* Интерфейс в духе HUD Half-Life 2, но теплее: янтарный текст на полупрозрачной тёмно-коричневой подложке. */
 :root {
-  --hud: #ffd36b;
-  --hud-dim: rgba(255, 211, 107, 0.6);
-  --panel: rgba(12, 14, 16, 0.72);
-  --panel-border: rgba(255, 211, 107, 0.18);
-  --text: #e6e3da;
-  --muted: #9a978f;
+  --hud: #ffcc78;
+  --hud-dim: rgba(255, 204, 120, 0.62);
+  --panel: rgba(24, 17, 12, 0.74);
+  --panel-border: rgba(255, 186, 110, 0.22);
+  --text: #eee4d2;
+  --muted: #a5998a;
   --danger: #ff5b4a;
   --font: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
@@ -17,7 +17,7 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #07090b;
+  background: #0b0806;
   color: var(--text);
   font-family: var(--font);
 }
@@ -40,7 +40,8 @@ html, body {
   position: absolute;
   background: var(--panel);
   border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(20, 10, 2, 0.35), inset 0 1px 0 rgba(255, 210, 150, 0.06);
   backdrop-filter: blur(2px);
   pointer-events: auto;
 }
@@ -53,7 +54,7 @@ html, body {
   color: var(--hud);
   font-size: 18px;
   letter-spacing: 0.1em;
-  background: #07090b;
+  background: #0b0806;
 }
 
 /* HUD */
@@ -268,6 +269,7 @@ kbd {
 .hunger-fill.low { background: var(--danger); }
 .hud-weapon { white-space: pre-line; margin-top: 4px; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
 .hud-ration { margin-top: 4px; font-size: 12px; color: var(--hud-dim); }
+.hud-clock { font-size: 11px; letter-spacing: 0.08em; color: var(--hud-dim); text-align: right; margin: -2px 0 2px; font-variant-numeric: tabular-nums; }
 .hud { bottom: 16px; }
 .event-log { bottom: 250px; }
 

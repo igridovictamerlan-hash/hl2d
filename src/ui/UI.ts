@@ -32,6 +32,11 @@ import { ArenaBar } from './ArenaBar';
 const FIRE_MODE: Record<FireMode, string> = { semi: 'одиночный', auto: 'авто', pump: 'помпа', melee: 'удар' };
 
 export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
+  /** Часы и время суток («19:40 · вечер»). */
+  readonly clock: string;
+  /** Где горит огонь (бочки, костры — треск рядом) и насколько темно (0..1) — для звукового фона. */
+  readonly fireSpots: readonly { x: number; y: number }[];
+  readonly darkness: number;
   readonly economy: EconomySystem;
   readonly combat: CombatSystem;
   readonly war: WarSystem;
@@ -122,6 +127,7 @@ export class UI {
     const map = this.host.map;
     const level = map.levelAt(player.x, player.y);
     this.audio.update(this.host.combat.shots, player, this.host.combat.now, (x, y) => map.levelAt(x, y) === level, this.host.combat.fx);
+    this.audio.ambient(player, this.host.fireSpots, this.host.darkness, level === 'sewer', dt);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
@@ -150,6 +156,7 @@ export class UI {
       ration = `Раздача рационов открыта (${mmss(economy.timer)}) · ${where}`;
     } else ration = `Раздача рационов через ${mmss(economy.timer)}`;
     this.hud.update(player, now, weapon, ration, this.host.war.command.rallyCooldown);
+    this.hud.setClock(this.host.clock);
     // Журнал событий — над HUD, какой бы высоты тот ни был.
     const h = this.hud.el.offsetHeight;
     if (h !== this.hudHeight) {

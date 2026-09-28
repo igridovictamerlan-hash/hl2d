@@ -68,6 +68,8 @@ export interface Bullet {
  */
 export interface Fx {
   seq: number;
+  /** Когда случилось (игровое время боя). */
+  t: number;
   kind: 'muzzle' | 'hit' | 'wall' | 'blast' | 'stab' | 'smoke' | 'fire' | 'rocket' | 'bleed' | 'whiz';
   x: number;
   y: number;
@@ -443,7 +445,7 @@ export class CombatSystem {
 
   /** Записать эффект (для отрисовки и звука). */
   private emit(kind: Fx['kind'], x: number, y: number, ang: number, cls: WeaponClass | null, by: Character | null, target: Character | null = null, zone: Fx['zone'] = null, power = 0, lethal = false): void {
-    this.fx.push({ seq: ++this.fxSeq, kind, x, y, ang, cls, by, target, zone, power, lethal });
+    this.fx.push({ seq: ++this.fxSeq, t: this.time, kind, x, y, ang, cls, by, target, zone, power, lethal });
     if (this.fx.length > FX_KEEP) this.fx.splice(0, this.fx.length - FX_KEEP);
   }
 

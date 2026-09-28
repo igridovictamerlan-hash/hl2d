@@ -225,8 +225,11 @@ export class EffectsRenderer {
   /** Пятно света фонаря — спрайт (градиент рисуется один раз, дальше drawImage). */
   private lampGlow: HTMLCanvasElement | null = null;
 
-  /** Скамейки и фонари главного проспекта (под персонажами). */
-  drawAvenue(ctx: CanvasRenderingContext2D, v: View, lamps: readonly Lamp[], benches: readonly Bench[], boards: readonly NoticeBoard[] = []): void {
+  /**
+   * Скамейки и фонари главного проспекта (под персонажами). lit — насколько горят фонари (время
+   * суток, world/Lighting): днём плафон погашен и пятна под ним нет.
+   */
+  drawAvenue(ctx: CanvasRenderingContext2D, v: View, lamps: readonly Lamp[], benches: readonly Bench[], boards: readonly NoticeBoard[] = [], lit = 1): void {
     const s = v.scale;
     const L = RENDER.effects.lamp;
     const B = RENDER.effects.bench;
@@ -294,9 +297,11 @@ export class EffectsRenderer {
       // Плафон на кронштейне над улицей, свет — пятном под ним.
       const hx = x + l.nx * 12 * s;
       const hy = y + l.ny * 12 * s;
-      ctx.globalAlpha = L.glowAlpha;
-      ctx.drawImage(this.lampGlow, hx - gr, hy - gr, gr * 2, gr * 2);
-      ctx.globalAlpha = 1;
+      if (lit > 0.02) {
+        ctx.globalAlpha = L.glowAlpha * lit;
+        ctx.drawImage(this.lampGlow, hx - gr, hy - gr, gr * 2, gr * 2);
+        ctx.globalAlpha = 1;
+      }
       ctx.strokeStyle = L.arm;
       ctx.lineWidth = Math.max(1, 2 * s);
       ctx.beginPath();
@@ -453,10 +458,25 @@ export class EffectsRenderer {
     }
   }
 
+  /** Отсвет бочки на земле — спрайт (градиент один раз). */
+  private barrelGlow: HTMLCanvasElement | null = null;
+
   /** Бочки с огнём: отсвет на земле, ржавая бочка, мерцающие языки пламени и искры. */
   drawBarrels(ctx: CanvasRenderingContext2D, v: View, barrels: readonly Barrel[], now: number): void {
     const s = v.scale;
     const B = RENDER.effects.barrel;
+    if (!this.barrelGlow) {
+      const r = 64;
+      const c = document.createElement('canvas');
+      c.width = c.height = r * 2;
+      const g = c.getContext('2d')!;
+      const grad = g.createRadialGradient(r, r, 0, r, r, r);
+      grad.addColorStop(0, `rgba(${B.glow},0.32)`);
+      grad.addColorStop(1, `rgba(${B.glow},0)`);
+      g.fillStyle = grad;
+      g.fillRect(0, 0, r * 2, r * 2);
+      this.barrelGlow = c;
+    }
     for (let k = 0; k < barrels.length; k++) {
       const b = barrels[k];
       const x = (b.x - v.left) * s;
@@ -464,11 +484,8 @@ export class EffectsRenderer {
       const gr = B.glowRadius * s;
       if (x < -gr || y < -gr || x > v.width + gr || y > v.height + gr) continue;
       const flick = 0.8 + 0.2 * Math.sin(now * 11 + k * 1.7) * Math.sin(now * 7.3 + k);
-      const g = ctx.createRadialGradient(x, y, 0, x, y, gr * flick);
-      g.addColorStop(0, `rgba(${B.glow},0.32)`);
-      g.addColorStop(1, `rgba(${B.glow},0)`);
-      ctx.fillStyle = g;
-      ctx.fillRect(x - gr, y - gr, gr * 2, gr * 2);
+      const fr = gr * flick;
+      ctx.drawImage(this.barrelGlow, x - fr, y - fr, fr * 2, fr * 2);
       const r = B.r * s;
       ctx.fillStyle = B.body;
       ctx.beginPath();

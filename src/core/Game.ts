@@ -62,6 +62,9 @@ import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
 import type { CheckChoice } from '../ui/CheckPanel';
 import { DebugOverlay } from '../ui/DebugOverlay';
+import { Lighting, clockText, dayFraction } from '../world/Lighting';
+import { Ambience } from '../world/Ambience';
+import { COZY } from '../config/lighting';
 
 export interface GameOptions {
   npcs: number;
@@ -101,6 +104,9 @@ export class Game {
   private readonly entityRenderer = new EntityRenderer();
   private readonly fog = new FogRenderer();
   private readonly effects = new EffectsRenderer();
+  /** Свет и время суток, дымок из труб, пылинки, зерно (только картинка). */
+  private readonly lighting = new Lighting();
+  private readonly ambience = new Ambience();
   private readonly aim = new AimRenderer();
   /** Частицы боя, тряска экрана, маркер попадания (только отрисовка). */
   private readonly particles = new Particles();
@@ -131,6 +137,13 @@ export class Game {
     uiRoot: HTMLElement,
     private readonly opts: GameOptions,
   ) {
+    // Атмосфера (свет, дымок, зерно) — как выбрал игрок в прошлый раз.
+    try {
+      const on = localStorage.getItem(COZY.storageKey) !== '0';
+      this.lighting.enabled = this.ambience.enabled = on;
+    } catch {
+      /* по умолчанию включена */
+    }
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.input = new Input(canvas);
     this.zones = new ZoneSystem(this.bus);
@@ -257,6 +270,9 @@ export class Game {
     this.ai.security = new SecuritySystem(this.ai);
     this.ai.cwuHq = new CwuHqSystem(this.ai);
     this.entityRenderer.families = this.ai.families;
+    this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
+    this.ambience.setWorld(this.mapRenderer.chimneyPoints());
+    this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
@@ -396,6 +412,53 @@ export class Game {
 
   toggleSound(): boolean {
     return this.ui.audio.toggle();
+  }
+
+  /** Кадров мало (слабая машина) — сколько секунд подряд; атмосфера упрощается (COZY.autoLite). */
+  private slowFor = 0;
+
+  private autoLite(dt: number): void {
+    if (!this.lighting.enabled || this.lighting.lite) return;
+    const A = COZY.autoLite;
+    this.slowFor = this.fps > 0 && this.fps < A.fps ? this.slowFor + dt : 0;
+    if (this.slowFor < A.after) return;
+    this.lighting.lite = this.ambience.lite = true;
+    this.bus.emit('log', { text: 'Атмосфера упрощена под эту машину (без зерна и свечения). Полная или выкл — Esc → «Атмосфера».', kind: 'system' });
+  }
+
+  /** Атмосфера (свет и время суток, дымок, зерно): вкл/выкл — для слабых машин; помнится в браузере. */
+  toggleLighting(): boolean {
+    const on = !this.lighting.enabled;
+    this.lighting.enabled = this.ambience.enabled = on;
+    // Снова включили — снова полная (упростится сама, если не тянет).
+    this.lighting.lite = this.ambience.lite = false;
+    this.slowFor = 0;
+    try {
+      localStorage.setItem(COZY.storageKey, on ? '1' : '0');
+    } catch {
+      /* не запомним — не страшно */
+    }
+    return on;
+  }
+
+  get lightingOn(): boolean {
+    return this.lighting.enabled;
+  }
+
+  get lightingLite(): boolean {
+    return this.lighting.lite;
+  }
+
+  /** Где горит огонь (бочки, костёр лагеря, светильники убежища) — треск рядом в звуковом фоне. */
+  fireSpots: { x: number; y: number }[] = [];
+
+  get darkness(): number {
+    return this.lighting.darkness(this.time);
+  }
+
+  /** Часы и время суток для HUD: «19:40 · вечер». */
+  get clock(): string {
+    return `${clockText(dayFraction(this.time))} · ${this.lighting.day(this.time).name}`;
   }
 
   get soundMuted(): boolean {
@@ -591,8 +654,9 @@ export class Game {
     const cw = this.canvas.width;
     const ch = this.canvas.height;
     const g = this.ctx.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * 0.35, cw / 2, ch / 2, Math.hypot(cw, ch) / 2);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(1, `rgba(0,0,0,${RENDER.vignette})`);
+    // Тёплая виньетка: края темнеют в коричневое, а не в чёрное.
+    g.addColorStop(0, `rgba(${COZY.vignette},0)`);
+    g.addColorStop(1, `rgba(${COZY.vignette},${RENDER.vignette})`);
     this.vignette = g;
     const edge = (inner: number, color: string, a: number) => {
       const e = this.ctx.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * inner, cw / 2, ch / 2, Math.hypot(cw, ch) / 2);
@@ -710,6 +774,8 @@ export class Game {
     }
     this.camera.follow(this.player.x, this.player.y, m.x, m.y, dt, this.map.levelBounds(level), this.player.aiming);
     this.zones.update(this.map, this.player, dt);
+    this.ambience.update(this.camera.view(1), dt, this.lighting.darkness(this.time));
+    this.autoLite(dt);
     if (this.input.wasPressed('debug')) this.debug.enabled = !this.debug.enabled;
     if (this.input.wasPressed('devPanel')) this.ui.dev.toggle();
     if (this.input.wasPressed('bigMap')) this.ui.mapView.toggleBig();
@@ -755,7 +821,7 @@ export class Game {
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
     drawFurnitureList(ctx, v, this.furnishings);
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
-    this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards);
+    this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.effects.drawScenes(ctx, v, this.war.scenes.list);
@@ -764,12 +830,17 @@ export class Game {
     this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
     this.effects.drawCages(ctx, v, this.law.cells, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
+    // Дымок из труб, затем свет суток и источников (умножение), свечение ламп и огня, пылинки.
+    const sewer = this.level === 'sewer';
+    this.ambience.drawSmoke(ctx, v);
+    this.lighting.draw(ctx, v, this.time, this.player, this.combat, this.entities.list, sewer);
+    this.lighting.drawBloom(ctx, v, this.time, sewer);
+    if (!sewer) this.ambience.drawMotes(ctx, v, this.lighting.litLamps(), this.lighting.day(this.time).lamps, this.time);
     this.particles.draw(ctx, v);
     this.effects.drawShots(ctx, v, this.combat);
     this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);
     this.effects.drawScanners(ctx, v, this.ai.scanners.list, alpha, this.law.now);
     this.aim.drawSwings(ctx, v, this.combat);
-    const sewer = this.level === 'sewer';
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);
     this.particles.drawOver(ctx, v, this.combat);
     this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);
@@ -780,6 +851,7 @@ export class Game {
       ctx.fillStyle = this.vignette;
       ctx.fillRect(0, 0, v.width, v.height);
     }
+    this.ambience.drawGrain(ctx, v);
     this.drawCondition(v, dpr);
     this.effects.drawAlert(ctx, v, this.war.code, this.law.now, this.player);
     if (!sewer) this.effects.drawFrontMarkers(ctx, v, this.war, this.player, dpr, this.law.now);

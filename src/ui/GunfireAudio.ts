@@ -23,6 +23,10 @@ export class GunfireAudio {
   private budget = AUDIO.maxPerSecond;
   private budgetT = 0;
   muted = false;
+  /** Фон: громкость ветра и накопитель щелчков треска огня. */
+  private windGain: GainNode | null = null;
+  private crackleAcc = 0;
+  private ambientT = 0;
 
   constructor() {
     try {
@@ -149,6 +153,65 @@ export class GunfireAudio {
       else if (f.kind === 'wall' && Math.random() < AUDIO.ricochet.chance) this.ricochet(ctx, d, pan);
       if (f.kind === 'stab') this.swish(ctx, d, pan);
       if (f.kind === 'whiz' && f.target === listener) this.whiz(ctx, pan, f.power);
+    }
+  }
+
+  /**
+   * Фон улицы: ветер с порывами (ночью слышнее, в канализации глуше) и треск огня, если рядом бочка
+   * или костёр. fires — где горит, dark — насколько темно (0..1).
+   */
+  ambient(listener: Character, fires: readonly { x: number; y: number }[], dark: number, sewer: boolean, dt: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || !this.noise || ctx.state !== 'running') return;
+    const A = AUDIO.ambient;
+    this.ambientT += dt;
+    if (!this.windGain) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      src.playbackRate.value = 0.5;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = A.wind.cutoff;
+      this.windGain = ctx.createGain();
+      this.windGain.gain.value = 0;
+      src.connect(lp).connect(this.windGain).connect(this.master);
+      src.start();
+    }
+    const W = A.wind;
+    const gust = 1 - W.gust * 0.5 * (1 + Math.sin(this.ambientT * W.gustRate) * Math.sin(this.ambientT * W.gustRate * 2.3 + 1));
+    const level = W.gain * (1 + (W.nightMul - 1) * dark) * (sewer ? W.sewerMul : 1) * gust * (this.muted ? 0 : 1);
+    this.windGain.gain.setTargetAtTime(level, ctx.currentTime, 0.5);
+    if (this.muted) return;
+    // Треск огня: ближайший костёр или бочка.
+    const C = A.crackle;
+    let best: number = C.range;
+    let bx = 0;
+    for (const f of fires) {
+      const d = Math.hypot(f.x - listener.x, f.y - listener.y);
+      if (d < best) {
+        best = d;
+        bx = f.x;
+      }
+    }
+    if (best >= C.range) return;
+    const k = 1 - best / C.range;
+    this.crackleAcc += C.rate * k * dt;
+    while (this.crackleAcc >= 1) {
+      this.crackleAcc -= 1;
+      if (Math.random() < 0.35) continue;
+      const out = this.chain(ctx, best, (bx - listener.x) / 900, C.gain * (0.4 + Math.random() * 0.8), 0.05);
+      if (!out) continue;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.Q.value = 1.5;
+      bp.frequency.value = C.freq[0] + Math.random() * (C.freq[1] - C.freq[0]);
+      const g = ctx.createGain();
+      const dur = C.dur[0] + Math.random() * (C.dur[1] - C.dur[0]);
+      const t0 = out.t0 + Math.random() * 0.1;
+      g.gain.setValueAtTime(1, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      this.noiseSrc(ctx, t0, dur + 0.01).connect(bp).connect(g).connect(out.out);
     }
   }
 

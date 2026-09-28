@@ -171,6 +171,15 @@ export class MapRenderer {
     }
   }
 
+  /** Центры труб в координатах мира (дымок из труб — world/Ambience). */
+  chimneyPoints(): { x: number; y: number }[] {
+    const out: { x: number; y: number }[] = [];
+    const w = this.map.width;
+    const ts = this.map.tileSize;
+    for (let i = 0; i < this.chimney.length; i++) if (this.chimney[i]) out.push({ x: ((i % w) + 0.5) * ts, y: (Math.floor(i / w) + 0.5) * ts });
+    return out;
+  }
+
   /** Трубы: на каждом крупном доме одна, на скате, не на краю. */
   private placeChimneys(seed: number): void {
     const w = this.map.width;
