@@ -74,8 +74,9 @@ describe('генератор переулочного города', () => {
         const map = get(seed);
         const s = map.stats!;
         expect(validateMap(map)).toEqual([]);
-        // Улицы-артерии, общежития и сады особняков — открытое пространство.
-        expect(s.buildingRatio).toBeGreaterThanOrEqual(0.6);
+        // Улицы-артерии, общежития, сады особняков, широкий проспект и комнаты домов вдоль него —
+        // открытое пространство.
+        expect(s.buildingRatio).toBeGreaterThanOrEqual(0.5);
         expect(s.buildingRatio).toBeLessThanOrEqual(0.78);
         expect(s.longestAlleyRun * map.tileSize).toBeLessThanOrEqual(400);
       });

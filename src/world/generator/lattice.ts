@@ -39,6 +39,9 @@ export interface LEdge {
   district: District;
   /** Ребро улицы-артерии (ширина задана заранее, асфальт). */
   artery?: boolean;
+  /** Пределы излома: переулок от проспекта пересекает ряд домов прямо, излом — за ним. */
+  kinkMin?: number;
+  kinkMax?: number;
 }
 
 export class Lattice {
@@ -222,6 +225,8 @@ export function finalizeEdges(lat: Lattice, rng: Rng): void {
     let lo = Math.max(a + 1, b + w - maxStraight);
     let hi = Math.min(b - w, a + maxStraight - w);
     if (prev && prev.carved) hi = Math.min(hi, prev.kink + maxStraight - Math.max(w, prev.width));
+    if (e.kinkMin !== undefined) lo = Math.max(lo, Math.min(e.kinkMin, b - w));
+    if (e.kinkMax !== undefined) hi = Math.min(hi, Math.max(e.kinkMax, a + 1));
     if (hi < lo) hi = lo;
     // Створы переулков соседних узлов (поперёк ребра), в которые нельзя ставить перемычку.
     const forbidden: [number, number][] = [];

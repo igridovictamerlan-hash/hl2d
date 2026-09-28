@@ -14,7 +14,7 @@ import { Gunner } from '../Gunner';
 import { HatchTravel } from '../HatchTravel';
 import { faceMovement, faceTowards } from '../facing';
 import { randomAnchorInZone } from '../destinations';
-import { COMBAT, MINE } from '../../config/combat';
+import { COMBAT, GRENADE, MINE } from '../../config/combat';
 import { CHARACTER } from '../../config/entities';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
 
@@ -60,6 +60,8 @@ export class UndergroundBrain implements Brain {
   depotAct: DepotAct | null = null;
   private jailWait = 0;
   private work = 0;
+  /** Засада: граната в колонну по сигналу уже брошена. */
+  private volley = false;
   private idle = 0;
   private repath = 0;
   private outingWait = 0;
@@ -143,6 +145,7 @@ export class UndergroundBrain implements Brain {
   /** Засада на конвой: к своему месту (у ведущего — место засады, у остальных — рядом). */
   startAmbush(self: Character, ctx: AiContext, spot: Vec2): void {
     this.mode = 'ambush';
+    this.volley = false;
     this.spot = spot;
     this.work = 0;
     this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
@@ -401,6 +404,23 @@ export class UndergroundBrain implements Brain {
       return;
     }
     if (g.attack) {
+      // Первым делом — граната в колонну (в самую гущу экипажа, если добросить).
+      if (!this.volley && v && live) {
+        this.volley = true;
+        const crew = v.crew.filter((c) => c.alive && !c.downed);
+        let best: Character | null = null;
+        let bestN = 0;
+        for (const c of crew) {
+          const d = Math.hypot(c.x - self.x, c.y - self.y);
+          if (d > GRENADE.maxThrow || d < GRENADE.ai.minDist || !canSeeCircle(ctx.map, self.x, self.y, c.x, c.y, c.radius)) continue;
+          const n = crew.filter((o) => Math.hypot(o.x - c.x, o.y - c.y) < GRENADE.radius).length;
+          if (n > bestN) {
+            bestN = n;
+            best = c;
+          }
+        }
+        if (best && self.inventory.has('grenade')) ctx.combat.throwGrenade(self, best.x, best.y, 'grenade');
+      }
       // Ящик, брошенный конвоем, рядом — забрать (под огнём — только если близко).
       const crate = city ? this.nearestLoose(self, ctx, A.grab) : null;
       if (crate && (!fighting || Math.hypot(crate.x - self.x, crate.y - self.y) < 60)) {
@@ -414,8 +434,16 @@ export class UndergroundBrain implements Brain {
         }
         return;
       }
-      if (fighting && this.gunner.target) {
+      // Цель в дальности засады — стоять и стрелять; дальше — подтянуться (отставшие не стоят без дела).
+      const t = this.gunner.target;
+      if (fighting && t && Math.hypot(t.x - self.x, t.y - self.y) <= A.engage) {
         this.mover.stop();
+        return;
+      }
+      if (fighting && t && (this.repath <= 0 || this.mover.status === 'idle')) {
+        this.repath = 1;
+        const a = ctx.nav.nearestWalkable(t.x, t.y, 3);
+        if (a >= 0) this.mover.goTo(self, ctx, a);
         return;
       }
       if (ctx.insurgency.now - g.firedAt > A.fight || !live) this.goHome(self, ctx);

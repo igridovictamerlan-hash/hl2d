@@ -72,15 +72,49 @@ export const GENERATOR = {
     restricted: { narrowChance: 0.2, loopChance: 0.16 },
   },
 
+  /**
+   * Проспекты — улицы старого города (как Арбат): пешеходные, ширина width, вдоль них сплошной ряд
+   * домов (facades). Ось плавно изгибается: bends полуволн синусоиды с амплитудой amp по всей длине
+   * (3–4 изгиба, прострела от КПП до КПП нет), от концов (КПП) выходит на изгиб за ease тайлов.
+   * Проспект — череда участков длиной segmentLength (участок ≈ фасад дома): ось на стыке сдвигается
+   * не больше maxStep, края — ещё на ±edgeJitter каждый (дома стоят не по линейке).
+   */
   avenue: {
     /** Вторая (вертикальная) магистраль появляется с этой вероятностью. */
     secondChance: 0.5,
-    width: [7, 8] as const,
-    segmentLength: [18, 28] as const,
-    jog: [2, 4] as const,
-    maxDrift: 5,
+    width: [10, 10] as const,
+    segmentLength: [6, 11] as const,
+    maxStep: 1,
+    amp: [3, 4] as const,
+    bends: [3, 4] as const,
+    ease: 30,
+    edgeJitter: 1,
     /** Длина прямого участка магистрали около площади (под площадь). */
     plazaSegment: 24,
+  },
+
+  /**
+   * Дома вдоль проспектов, площади и улиц-артерий — сплошной ряд, у каждого дома свой фасад и дверь
+   * на улицу (width — вдоль улицы со своими стенами, depth — от фасада до задней стены; минимум
+   * minWidth × minDepth, иначе кусок застройки отходит соседу). Переулки, выходящие на проспект, —
+   * промежутки между домами. Позади — backGap тайлов глухой застройки до переулка решётки (0 — дом
+   * задней стеной выходит прямо в переулок, как в старом городе).
+   * Столовая — напротив площади раздачи (canteen: ширина, глубина; столы tableLen с проходами).
+   * На артериях — только жилые дома поменьше (artery). decor — середина проспекта: ларьки 3×2 и
+   * клумбы 2×2 через every тайлов, не ближе clear к устью переулка и endClear к КПП.
+   */
+  facades: {
+    width: [6, 11] as const,
+    depth: [7, 10] as const,
+    minWidth: 5,
+    minDepth: 5,
+    backGap: 0,
+    canteen: { width: [16, 22] as const, depth: [10, 11] as const, tableLen: [4, 6] as const },
+    /** Лавка: ряд прилавка на такой глубине от фасада (ряды покупателей перед ним). */
+    counterRow: 2,
+    cafes: 2,
+    artery: { width: [5, 9] as const, depth: [6, 8] as const },
+    decor: { every: [12, 16] as const, clear: 1, endClear: 24, kioskShare: 0.5 },
   },
 
   plaza: { size: [16, 18] as const },
@@ -118,7 +152,7 @@ export const GENERATOR = {
    * полосы apron перед крыльцом до улицы от проспекта — не длиннее maxLen тайлов; место годится,
    * если до такой улицы не дальше reach; за каждый тайл проезда место «ближе» к проспекту на penalty.
    */
-  arsenal: { tries: 900, road: { width: 4, apron: 3, maxLen: 80, reach: 60, penalty: 0.6 } },
+  arsenal: { tries: 2500, road: { width: 4, apron: 3, maxLen: 80, reach: 60, penalty: 0.6 } },
 
   restricted: {
     size: [38, 44] as const,
@@ -149,7 +183,7 @@ export const GENERATOR = {
   },
 
   validation: {
-    buildingRatio: [0.55, 0.78] as const,
+    buildingRatio: [0.5, 0.78] as const,
     attempts: 32,
   },
 } as const;

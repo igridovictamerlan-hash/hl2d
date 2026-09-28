@@ -18,7 +18,8 @@ export type ZoneKind =
   | 'wasteland'
   | 'rebel_camp'
   | 'cwu_hq'
-  | 'arsenal';
+  | 'arsenal'
+  | 'canteen';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -103,7 +104,20 @@ export type PoiType =
   | 'arsenal_mast'
   | 'arsenal_issue_room'
   | 'arsenal_breakroom'
-  | 'arsenal_vault_room';
+  | 'arsenal_vault_room'
+  | 'facade'
+  | 'shop_front'
+  | 'vendor_spot'
+  | 'canteen'
+  | 'canteen_table'
+  | 'canteen_cook'
+  | 'canteen_serve'
+  | 'cafe_table'
+  | 'kiosk'
+  | 'planter';
+
+/** Чем занят дом в ряду вдоль улицы (POI facade). */
+export type FacadeUse = 'house' | 'shop' | 'cafe' | 'canteen';
 
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)
@@ -120,6 +134,10 @@ export interface Poi {
   h?: number;
   /** Жилая комната: в общежитии или в особняке (id — номер здания), иначе — отдельный дом. */
   kind?: 'dorm' | 'villa';
+  /** Дом в ряду вдоль улицы и ларёк: куда смотрит фасад (окно), чем занят, какая лавка (ARBAT). */
+  face?: 'N' | 'S' | 'E' | 'W';
+  use?: FacadeUse;
+  sub?: string;
 }
 
 export interface Rect {

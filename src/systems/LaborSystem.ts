@@ -329,7 +329,8 @@ export class LaborSystem {
         p.worker = null;
       }
     }
-    for (const c of this.packing.keys()) if (!c.alive || !this.factory || Math.hypot(c.x - this.factory.x, c.y - this.factory.y) > 48) this.packing.delete(c);
+    // Отошёл от своего конвейера (любого из цеха) — сборка коробки сбрасывается.
+    for (const c of this.packing.keys()) if (!c.alive || !this.stations.some((st) => Math.hypot(c.x - st.x, c.y - st.y) <= 48)) this.packing.delete(c);
     // Курьер погиб или задержан с коробкой — коробка пропала.
   }
 

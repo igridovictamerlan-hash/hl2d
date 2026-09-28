@@ -176,7 +176,8 @@ describe('место преступления', () => {
     expect(scene.investigator?.rank).toBe(CP_UNIT.su1);
     expect([CP_UNIT.ofc, CP_UNIT.insp]).toContain(scene.officer?.rank);
     // Тело не обыскать не-сотруднику; житель внутри ленты выталкивается.
-    const cit = sim.entities.list.find((c) => c.faction === 'citizen' && !c.isPlayer && c.alive)!;
+    // Житель, которого сейчас никто не проверяет (задержанных и остановленных лента не касается).
+    const cit = sim.entities.list.find((c) => c.faction === 'citizen' && !c.isPlayer && c.alive && c.law.phase === 'none')!;
     expect(sim.war.scenes.sealed(corpse, cit)).toBe(true);
     expect(sim.war.scenes.sealed(corpse, scene.officer)).toBe(false);
     cit.x = cit.prevX = corpse.x + 10;
@@ -207,7 +208,11 @@ describe('место преступления', () => {
     sim.combat.damage(victim, 9999, null);
     // Несколько бандитов вокруг: каждый решает сам (с шансом CRIME.loot.chance), кто-то да обберёт.
     const bandits = [0, 1, 2].map(() => spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 6, 10))!);
-    run(sim, 90, () => sim.crime.stats.corpseLoots > 0);
+    // Тело могут заметить ГО у площади — тогда лента; здесь проверяем неоцеплённое (ленту снимаем).
+    for (let i = 0; i < 90 * 60 && sim.crime.stats.corpseLoots === 0; i++) {
+      sim.war.scenes.closeAll();
+      sim.step();
+    }
     expect(sim.crime.stats.corpseLoots).toBeGreaterThan(0);
     expect(bandits.some((b) => b.inventory.has('usp'))).toBe(true);
   });

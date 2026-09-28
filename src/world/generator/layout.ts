@@ -14,12 +14,14 @@ export interface AvenueSeg {
   /** Диапазон вдоль магистрали (включительно). */
   from: number;
   to: number;
-  /** Поперечная координата первого ряда асфальта. */
+  /** Поперечная координата первого ряда асфальта и ширина асфальта на этом участке. */
   offset: number;
+  width: number;
 }
 
 export interface Avenue {
   horizontal: boolean;
+  /** Номинальная ширина (участки — width ± edgeJitter). */
   width: number;
   center: number;
   segs: AvenueSeg[];
@@ -54,17 +56,22 @@ export interface CityLayout {
   quarterSeeds: Vec2[];
 }
 
+/** Участок магистрали, на который приходится координата pos вдоль неё (за концами — крайний). */
+export function avenueSegAt(av: Avenue, pos: number): AvenueSeg {
+  for (const s of av.segs) if (pos >= s.from && pos <= s.to) return s;
+  return pos < av.segs[0].from ? av.segs[0] : av.segs[av.segs.length - 1];
+}
+
 export function avenueOffsetAt(av: Avenue, pos: number): number {
-  for (const s of av.segs) if (pos >= s.from && pos <= s.to) return s.offset;
-  return pos < av.segs[0].from ? av.segs[0].offset : av.segs[av.segs.length - 1].offset;
+  return avenueSegAt(av, pos).offset;
 }
 
 /** Прямоугольники асфальта магистрали. */
 export function avenueRects(av: Avenue): Rect[] {
   return av.segs.map((s) =>
     av.horizontal
-      ? { x: s.from, y: s.offset, w: s.to - s.from + 1, h: av.width }
-      : { x: s.offset, y: s.from, w: av.width, h: s.to - s.from + 1 },
+      ? { x: s.from, y: s.offset, w: s.to - s.from + 1, h: s.width }
+      : { x: s.offset, y: s.from, w: s.width, h: s.to - s.from + 1 },
   );
 }
 
@@ -109,44 +116,54 @@ export function genLines(
   return { lines, fixedIndex };
 }
 
+/**
+ * Участки проспекта старого города: ось center плавно изгибается (bends полуволн синусоиды с
+ * амплитудой amp, от концов — с разгоном на ease тайлов), участок длиной segmentLength ≈ фасад дома;
+ * ось на стыке сдвигается не больше maxStep, края — каждый на ±edgeJitter. long — прямой участок
+ * без сдвигов под площадь.
+ */
 function planAvenueSegs(
   rng: Rng,
   from: number,
   to: number,
-  base: number,
+  center: number,
+  width: number,
   long?: { center: number; length: number },
 ): AvenueSeg[] {
   const cfg = GENERATOR.avenue;
   const segs: AvenueSeg[] = [];
-  let offset = base;
-  let sign = rng.chance(0.5) ? 1 : -1;
-  const nextOffset = () => {
-    const j = rng.int(cfg.jog[0], cfg.jog[1]);
-    let o = offset + sign * j;
-    if (Math.abs(o - base) > cfg.maxDrift) {
-      sign = -sign;
-      o = offset + sign * j;
-    }
-    if (rng.chance(0.6)) sign = -sign;
-    return clamp(o, base - cfg.maxDrift, base + cfg.maxDrift);
+  const amp = rng.int(cfg.amp[0], cfg.amp[1]);
+  const bends = rng.int(cfg.bends[0], cfg.bends[1]);
+  const phase = rng.chance(0.5) ? 0 : Math.PI;
+  const len = Math.max(1, to - from);
+  const half = Math.floor(width / 2);
+  // Ось: синусоида с плавным выходом от концов (у КПП ось совпадает с center).
+  const target = (pos: number) => {
+    const t = (pos - from) / len;
+    const ease = Math.min(1, (pos - from) / cfg.ease, (to - pos) / cfg.ease);
+    return center + amp * Math.max(0, ease) * Math.sin(phase + Math.PI * bends * t);
+  };
+  let c = center;
+  const push = (a: number, b: number, straight: boolean) => {
+    c = clamp(Math.round(target((a + b) / 2)), c - cfg.maxStep, c + cfg.maxStep);
+    const jn = straight ? 0 : rng.int(-cfg.edgeJitter, cfg.edgeJitter);
+    const js = straight ? 0 : rng.int(-cfg.edgeJitter, cfg.edgeJitter);
+    segs.push({ from: a, to: b, offset: c - half + jn, width: width - jn + js });
   };
   const fill = (a: number, b: number) => {
     let pos = a;
     while (pos <= b) {
-      let len = rng.int(cfg.segmentLength[0], cfg.segmentLength[1]);
-      if (b - (pos + len) + 1 < cfg.segmentLength[0] / 2) len = b - pos + 1;
-      const end = Math.min(b, pos + len - 1);
-      segs.push({ from: pos, to: end, offset });
-      offset = nextOffset();
-      pos = end + 1;
+      let n = rng.int(cfg.segmentLength[0], cfg.segmentLength[1]);
+      if (b - (pos + n) + 1 < cfg.segmentLength[0]) n = b - pos + 1;
+      push(pos, Math.min(b, pos + n - 1), false);
+      pos += n;
     }
   };
   if (long) {
     const ls = long.center - Math.floor(long.length / 2);
     const le = ls + long.length - 1;
     if (ls - 1 >= from) fill(from, ls - 1);
-    segs.push({ from: ls, to: le, offset });
-    offset = nextOffset();
+    push(ls, le, true);
     if (le + 1 <= to) fill(le + 1, to);
   } else {
     fill(from, to);
@@ -159,25 +176,39 @@ function makeAvenue(horizontal: boolean, width: number, center: number, segs: Av
   let maxO = -Infinity;
   for (const s of segs) {
     minO = Math.min(minO, s.offset);
-    maxO = Math.max(maxO, s.offset);
+    maxO = Math.max(maxO, s.offset + s.width);
   }
   const from = segs[0].from;
   const to = segs[segs.length - 1].to;
   const band = horizontal
-    ? { x: from, y: minO, w: to - from + 1, h: maxO - minO + width }
-    : { x: minO, y: from, w: maxO - minO + width, h: to - from + 1 };
+    ? { x: from, y: minO, w: to - from + 1, h: maxO - minO }
+    : { x: minO, y: from, w: maxO - minO, h: to - from + 1 };
   return { horizontal, width, center, segs, band };
 }
 
-/** Отступы соседних линий решётки от линии магистрали (чтобы переулки не липли к асфальту). */
+/** Насколько проспект отходит от оси (изгиб + неровность краёв). */
+export function avenueReach(): number {
+  return GENERATOR.avenue.amp[1] + GENERATOR.avenue.edgeJitter;
+}
+
+/** Полоса домов вдоль проспекта (фасад + глухая застройка за ним) — там не прокладываются переулки. */
+export function facadeReach(): number {
+  const F = GENERATOR.facades;
+  return Math.max(F.depth[1], F.canteen.depth[1]) + F.backGap;
+}
+
+/**
+ * Отступы соседних линий решётки от линии магистрали: между асфальтом и переулком — ряд домов
+ * (facadeReach), переулки к проспекту пересекают его прямо (изломы — дальше, см. finalizeEdges).
+ */
 function avenueSpacing(width: number): { before: number; after: number } {
   const L = GENERATOR.lattice;
-  const drift = GENERATOR.avenue.maxDrift;
-  const gap = 3;
+  const gap = 1;
   const half = Math.floor(width / 2);
+  const side = avenueReach() + facadeReach() + L.jitter + gap;
   return {
-    before: half + drift + L.jitter + GENERATOR.alley.mainWidth + gap,
-    after: width - half + drift + gap + L.jitter,
+    before: half + side + GENERATOR.alley.mainWidth,
+    after: width - half + side,
   };
 }
 
@@ -219,7 +250,7 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
 
   // Площадь примыкает к горизонтальной магистрали на длинном прямом участке.
   const plazaSize = rng.int(G.plaza.size[0], G.plaza.size[1]);
-  const vHalf = Math.floor(vWidth / 2) + G.avenue.maxDrift;
+  const vHalf = Math.floor(vWidth / 2) + avenueReach() + facadeReach();
   let longCenter: number;
   if (hasV) {
     const off = vHalf + Math.ceil(plazaSize / 2) + 5;
@@ -227,13 +258,13 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   } else {
     longCenter = Math.round(W / 2) + rng.int(-10, 10);
   }
-  const hSegs = planAvenueSegs(rng, border, W - border - 1, hCenter - Math.floor(hWidth / 2), {
+  const hSegs = planAvenueSegs(rng, border, W - border - 1, hCenter, hWidth, {
     center: longCenter,
     length: G.avenue.plazaSegment,
   });
   const hAvenue = makeAvenue(true, hWidth, hCenter, hSegs);
   const vAvenue = hasV
-    ? makeAvenue(false, vWidth, vCenter, planAvenueSegs(rng, border, H - border - 1, vCenter - Math.floor(vWidth / 2)))
+    ? makeAvenue(false, vWidth, vCenter, planAvenueSegs(rng, border, H - border - 1, vCenter, vWidth))
     : null;
 
   // Запретная зона и промзона.
@@ -261,7 +292,7 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   const longSeg = hSegs.find((s) => s.from <= longCenter && s.to >= longCenter)!;
   const plazaSide: 'N' | 'S' = rng.chance(0.5) ? 'N' : 'S';
   const px = clamp(longCenter - Math.floor(plazaSize / 2) + rng.int(-2, 2), longSeg.from, longSeg.to - plazaSize + 1);
-  const py = plazaSide === 'N' ? longSeg.offset - plazaSize : longSeg.offset + hWidth;
+  const py = plazaSide === 'N' ? longSeg.offset - plazaSize : longSeg.offset + longSeg.width;
   const plaza: Rect = { x: px, y: py, w: plazaSize, h: plazaSize };
 
   // Пограничные КПП: коридор КПП продолжает главный проспект у западной и восточной стены.
@@ -270,7 +301,8 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   const checkpoints = [false, true].map((mirror) => {
     const x = mirror ? W - border - cw : border;
     const apronX = mirror ? x : x + cw - 1;
-    const mid = avenueOffsetAt(hAvenue, apronX) + Math.floor(hWidth / 2);
+    const seg = avenueSegAt(hAvenue, apronX);
+    const mid = seg.offset + Math.floor(seg.width / 2);
     // Ось КПП (ворота, шорт) совпадает с серединой проспекта.
     return { rect: { x, y: mid - CHECKPOINT_AXIS_ROW, w: cw, h: ch }, mirror };
   });
@@ -290,9 +322,9 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
     let top = Infinity;
     let bottom = -Infinity;
     for (let cx = x; cx < x + nw; cx++) {
-      const o = avenueOffsetAt(hAvenue, cx);
-      top = Math.min(top, o);
-      bottom = Math.max(bottom, o + hWidth);
+      const sg = avenueSegAt(hAvenue, cx);
+      top = Math.min(top, sg.offset);
+      bottom = Math.max(bottom, sg.offset + sg.width);
     }
     const y = side === 'N' ? top - nh : bottom;
     candidates.push({ rect: { x, y, w: nw, h: nh }, rot: side === 'N' ? 0 : 180 });

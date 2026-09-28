@@ -408,6 +408,7 @@ export class InsurgencySystem {
       if (!m.inventory.has(A.weapon)) m.inventory.add(A.weapon, 1);
       const ammo = WEAPONS[A.weapon].ammo;
       if (ammo && m.inventory.count(AMMO_ITEM[ammo]) < A.ammo) m.inventory.add(AMMO_ITEM[ammo], A.ammo - m.inventory.count(AMMO_ITEM[ammo]));
+      if (m.inventory.count('grenade') < A.volley) m.inventory.add('grenade', A.volley - m.inventory.count('grenade'));
       (m.brain as UndergroundBrain).startAmbush(m, ctx, m === team[0] ? spot : this.groupSpot(spot, PARTISANS.group.coverRing));
     }
     const where = ctx.map.zoneAtWorld(spot.x, spot.y)?.name ?? 'город';

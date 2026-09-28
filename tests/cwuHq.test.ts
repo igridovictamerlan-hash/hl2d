@@ -4,6 +4,7 @@ import { generateCity } from '../src/world/generator/CityGenerator';
 import { spawnPopulation } from '../src/systems/Population';
 import { CWU_HQ } from '../src/config/cwuHq';
 import { createCharacter } from '../src/entities/factory';
+import { facadeReach } from '../src/world/generator/layout';
 import { furnishMap } from '../src/world/furnish';
 
 describe('штаб ГСР', () => {
@@ -17,7 +18,7 @@ describe('штаб ГСР', () => {
       }
       expect(map.poisOf('ration_line')).toHaveLength(3);
       expect(map.zones.some((z) => z.kind === 'cwu_hq')).toBe(true);
-      // До главного проспекта — рукой подать.
+      // До главного проспекта — рукой подать (за рядом домов вдоль него).
       let best = Infinity;
       for (let y = hq.y - 40; y < hq.y + hq.h! + 40; y++) {
         for (let x = hq.x - 40; x < hq.x + hq.w! + 40; x++) {
@@ -26,7 +27,7 @@ describe('штаб ГСР', () => {
           best = Math.min(best, Math.max(0, x < hq.x ? hq.x - x : x - hq.x - hq.w! + 1, y < hq.y ? hq.y - y : y - hq.y - hq.h! + 1));
         }
       }
-      expect(best, `сид ${seed}`).toBeLessThanOrEqual(16);
+      expect(best, `сид ${seed}`).toBeLessThanOrEqual(16 + facadeReach());
       // Мебель: столы столовой, стол главы и стойка найма, диван в комнате отдыха.
       const inHq = furnishMap(map).filter((f) => f.x >= hq.x * 16 && f.y >= hq.y * 16 && f.x < (hq.x + hq.w!) * 16 && f.y < (hq.y + hq.h!) * 16);
       expect(inHq.filter((f) => f.kind === 'table').length).toBeGreaterThanOrEqual(2);

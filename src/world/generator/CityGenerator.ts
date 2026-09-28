@@ -8,7 +8,8 @@ import { GameMap, type Poi, type Zone, type ZoneKind } from '../GameMap';
 import { ensureConnectivity } from '../connectivity';
 import { buildingRatio, longestAlleyRun, type MapStats } from '../mapStats';
 import { GenGrid } from './GenGrid';
-import { planLayout, avenueOffsetAt, avenueRects } from './layout';
+import { planLayout, avenueOffsetAt, avenueRects, facadeReach } from './layout';
+import { avenueFrontages, arteryFrontages, buildFacades, constrainAvenueLanes, fillForecourt, placeAvenueDecor, rectFrontages } from './arbat';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked, carveAccessRoad } from './stamps';
 import { addHomes } from './homes';
@@ -80,6 +81,7 @@ export function validateMap(map: GameMap): string[] {
     ['arsenal', 1], ['arsenal_desk', 1], ['arsenal_window', 2], ['arsenal_ledger', 1], ['arsenal_drop', 8], ['arsenal_beacon', 1],
     ['arsenal_post', 4], ['arsenal_bench', 1], ['arsenal_pad', 1], ['arsenal_hall', 1], ['arsenal_issue', 4], ['arsenal_repair', 1],
     ['arsenal_breakroom', 1], ['arsenal_issue_room', 1], ['arsenal_ammo', 40], ['arsenal_grenades', 12], ['arsenal_rack', 20],
+    ['canteen', 1], ['canteen_table', 2], ['kiosk', 2], ['facade', 40], ['vendor_spot', 4],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   return out;
@@ -90,7 +92,7 @@ const ZONE_CHAR_POOL = '0123456789ijklmnopqrstuvwxyz!$%&*+-/;<=>?@^_~|';
 
 const shrink = (r: Rect, d: number): Rect => ({ x: r.x + d, y: r.y + d, w: r.w - 2 * d, h: r.h - 2 * d });
 
-function generateAttempt(seed: number, attempt: number): GameMap {
+export function generateAttempt(seed: number, attempt: number): GameMap {
   const t0 = performance.now();
   const G = GENERATOR;
   const W = WORLD.widthTiles;
@@ -122,8 +124,14 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     industrial: layout.industrial,
   });
   // Улицы-артерии от проспекта и места под общежития и особняки (до лабиринта: он их обходит).
-  const streetBlocked = [layout.restricted, layout.industrial, layout.plaza, layout.nexus, layout.hAvenue.band, ...layout.checkpoints.map((c) => c.rect)];
-  if (layout.vAvenue) streetBlocked.push(layout.vAvenue.band);
+  // Проспект — вместе с рядами домов по сторонам.
+  const R = facadeReach();
+  const hb = layout.hAvenue.band;
+  const streetBlocked = [layout.restricted, layout.industrial, layout.plaza, layout.nexus, { x: hb.x, y: hb.y - R, w: hb.w, h: hb.h + 2 * R }, ...layout.checkpoints.map((c) => c.rect)];
+  if (layout.vAvenue) {
+    const vb = layout.vAvenue.band;
+    streetBlocked.push({ x: vb.x - R, y: vb.y, w: vb.w + 2 * R, h: vb.h });
+  }
   const streets = planStreets(lat, rng.fork(11), layout.hLine, { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H);
   const starts: number[] = [];
   lat.nodes.forEach((n, k) => n.onAvenue && starts.push(k));
@@ -146,6 +154,9 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   }
   growMaze(lat, rng.fork(3), starts);
   addLoops(lat, rng.fork(4));
+  // Переулки от проспекта пересекают ряд домов прямо — излом за ним.
+  constrainAvenueLanes(lat, layout.hAvenue, layout.hLine);
+  if (layout.vAvenue) constrainAvenueLanes(lat, layout.vAvenue, layout.vLine);
   finalizeEdges(lat, rng.fork(5));
 
   // 3. Вырезание.
@@ -231,6 +242,8 @@ function generateAttempt(seed: number, attempt: number): GameMap {
 
   const nexusRows = rotateTemplate(NEXUS_TEMPLATE, layout.nexusRot);
   const nexus = stampTemplate(g, nexusRows, layout.nexus.x, layout.nexus.y, (ch) => (ch === 'c' || ch === 'C' || ch === 'D' ? zCells : zNexus), pois);
+  // Проспект изгибается — между фасадом Нексуса и асфальтом площадка, а не обрезки застройки.
+  fillForecourt(g, layout.hAvenue, layout.nexus, zHAv);
   for (const exit of nexus.exits) {
     const isGate = exit.tiles.some((t) => g.get(t.x, t.y) === T.GATE);
     if (carveConnectorChecked(g, exit, G.connectorMax)) {
@@ -335,9 +348,27 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     pois.push({ type: 'outlands_exit', x: cp.rect.x + Math.round(sx / n), y: cp.rect.y + Math.round(sy / n) });
   });
 
-  // Магазин ГСР неподалёку от площади.
+  // Улицы старого города: ряды домов вдоль проспектов, площади и артерий; на главном проспекте и
+  // площади — лавки, кафе и общая столовая; посередине проспекта — ларьки и клумбы.
   const pc = pois.find((p) => p.type === 'plaza_center')!;
-  stampShop(g, rng.fork(9), pc.x, pc.y, zShop, pois);
+  const frontages = [
+    ...avenueFrontages(layout.hAvenue, true),
+    ...rectFrontages(layout.plaza, 'plaza', true, layout.plazaSide === 'N' ? 'S' : 'N'),
+    ...(layout.vAvenue ? avenueFrontages(layout.vAvenue, false) : []),
+    ...arteryRects.flatMap((rects, k) => arteryFrontages(rects, streets.arteries[k].width)),
+  ];
+  buildFacades(g, rng.fork(12), {
+    frontages,
+    plazaCenter: pc,
+    addZone: (kind, name) => (kind === 'shop' && name === ZONE_NAMES.shop ? zShop : addZone(kind, name, null)),
+    pois,
+  });
+  const decor = rng.fork(13);
+  const cps = layout.checkpoints.map((c) => c.rect);
+  const kiosks = placeAvenueDecor(g, decor, layout.hAvenue, pois, 0, Math.min(...cps.map((r) => r.x + r.w)), Math.max(...cps.map((r) => r.x)) - 1);
+  if (layout.vAvenue) placeAvenueDecor(g, decor, layout.vAvenue, pois, kiosks);
+  // Магазин ГСР не встал в ряд домов — комната в застройке неподалёку от площади.
+  if (!pois.some((p) => p.type === 'shop_counter')) stampShop(g, rng.fork(9), pc.x, pc.y, zShop, pois);
 
   // 5. Детали застройки.
   const zoneKindAt = (x: number, y: number) => zones[g.zones[y * W + x]]?.kind;

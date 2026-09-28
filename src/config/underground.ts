@@ -70,9 +70,11 @@ export const PARTISANS = {
    * забрать (grab px), потом к люку. Ящик патронов — mags магазинов к каждому стволу, гранат — grenades.
    */
   ambush: {
-    size: [2, 3] as const, along: [0.55, 0.8] as const, wait: 150, intercept: 560, engage: 230, fight: 30, grab: 260, mags: 4, grenades: 3,
+    size: [2, 3] as const, along: [0.55, 0.8] as const, wait: 150, intercept: 560, engage: 230, fight: 30, grab: 420, mags: 4, grenades: 3,
     /** Группа собрана — все в huddle px от ведущего (сигнал даёт только ведущий); на засаду из схрона берут weapon и ammo патронов. */
     huddle: 130, weapon: 'ak74' as const, ammo: 90,
+    /** По сигналу каждый сперва бросает гранату в колонну (из схрона — до volley гранат). */
+    volley: 1,
   },
   cacheGrenades: 2,
   /** Подпольщик или спецагент сидит — операция (и миссия агента) «взлом» с этим шансом. */

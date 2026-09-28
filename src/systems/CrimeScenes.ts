@@ -175,12 +175,18 @@ export class CrimeScenes {
         const d = Math.hypot(dx, dy) || 1;
         const edge = s.r + c.radius;
         if (d >= edge) continue;
-        const nx = s.x + (dx / d) * edge;
-        const ny = s.y + (dy / d) * edge;
+        // Прямо от тела к краю ленты; упирается в стену — ближайшее по углу свободное место на краю.
         const ts = this.ctx.map.tileSize;
-        if (this.ctx.map.isSolid(Math.floor(nx / ts), Math.floor(ny / ts))) continue;
-        c.x = nx;
-        c.y = ny;
+        const a0 = Math.atan2(dy, dx);
+        for (let k = 0; k < 16; k++) {
+          const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 8);
+          const nx = s.x + Math.cos(a) * edge;
+          const ny = s.y + Math.sin(a) * edge;
+          if (this.ctx.map.isSolid(Math.floor(nx / ts), Math.floor(ny / ts))) continue;
+          c.x = nx;
+          c.y = ny;
+          break;
+        }
       }
     }
     for (let i = this.list.length - 1; i >= 0; i--) if (this.list[i].closed) this.list.splice(i, 1);
