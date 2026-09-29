@@ -139,6 +139,8 @@ export class Character {
   squadLead: Character | null = null;
   /** Курит (уличная жизнь) — огонёк и дымок у пешки. */
   smoking = false;
+  /** Пишет в блокноте (медик на месте преступления) до этого времени закона — сидит, блокнот в руках. */
+  notepadUntil = 0;
 
   brain: Brain | null = null;
   alive = true;

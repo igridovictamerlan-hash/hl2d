@@ -89,7 +89,11 @@ describe('спецподразделения ГО и огонь', () => {
     const v = createCharacter(sim.entities, sim.ctx.rng, 'citizen', sim.nav.worldX(a), sim.nav.worldY(a));
     sim.combat.kill(v, null);
     const corpse = sim.combat.corpses[sim.combat.corpses.length - 1];
-    run(sim, 90, () => !sim.combat.corpses.includes(corpse));
+    // Тело гражданского у Нексуса оцепляют (место преступления) — здесь проверяем самого крематора.
+    run(sim, 90, () => {
+      sim.war.scenes.closeAll();
+      return !sim.combat.corpses.includes(corpse);
+    });
     expect(sim.combat.corpses.includes(corpse)).toBe(false);
   });
 });

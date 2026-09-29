@@ -888,6 +888,7 @@ export class Game {
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.arsenalView.drawCarried(ctx, v, this.ai.arsenal, alpha);
     this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
+    this.effects.drawNotepads(ctx, v, this.entities.list, this.combat.now, this.law.now);
     this.effects.drawCages(ctx, v, this.law.cells, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     // Дымок из труб, затем свет суток и источников (умножение), свечение ламп и огня, пылинки.

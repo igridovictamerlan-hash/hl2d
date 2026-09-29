@@ -20,7 +20,7 @@ export function updateNpcs(ctx: AiContext, dt: number): void {
     dodgeGrenades(c, ctx);
     const still = c.wantX * c.wantX + c.wantY * c.wantY < CROUCH.npcStill * CROUCH.npcStill;
     // Поднимая раненого — на колене.
-    c.crouch = c.reviving !== null || (still && (c.engagedUntil > now || c.suppress >= 0.3) && c.law.phase === 'none');
+    c.crouch = c.reviving !== null || c.notepadUntil > now || (still && (c.engagedUntil > now || c.suppress >= 0.3) && c.law.phase === 'none');
   }
   ctx.paths.process();
 }

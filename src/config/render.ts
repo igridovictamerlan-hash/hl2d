@@ -168,7 +168,19 @@ export const RENDER = {
     /** Оцепление места преступления: лента (жёлтая с чёрными полосами, толщина и шаг px мира), конусы. */
     /** Растяжка: граната (осколочная / зажигательная), проволока, мигающий огонёк взведённой. */
     mine: { frag: '#4a5238', fire: '#7a2a1c', rim: '#15171a', wire: 'rgba(210,210,200,0.7)', wireLen: 18, light: '#ff3b2e', r: 4.2 },
-    scene: { tape: '#f2d23a', stripe: '#1c1c1c', width: 1.8, dash: 5, cone: '#ff7a1a', coneStripe: '#f4f4f4', coneDark: '#8a3a0a', coneSize: 5 },
+    /**
+     * Оцепление места преступления: лента (цвет, полосы, толщина, шаг полос, крепления у стен) и
+     * переносные барьеры (длина доски, шаг, толщина, полосы, опоры, тень).
+     */
+    scene: {
+      tape: '#f2d23a', stripe: '#1c1c1c', width: 1.8, dash: 5, anchor: '#3a3a3a', anchorSize: 2.6,
+      barrierLen: 20, barrierGap: 22, barrierWidth: 3.2, barrierStripe: 3.4, barrierWhite: '#f1efe8', barrierRed: '#d23a2a',
+      barrierLeg: '#2c2c2e', barrierShadow: 'rgba(0,0,0,0.35)',
+    },
+    /** Простыня на теле (px мира): ткань, складки, тень, пятно крови. */
+    sheet: { w: 34, h: 15, cloth: '#eeeae0', fold: 'rgba(150,145,135,0.55)', shadow: 'rgba(0,0,0,0.3)', stain: 'rgba(150,20,20,0.75)' },
+    /** Блокнот медика (px мира). */
+    notepad: { w: 5, h: 6.5, paper: '#f6f2e6', back: '#5a4630', ink: 'rgba(40,50,90,0.8)', pencil: '#d8a23a' },
     cage: { frame: '#2c2f33', bar: '#5b6068', floor: 'rgba(20,22,26,0.35)', size: 34, step: 5 },
     smoke: { ember: ['#ff9a3a', '#c9542a'] as readonly string[], puff: 'rgba(200,200,200,0.5)' },
     /** Скамейка: доски, спинка у стены, ножки. */

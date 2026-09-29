@@ -1,3 +1,4 @@
+import type { Vec2 } from '../core/math';
 import type { CrimeScene } from '../systems/CrimeScenes';
 import type { Cell } from '../systems/LawSystem';
 import type { View } from '../core/Camera';
@@ -168,6 +169,11 @@ export class EffectsRenderer {
       ctx.fill();
       // Тело — пешка лежит на боку (повёрнута), чуть блеклая.
       const seed = lookSeed(c.name);
+      // Накрытое тело — только простыня.
+      if (c.covered) {
+        this.drawSheet(ctx, x, y, s, seed);
+        continue;
+      }
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(seed % 2 ? Math.PI / 2 : -Math.PI / 2);
@@ -364,6 +370,37 @@ export class EffectsRenderer {
     }
   }
 
+  /** Белая простыня поверх тела: складки, тень по краю, проступившее пятно крови. */
+  private drawSheet(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, seed: number): void {
+    const C = RENDER.effects.sheet;
+    const w = C.w * s;
+    const h = C.h * s;
+    ctx.fillStyle = C.shadow;
+    ctx.beginPath();
+    ctx.ellipse(x + 1.5 * s, y + 2 * s, w / 2 + 1 * s, h / 2 + 1 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = C.cloth;
+    ctx.beginPath();
+    ctx.ellipse(x, y, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Голова и ноги под тканью — бугорки, складки — тонкие тени.
+    ctx.fillStyle = C.fold;
+    const side = seed % 2 ? 1 : -1;
+    ctx.beginPath();
+    ctx.ellipse(x + side * w * 0.36, y, h * 0.34, h * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(x - w * 0.25, y - 0.4 * s, w * 0.4, 0.8 * s);
+    ctx.fillRect(x - w * 0.1, y + h * 0.2, w * 0.3, 0.7 * s);
+    ctx.fillStyle = C.stain;
+    ctx.beginPath();
+    ctx.ellipse(x - side * w * 0.05 + ((seed >> 3) % 5 - 2) * s, y - h * 0.08, 3 * s, 2 * s, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /**
+   * Места преступления: лента поперёк узких проходов от стены до стены (жёлтая с чёрными полосами,
+   * у стен — крепления), на широких улицах — переносные барьеры (бело-красная доска на двух опорах).
+   */
   drawScenes(ctx: CanvasRenderingContext2D, v: View, scenes: readonly CrimeScene[]): void {
     const s = v.scale;
     const C = RENDER.effects.scene;
@@ -372,37 +409,98 @@ export class EffectsRenderer {
       if (sc.closed) continue;
       const cx = (sc.x - v.left) * s;
       const cy = (sc.y - v.top) * s;
-      const R = (sc.r + 10) * s;
+      const R = (sc.r + 24) * s;
       if (cx < -R || cy < -R || cx > v.width + R || cy > v.height + R) continue;
-      ctx.lineWidth = C.width * s;
-      ctx.beginPath();
-      for (const [a, b] of sc.tape) {
-        ctx.moveTo((sc.cones[a].x - v.left) * s, (sc.cones[a].y - v.top) * s);
-        ctx.lineTo((sc.cones[b].x - v.left) * s, (sc.cones[b].y - v.top) * s);
-      }
-      ctx.strokeStyle = C.tape;
-      ctx.stroke();
-      ctx.setLineDash([C.dash * s, C.dash * s]);
-      ctx.strokeStyle = C.stripe;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      const h = C.coneSize * s;
-      for (const p of sc.cones) {
-        if (Number.isNaN(p.x)) continue;
-        const x = (p.x - v.left) * s;
-        const y = (p.y - v.top) * s;
-        ctx.fillStyle = C.coneDark;
-        ctx.fillRect(x - h, y + h * 0.55, h * 2, h * 0.45);
+      for (const line of sc.lines) {
+        const pts = line.pts;
+        if (pts.length < 2) continue;
+        if (line.barrier) {
+          this.drawBarriers(ctx, v, pts);
+          continue;
+        }
         ctx.beginPath();
-        ctx.moveTo(x, y - h * 1.1);
-        ctx.lineTo(x + h * 0.75, y + h * 0.6);
-        ctx.lineTo(x - h * 0.75, y + h * 0.6);
-        ctx.closePath();
-        ctx.fillStyle = C.cone;
-        ctx.fill();
-        ctx.fillStyle = C.coneStripe;
-        ctx.fillRect(x - h * 0.42, y - h * 0.1, h * 0.84, h * 0.28);
+        ctx.moveTo((pts[0].x - v.left) * s, (pts[0].y - v.top) * s);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo((pts[i].x - v.left) * s, (pts[i].y - v.top) * s);
+        ctx.lineWidth = C.width * s;
+        ctx.strokeStyle = C.tape;
+        ctx.stroke();
+        ctx.setLineDash([C.dash * s, C.dash * s]);
+        ctx.strokeStyle = C.stripe;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Крепления ленты у стен.
+        ctx.fillStyle = C.anchor;
+        const h = C.anchorSize * s;
+        for (const p of [pts[0], pts[pts.length - 1]]) ctx.fillRect((p.x - v.left) * s - h / 2, (p.y - v.top) * s - h / 2, h, h);
       }
+    }
+  }
+
+  /** Ряд переносных барьеров вдоль ломаной: доска в полоску на двух опорах, через C.barrierGap px. */
+  private drawBarriers(ctx: CanvasRenderingContext2D, v: View, pts: readonly Vec2[]): void {
+    const s = v.scale;
+    const C = RENDER.effects.scene;
+    const half = C.barrierLen / 2;
+    let carry = C.barrierGap / 2;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 1e-3) continue;
+      const ux = (b.x - a.x) / len;
+      const uy = (b.y - a.y) / len;
+      for (let d = carry; d <= len; d += C.barrierGap) {
+        const mx = a.x + ux * d;
+        const my = a.y + uy * d;
+        const x0 = (mx - ux * half - v.left) * s;
+        const y0 = (my - uy * half - v.top) * s;
+        const x1 = (mx + ux * half - v.left) * s;
+        const y1 = (my + uy * half - v.top) * s;
+        // Тень и опоры.
+        ctx.fillStyle = C.barrierShadow;
+        ctx.fillRect(x0 - 1.5 * s, y0 + 1 * s, 3 * s, 3 * s);
+        ctx.fillRect(x1 - 1.5 * s, y1 + 1 * s, 3 * s, 3 * s);
+        ctx.fillStyle = C.barrierLeg;
+        ctx.fillRect(x0 - 1.2 * s, y0 - 1.2 * s, 2.4 * s, 2.4 * s);
+        ctx.fillRect(x1 - 1.2 * s, y1 - 1.2 * s, 2.4 * s, 2.4 * s);
+        // Доска: белая, красные полосы.
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.lineWidth = C.barrierWidth * s;
+        ctx.strokeStyle = C.barrierWhite;
+        ctx.stroke();
+        ctx.setLineDash([C.barrierStripe * s, C.barrierStripe * s]);
+        ctx.strokeStyle = C.barrierRed;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      carry = C.barrierGap - ((len - carry) % C.barrierGap);
+      if (carry > C.barrierGap) carry -= C.barrierGap;
+    }
+  }
+
+  /** Блокнот в руках у медика на месте преступления (пишет — карандаш ходит). */
+  drawNotepads(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], now: number, lawNow: number): void {
+    const s = v.scale;
+    const C = RENDER.effects.notepad;
+    for (let k = 0; k < list.length; k++) {
+      const c = list[k];
+      if (c.notepadUntil <= now || !c.alive || !c.visible) continue;
+      const x = (c.x + Math.cos(c.facing) * 6 - v.left) * s;
+      const y = (c.y + Math.sin(c.facing) * 6 - v.top) * s;
+      if (x < -20 || y < -20 || x > v.width + 20 || y > v.height + 20) continue;
+      const w = C.w * s;
+      const h = C.h * s;
+      ctx.fillStyle = C.back;
+      ctx.fillRect(x - w / 2 - 0.6 * s, y - h / 2 - 0.6 * s, w + 1.2 * s, h + 1.2 * s);
+      ctx.fillStyle = C.paper;
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.fillStyle = C.ink;
+      for (let r = 0; r < 3; r++) ctx.fillRect(x - w / 2 + 0.8 * s, y - h / 2 + (1.3 + r * 1.5) * s, w - 1.6 * s, 0.45 * s);
+      const t = (lawNow * 3 + c.id) % 1;
+      ctx.fillStyle = C.pencil;
+      ctx.fillRect(x - w / 2 + t * w, y + h / 2 - 1.6 * s, 0.8 * s, 2.4 * s);
     }
   }
 

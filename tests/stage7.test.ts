@@ -396,17 +396,22 @@ describe('штурм Нексуса', () => {
       let wave = false;
       let inside = 0;
       let progress = 0;
+      let red = false;
+      let rallied = false;
       run(sim, 240, () => {
         wave ||= sim.war.nexus.wave;
+        red ||= sim.war.code === 'red';
+        rallied ||= sim.entities.list.some((c) => c.alive && (c.brain as { rally?: unknown }).rally);
         inside = Math.max(inside, sim.war.nexus.rebels);
         progress = Math.max(progress, sim.war.nexus.progress);
         return sim.war.stats.nexusFalls > 0;
       });
       console.log(`сид ${seed}, штурм Нексуса: ${JSON.stringify(sim.war.stats)}, в Нексусе максимум ${inside}, захват ${progress.toFixed(0)} с, защитников ${sim.war.nexus.defenders}`);
       expect(wave).toBe(true);
-      // Красный код — мобилизация: ГО с постов обороняют Нексус.
-      expect(sim.war.code).toBe('red');
-      expect(sim.entities.list.some((c) => c.alive && (c.brain as { rally?: unknown }).rally)).toBe(true);
+      // Красный код — мобилизация: ГО с постов обороняют Нексус; штурм отбит — код снова не красный.
+      expect(red).toBe(true);
+      expect(rallied).toBe(true);
+      if (sim.war.code !== 'red') expect(sim.war.code).toBe('yellow');
       // Прорвавшиеся не топчутся у проходной — доходят до Нексуса.
       if (inside >= WAR.nexus.minAttackers) ok++;
     }

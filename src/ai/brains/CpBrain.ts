@@ -110,7 +110,7 @@ export class CpBrain implements Brain {
   scanLeft = 0;
   /** Место преступления: осмотреть тело (следователь) или охранять оцепление (офицер). */
   scene: CrimeScene | null = null;
-  sceneRole: 'investigate' | 'guard' = 'guard';
+  sceneRole: 'investigate' | 'guard' | 'examine' = 'guard';
   sceneSpot: Vec2 | null = null;
   /** Кого сопровождает (охрана доверенного лоялиста) и до какого времени. */
   ward: Character | null = null;
@@ -481,8 +481,8 @@ export class CpBrain implements Brain {
     if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic' && now !== 'formation' && !(now === 'duty' && this.dutyArrived) && !(now === 'scene' && self.moveSpeed < 8)) faceMovement(self, ctx, dt);
   }
 
-  /** Отправить на место преступления: следователь — осмотр тела, офицер — охрана оцепления. */
-  assignScene(s: CrimeScene, role: 'investigate' | 'guard'): void {
+  /** Отправить на место преступления: следователь — осмотр тела, медик — осмотр с блокнотом и простыня, офицер — охрана оцепления. */
+  assignScene(s: CrimeScene, role: 'investigate' | 'guard' | 'examine'): void {
     this.scene = s;
     this.sceneRole = role;
     this.sceneSpot = null;
@@ -1213,12 +1213,44 @@ const SCENE: State<CpBrain> = {
       }
       return;
     }
-    // Офицер: место у ленты со своей стороны.
+    if (b.sceneRole === 'examine') {
+      // Медик: к телу, на корточки, блокнот — записывает; потом накрывает простынёй.
+      const c = s.corpse;
+      const S = CRIME.scene;
+      if (dist(self.x, self.y, c.x, c.y) > S.examReach) {
+        b.goToPoint(c, dt, 2);
+        return;
+      }
+      b.mover.stop();
+      faceTowards(self, c.x, c.y, dt);
+      if (!b.dutyArrived) {
+        b.dutyArrived = true;
+        b.scanLeft = S.examTime;
+      }
+      self.notepadUntil = ctx.combat.now + 0.3;
+      if (ctx.rng.chance(dt * 0.25)) self.say(ctx.rng.pick(S.lines.examine), ctx.law.now, 2.5);
+      if ((b.scanLeft -= dt) <= 0) {
+        self.notepadUntil = 0;
+        ctx.war.scenes.examined(s);
+        self.say(ctx.rng.pick(S.lines.cover), ctx.law.now, 2.5);
+        b.scene = null;
+        return b.idleState;
+      }
+      return;
+    }
+    // Офицер: место у края оцепления со своей стороны.
     if (!b.sceneSpot) {
-      const dx = self.x - s.x;
-      const dy = self.y - s.y;
-      const d = Math.hypot(dx, dy) || 1;
-      const a = ctx.nav.nearestWalkable(s.x + (dx / d) * (s.r - 8), s.y + (dy / d) * (s.r - 8), 4);
+      let best: Vec2 | null = null;
+      let bd = Infinity;
+      for (const p of s.edge) {
+        const d = dist(self.x, self.y, p.x, p.y);
+        if (d < bd) {
+          bd = d;
+          best = p;
+        }
+      }
+      const q = best ?? { x: s.x, y: s.y };
+      const a = ctx.nav.nearestWalkable(q.x, q.y, 3);
       b.sceneSpot = a >= 0 ? { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) } : { x: s.x, y: s.y };
     }
     const p = b.sceneSpot;
@@ -1236,6 +1268,7 @@ const SCENE: State<CpBrain> = {
   exit(b) {
     b.mover.speed = LAW.cpWalkSpeed;
     b.dutyArrived = false;
+    b.self.notepadUntil = 0;
   },
 };
 

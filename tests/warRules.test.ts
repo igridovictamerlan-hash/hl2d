@@ -183,6 +183,22 @@ describe('мобилизация красного кода', () => {
     expect(kpp.some((c) => (c.brain as CpBrain).rally)).toBe(false);
   });
 
+  test('штурм отбит, а КПП у повстанцев — красный код сменяется жёлтым, КПП снова наши — зелёный', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    for (const f of sim.war.fronts) {
+      f.held = f.points.length;
+      f.owner = 'rebels';
+    }
+    (sim.war as unknown as { declareRed(where: string): void }).declareRed('тест');
+    expect(sim.war.code).toBe('red');
+    // Прорвавшихся в городе нет (штурмующие перебиты) — после redMinTime код снимается.
+    run(sim, WAR.redMinTime + WAR.calmToGreen + 2, () => sim.war.code !== 'red');
+    expect(sim.war.code).toBe('yellow');
+    expect(sim.war.curfew).toBe(false);
+  });
+
   test('повстанцы, державшие КПП, при красном коде уходят на штурм', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
@@ -227,8 +243,12 @@ describe('место преступления', () => {
     const scene = sim.war.scenes.list[0];
     expect(scene).toBeTruthy();
     expect(scene.corpse).toBe(corpse);
-    expect(scene.cones.filter((c) => !Number.isNaN(c.x)).length).toBeGreaterThan(3);
-    // Едут следователь SU.01 и офицер (PCU.OFC или SU.INSP).
+    // Проходы перекрыты: линии от стены до стены, на площади — переносные барьеры.
+    expect(scene.lines.length).toBeGreaterThan(0);
+    expect(scene.lines.every((l) => l.pts.length >= 2)).toBe(true);
+    expect(scene.outside.length).toBeGreaterThan(0);
+    // Едут следователь SU.01, медик SU.02 и офицер (PCU.OFC или SU.INSP).
+    expect(scene.medic?.rank).toBe(CP_UNIT.su2);
     expect(scene.investigator?.rank).toBe(CP_UNIT.su1);
     expect([CP_UNIT.ofc, CP_UNIT.insp]).toContain(scene.officer?.rank);
     // Тело не обыскать не-сотруднику; житель внутри ленты выталкивается.
@@ -239,7 +259,7 @@ describe('место преступления', () => {
     cit.x = cit.prevX = corpse.x + 10;
     cit.y = cit.prevY = corpse.y;
     sim.step();
-    expect(Math.hypot(cit.x - corpse.x, cit.y - corpse.y)).toBeGreaterThanOrEqual(scene.r);
+    expect(sim.war.scenes.inScene(scene, cit.x, cit.y)).toBe(false);
     // Следователь доходит и осматривает тело, офицер стоит у ленты.
     const t = run(sim, 120, () => sim.war.scenes.stats.investigated > 0);
     console.log(`осмотр тела через ${t.toFixed(0)} с`);
@@ -252,6 +272,105 @@ describe('место преступления', () => {
     run(sim, 40, () => scene.closed);
     expect(scene.closed).toBe(true);
     expect((o.brain as CpBrain).scene).toBeNull();
+  });
+
+  test('убит гражданский — SU.01 и медик, медик пишет в блокнот и накрывает тело, потом крематор', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 20);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    sim.ctx.insurgency.paused = true;
+    const plaza = poiWorld(sim.ctx, 'plaza_center')!;
+    const at = spotNear(sim, plaza, 0, 4);
+    const victim = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: null, division: null, rank: 0, kit: 'citizen' }, at)!;
+    const killer = sim.entities.list.find((c) => c.faction === 'citizen' && c !== victim && c.alive && !c.isPlayer)!;
+    sim.combat.damage(victim, 9999, killer, null, true);
+    const corpse = sim.combat.corpses[sim.combat.corpses.length - 1];
+    // Рядом патрульный — заметит тело.
+    spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, spotNear(sim, at, 2, 4));
+    (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
+    run(sim, 2);
+    const scene = sim.war.scenes.list.find((x) => x.corpse === corpse)!;
+    expect(scene).toBeTruthy();
+    expect(scene.kind).toBe('civil');
+    expect(scene.investigator?.rank).toBe(CP_UNIT.su1);
+    expect(scene.medic?.rank).toBe(CP_UNIT.su2);
+    // Инспектора и офицера к гражданскому не шлют.
+    expect(scene.officer).toBeNull();
+    const medic = scene.medic!;
+    let wrote = false;
+    run(sim, 150, () => {
+      wrote ||= medic.notepadUntil > sim.combat.now;
+      return !!corpse.covered;
+    });
+    expect(wrote).toBe(true);
+    expect(corpse.covered).toBe(true);
+    // Накрытое тело не обыскать; убийца — в розыске после осмотра следователя.
+    const cit = sim.entities.list.find((c) => c.faction === 'citizen' && c.alive && !c.isPlayer)!;
+    expect(sim.war.scenes.sealed(corpse, cit)).toBe(true);
+    run(sim, 150, () => scene.closed);
+    expect(scene.closed).toBe(true);
+    // Следователь осмотрел: убийца объявлен в розыск (его могли уже и задержать).
+    expect(corpse.scanned).toBe(true);
+    expect(killer.law.wanted || killer.law.phase !== 'none').toBe(true);
+    // Оцепление снято — крематор забирает накрытое тело.
+    (sim.labor as unknown as { crematorAt: number }).crematorAt = 0;
+    run(sim, 240, () => !sim.combat.corpses.includes(corpse));
+    expect(sim.combat.corpses.includes(corpse)).toBe(false);
+  });
+
+  test('узкий переулок — лента от стены до стены; широкая улица — барьеры', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    const W = sim.map.width;
+    // Узкое место: клетка пола, по бокам (по x) стены, вверх и вниз — пол.
+    let alley: { x: number; y: number } | null = null;
+    let wide: { x: number; y: number } | null = null;
+    const ts = sim.map.tileSize;
+    for (let i = 0; i < sim.map.tiles.length && !(alley && wide); i++) {
+      const tx = i % W;
+      const ty = (i - tx) / W;
+      const kind = sim.map.zoneAtTile(tx, ty)?.kind;
+      if (sim.map.levelAt(tx * ts, ty * ts) !== 'city' || sim.map.isSolid(tx, ty)) continue;
+      if (!alley && kind === 'residential' && sim.map.isSolid(tx - 2, ty) && sim.map.isSolid(tx + 2, ty) && !sim.map.isSolid(tx - 1, ty) && !sim.map.isSolid(tx + 1, ty)) {
+        let ok = true;
+        for (let d = -6; d <= 6 && ok; d++) for (let e = -1; e <= 1; e++) if (sim.map.isSolid(tx + e, ty + d) || sim.map.tileAt(tx + e, ty + d) === T.DOOR) ok = false;
+        for (let d = -6; d <= 6 && ok; d++) if (!sim.map.isSolid(tx - 2, ty + d) || !sim.map.isSolid(tx + 2, ty + d)) ok = false;
+        if (ok) alley = { x: (tx + 0.5) * ts, y: (ty + 0.5) * ts };
+      }
+      if (!wide && kind === 'avenue') {
+        let open = 0;
+        for (let d = -6; d <= 6; d++) if (!sim.map.isSolid(tx + d, ty) && !sim.map.isSolid(tx, ty + d)) open++;
+        if (open === 13) wide = { x: (tx + 0.5) * ts, y: (ty + 0.5) * ts };
+      }
+    }
+    expect(alley).toBeTruthy();
+    expect(wide).toBeTruthy();
+    const body = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] });
+    const a = sim.war.scenes.open(body(alley!), 'civil')!;
+    // Прямой переулок: две линии поперёк, каждая — короткая лента, концы у стен.
+    expect(a.lines.length).toBe(2);
+    for (const l of a.lines) {
+      expect(l.barrier).toBe(false);
+      const [p, q] = [l.pts[0], l.pts[l.pts.length - 1]];
+      expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeGreaterThanOrEqual(ts * 2);
+      for (const e of [p, q]) {
+        const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => sim.map.isSolid(Math.floor((e.x + dx * 4) / ts), Math.floor((e.y + dy * 4) / ts)));
+        expect(near).toBe(true);
+      }
+    }
+    const w = sim.war.scenes.open(body(wide!), 'civil')!;
+    expect(w.lines.some((l) => l.barrier)).toBe(true);
+  });
+
+  test('красный код — оцеплений нет', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    (sim.war as unknown as { declareRed(where: string): void }).declareRed('тест');
+    const plaza = poiWorld(sim.ctx, 'plaza_center')!;
+    expect(sim.war.scenes.open({ x: plaza.x, y: plaza.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] }, 'civil')).toBeNull();
   });
 
   test('бандит обирает неоцеплённое тело ГО — забирает оружие', { timeout: 60_000 }, () => {

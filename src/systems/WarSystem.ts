@@ -448,8 +448,8 @@ export class WarSystem {
    * часовые этой точки после гибели возрождаются в Цитадели и бегут на свои посты).
    */
   private counterattack(f: Front, k: number): number {
-    // Все точки D у повстанцев и они идут на город — резерв OTA держит Цитадель, контрударов нет.
-    if (!this.reinforcements || this.cityPush) return 0;
+    // Штурм Нексуса (красный код) — резерв OTA держит Цитадель, контрударов нет; штурм отбит — КПП отбивают.
+    if (!this.reinforcements || this.code === 'red') return 0;
     const pt = f.points[k];
     const posts = pt?.posts.length ? pt.posts : f.posts;
     let sent = 0;
@@ -696,14 +696,17 @@ export class WarSystem {
   private scanCorpses(): void {
     const { combat, entities, map } = this.ctx;
     for (const b of combat.corpses) {
-      if (b.faction !== 'cp' || this.seenCorpses.has(b) || !this.inCity(b.x, b.y)) continue;
+      const cp = b.faction === 'cp';
+      if ((!cp && !CIVIL.has(b.faction)) || b.burning || this.seenCorpses.has(b) || !this.inCity(b.x, b.y)) continue;
       for (const o of entities.list) {
         if (!o.alive || !FACTIONS[o.faction].authority) continue;
         if (Math.hypot(o.x - b.x, o.y - b.y) > VISION.npcRange || !lineOfSight(map, o.x, o.y, b.x, b.y)) continue;
         this.seenCorpses.add(b);
-        this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true);
-        // Улицу перекрывают, на осмотр идут следователь и офицер (при штурме Нексуса — не до того).
-        if (this.code !== 'red') this.scenes.open(b);
+        // Убит патрульный — код жёлтый; гражданский — точка тревоги рядом.
+        if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true);
+        else if (b.killer) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`);
+        // Проходы перекрывают, на осмотр идут следователь и медик (при штурме Нексуса — не до того).
+        if (this.code !== 'red') this.scenes.open(b, cp ? 'cp' : 'civil');
         break;
       }
     }
@@ -858,24 +861,28 @@ export class WarSystem {
     if (code === 'red') {
       this.declareRed('весь город', `По приказу ${who}`);
     } else {
-      // Жёлтый: с зелёного — усиленные проверки; с красного — комендантский час снимается.
-      const wasCurfew = this.curfew;
-      this.code = 'yellow';
-      this.curfew = false;
-      this.shelterClaims.clear();
-      this.yellowSince = this.time;
-        this.calm = 0;
-      for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
-      this.ctx.law.log(
-        `Администрация: Код ЖЁЛТЫЙ по приказу ${who}.${wasCurfew ? ' Комендантский час отменён.' : ''} Граждане, предъявляйте CID по первому требованию.`,
-        'world',
-      );
-      this.ctx.bus.emit('alert', { code: 'yellow' });
-      this.ctx.bus.emit('announce', { text: 'Код жёлтый · приказ Администрации' });
+      this.declareYellow(`по приказу ${who}`, 'Код жёлтый · приказ Администрации');
     }
     this.manualCode = code;
     this.manualBy = by;
     return null;
+  }
+
+  /** Жёлтый: с зелёного — усиленные проверки; с красного — комендантский час снимается. */
+  private declareYellow(why: string, banner: string): void {
+    const wasCurfew = this.curfew;
+    this.code = 'yellow';
+    this.curfew = false;
+    this.shelterClaims.clear();
+    this.yellowSince = this.time;
+    this.calm = 0;
+    for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
+    this.ctx.law.log(
+      `Администрация: Код ЖЁЛТЫЙ ${why}.${wasCurfew ? ' Комендантский час отменён.' : ''} Граждане, предъявляйте CID по первому требованию.`,
+      'world',
+    );
+    this.ctx.bus.emit('alert', { code: 'yellow' });
+    this.ctx.bus.emit('announce', { text: banner });
   }
 
   private declareRed(where: string, why = 'Прорыв периметра'): void {
@@ -1346,15 +1353,21 @@ export class WarSystem {
       for (const r of this.infiltrators) this.lastKnown.set(r, { x: r.x + this.ctx.rng.range(-48, 48), y: r.y + this.ctx.rng.range(-48, 48) });
     }
     if (this.code === 'red' && this.manualCode !== 'red') {
-      // Красный код держится, пока есть прорвавшиеся или КПП в руках повстанцев.
-      this.calm = this.infiltrators.size === 0 && this.fronts.every((f) => f.held === 0) ? this.calm + dt : 0;
+      // Красный код держится, пока в городе есть прорвавшиеся. Штурм отбит, а КПП всё ещё у
+      // повстанцев — код жёлтый (возрождение, контрудары); КПП снова наши — зелёный.
+      this.calm = this.infiltrators.size === 0 ? this.calm + dt : 0;
       const long = this.time - this.redSince;
       const storming = [...this.infiltrators].some((r) => rebelBrain(r)?.mode === 'storm');
       if (long > WAR.redMaxTime && this.infiltrators.size > 0 && !storming) this.goUnderground();
-      const held = this.fronts.some((f) => f.held > 0);
-      if ((this.calm >= WAR.calmToGreen && long >= WAR.redMinTime) || (long > WAR.redMaxTime && !held)) this.declareGreen();
+      if (this.calm >= WAR.calmToGreen && long >= WAR.redMinTime) {
+        if (this.fronts.some((f) => f.held > 0)) this.declareYellow('— штурм Нексуса отбит, КПП ещё у повстанцев', 'Штурм отбит · код жёлтый');
+        else this.declareGreen();
+      }
     }
     // Погибшие OTA — из списка (возвращаются через постоянный состав).
     for (let i = this.ota.length - 1; i >= 0; i--) if (!this.ota[i].alive) this.ota.splice(i, 1);
   }
 }
+
+/** Гражданские: их тела тоже оцепляют (следователь SU.01 и медик). */
+const CIVIL: ReadonlySet<string> = new Set(['citizen', 'cwu', 'vort']);
