@@ -1,11 +1,12 @@
 import type { Character } from '../entities/Character';
+import type { Dwelling } from './Housing';
 import type { AiContext } from '../ai/AiContext';
 import type { Vec2 } from '../core/math';
 import type { Corpse } from './CombatSystem';
 import { isUnderground, type Cell } from './LawSystem';
 import { INSURGENCY, PARTISANS } from '../config/underground';
 import { FENCE } from '../config/gangs';
-import { AMMO_ITEM, WEAPONS, type ItemId } from '../config/items';
+import { AMMO_ITEM, WEAPONS, type ItemId, type WeaponId } from '../config/items';
 import { poiWorld } from './Population';
 import { spawnRole } from './Roster';
 import { ROSTER } from '../config/roster';
@@ -101,6 +102,8 @@ export class InsurgencySystem {
   outings = 0;
   /** Без вылазок и операций (тесты и отладка). */
   paused = false;
+  /** Когда начат последний взлом КПЗ. */
+  private jailbreakAt = -1e9;
   stats = { armed: 0, interrogations: 0, broke: 0, raids: 0, riots: 0, jailbreaks: 0, groups: 0, ambushes: 0, looted: 0, alarms: 0, stashed: 0, fromStash: 0, fenced: 0 };
   /** Деньги подполья (выручка у барыги) — на заказы бандам. */
   funds = 0;
@@ -116,6 +119,22 @@ export class InsurgencySystem {
     this.cache = poiWorld(ctx, 'rebel_cache');
     this.sewerMarket = poiWorld(ctx, 'black_market');
     this.nextOp = ctx.rng.range(INSURGENCY.firstOp[0], INSURGENCY.firstOp[1]);
+    ctx.law.onReleased = (c) => this.released(c);
+  }
+
+  /**
+   * Подпольщика или спецагента выпустили из КПЗ (отсидел): документы ему вернули — снова под
+   * гражданской личиной и не в розыске (иначе ГО у ворот тут же узнал бы его снова); прерванное дело
+   * брошено — сразу в схрон.
+   */
+  private released(c: Character): void {
+    if (!isUnderground(c) || c.isPlayer) return;
+    c.law.wanted = false;
+    c.hostile = false;
+    if (this.agents.includes(c)) this.adoptAgent(c);
+    else this.giveCover(c);
+    const b = c.brain;
+    if (b instanceof UndergroundBrain || b instanceof AgentBrain) b.retreat(c, this.ctx);
   }
 
   get now(): number {
@@ -210,9 +229,9 @@ export class InsurgencySystem {
    * Добыча (ящик со склада или с конвоя): в руки, и помечено — это нести на явку (Housing: тайник в
    * своей комнате в городе), а не оставлять себе. ammo — патроны к MP7 на mags магазинов.
    */
-  haul(by: Character, kind: 'ammo' | 'grenades' | 'weapons', n: number): void {
+  haul(by: Character, kind: 'ammo' | 'grenades' | 'weapons', n: number, gun: WeaponId = 'mp7'): void {
     const W = WEAPONS.mp7;
-    const [id, qty]: [ItemId, number] = kind === 'ammo' ? [AMMO_ITEM[W.ammo!], W.magazine * n] : kind === 'grenades' ? ['grenade', n] : ['mp7', n];
+    const [id, qty]: [ItemId, number] = kind === 'ammo' ? [AMMO_ITEM[W.ammo!], W.magazine * n] : kind === 'grenades' ? ['grenade', n] : [gun, n];
     const got = by.inventory.add(id, qty);
     if (got <= 0) return;
     const list = this.hauls.get(by) ?? [];
@@ -251,9 +270,9 @@ export class InsurgencySystem {
    * Забрать с явки всё краденое для барыги (стволы, гранаты, патроны); вместе с добычей в руках.
    * Возвращает список (из тайника и инвентаря уже убрано).
    */
-  bagForFence(c: Character): { id: ItemId; qty: number }[] {
+  bagForFence(c: Character, from: Dwelling | null = null): { id: ItemId; qty: number }[] {
     const bag: { id: ItemId; qty: number }[] = [];
-    const st = this.ctx.housing?.stashOf(c);
+    const st = from?.stash ?? this.ctx.housing?.stashOf(c);
     if (st) for (const s of st.takeAll()) bag.push({ id: s.id, qty: s.qty });
     const list = this.hauls.get(c);
     this.hauls.delete(c);
@@ -282,6 +301,17 @@ export class InsurgencySystem {
     this.stats.fenced += bag.reduce((n, q) => n + q.qty, 0);
     if (bag.length) this.say(`барыге сдано краденое (${bag.map((q) => q.qty).reduce((a, b) => a + b, 0)} шт.), выручка ${pay} ток.`);
     return pay;
+  }
+
+  /** Явка подполья, где в тайнике лежит краденое (для барыги), или null. */
+  goodsStash(): Dwelling | null {
+    const H = this.ctx.housing;
+    if (!H) return null;
+    for (const c of [...this.garrison, ...this.agents]) {
+      const d = H.of(c);
+      if (d?.stash?.slots.length) return d;
+    }
+    return null;
   }
 
   /** Взять из тайника своей явки (или любой явки подполья) предмет; true — взят. */
@@ -422,20 +452,23 @@ export class InsurgencySystem {
     if (free.length < 1) return null;
     const c = free[0];
     const brain = c.brain as UndergroundBrain;
-    // Сидящих нет — всё равно к общей камере: пока дойдёт, кого-нибудь приведут (подождёт jailWait с).
-    const cell = this.occupiedCell() ?? ctx.law.cells.reduce<Cell | null>((a, c) => (!a || c.slots.length > a.slots.length ? c : a), null);
+    // Взлом — только если в КПЗ кто-то сидит (идти «на авось» к пустым камерам — верный арест).
+    const cell = kind === 'jailbreak' ? this.occupiedCell() ?? ctx.law.cells.reduce<Cell | null>((a, c) => (!a || c.slots.length > a.slots.length ? c : a), null) : this.occupiedCell();
+    // Краденое на явках — к барыге; нечего нести — за добычей на склад.
+    const goods = this.goodsStash();
     const mineSpot = ctx.combat.mineKindOf(c) ? this.mineSpot() : null;
     let type = kind;
     // Свой в клетке — сперва вытащить его (с шансом PARTISANS.rescueChance).
-    if (!type && cell && this.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) type = 'jailbreak';
+    if (!type && cell && this.jailbreakReady && this.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) type = 'jailbreak';
     // Конвой ГО на марше или на погрузке — засада (нужны двое).
     const convoy = ctx.arsenal?.present ? ctx.arsenal.convoys.find((v) => v.phase !== 'unload' && !this.groups.some((g) => g.convoy === v)) ?? null : null;
     if (!type) {
       // Доли операций; невозможные (некого освобождать, нечем минировать) — не выбираются.
       const O = PARTISANS.ops;
-      const depot = ctx.arsenal?.present ? O.depot : 0;
+      const S = PARTISANS.supply;
+      const depot = ctx.arsenal?.present ? O.depot * (goods ? 1 : S.depotMul) : 0;
       const ambush = convoy && free.length >= PARTISANS.ambush.size[0] ? O.ambush : 0;
-      const opts: [Operation['kind'], number][] = [['arm', O.arm], ['fence', ctx.fence?.present ? O.fence : 0], ['sabotage', O.sabotage], ['jailbreak', cell ? O.jailbreak : 0], ['mine', mineSpot ? O.mine : 0], ['depot', depot], ['ambush', ambush]];
+      const opts: [Operation['kind'], number][] = [['arm', O.arm], ['fence', ctx.fence?.present && goods ? O.fence * S.fenceMul : 0], ['sabotage', O.sabotage], ['jailbreak', cell && this.jailbreakReady ? O.jailbreak : 0], ['mine', mineSpot ? O.mine : 0], ['depot', depot], ['ambush', ambush]];
       let r = ctx.rng.next() * opts.reduce((n, [, w]) => n + w, 0);
       type = 'sabotage';
       for (const [k, w] of opts) {
@@ -450,6 +483,7 @@ export class InsurgencySystem {
       return v ? this.startAmbush(v) : null;
     } else if (type === 'jailbreak') {
       if (!cell) return null;
+      this.jailbreakAt = this.time;
       brain.startJailbreak(c, ctx, cell);
       const where = cell.cage ? 'клетка у Администратора' : 'КПЗ Нексуса';
       // Второй — прикрытие у камер (стоит рядом под личиной, отвечает, если стреляют).
@@ -468,7 +502,7 @@ export class InsurgencySystem {
       this.say(`подпольщик идёт ставить растяжку — ${where}.`);
     } else if (type === 'depot') {
       // Склад Альянса на окраине: в робе грузчика ГСР — кража, брак в патроны, заряд, маяк.
-      const job = ctx.arsenal?.pickSabotage(c);
+      const job = ctx.arsenal?.pickSabotage(c, !goods);
       if (!job) return null;
       c.cover = { faction: 'cwu', rank: 0, profession: 'loader', name: c.cover?.name ?? null };
       brain.startDepot(c, ctx, job.act, job.spot);
@@ -493,7 +527,7 @@ export class InsurgencySystem {
     } else if (type === 'fence') {
       // Вся связь с улицей — через барыгу: краденое с явки ему, а он передаст заказ банде.
       if (!ctx.fence?.present) return null;
-      brain.startFence(c, ctx);
+      brain.startFence(c, ctx, goods);
       this.op = { kind: 'fence', team: [c], where: 'хата барыги' };
       this.ops.push(this.op);
       this.say('подпольщик несёт краденое барыге.');
@@ -578,6 +612,16 @@ export class InsurgencySystem {
     return !this.paused;
   }
 
+  /** Взлом КПЗ (партизаны и агенты) — не чаще раза в PARTISANS.jailCooldown с. */
+  get jailbreakReady(): boolean {
+    return this.time - this.jailbreakAt >= PARTISANS.jailCooldown;
+  }
+
+  /** Отметить начатый взлом (агент). */
+  markJailbreak(): void {
+    this.jailbreakAt = this.time;
+  }
+
   /** Сидит ли в камере или клетке подпольщик или спецагент. */
   comradeCaged(): boolean {
     return this.ctx.law.cells.some((c) => c.slots.some((s) => s.occupant && (s.occupant.profession === 'partisan' || s.occupant.profession === 'spec_agent')));
@@ -638,14 +682,6 @@ export class InsurgencySystem {
     this.ctx.combat.equip(c, null);
     c.say(this.ctx.rng.pick(PARTISANS.lines.agent), this.ctx.law.now, 2);
     this.say(`спецагент ${c.isPlayer ? '(вы) ' : ''}переоделся в форму убитого: ${corpse.name}.`);
-  }
-
-  /** Переодеться в OTA (шкаф в казарме Нексуса). */
-  dressAsOta(c: Character): void {
-    c.disguised = true;
-    c.cover = { faction: 'ota', rank: 0, profession: 'ota_alpha', name: `OTA-${c.cid.slice(-3)}` };
-    this.ctx.combat.equip(c, null);
-    this.say(`спецагент ${c.isPlayer ? '(вы) ' : ''}переоделся в OTA в казарме Нексуса.`);
   }
 
   /** Спецагент раскрыл себя (покушение): враг Альянса, в розыске. */

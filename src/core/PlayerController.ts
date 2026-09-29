@@ -51,7 +51,7 @@ export class PlayerController {
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
   private packing = false;
-  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'dressOta' | 'break' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot } | null = null;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'break' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot } | null = null;
   /** Откат бунта у игрока-спецагента (G). */
   private riotCooldown = 0;
   private healCooldown = 0;
@@ -445,17 +445,12 @@ export class PlayerController {
       return this.say('Вы примкнули к сопротивлению! Оружие выдали — держите КПП.', 'world');
     }
     const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
-    // Спецагент: форма с убитого сотрудника Альянса, OTA из шкафа казармы, взлом камеры или клетки.
+    // Спецагент: форма с убитого ГО (в OTA не переодеться), взлом камеры или клетки.
     if (p.faction === 'rebel' && p.profession === 'spec_agent') {
       const A = PARTISANS.agent;
-      if (corpse && (corpse.faction === 'cp' || corpse.faction === 'ota') && !corpse.stripped) {
+      if (corpse && corpse.faction === 'cp' && !corpse.stripped) {
         this.task = { kind: 'dress', x: corpse.x, y: corpse.y, left: A.dress, total: A.dress, corpse };
         return this.say(`Снимаете форму с тела: ${corpse.name}…`, 'world');
-      }
-      const locker = ctx.map.poisOf('ota_spot').map((_, k) => poiWorld(ctx, 'ota_spot', k)).find((q) => d(q) < REACH + 8);
-      if (locker) {
-        this.task = { kind: 'dressOta', x: locker.x, y: locker.y, left: A.dress, total: A.dress };
-        return this.say('Шкаф OTA: переодеваетесь…', 'world');
       }
       const cell = ctx.law.cells.find((c) => ctx.law.occupants(c).length > 0 && (d({ x: c.frontX, y: c.frontY }) < REACH + 8 || d(c) < REACH + 8));
       if (cell) {
@@ -758,10 +753,6 @@ export class PlayerController {
       if (t.corpse.stripped) return this.say('С тела уже сняли форму.');
       ctx.insurgency.dressAs(p, t.corpse);
       return this.say(`Вы в форме: ${t.corpse.name}. Для ГО — свой; выдаст только убийство.`, 'world');
-    }
-    if (t.kind === 'dressOta') {
-      ctx.insurgency.dressAsOta(p);
-      return this.say('Вы в броне OTA. Для ГО — свой; выдаст только убийство.', 'world');
     }
     if (t.kind === 'break' && t.cell) {
       const n = ctx.insurgency.jailbreak(p, t.cell);

@@ -6,6 +6,8 @@ import { UndergroundBrain } from '../src/ai/brains/UndergroundBrain';
 import { GangOpBrain } from '../src/ai/brains/GangOpBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { GANGS } from '../src/config/gangs';
+import { ECONOMY } from '../src/config/economy';
+import type { Inventory } from '../src/entities/Inventory';
 import { CP_UNIT } from '../src/config/factions';
 import { lineOfSight } from '../src/world/visibility';
 import type { Character } from '../src/entities/Character';
@@ -205,6 +207,57 @@ describe('по одному — только на районе, в городе 
     expect(solo / samples).toBeLessThan(0.05);
     // Дела — не меньше двоих.
     expect(teams.every((k) => Math.floor(k / 1000) >= GANGS.pairs.min)).toBe(true);
+  });
+});
+
+describe('товар барыге', () => {
+  test('подполье без товара — за стволами на склад, с явки — барыге (виден в продаже); банда сбывает лишнее', { timeout: 300_000 }, () => {
+    // Без патрулей и охраны склада (задержание по дороге — дело случая).
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.insurgency.populate();
+    sim.ctx.gangs.populate();
+    settleAll(sim.ctx);
+    sim.insurgency.paused = true;
+    sim.ctx.gangs.paused = true;
+    const I = sim.insurgency;
+    const F = sim.ctx.fence;
+    const ALLIANCE = ['mp7', 'usp', 'm4a4'] as const;
+    const guns = (inv: Inventory) => ALLIANCE.reduce((n, id) => n + inv.count(id), 0);
+    // Нести барыге нечего — к нему не ходят, а идут за добычей: стволы со стоек склада.
+    expect(I.goodsStash()).toBeNull();
+    const op = I.startOperation('depot')!;
+    expect(op.kind).toBe('depot');
+    const stash = sim.ctx.housing.stashOf(op.team[0])!;
+    for (let t = 0; t < 240 * 60 && guns(stash) === 0; t++) sim.step();
+    expect(guns(stash)).toBeGreaterThan(0);
+    expect(I.goodsStash()).not.toBeNull();
+    for (let t = 0; t < 240 * 60 && I.ops.includes(op); t++) sim.step();
+    // Товар есть — к барыге: краденый ствол Альянса у него в продаже.
+    const before = guns(F.wares);
+    const deal = I.startOperation('fence')!;
+    expect(deal.kind).toBe('fence');
+    for (let t = 0; t < 300 * 60 && guns(F.wares) === before; t++) sim.step();
+    expect(guns(F.wares)).toBeGreaterThan(before);
+    expect(I.goodsStash()).toBeNull();
+    const k = ECONOMY.blackMarket.stock.findIndex((s) => (ALLIANCE as readonly string[]).includes(s.id) && F.wares.has(s.id));
+    expect(k).toBeGreaterThanOrEqual(0);
+    expect(F.inStock(k)).toBe(true);
+    // Банда: лишние стволы из общака (сверх запаса) — барыге за деньги.
+    const G = sim.ctx.gangs;
+    const g = G.gangs[0];
+    g.stash.add('mp7', 2);
+    g.stash.add('usp', 1);
+    expect(G.surplus(g).length).toBeGreaterThan(0);
+    const bank = g.bank;
+    const wares = F.stats.boughtIn;
+    const sell = G.startOp(g, 'sell')!;
+    expect(sell.team.length).toBeGreaterThanOrEqual(GANGS.pairs.min);
+    for (let t = 0; t < 200 * 60 && !sell.done; t++) sim.step();
+    expect(g.stats.sells).toBe(1);
+    expect(g.bank).toBeGreaterThan(bank);
+    expect(F.stats.boughtIn).toBeGreaterThan(wares);
+    expect(G.stashGuns(g)).toBe(GANGS.ops.sell.keep);
   });
 });
 

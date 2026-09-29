@@ -6,13 +6,13 @@ import type { StreetShop } from './StreetShops';
 import type { Convoy } from './Arsenal';
 import { Inventory } from '../entities/Inventory';
 import { GANGS, FENCE, type GangDef } from '../config/gangs';
-import { WEAPONS, type WeaponId } from '../config/items';
+import { WEAPONS, type ItemId, type WeaponId } from '../config/items';
 import { lineOfSight } from '../world/visibility';
 import { spawnRole } from './Roster';
 import { GangOpBrain } from '../ai/brains/GangOpBrain';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 
-export type GangOpKind = 'racket' | 'raid' | 'hit' | 'convoy' | 'buy';
+export type GangOpKind = 'racket' | 'raid' | 'hit' | 'convoy' | 'buy' | 'sell';
 
 /** Дело банды: кто идёт, куда, до какого времени. */
 export interface GangOp {
@@ -52,7 +52,7 @@ export interface Gang {
   stash: Inventory;
   nextOp: number;
   op: GangOp | null;
-  stats: { racket: number; raids: number; hits: number; convoys: number; buys: number; feuds: number; looted: number };
+  stats: { racket: number; raids: number; hits: number; convoys: number; buys: number; sells: number; feuds: number; looted: number };
 }
 
 /**
@@ -150,7 +150,7 @@ export class GangSystem {
         stash,
         nextOp: rng.range(GANGS.ops.first[0], GANGS.ops.first[1]),
         op: null,
-        stats: { racket: 0, raids: 0, hits: 0, convoys: 0, buys: 0, feuds: 0, looted: 0 },
+        stats: { racket: 0, raids: 0, hits: 0, convoys: 0, buys: 0, sells: 0, feuds: 0, looted: 0 },
       });
     });
     // Бойцы разных банд в стычке — враги друг другу (CombatSystem.isHostile).
@@ -305,6 +305,16 @@ export class GangSystem {
         const i = GANGS.arms.indexOf(id as WeaponId);
         return i < 0 ? GANGS.arms.length : i;
       };
+      // Лишние стволы (снятые с тел ГО, трофеи) — в общак: при себе один, лучший.
+      const guns = c.inventory.slots.filter((s) => WEAPONS[s.id as WeaponId]?.ammo).map((s) => s.id as WeaponId);
+      if (guns.length > 1) {
+        const keep = [...guns].sort((a, b) => rank(a) - rank(b))[0];
+        for (const id of guns) {
+          if (id === keep || c.weapon === id) continue;
+          const n = c.inventory.count(id);
+          if (n > 0 && c.inventory.remove(id, n)) g.stash.add(id, n);
+        }
+      }
       const have = Math.min(...c.inventory.slots.filter((s) => WEAPONS[s.id as WeaponId]?.ammo).map((s) => rank(s.id)), GANGS.arms.length);
       const best = GANGS.arms.find((id) => g.stash.has(id) && rank(id) < have);
       if (!best) continue;
@@ -355,6 +365,48 @@ export class GangSystem {
     if (F.trader) F.trader.say(ctx.rng.pick(FENCE.lines.deal), ctx.law.now + 1, 2);
   }
 
+  /** Сколько стволов в общаке. */
+  stashGuns(g: Gang): number {
+    return g.stash.slots.filter((s) => WEAPONS[s.id as WeaponId]?.ammo).reduce((n, s) => n + s.qty, 0);
+  }
+
+  /** Что из общака лишнее (стволы сверх ops.sell.keep, гранаты сверх ops.sell.grenades) — на продажу барыге. */
+  surplus(g: Gang): { id: ItemId; qty: number }[] {
+    const S = GANGS.ops.sell;
+    const out: { id: ItemId; qty: number }[] = [];
+    let guns = 0;
+    // Лучшие стволы остаются в общаке (по порядку GANGS.arms), остальное — на продажу.
+    const order = [...g.stash.slots].filter((s) => WEAPONS[s.id as WeaponId]?.ammo).sort((a, b) => {
+      const r = (id: string) => (GANGS.arms.indexOf(id as WeaponId) + GANGS.arms.length + 1) % (GANGS.arms.length + 1);
+      return r(a.id) - r(b.id);
+    });
+    for (const s of order) {
+      const keep = Math.max(0, Math.min(s.qty, S.keep - guns));
+      guns += keep;
+      if (s.qty > keep) out.push({ id: s.id, qty: s.qty - keep });
+    }
+    const gr = g.stash.count('grenade');
+    if (gr > S.grenades) out.push({ id: 'grenade', qty: gr - S.grenades });
+    return out;
+  }
+
+  /** Сбыт лишнего из общака барыге: товар — ему, деньги — в общак. */
+  sellAtFence(op: GangOp, by: Character): void {
+    const { ctx } = this;
+    const F = ctx.fence;
+    if (op.done || !F?.open) return;
+    op.done = true;
+    const g = op.gang;
+    const bag = this.surplus(g).filter((q) => g.stash.remove(q.id, q.qty));
+    if (!bag.length) return;
+    const pay = F.takeIn(bag);
+    g.bank += pay;
+    g.stats.sells++;
+    by.say(ctx.rng.pick(GANGS.lines.sell), ctx.law.now, 2);
+    if (F.trader) F.trader.say(ctx.rng.pick(FENCE.lines.deal), ctx.law.now + 1, 2);
+    ctx.bus.emit('log', { text: `${g.def.name} сбыли барыге ${bag.reduce((n, q) => n + q.qty, 0)} шт. товара (${pay} ток.).`, kind: 'world' });
+  }
+
   /** Ящик с конвоя — в общак (патроны или гранаты). */
   lootToStash(g: Gang, by: Character, r = 40): boolean {
     const kind = this.ctx.arsenal?.lootConvoy(by, r);
@@ -394,7 +446,9 @@ export class GangSystem {
         ['raid', rivals.length ? W.raid : 0],
         ['hit', W.hit],
         ['convoy', convoy && free.length >= 3 ? W.convoy * 3 : 0],
-        ['buy', ctx.fence?.present && g.bank >= O.buy.minBank ? W.buy : 0],
+        // Покупать — пока в общаке стволов меньше, чем держат про запас (лишнее и так несут барыге).
+        ['buy', ctx.fence?.present && g.bank >= O.buy.minBank && this.stashGuns(g) < O.sell.keep ? W.buy : 0],
+        ['sell', ctx.fence?.present && this.surplus(g).length ? W.sell : 0],
       ];
       let r = ctx.rng.range(0, opts.reduce((a, [, w]) => a + w, 0));
       for (const [k, w] of opts) {
@@ -438,10 +492,11 @@ export class GangSystem {
         op.until = this.time + O.convoy.time;
         break;
       case 'buy':
+      case 'sell':
         if (!ctx.fence?.counter) return null;
         op.target = ctx.fence.counter;
         op.team = free.slice(0, MIN);
-        op.until = this.time + O.buy.time;
+        op.until = this.time + (type === 'buy' ? O.buy.time : O.sell.time);
         break;
     }
     if (op.team.length < MIN) return null;

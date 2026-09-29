@@ -146,7 +146,8 @@ export class GangOpBrain implements Brain {
     } else {
       switch (op.kind) {
         case 'racket':
-        case 'buy': {
+        case 'buy':
+        case 'sell': {
           const to = op.target;
           if (!to || op.done) {
             this.over();
@@ -159,7 +160,8 @@ export class GangOpBrain implements Brain {
             const need = op.kind === 'racket' ? GANGS.ops.racket.stay : 1.5;
             if (this.stay >= need && this.crew()[0] === self) {
               if (op.kind === 'racket') ctx.gangs.collectRacket(op, self);
-              else ctx.gangs.buyAtFence(op, self);
+              else if (op.kind === 'buy') ctx.gangs.buyAtFence(op, self);
+              else ctx.gangs.sellAtFence(op, self);
             }
           } else if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
             this.repath = 2;

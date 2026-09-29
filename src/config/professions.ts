@@ -153,7 +153,7 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
   spec_agent: {
     id: 'spec_agent', faction: 'rebel', name: 'Спецагент', kit: 'spec_agent', selectable: true,
     desc: 'Один на сервер: переодевается в убитых и в OTA, убивает Администратора и высших чинов, устраивает диверсии в Нексусе и бунты.',
-    perks: ['E у тела — переодеться в убитого', 'E у шкафа в комнате OTA — переодеться в OTA', 'E у двери камеры КПЗ — взломать (все сбегают)', 'G — поднять бунт среди горожан рядом'],
+    perks: ['E у тела ГО — переодеться в убитого (в OTA не переодеться)', 'E у двери камеры КПЗ — взломать (все сбегают)', 'G — поднять бунт среди горожан рядом'],
   },
   vort_slave: {
     id: 'vort_slave', faction: 'vort', name: 'Вортигонт [Раб]', kit: 'vort', selectable: true,

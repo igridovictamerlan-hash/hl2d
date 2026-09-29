@@ -152,15 +152,15 @@ describe('клетки у Администратора', () => {
 });
 
 describe('спецагент', () => {
-  test('переодевается в OTA — ГО не проверяет; взлом клетки; раскрытие', () => {
+  test('в форме ГО — ГО не проверяет; взлом клетки; раскрытие', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 10);
     sim.insurgency.paused = true;
     const agent = sim.insurgency.agent!;
-    sim.insurgency.dressAsOta(agent);
-    expect(agent.cover?.faction).toBe('ota');
     const cp = sim.entities.list.find((c) => c.faction === 'cp')!;
+    agent.cover = { faction: 'cp', rank: cp.rank, profession: cp.profession, name: cp.name };
+    expect(agent.cover?.faction).toBe('cp');
     expect(sim.law.checkable(agent)).toBe(false);
     expect(sim.law.observe(cp, agent)).toBeNull();
     // Взлом клетки с пленным партизаном.
@@ -193,6 +193,28 @@ describe('спецагент', () => {
     expect(agent.cover?.faction).toBe('cp');
     expect(agent.cover?.name).toBe(cp.name);
     expect(sim.law.checkable(agent)).toBe(false);
+  });
+
+  test('в OTA не переодевается: без свежего тела ГО — на дело под гражданской личиной', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    spawnPopulation(sim.ctx, 10);
+    sim.insurgency.paused = true;
+    const agent = sim.insurgency.agent!;
+    const b = agent.brain as AgentBrain;
+    // Тело OTA рядом — не годится.
+    const ota = sim.entities.list.find((c) => c.faction === 'ota')!;
+    ota.x = ota.prevX = agent.x;
+    ota.y = ota.prevY = agent.y;
+    sim.combat.damage(ota, 9999, null);
+    run(sim, 0.2);
+    expect(b.start(agent, sim.ctx, 'assassinate')).toBe(true);
+    expect(b.mode).toBe('mission');
+    expect(agent.cover?.faction ?? 'citizen').not.toBe('ota');
+    // «По наряду» без формы не выдадут — бунт.
+    b.mode = 'base';
+    expect(b.start(agent, sim.ctx, 'requisition')).toBe(true);
+    expect(b.mission).toBe('riot');
   });
 
   test('бунт: горожане вокруг бунтуют, ГО видит нарушение, тревога', () => {
@@ -381,13 +403,14 @@ describe('подполье группами', () => {
     // брошенный ящик берёт первый же партизан, дошедший до него.
     // (Экипаж мог и подобрать свои ящики после боя — тогда брать нечего.)
     const crate = A.crates.find((c) => c.convoy);
-    if (sim.insurgency.stats.looted === 0 && crate) {
-      const p = sim.entities.list.find((c) => c.alive && c.profession === 'partisan')!;
+    // (Всех партизан перебили — забирать некому.)
+    const p = sim.entities.list.find((c) => c.alive && c.profession === 'partisan');
+    if (sim.insurgency.stats.looted === 0 && crate && p) {
       p.x = p.prevX = crate.x;
       p.y = p.prevY = crate.y;
       expect(sim.insurgency.lootCrate(p)).toBe(true);
     }
-    if (crate || sim.insurgency.stats.looted > 0) expect(sim.insurgency.stats.looted).toBeGreaterThan(0);
+    if ((crate && p) || sim.insurgency.stats.looted > 0) expect(sim.insurgency.stats.looted).toBeGreaterThan(0);
     expect(A.stats.looted).toBe(sim.insurgency.stats.looted);
   });
 

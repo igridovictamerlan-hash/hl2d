@@ -237,7 +237,8 @@ export class LawSystem {
       // Подпольщик под личиной не бежит: бег выдал бы его. Лоялист (не в розыске) — тоже: ему незачем.
       const loyal = target.faction === 'citizen' && target.loyalty >= LOYALTY.uniform.min && !law.wanted;
       const flee = target.disguised || loyal ? 0 : LAW.npc.fleeChance[target.profession ?? ''] ?? LAW.npc.fleeChance[target.faction] ?? 0.1;
-      const guilty = !loyal && (law.wanted || !law.hasCid);
+      // Под личиной — поддельная CID: «без документов» он не бежит.
+      const guilty = !loyal && !target.disguised && (law.wanted || !law.hasCid);
       if (this.rng.chance(guilty ? Math.max(flee, 0.5) : flee)) this.startFlee(target);
       else target.say(this.rng.pick(LINES.comply), this.time, 2);
     }
@@ -310,7 +311,16 @@ export class LawSystem {
   clear(target: Character): void {
     const law = target.law;
     const wasPlayerCheck = law.handler?.isPlayer;
+    // Сняли процедуру с задержанного (конвоир погиб, ГО отвлёкся) — прежний мозг назад, бронь места в
+    // камере — снять (иначе «пленник» без процедуры стоит вечно).
+    const freed = target.brain instanceof PrisonerBrain && !!law.savedBrain;
+    const wasReleasing = law.phase === 'releasing';
+    if (freed) {
+      if (law.phase === 'cuffed' || law.phase === 'entering') this.vacate(target);
+      this.restoreBrain(target);
+    }
     law.phase = 'none';
+    if (freed && wasReleasing) this.onReleased?.(target);
     law.handler = null;
     law.reason = null;
     if (wasPlayerCheck) this.bus.emit('law:checkClosed', { target });
@@ -327,6 +337,9 @@ export class LawSystem {
     this.clear(target);
   }
 
+  /** Отсидевшего отпустили (мозг уже прежний) — подполье даёт ему документы и уводит в схрон. */
+  onReleased: ((c: Character) => void) | null = null;
+
   arrest(handler: Character, target: Character, reason: Violation): void {
     const law = target.law;
     if (law.phase === 'cuffed' || law.phase === 'entering' || law.phase === 'jailed') return;
@@ -335,7 +348,8 @@ export class LawSystem {
     law.handler = handler;
     law.reason = reason;
     law.since = this.time;
-    law.savedBrain = target.brain;
+    // Взяли снова, пока ещё выводят (мозг — пленника): прежний настоящий мозг не терять.
+    if (!(target.brain instanceof PrisonerBrain)) law.savedBrain = target.brain;
     target.brain = new PrisonerBrain(target);
     // Задержанный повстанец больше не под личиной.
     if (target.faction === 'rebel') {
@@ -545,6 +559,7 @@ export class LawSystem {
           if ((c.brain as PrisonerBrain | null)?.done || this.time - law.since > 30) {
             this.restoreBrain(c);
             this.clear(c);
+            this.onReleased?.(c);
           }
           break;
         case 'fleeing':

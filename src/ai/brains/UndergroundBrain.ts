@@ -6,6 +6,7 @@ import type { RepairSpot } from '../../systems/EconomySystem';
 import type { Cell } from '../../systems/LawSystem';
 import type { DepotAct } from '../../systems/Arsenal';
 import type { UndergroundGroup } from '../../systems/InsurgencySystem';
+import type { Dwelling } from '../../systems/Housing';
 import { canSeeCircle } from '../../world/visibility';
 import { FACTIONS } from '../../config/factions';
 import { Mover } from '../Mover';
@@ -75,6 +76,8 @@ export class UndergroundBrain implements Brain {
   private homeAt = -1e9;
   /** К барыге: забранное с явки (null — ещё не забрал). */
   private bag: { id: ItemId; qty: number }[] | null = null;
+  /** Чья явка: откуда нести краденое барыге. */
+  private fenceFrom: Dwelling | null = null;
 
   constructor(self: Character, ctx: AiContext) {
     this.gunner = new Gunner(ctx.rng);
@@ -161,12 +164,14 @@ export class UndergroundBrain implements Brain {
   }
 
   /** К барыге: сперва на явку за краденым (если тайник не пуст), потом в хату барыги. */
-  startFence(self: Character, ctx: AiContext): void {
+  startFence(self: Character, ctx: AiContext, from: Dwelling | null = null): void {
     this.mode = 'fence';
     this.work = 0;
     this.bag = null;
     this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
-    const home = ctx.housing?.of(self);
+    // Краденое — на своей явке или на явке товарища (from).
+    const home = from ?? ctx.housing?.of(self) ?? null;
+    this.fenceFrom = home;
     const toStash = !!home?.stash?.slots.length;
     this.spot = toStash ? ctx.housing.spot(home!, false) : ctx.fence.counter;
     if (!toStash) this.bag = ctx.insurgency.bagForFence(self);
@@ -203,6 +208,12 @@ export class UndergroundBrain implements Brain {
    * Дело сделано — домой. С добычей (ящик со склада, с конвоя) и не ранен — сперва на свою явку в
    * городе: спрятать в тайник (Housing), потом к люку.
    */
+  /** Бросить дело и уйти в схрон (например, отпустили из КПЗ). */
+  retreat(self: Character, ctx: AiContext): void {
+    if (this.mode === 'base') return;
+    this.goBase(self, ctx);
+  }
+
   private goHome(self: Character, ctx: AiContext): void {
     const city = ctx.map.levelAt(self.x, self.y) === 'city';
     const d = ctx.housing?.of(self);
@@ -239,15 +250,15 @@ export class UndergroundBrain implements Brain {
 
   update(self: Character, ctx: AiContext, dt: number): void {
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
-    // Скрытные дела (ствол бандиту, взлом, растяжка) — огня не открывает, пока не ранят.
+    // Скрытные дела (ствол бандиту, взлом, растяжка, саботаж, барыга) — огня не открывает, пока не ранят.
     const group = this.mode === 'base' ? null : ctx.insurgency.groupOf(self);
-    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot' || this.mode === 'cover' || this.mode === 'stash') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
+    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot' || this.mode === 'cover' || this.mode === 'stash' || this.mode === 'sabotage' || this.mode === 'fence') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     // Засада: до сигнала — под личиной, огня не открывают (разве что ранили).
     else if (this.mode === 'ambush') this.gunner.holdFire = !group?.attack && ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     else if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
-    // Под личиной ствол в кармане, пока не стреляет.
-    if (self.disguised && !this.gunner.target && self.weapon) ctx.combat.equip(self, null);
+    // Под личиной ствол в кармане, пока не стреляет (огонь запрещён — тоже, даже если цель на виду).
+    if (self.disguised && self.weapon && (!this.gunner.target || this.gunner.holdFire)) ctx.combat.equip(self, null);
     const now = ctx.combat.now;
     this.repath -= dt;
     // Раненый — отход (если уже не в убежище).
@@ -404,7 +415,7 @@ export class UndergroundBrain implements Brain {
           this.travel.stop(this.mover);
           if (!this.bag) {
             // На явке: забрал краденое — к барыге.
-            this.bag = ctx.insurgency.bagForFence(self);
+            this.bag = ctx.insurgency.bagForFence(self, this.fenceFrom);
             this.spot = ctx.fence.counter;
             this.travel.start(self, ctx, this.mover, this.spot);
             break;
@@ -468,8 +479,11 @@ export class UndergroundBrain implements Brain {
         break;
       }
       case 'return': {
-        // Уходит; разведчик с вылазки стреляет, только если по нему попали, остальные — на ходу.
-        this.gunner.holdFire = this.fromOuting && now - self.lastHurt >= INSURGENCY.returnFireFor;
+        // Уходит: под личиной (и разведчик с вылазки) — огня не открывает, пока не ранят; раскрытый —
+        // отстреливается на ходу.
+        this.gunner.holdFire = (this.fromOuting || self.disguised) && now - self.lastHurt >= INSURGENCY.returnFireFor;
+        // Под личиной не бежит (бег — нарушение для ГО): быстрым шагом.
+        this.mover.speed = self.disguised ? CHARACTER.walkSpeed * PARTISANS.briskWalk : CHARACTER.runSpeed * 0.75;
         const st = this.travel.update(self, ctx, this.mover, dt);
         if (st === 'arrived' || (st === 'failed' && ctx.map.levelAt(self.x, self.y) === 'sewer')) {
           this.travel.stop(this.mover);

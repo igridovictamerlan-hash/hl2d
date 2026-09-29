@@ -24,8 +24,9 @@ export type AgentMode = 'base' | 'dress' | 'mission' | 'return';
 
 /**
  * Спецагент сопротивления (один на сервер). Из схрона через люк: для покушения и взлома КПЗ сперва
- * переодевается — в убитого сотрудника Альянса (свежее тело в городе) или в OTA у шкафа в казарме
- * Нексуса; в личине сотрудника Альянса свои его не проверяют. Миссии: покушение на Администратора и
+ * переодевается в форму убитого ГО (свежее тело в городе; в OTA — никогда); в форме ГО свои его не
+ * проверяют. Свежего тела нет — идёт под своей гражданской личиной («по наряду» без формы не выдадут —
+ * тогда бунт). Миссии: покушение на Администратора и
  * высших чинов (CMD.EPU, SU.INSP, PCU.OFC) — вплотную достаёт ствол (маскировка слетает) и стреляет;
  * взлом камеры КПЗ или клетки — все сбегают; бунт горожан на площади. Потом — к люку и вниз.
  */
@@ -38,6 +39,10 @@ export class AgentBrain implements Brain {
   target: Character | null = null;
   cell: Cell | null = null;
   private corpse: Corpse | null = null;
+  /** До какого времени миссия (застрял — домой). */
+  private missionUntil = 0;
+  /** Точка миссии (у HatchTravel цель после прибытия сбрасывается). */
+  private missionAt: Vec2 | null = null;
   private dressAt: Vec2 | null = null;
   private work = 0;
   /** Покушение идёт до этого времени (0 — ещё не стреляли). */
@@ -70,10 +75,12 @@ export class AgentBrain implements Brain {
     const W = A.missions;
     let m = mission;
     // Свой в клетке — вытащить.
-    if (!m && ctx.insurgency.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) m = 'jailbreak';
+    if (!m && ctx.insurgency.jailbreakReady && ctx.insurgency.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) m = 'jailbreak';
     if (!m) {
       const r = ctx.rng.next();
       m = r < W.assassinate ? 'assassinate' : r < W.assassinate + W.jailbreak ? 'jailbreak' : r < W.assassinate + W.jailbreak + W.riot ? 'riot' : 'requisition';
+      // Взлом недавно был — вместо него бунт.
+      if (m === 'jailbreak' && !ctx.insurgency.jailbreakReady) m = 'riot';
       // «По наряду» — только если склад есть и выдача открыта.
       if (m === 'requisition' && (!ctx.arsenal?.present || ctx.arsenal.closed || !ctx.arsenal.window)) m = 'riot';
     }
@@ -88,6 +95,7 @@ export class AgentBrain implements Brain {
     } else if (m === 'jailbreak') {
       this.cell = ctx.law.cells.find((c) => c.cage && c.slots.some((s) => s.occupant)) ?? ctx.law.cells.find((c) => c.slots.some((s) => s.occupant)) ?? null;
       if (!this.cell) return false;
+      if (!this.backup) ctx.insurgency.markJailbreak();
     }
     // Покушение, взлом и «наряд» на складе — в личине сотрудника Альянса; бунт — и под видом горожанина.
     if (m !== 'riot' && !coverAuthority(self)) this.beginDress(self, ctx);
@@ -138,7 +146,7 @@ export class AgentBrain implements Brain {
     this.corpse = null;
     let bestD = Infinity;
     for (const c of ctx.combat.corpses) {
-      if ((c.faction !== 'cp' && c.faction !== 'ota') || c.stripped || c.burning || c.until - now < COMBAT.corpseTime - A.corpseFresh) continue;
+      if (c.faction !== 'cp' || c.stripped || c.burning || c.until - now < COMBAT.corpseTime - A.corpseFresh) continue;
       if (ctx.map.levelAt(c.x, c.y) !== 'city') continue;
       const d = Math.hypot(c.x - self.x, c.y - self.y);
       if (d < bestD) {
@@ -146,10 +154,9 @@ export class AgentBrain implements Brain {
         this.corpse = c;
       }
     }
-    const spots = ctx.map.poisOf('ota_spot').length;
-    this.dressAt = this.corpse ? { x: this.corpse.x, y: this.corpse.y } : spots ? poiWorld(ctx, 'ota_spot', Math.floor(ctx.rng.next() * spots)) : null;
+    this.dressAt = this.corpse ? { x: this.corpse.x, y: this.corpse.y } : null;
     if (!this.dressAt) {
-      this.goHome(self, ctx);
+      this.goUndressed(self, ctx);
       return;
     }
     this.mode = 'dress';
@@ -157,11 +164,19 @@ export class AgentBrain implements Brain {
     this.travel.start(self, ctx, this.mover, this.dressAt);
   }
 
+  /** Формы не достать: покушение и взлом — под гражданской личиной, «по наряду» без формы — бунт. */
+  private goUndressed(self: Character, ctx: AiContext): void {
+    if (this.mission === 'requisition') this.mission = 'riot';
+    this.beginMission(self, ctx);
+  }
+
   private beginMission(self: Character, ctx: AiContext): void {
     this.mode = 'mission';
+    this.missionUntil = ctx.combat.now + PARTISANS.agent.missionMax;
     this.work = 0;
     this.fightUntil = 0;
     const to = this.missionPoint(ctx);
+    this.missionAt = to;
     if (!to) {
       this.goHome(self, ctx);
       return;
@@ -179,6 +194,12 @@ export class AgentBrain implements Brain {
     return a >= 0 ? { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) } : null;
   }
 
+  /** Бросить миссию и уйти в схрон (например, отпустили из КПЗ). */
+  retreat(self: Character, ctx: AiContext): void {
+    if (this.mode === 'base') return;
+    this.goHome(self, ctx);
+  }
+
   private goHome(self: Character, ctx: AiContext): void {
     this.planting = false;
     this.mode = 'return';
@@ -187,7 +208,8 @@ export class AgentBrain implements Brain {
     this.cell = null;
     this.backup = false;
     this.partner = null;
-    this.mover.speed = CHARACTER.runSpeed * 0.8;
+    // Под личиной не бежит (бег — нарушение для ГО): быстрым шагом; раскрытый — бегом.
+    this.mover.speed = self.disguised ? CHARACTER.walkSpeed * PARTISANS.briskWalk : CHARACTER.runSpeed * 0.8;
     const base = ctx.insurgency.base;
     if (base) this.travel.start(self, ctx, this.mover, base);
   }
@@ -200,8 +222,8 @@ export class AgentBrain implements Brain {
     const hurt = now - self.lastHurt < INSURGENCY.returnFireFor;
     this.gunner.holdFire = !(hurt || (this.mode === 'mission' && this.mission === 'assassinate' && this.fightUntil > 0));
     const fighting = this.gunner.update(self, ctx, dt);
-    // Под личиной ствол в кармане, пока не стреляет.
-    if (self.disguised && !this.gunner.target && self.weapon) ctx.combat.equip(self, null);
+    // Под личиной ствол в кармане, пока не стреляет (огонь запрещён — тоже, даже если цель на виду).
+    if (self.disguised && self.weapon && (!this.gunner.target || this.gunner.holdFire)) ctx.combat.equip(self, null);
     this.repath -= dt;
     if (self.health < self.maxHealth * COMBAT.woundedFraction && this.mode !== 'base' && this.mode !== 'return') this.goHome(self, ctx);
 
@@ -224,12 +246,19 @@ export class AgentBrain implements Brain {
       case 'dress': {
         const at = this.dressAt!;
         const st = this.travel.update(self, ctx, this.mover, dt);
-        if (ctx.map.levelAt(self.x, self.y) === 'city' && Math.hypot(at.x - self.x, at.y - self.y) < A.reach) {
+        const d = Math.hypot(at.x - self.x, at.y - self.y);
+        // Дошёл (или встал вплотную — тело у стены, место занято) — переодевается.
+        const stopped = st === 'arrived' || st === 'idle';
+        if (ctx.map.levelAt(self.x, self.y) === 'city' && (d < A.reach || (stopped && d < A.reach * 2.5))) {
           this.travel.stop(this.mover);
           this.work += dt;
           if (this.work >= A.dress) {
-            if (this.corpse && !this.corpse.stripped) ctx.insurgency.dressAs(self, this.corpse);
-            else ctx.insurgency.dressAsOta(self);
+            // Форму успели снять другие — идёт как есть.
+            if (!this.corpse || this.corpse.stripped) {
+              this.goUndressed(self, ctx);
+              break;
+            }
+            ctx.insurgency.dressAs(self, this.corpse);
             this.stats.dressed++;
             this.beginMission(self, ctx);
           }
@@ -371,9 +400,20 @@ export class AgentBrain implements Brain {
       this.work = 0;
       this.travel.start(self, ctx, this.mover, { x: other.frontX, y: other.frontY });
     }
-    const to = this.mission === 'jailbreak' && this.cell ? { x: this.cell.frontX, y: this.cell.frontY } : this.travel.goal;
+    // Миссия затянулась (не пройти, некуда) — уйти в схрон.
+    if (now > this.missionUntil) {
+      this.goHome(self, ctx);
+      return;
+    }
+    const to = this.mission === 'jailbreak' && this.cell ? { x: this.cell.frontX, y: this.cell.frontY } : this.missionAt;
     const st = this.travel.update(self, ctx, this.mover, dt);
-    if (city && to && (st === 'arrived' || Math.hypot(to.x - self.x, to.y - self.y) < A.reach)) {
+    const d = to ? Math.hypot(to.x - self.x, to.y - self.y) : Infinity;
+    // Встал далеко (путь сорвался) — заново.
+    if (city && to && st === 'idle' && d >= A.reach * 2.5 && this.repath <= 0) {
+      this.repath = 2;
+      this.travel.start(self, ctx, this.mover, to);
+    }
+    if (city && to && (st === 'arrived' || d < A.reach || (st === 'idle' && d < A.reach * 2.5))) {
       this.travel.stop(this.mover);
       if (this.mission === 'jailbreak' && this.cell) faceTowards(self, this.cell.x, this.cell.y, dt);
       this.work += dt;

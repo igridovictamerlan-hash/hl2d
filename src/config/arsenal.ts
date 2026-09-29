@@ -1,3 +1,4 @@
+import type { WeaponId } from './items';
 /** Вид груза: ящик патронов, ящик гранат, ящик стволов в консервации (на расконсервацию оружейнику). */
 export type CrateKind = 'ammo' | 'grenades' | 'weapons';
 
@@ -109,8 +110,11 @@ export const ARSENAL = {
    * ящиков зала, пожар; охранник, заметивший заряд ближе spot, обезвреживает с шансом spotChance/с.
    */
   bomb: { plant: 4, fuse: 20, blast: 1.6, destroy: 0.5, spot: 90, spotChance: 0.25 },
-  /** Кража ящика (time с): патроны — mags магазинов к каждому стволу, гранаты — grenades штук. */
-  steal: { time: 3, mags: 4, grenades: 3 },
+  /**
+   * Кража (time с): ящик патронов — mags магазинов к каждому стволу, гранат — grenades штук; ствол со
+   * стоек зала — до gunsPer стволов из guns (MP7, USP, M4A4 — к барыге, у него они только краденые).
+   */
+  steal: { time: 3, mags: 4, grenades: 3, guns: ['mp7', 'usp', 'm4a4'] as WeaponId[], gunsPer: 2 },
   /**
    * Операция подполья «склад» (InsurgencySystem): доли дел; охрана (кладовщик) в watch px, видящая
    * подпольщика за делом, раскрывает его с шансом caught.

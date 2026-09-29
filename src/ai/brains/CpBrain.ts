@@ -359,8 +359,9 @@ export class CpBrain implements Brain {
         [ctx.arsenal?.ledgerSpot ?? null, ARSENAL.lines.inspect],
       ];
       const [p, lines] = ctx.rng.pick(places.filter(([q]) => q)) ?? [null, SECURITY.lines.inspect];
-      // Встать рядом, а не на рабочее место повара или фасовщика (у описи склада — прямо у стола).
-      const ledger = p !== null && p === ctx.arsenal?.ledgerSpot;
+      // Встать рядом, а не на рабочее место повара или фасовщика (у описи склада и у стола главы ГСР —
+      // прямо у стола: точка «вокруг» может оказаться за стеной, в соседней комнате).
+      const ledger = p !== null && (p === ctx.arsenal?.ledgerSpot || p === ctx.cwuHq?.desk);
       const a = p && !ledger ? randomAnchorAround(p, ctx, 2, 4, this.patrolAvoid) : -1;
       this.dutySpot = a >= 0 ? { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) } : p;
       this.dutyLine = ctx.rng.pick(lines);

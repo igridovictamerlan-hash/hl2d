@@ -154,10 +154,12 @@ export class CwuHqSystem {
         }
       }
     }
-    // Инспектор SU.INSP у главы — отчёт.
+    // Инспектор SU.INSP у главы (или у его стола, пока глава в штабе — главу позовут) — отчёт.
     const I = CWU_HQ.inspection;
     if (head && ctx.law.now - this.lastInspection > I.every) {
-      for (const o of ctx.entities.near(head.x, head.y, I.reach, near)) {
+      const inHq = ctx.map.zoneAtWorld(head.x, head.y)?.kind === 'cwu_hq';
+      const at = inHq && this.desk ? [head, this.desk] : [head];
+      for (const o of at.flatMap((p) => ctx.entities.near(p.x, p.y, I.reach, near).slice())) {
         const b = o.brain as { duty?: string } | null;
         if (!o.alive || o.faction !== 'cp' || b?.duty !== 'inspector') continue;
         this.lastInspection = ctx.law.now;

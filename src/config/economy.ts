@@ -65,6 +65,10 @@ export const ECONOMY = {
       { id: 'crossbow', qty: 1, price: 110 },
       { id: 'ar2', qty: 1, price: 140 },
       { id: 'ak74', qty: 1, price: 120 },
+      // Стволы Альянса — только краденые (со склада, с конвоев, с тел ГО).
+      { id: 'usp', qty: 1, price: 45 },
+      { id: 'mp7', qty: 1, price: 75 },
+      { id: 'm4a4', qty: 1, price: 130 },
       { id: 'knife', qty: 1, price: 15 },
       { id: 'ammo_545', qty: 30, price: 16 },
       { id: 'ammo_pistol', qty: 24, price: 10 },

@@ -215,6 +215,9 @@ export class ArsenalSystem {
   private vaultUsers = new Set<Character>();
   private vaultLocked = true;
   private qm: Character | null = null;
+  /** Сколько стволов унесено со стоек последней кражей; кто пришёл именно за стволами. */
+  private stolenGuns = 0;
+  private forGuns = new Set<Character>();
   private nextId = 1;
   private time = 0;
   private redLogged = false;
@@ -1880,13 +1883,39 @@ export class ArsenalSystem {
   }
 
   /** Кража: ящик рядом (крыльцо или зал). Что унёс. */
-  steal(by: Character): CrateKind | null {
+  steal(by: Character): LoadKind | null {
+    // Ствол со стойки зала (исправный) — сперва: самое ходовое у барыги.
+    // Пришёл за стволами — со стоек до steal.gunsPer за раз (сколько унести в руках).
+    this.stolenGuns = 0;
+    const guns = this.forGuns.delete(by);
+    for (let k = 0; guns && k < ARSENAL.steal.gunsPer; k++) {
+      const rack = this.rackGunNear(by.x, by.y, 60);
+      if (!rack) break;
+      rack.crate = null;
+      this.stolenGuns++;
+    }
+    if (this.stolenGuns > 0) {
+      this.stats.stolen++;
+      return 'gun';
+    }
     const hit = this.crateAt(by.x, by.y, 60, (c) => c.kind !== 'gun');
     if (!hit) return null;
     if (hit.slot) hit.slot.crate = null;
     else this.crates.splice(this.crates.indexOf(hit.crate), 1);
     this.stats.stolen++;
     return hit.crate.kind as CrateKind;
+  }
+
+  /** Стойка зала с исправным стволом ближе r px к (x, y) — ближайшая (или null). */
+  private rackGunNear(x: number, y: number, r: number): Slot | null {
+    let best: Slot | null = null;
+    let bestD = r;
+    for (const s of this.slots) {
+      if (s.area !== 'rack' || s.crate?.kind !== 'gun' || s.crate.broken) continue;
+      const d = Math.hypot(s.ax - x, s.ay - y);
+      if (d < bestD) [best, bestD] = [s, d];
+    }
+    return best;
   }
 
   /** Подмешать брак в ящик патронов рядом. */
@@ -1966,9 +1995,20 @@ export class ArsenalSystem {
   }
 
   /** Что подпольщику сделать на складе (доли ARSENAL.ops; невозможное не выбирается) и где. */
-  pickSabotage(by: Character): { act: DepotAct; spot: Vec2 } | null {
+  pickSabotage(by: Character, loot = false): { act: DepotAct; spot: Vec2 } | null {
     if (!this.present) return null;
     const O = ARSENAL.ops;
+    // Подполью нечего нести барыге — за добычей: ствол со стойки (а нет — любой ящик).
+    if (loot) {
+      const h = this.hall ?? by;
+      const rack = this.rackGunNear(h.x, h.y, 1e9);
+      if (rack) {
+        this.forGuns.add(by);
+        return { act: 'steal', spot: { x: rack.ax, y: rack.ay } };
+      }
+      const box = this.crateAt(h.x, h.y, 1e9, (c) => c.kind === 'ammo' || c.kind === 'grenades');
+      if (box) return { act: 'steal', spot: box.slot ? { x: box.slot.ax, y: box.slot.ay } : { x: box.crate.x, y: box.crate.y } };
+    }
     const any = this.crateAt(this.hall?.x ?? by.x, this.hall?.y ?? by.y, 1e9, (c) => c.kind === 'ammo' || c.kind === 'grenades');
     const ammo = this.crateAt(this.hall?.x ?? by.x, this.hall?.y ?? by.y, 1e9, (c) => c.kind === 'ammo' && !c.tainted);
     const spotOf = (h: { crate: Crate; slot: Slot | null } | null): Vec2 | null => (h ? (h.slot ? { x: h.slot.ax, y: h.slot.ay } : { x: h.crate.x, y: h.crate.y }) : null);
@@ -1999,6 +2039,7 @@ export class ArsenalSystem {
       if (kind === 'ammo') ctx.insurgency.haul(by, 'ammo', ARSENAL.steal.mags);
       else if (kind === 'grenades') ctx.insurgency.haul(by, 'grenades', ARSENAL.steal.grenades);
       else if (kind === 'weapons') ctx.insurgency.haul(by, 'weapons', 1);
+      else if (kind === 'gun') for (let k = 0; k < this.stolenGuns; k++) ctx.insurgency.haul(by, 'weapons', 1, ctx.rng.pick(ARSENAL.steal.guns));
     } else if (act === 'taint') ok = this.taint(by);
     else if (act === 'bomb') ok = this.plantBomb(by);
     else ok = this.breakBeacon();

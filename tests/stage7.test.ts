@@ -279,7 +279,7 @@ describe('прорыв и уличная жизнь', () => {
 
   test('жители болтают, греются у бочек, заходят домой, слушают обращение', { timeout: 180_000 }, () => {
     const sim = makeSim(12345);
-    spawnPopulation(sim.ctx, 45);
+    spawnPopulation(sim.ctx, 55);
     sim.war.command.paused = true;
     const st = sim.ctx.street;
     expect(st.barrels.length).toBeGreaterThanOrEqual(5);
