@@ -306,6 +306,12 @@ export class CombatSystem {
     return c.weapon ? WEAPONS[c.weapon] : null;
   }
 
+  /** Запас патронов к стволу id (не в магазине). */
+  reserveOf(c: Character, id: WeaponId): number {
+    const w = WEAPONS[id];
+    return w.ammo ? c.inventory.count(AMMO_ITEM[w.ammo]) : 0;
+  }
+
   reserveAmmo(c: Character): number {
     const w = this.weaponOf(c);
     return w?.ammo ? c.inventory.count(AMMO_ITEM[w.ammo]) : 0;

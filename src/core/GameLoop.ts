@@ -10,6 +10,8 @@ export class GameLoop {
   private raf = 0;
   private running = false;
   readonly step = 1 / GAME.tickRate;
+  /** Замедление времени (колесо оружия): доля реального времени, которая идёт в логику. */
+  timeScale = 1;
   /** Сглаженные кадры в секунду (для панели). */
   fps = 0;
 
@@ -35,7 +37,7 @@ export class GameLoop {
     const frameDt = Math.min(0.25, (now - this.last) / 1000);
     this.last = now;
     if (frameDt > 0) this.fps = this.fps * 0.93 + (1 / frameDt) * 0.07;
-    this.acc += frameDt;
+    this.acc += frameDt * this.timeScale;
     let steps = 0;
     while (this.acc >= this.step && steps < GAME.maxStepsPerFrame) {
       this.update(this.step);

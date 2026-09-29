@@ -3,10 +3,11 @@ import type { ProfessionId } from '../config/professions';
 import type { EventBus } from '../core/EventBus';
 import type { Character } from '../entities/Character';
 import type { FactionId, DivisionId } from '../config/factions';
-import type { ItemId, WeaponId } from '../config/items';
+import type { ItemId, WeaponId, GrenadeId } from '../config/items';
 import type { EconomySystem } from '../systems/EconomySystem';
 import type { CombatSystem } from '../systems/CombatSystem';
 import { Hud } from './Hud';
+import type { PawnLook } from '../entities/PawnRenderer';
 import { ZoneBanner } from './ZoneBanner';
 import { DevPanel, type DevPanelHost } from './DevPanel';
 import { HelpBar } from './HelpBar';
@@ -25,16 +26,16 @@ import { MapView, type MapViewHost } from './MapView';
 import { GameMenu, type GameMenuHost } from './GameMenu';
 import type { WarSystem, AlertCode } from '../systems/WarSystem';
 import { GAME } from '../config/game';
-import { WEAPONS, ITEMS, type FireMode } from '../config/items';
 import { GRENADE_KINDS } from '../systems/CombatSystem';
 import type { SquadArena } from '../systems/SquadArena';
 import { ArenaBar } from './ArenaBar';
 
-const FIRE_MODE: Record<FireMode, string> = { semi: 'одиночный', auto: 'авто', pump: 'помпа', melee: 'удар' };
 
 export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   /** Часы и время суток («19:40 · вечер»). */
   readonly clock: string;
+  /** Внешность пешки (портрет HUD, инвентарь). */
+  pawnLook(c: Character): PawnLook;
   /** Где горит огонь (бочки, костры — треск рядом) и насколько темно (0..1) — для звукового фона. */
   readonly fireSpots: readonly { x: number; y: number }[];
   readonly darkness: number;
@@ -51,6 +52,7 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   setAlertCode(code: AlertCode): void;
   useItem(id: ItemId): void;
   equipItem(id: WeaponId | null): void;
+  chooseGrenade(id: GrenadeId): void;
   buyItem(id: ItemId): string | null;
   buyBlack(k: number): string | null;
   blackInStock(k: number): boolean;
@@ -137,22 +139,9 @@ export class UI {
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
     const { economy, combat } = this.host;
-    let weapon = '';
-    if (player.weapon) {
-      const w = WEAPONS[player.weapon];
-      if (w.mode === 'melee') weapon = w.class === 'blade' ? `${w.name} · удар ЛКМ, в спину — сильнее` : `${w.name} · удар ЛКМ, оглушает`;
-      else {
-        const ammo = combat.reloading(player) ? 'перезарядка…' : `${player.mag} / ${combat.reserveAmmo(player)}`;
-        const aim = player.aiming ? ` · прицел ${Math.round(player.aim * 100)}%` : '';
-        weapon = `${w.name} [${FIRE_MODE[w.mode]}]: ${ammo} · ±${combat.spreadOf(player, w).toFixed(1)}°${aim}`;
-      }
-    }
-    // Гранаты: выбранная (T) и сколько всего.
+    // Гранаты: выбранная (T) и сколько её.
     const nades = GRENADE_KINDS.filter((g) => player.inventory.has(g));
-    if (nades.length) {
-      const g = nades.includes(player.grenadeKind) ? player.grenadeKind : nades[0];
-      weapon += `${weapon ? '\n' : ''}T: ${ITEMS[g].name} ×${player.inventory.count(g)}${nades.length > 1 ? ' · Y — сменить' : ''}`;
-    }
+    const grenade = nades.length ? (nades.includes(player.grenadeKind) ? player.grenadeKind : nades[0]) : null;
     let ration: string;
     if (this.host.arena) ration = '';
     else if (economy.open) {
@@ -170,7 +159,17 @@ export class UI {
         ration += `\nПункты боепитания: ${ars.points.map((p) => `${p.name.split(' ').pop()} ${p.kits}${p.convoy ? ' (конвой)' : ''}`).join(' · ')}`;
       }
     }
-    this.hud.update(player, now, weapon, ration, this.host.war.command.rallyCooldown);
+    this.hud.update(player, now, {
+      look: this.host.pawnLook(player),
+      weapon: player.weapon,
+      mag: player.mag,
+      reserve: combat.reserveAmmo(player),
+      reloading: combat.reloading(player),
+      grenade,
+      grenades: grenade ? player.inventory.count(grenade) : 0,
+      ration,
+      rally: this.host.war.command.rallyCooldown,
+    });
     this.hud.setClock(this.host.clock);
     // Журнал событий — над HUD, какой бы высоты тот ни был.
     const h = this.hud.el.offsetHeight;
@@ -178,7 +177,7 @@ export class UI {
       this.hudHeight = h;
       this.log.el.style.bottom = `${h + 28}px`;
     }
-    this.inventory.update(player);
+    this.inventory.update(player, combat, this.host.pawnLook(player));
     if (this.host.arena) this.arenaBar.update(this.host.arena);
     else {
       this.arenaBar.update(null);

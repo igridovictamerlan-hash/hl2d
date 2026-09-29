@@ -57,24 +57,46 @@ html, body {
   background: #0b0806;
 }
 
-/* HUD */
+/* HUD (A3): портрет с кольцами здоровья и сытости, значки состояний, оружие в руках */
 .hud {
+  position: absolute;
   left: 16px;
   bottom: 16px;
-  width: 230px;
-  padding: 10px 12px;
+  z-index: 3;
   color: var(--hud);
   pointer-events: none !important;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 350px;
 }
-.hud-row { display: flex; justify-content: space-between; align-items: baseline; }
-.hud-label { font-size: 11px; letter-spacing: 0.14em; color: var(--hud-dim); }
-.hud-value { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.hp-bar { height: 5px; margin: 2px 0 8px; background: rgba(255, 211, 107, 0.15); border-radius: 3px; overflow: hidden; }
-.hp-fill { height: 100%; background: var(--hud); transition: width 0.2s; }
-.hp-fill.low { background: var(--danger); }
-.hud-id { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--panel-border); }
-.hud-name { font-size: 14px; color: var(--text); }
-.hud-role { font-size: 12px; margin-top: 2px; }
+.hud-main { display: flex; align-items: center; gap: 8px; }
+.hud-ring { display: block; flex: none; }
+.hud-ring.pulse { animation: hud-pulse 0.9s ease-in-out infinite; }
+@keyframes hud-pulse { 50% { filter: drop-shadow(0 0 7px rgba(255, 42, 26, 0.9)); } }
+.hud-side { display: flex; flex-direction: column; gap: 1px; padding: 5px 9px 6px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px; min-width: 150px; }
+.hud-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.hud-role { font-size: 11px; white-space: nowrap; }
+.hud-meta { font-size: 11px; color: var(--hud-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hud-gun { display: flex; align-items: center; gap: 6px; margin-top: 3px; padding-top: 4px; border-top: 1px solid var(--panel-border); }
+.hud-gun canvas { display: block; }
+.hud-ammo { display: flex; align-items: baseline; gap: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hud-ammo b { font-size: 18px; color: var(--text); }
+.hud-ammo b.empty { color: var(--danger); }
+.hud-ammo span { font-size: 11px; color: var(--hud-dim); }
+.hud-nade { display: flex; align-items: center; gap: 1px; font-size: 11px; color: var(--text); margin-left: auto; }
+.hud-status { display: flex; gap: 5px; flex-wrap: wrap; }
+.hud-status:empty { display: none; }
+.hud-st { position: relative; display: flex; flex-direction: column; align-items: center; width: 38px; }
+.hud-st img { display: block; width: 30px; height: 30px; padding: 4px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, 0.15); }
+.hud-st span { font-size: 9px; color: var(--text); text-shadow: 0 1px 2px #000; white-space: nowrap; margin-top: 1px; }
+.hud-st b { position: absolute; top: -5px; right: -1px; min-width: 13px; padding: 0 2px; font-size: 9px; line-height: 13px; text-align: center; border-radius: 3px; background: #f3e6cc; color: #1b1710; }
+.st-red img { background: rgba(150, 24, 16, 0.85); }
+.st-amber img { background: rgba(120, 90, 20, 0.82); }
+.st-blue img { background: rgba(40, 60, 90, 0.85); }
+.st-dark img { background: rgba(18, 14, 10, 0.78); }
+.hud-st.blink img { animation: hud-blink 0.8s steps(2, jump-none) infinite; }
+@keyframes hud-blink { 50% { opacity: 0.45; } }
 
 /* Название зоны */
 .zone-banner {
@@ -155,7 +177,7 @@ html, body {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  max-width: calc(100vw - 300px);
+  max-width: calc(100vw - 390px);
   gap: 4px 12px;
   padding: 6px 10px;
   font-size: 12px;
@@ -175,8 +197,7 @@ kbd {
   .help { display: none; }
 }
 
-.hud-law { margin-top: 6px; padding: 4px 6px; border-radius: 4px; background: rgba(255, 91, 74, 0.16); color: #ffb3a8; font-size: 13px; }
-.hud-wound { margin-top: 4px; color: #ff6b5b; font-size: 12px; font-weight: 600; }
+.hud-law { align-self: flex-start; padding: 3px 7px; border-radius: 4px; background: rgba(255, 91, 74, 0.16); color: #ffb3a8; font-size: 13px; }
 
 /* Журнал событий */
 .event-log {
@@ -264,17 +285,14 @@ kbd {
 .code-manual { color: var(--hud); }
 .code-hint { color: var(--muted); font-size: 12px; }
 
-.hud-small { font-size: 14px; font-variant-numeric: tabular-nums; }
 .hunger-fill { background: #8fd6b0; }
 .hunger-fill.low { background: var(--danger); }
-.hud-weapon { white-space: pre-line; margin-top: 4px; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
-.hud-ration { white-space: pre-line; margin-top: 4px; font-size: 12px; color: var(--hud-dim); }
-.hud-clock { font-size: 11px; letter-spacing: 0.08em; color: var(--hud-dim); text-align: right; margin: -2px 0 2px; font-variant-numeric: tabular-nums; }
-.hud { bottom: 16px; }
+.hud-ration { white-space: pre-line; font-size: 11px; color: var(--hud-dim); text-shadow: 0 1px 2px #000; }
+.hud-clock { font-variant-numeric: tabular-nums; }
 .event-log { bottom: 250px; }
 
 /* Инвентарь и магазин */
-.inventory, .shop {
+.shop {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -284,7 +302,8 @@ kbd {
   padding: 10px 12px;
   font-size: 13px;
 }
-.inventory { left: auto; right: 16px; transform: translateY(-50%); }
+.inventory { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); line-height: 0; }
+.inventory canvas { display: block; }
 .inv-head { display: flex; justify-content: space-between; align-items: center; color: var(--hud); letter-spacing: 0.14em; margin-bottom: 8px; }
 .inv-list { display: flex; flex-direction: column; gap: 6px; }
 .inv-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--panel-border); border-radius: 5px; }
@@ -349,7 +368,6 @@ kbd {
 .chat-box { left: 16px; bottom: 16px; width: min(460px, calc(100vw - 32px)); padding: 6px; z-index: 5; }
 .chat-box input { width: 100%; background: rgba(0,0,0,0.5); border: 1px solid var(--panel-border); color: var(--text); font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 4px; outline: none; }
 .chat-box input:focus { border-color: var(--hud); }
-.hud-loyalty { font-size: 12px; margin-top: 2px; }
 
 /* Мини-карта и большая карта (M) */
 .minimap { position: absolute; top: 64px; right: 16px; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.6); pointer-events: none; }

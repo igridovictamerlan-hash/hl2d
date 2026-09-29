@@ -29,6 +29,8 @@ import { ARBAT } from '../config/arbat';
 import { GANGS } from '../config/gangs';
 import { isQuartermaster, type DepotAct, type Slot } from '../systems/Arsenal';
 import { coverAuthority } from '../entities/cover';
+import type { WeaponWheel } from '../ui/WeaponWheel';
+import { HUD } from '../config/hud';
 
 const near: Character[] = [];
 
@@ -72,8 +74,22 @@ export class PlayerController {
       codePanelOpen(): boolean;
       chooseCode(code: AlertCode): void;
       closeCodePanel(): void;
+      /** Колесо оружия (B1) и замедление мира, пока оно открыто. */
+      wheel: WeaponWheel;
+      setSlow(on: boolean): void;
     },
   ) {}
+
+  /** Сколько зажата Q, с (-1 — не зажата): коротко — следующее оружие, дольше — колесо. */
+  private qHeld = -1;
+
+  /** Закрыть колесо без выбора (умер, упал, открылось меню). */
+  private dropWheel(): void {
+    this.qHeld = -1;
+    if (!this.hooks.wheel.open) return;
+    this.hooks.wheel.close();
+    this.hooks.setSlow(false);
+  }
 
   reset(): void {
     this.check = null;
@@ -121,6 +137,7 @@ export class PlayerController {
     const law = p.law;
     this.healCooldown -= dt;
     this.riotCooldown -= dt;
+    if (!p.alive || p.downed) this.dropWheel();
     if (!p.alive) {
       p.wantX = p.wantY = 0;
       return;
@@ -178,23 +195,45 @@ export class PlayerController {
       const speed = p.aiming ? CHARACTER.walkSpeed * aw!.aimMove : run ? CHARACTER.runSpeed : CHARACTER.walkSpeed;
       p.wantX = mx * speed;
       p.wantY = my * speed;
-      if (i.mouseInside) {
+      // Пока открыто колесо оружия, мышь выбирает сектор, а не взгляд.
+      if (i.mouseInside && !this.hooks.wheel.open) {
         const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
         p.facing = Math.atan2(m.y - p.y, m.x - p.x);
-      } else if (len > 0) p.facing = Math.atan2(my, mx);
+      } else if (len > 0 && !i.mouseInside) p.facing = Math.atan2(my, mx);
     }
     if (i.wasPressed('inventory')) this.hooks.toggleInventory();
-    if (this.hooks.menuOpen() || p.brain) return;
+    if (this.hooks.menuOpen() || p.brain) {
+      this.dropWheel();
+      return;
+    }
 
-    // Смена оружия: Q — следующее (после последнего — убрать), H — убрать.
-    if (i.wasPressed('nextWeapon')) this.cycleWeapon(p, ctx);
+    // Смена оружия: Q коротко — следующее (после последнего — убрать), зажать — колесо оружия
+    // (мир замедлен, мышь — сектор, колесо мыши — ствол в секторе, отпустить — взять); H — убрать.
+    const wheel = this.hooks.wheel;
+    if (i.isDown('nextWeapon')) {
+      this.qHeld = this.qHeld < 0 ? 0 : this.qHeld + dt;
+      if (!wheel.open && this.qHeld >= HUD.wheel.hold) {
+        wheel.show(p, ctx.combat);
+        this.hooks.setSlow(true);
+      }
+    } else if (this.qHeld >= 0) {
+      this.qHeld = -1;
+      if (wheel.open) {
+        this.hooks.setSlow(false);
+        this.applyWheel(p, ctx, wheel.close());
+      } else this.cycleWeapon(p, ctx);
+    }
+    if (wheel.open) {
+      wheel.aim(i.mouseX - i.width / 2, i.mouseY - i.height / 2);
+      if (i.wheel) wheel.scroll(i.wheel);
+    }
     if (i.wasPressed('holster') && p.weapon) {
       ctx.combat.equip(p, null);
       this.say('Оружие убрано.');
     }
     // Стрельба: автомат — пока зажата кнопка, остальное — по клику; дубинка — удар.
     const w = p.weapon ? WEAPONS[p.weapon] : null;
-    if (w && i.mouseInside && (w.mode === 'auto' ? i.mouseDown : i.mousePressed)) {
+    if (w && i.mouseInside && !wheel.open && (w.mode === 'auto' ? i.mouseDown : i.mousePressed)) {
       const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
       if (w.ammo && p.mag <= 0 && !ctx.combat.reloading(p)) {
         if (!ctx.combat.reload(p) && i.mousePressed) this.say('Нет патронов.');
@@ -331,6 +370,19 @@ export class PlayerController {
     if (!t) return this.say('Рядом нет раненых, которых можно тащить.');
     if (ctx.combat.startDrag(p, t)) this.say(`Тащите ${t.name}. X — отпустить.`);
     else this.say('Сейчас не получится.');
+  }
+
+  /** Выбор в колесе оружия: взять ствол, выбрать гранату для T или убрать оружие. */
+  private applyWheel(p: Character, ctx: AiContext, c: ReturnType<WeaponWheel['close']>): void {
+    if (!c) return;
+    if (c.kind === 'grenade') {
+      p.grenadeKind = c.id;
+      return this.say(`Граната: ${ITEMS[c.id].name} (${p.inventory.count(c.id)}). T — бросить.`);
+    }
+    const id = c.kind === 'weapon' ? c.id : null;
+    if (id === p.weapon) return;
+    ctx.combat.equip(p, id);
+    this.say(id ? `В руках: ${WEAPONS[id].name}.` : 'Оружие убрано.');
   }
 
   /** Q: следующее оружие из инвентаря; после последнего — убрать. */

@@ -13,6 +13,8 @@ export class Input {
   mousePressed = false;
   /** Зажата правая кнопка (прицеливание). */
   aimDown = false;
+  /** Прокрутка колеса мыши за тик (+ вниз, − вверх; колесо оружия). */
+  wheel = 0;
   /** Мышь над холстом (для курсора-прицела). */
   mouseInside = false;
 
@@ -46,6 +48,14 @@ export class Input {
       if (e.button === 2) this.aimDown = false;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        this.wheel += Math.sign(e.deltaY);
+        e.preventDefault();
+      },
+      { passive: false },
+    );
   }
 
   /** Фокус в поле ввода — игровые клавиши не перехватываем. */
@@ -73,6 +83,15 @@ export class Input {
     this.mouseInside = true;
   };
 
+  /** Размер холста в px CSS (центр — для колеса оружия). */
+  get width(): number {
+    return this.canvas.clientWidth;
+  }
+
+  get height(): number {
+    return this.canvas.clientHeight;
+  }
+
   isDown(action: Action): boolean {
     for (const c of CONTROLS[action]) if (this.down.has(c)) return true;
     return false;
@@ -92,5 +111,6 @@ export class Input {
   endTick(): void {
     this.pressed.clear();
     this.mousePressed = false;
+    this.wheel = 0;
   }
 }

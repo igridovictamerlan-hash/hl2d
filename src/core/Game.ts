@@ -20,7 +20,10 @@ import { EntityManager } from '../entities/EntityManager';
 import type { Character } from '../entities/Character';
 import { createCharacter, nameFor, randomName, resetCids } from '../entities/factory';
 import { stepPhysics } from '../entities/physics';
+import type { PawnLook } from '../entities/PawnRenderer';
 import { EntityRenderer } from '../entities/EntityRenderer';
+import { WeaponWheel } from '../ui/WeaponWheel';
+import { HUD } from '../config/hud';
 import { Particles } from '../world/Particles';
 import { SquadArena } from '../systems/SquadArena';
 import { ARENA, type ArenaSide } from '../config/arena';
@@ -63,7 +66,7 @@ import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION, type ProfessionId } from '../config/professions';
-import { ITEMS, type ItemId, type WeaponId } from '../config/items';
+import { ITEMS, type ItemId, type WeaponId, type GrenadeId } from '../config/items';
 import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
 import type { CheckChoice } from '../ui/CheckPanel';
@@ -121,6 +124,8 @@ export class Game {
   private furnishings: Furniture[] = [];
   private readonly ctx: CanvasRenderingContext2D;
   private readonly entityRenderer = new EntityRenderer();
+  /** Колесо оружия (зажать Q). */
+  private readonly wheel = new WeaponWheel();
   private readonly fog = new FogRenderer();
   private readonly effects = new EffectsRenderer();
   /** Свет и время суток, дымок из труб, пылинки, зерно (только картинка). */
@@ -180,6 +185,8 @@ export class Game {
       codePanelOpen: () => this.ui.code.isOpen,
       chooseCode: (c) => this.ui.code.choose(c),
       closeCodePanel: () => this.ui.code.close(),
+      wheel: this.wheel,
+      setSlow: (on) => (this.loop.timeScale = on ? HUD.wheel.slow : 1),
     });
     this.loop = new GameLoop(
       (dt) => this.update(dt),
@@ -569,10 +576,20 @@ export class Game {
     this.bus.emit('log', { text: `Игра продолжена (сохранение от ${when}). Новая игра — у терминала найма или в меню роли.`, kind: 'system' });
   }
 
+  /** Внешность пешки (портрет HUD, пешка в инвентаре) — как на карте. */
+  pawnLook(c: Character): PawnLook {
+    return this.entityRenderer.lookOf(c);
+  }
+
   /** Инвентарь игрока: съесть/применить. */
   useItem(id: ItemId): void {
     if (!this.player.alive) return;
     if (this.economy.use(this.player, id)) this.bus.emit('log', { text: `Вы использовали: ${ITEMS[id].name}.`, kind: 'system' });
+  }
+
+  /** Инвентарь: выбрать гранату для T. */
+  chooseGrenade(id: GrenadeId): void {
+    if (this.player.inventory.has(id)) this.player.grenadeKind = id;
   }
 
   /** Взять оружие в руки (null — убрать). Житель с оружием в руках — нарушитель. */
@@ -919,6 +936,7 @@ export class Game {
     this.effects.drawAlert(ctx, v, this.war.code, this.law.now, this.player);
     if (!sewer) this.effects.drawFrontMarkers(ctx, v, this.war, this.player, dpr, this.law.now);
     this.particles.drawHud(ctx, v, this.input.mouseInside ? this.input.mouseX * dpr : null, this.input.mouseInside ? this.input.mouseY * dpr : null, dpr);
+    this.wheel.draw(ctx, v.width, v.height, dpr, this.player, this.combat);
     if (this.input.mouseInside) this.drawCrosshair(this.input.mouseX * dpr, this.input.mouseY * dpr, dpr);
   }
 

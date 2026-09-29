@@ -1,127 +1,315 @@
 import type { Character } from '../entities/Character';
+import type { PawnLook } from '../entities/PawnRenderer';
+import { drawPawn } from '../entities/PawnRenderer';
 import { FACTIONS, CP_DIVISIONS, rankOf } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
+import { WEAPONS, type WeaponId, type GrenadeId } from '../config/items';
 import { hasLoyalty, loyaltyTier } from '../systems/Loyalty';
 import { SUPPRESS } from '../config/tactics';
+import { HUD } from '../config/hud';
+import { drawGunIcon, iconUrl } from './icons';
 
-/** HUD в духе HL2: здоровье, токены, личность (имя, роль, CID). Обновляется, только если что-то изменилось. */
+/** Что показать о руках игрока (собирает UI). */
+export interface HudInfo {
+  look: PawnLook;
+  weapon: WeaponId | null;
+  mag: number;
+  reserve: number;
+  reloading: boolean;
+  grenade: GrenadeId | null;
+  grenades: number;
+  /** Раздача рационов, склад — мелкой строкой. */
+  ration: string;
+  /** До готовности клича главы восстания, с (-1 — не глава). */
+  rally: number;
+}
+
+/** Значок состояния (S1). */
+interface Status {
+  icon: string;
+  label: string;
+  key?: string;
+  tone: 'red' | 'amber' | 'blue' | 'dark';
+  blink?: boolean;
+}
+
+/**
+ * HUD (A3): круглый портрет своей пешки, внешнее кольцо — здоровье, внутреннее — сытость; цифры —
+ * пока значение меняется или низкое. Над портретом — значки состояний (кровь, нога, прижат…), справа —
+ * имя, роль, токены, часы и оружие в руках (иконка, магазин, запас, граната). DOM обновляется, только
+ * если что-то изменилось.
+ */
 export class Hud {
   readonly el: HTMLElement;
-  private hpFill: HTMLElement;
-  private hpText: HTMLElement;
-  private money: HTMLElement;
-  private name: HTMLElement;
-  private role: HTMLElement;
-  private lawEl: HTMLElement;
-  private hungerText: HTMLElement;
-  private hungerFill: HTMLElement;
-  private weaponEl: HTMLElement;
-  private rationEl: HTMLElement;
-  private loyaltyEl: HTMLElement;
-  private last = '';
-  private woundEl: HTMLElement;
+  private readonly ring: HTMLCanvasElement;
+  private readonly gun: HTMLCanvasElement;
+  private readonly statusEl: HTMLElement;
+  private readonly name: HTMLElement;
+  private readonly role: HTMLElement;
+  private readonly meta: HTMLElement;
+  private readonly gunBox: HTMLElement;
+  private readonly mag: HTMLElement;
+  private readonly res: HTMLElement;
+  private readonly nade: HTMLElement;
+  private readonly lawEl: HTMLElement;
+  private readonly rationEl: HTMLElement;
+  private readonly clockEl: HTMLElement;
+  private lastRing = '';
+  private lastGun = '';
+  private lastStatus = '';
+  private lastText = '';
+  private lastClock = '';
+  /** Последние значения и когда менялись (цифры у кольца видны showFor с). */
+  private hp = -1;
+  private food = -1;
+  private hpAt = -99;
+  private foodAt = -99;
 
   constructor(parent: HTMLElement) {
     this.el = document.createElement('div');
-    this.el.className = 'hud panel';
+    this.el.className = 'hud';
     this.el.innerHTML = `
-      <div class="hud-clock" data-clock></div>
-      <div class="hud-row"><span class="hud-label">ЗДОРОВЬЕ</span><span class="hud-value" data-hp></span></div>
-      <div class="hp-bar"><div class="hp-fill" data-hpfill></div></div>
-      <div class="hud-wound" data-wound></div>
-      <div class="hud-row"><span class="hud-label">СЫТОСТЬ</span><span class="hud-small" data-hunger></span></div>
-      <div class="hp-bar"><div class="hp-fill hunger-fill" data-hungerfill></div></div>
-      <div class="hud-row"><span class="hud-label">ТОКЕНЫ</span><span class="hud-value" data-money></span></div>
-      <div class="hud-weapon" data-weapon></div>
       <div class="hud-ration" data-ration></div>
-      <div class="hud-id"><div class="hud-name" data-name></div><div class="hud-role" data-role></div><div class="hud-loyalty" data-loyalty></div></div>
-      <div class="hud-law" data-law></div>`;
+      <div class="hud-law" data-law></div>
+      <div class="hud-status" data-status></div>
+      <div class="hud-main">
+        <canvas class="hud-ring" data-ring></canvas>
+        <div class="hud-side">
+          <div class="hud-name" data-name></div>
+          <div class="hud-role" data-role></div>
+          <div class="hud-meta"><span data-meta></span><span class="hud-clock" data-clock></span></div>
+          <div class="hud-gun" data-gunbox><canvas data-gun></canvas><div class="hud-ammo"><b data-mag></b><span data-res></span></div><div class="hud-nade" data-nade></div></div>
+        </div>
+      </div>
+`;
     parent.appendChild(this.el);
-    this.hpFill = this.el.querySelector('[data-hpfill]')!;
-    this.hpText = this.el.querySelector('[data-hp]')!;
-    this.money = this.el.querySelector('[data-money]')!;
-    this.name = this.el.querySelector('[data-name]')!;
-    this.role = this.el.querySelector('[data-role]')!;
-    this.lawEl = this.el.querySelector('[data-law]')!;
-    this.hungerText = this.el.querySelector('[data-hunger]')!;
-    this.hungerFill = this.el.querySelector('[data-hungerfill]')!;
-    this.weaponEl = this.el.querySelector('[data-weapon]')!;
-    this.rationEl = this.el.querySelector('[data-ration]')!;
-    this.loyaltyEl = this.el.querySelector('[data-loyalty]')!;
-    this.woundEl = this.el.querySelector('[data-wound]')!;
-    this.clockEl = this.el.querySelector('[data-clock]')!;
+    const q = <T extends HTMLElement>(k: string) => this.el.querySelector<T>(`[data-${k}]`)!;
+    this.ring = q<HTMLCanvasElement>('ring');
+    this.gun = q<HTMLCanvasElement>('gun');
+    this.statusEl = q('status');
+    this.name = q('name');
+    this.role = q('role');
+    this.meta = q('meta');
+    this.gunBox = q('gunbox');
+    this.mag = q('mag');
+    this.res = q('res');
+    this.nade = q('nade');
+    this.lawEl = q('law');
+    this.rationEl = q('ration');
+    this.clockEl = q('clock');
+    const R = HUD.ring;
+    this.ring.style.width = this.ring.style.height = `${R.size}px`;
+    this.gun.style.width = `${HUD.weapon.len}px`;
+    this.gun.style.height = `${HUD.weapon.maxH}px`;
   }
 
-  private clockEl: HTMLElement;
-  private lastClock = '';
-
-  /** Часы и время суток в углу HUD. */
+  /** Часы и время суток. */
   setClock(text: string): void {
     if (text === this.lastClock) return;
     this.lastClock = text;
     this.clockEl.textContent = text;
   }
 
-  /** rallyCooldown — до готовности клича главы восстания, с (-1 — не глава). */
-  update(p: Character, now: number, weapon: string, ration: string, rallyCooldown = -1): void {
-    const status = lawStatus(p, now);
-    const hunger = Math.ceil(p.hunger);
-    const wound = woundStatus(p, now);
-    const key = `${wound}|${Math.ceil(p.health)}|${p.maxHealth}|${p.money}|${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${status}|${hunger}|${weapon}|${ration}|${p.loyalty}`;
-    if (key === this.last) return;
-    this.last = key;
-    const hp = Math.max(0, Math.ceil(p.health));
-    this.hpText.textContent = String(hp);
-    this.woundEl.textContent = wound;
-    this.woundEl.hidden = wound === '';
-    this.hpFill.style.width = `${(100 * hp) / p.maxHealth}%`;
-    this.hpFill.classList.toggle('low', hp <= 25);
-    this.money.textContent = String(p.money);
-    this.hungerText.textContent = hunger <= 0 ? 'голод!' : `${hunger}`;
-    this.hungerFill.style.width = `${hunger}%`;
-    this.hungerFill.classList.toggle('low', hunger < 25);
-    this.weaponEl.textContent = weapon;
-    this.weaponEl.hidden = weapon === '';
-    this.rationEl.textContent = ration;
-    this.rationEl.hidden = ration === '';
+  update(p: Character, now: number, info: HudInfo): void {
+    this.updateRing(p, now, info.look);
+    this.updateStatus(p, now);
+    this.updateGun(info);
+    this.updateText(p, now, info);
+  }
+
+  private updateRing(p: Character, now: number, look: PawnLook): void {
+    const R = HUD.ring;
+    const hp = p.alive ? Math.max(0, Math.ceil(p.health)) : 0;
+    const food = Math.max(0, Math.ceil(p.hunger));
+    if (hp !== this.hp) {
+      if (this.hp >= 0) this.hpAt = now;
+      this.hp = hp;
+    }
+    if (food !== this.food) {
+      if (this.food >= 0) this.foodAt = now;
+      this.food = food;
+    }
+    const hpF = p.maxHealth > 0 ? hp / p.maxHealth : 0;
+    const foodF = food / 100;
+    const hpLow = hpF <= R.low;
+    const foodLow = foodF <= R.low;
+    const showHp = hpLow || now - this.hpAt < R.showFor;
+    const showFood = foodLow || now - this.foodAt < R.showFor;
+    const key = `${hp}|${p.maxHealth}|${food}|${showHp}|${showFood}|${look.faction}|${look.rank}|${look.color}|${look.seed}|${look.profession}|${look.band}`;
+    this.ring.classList.toggle('pulse', hpLow && p.alive);
+    if (key === this.lastRing) return;
+    this.lastRing = key;
+    const dpr = window.devicePixelRatio || 1;
+    const px = Math.round(R.size * dpr);
+    if (this.ring.width !== px) this.ring.width = this.ring.height = px;
+    const ctx = this.ring.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, R.size, R.size);
+    const c = R.size / 2;
+    const C = R.colors;
+    ctx.fillStyle = C.back;
+    ctx.beginPath();
+    ctx.arc(c, c, R.outer + R.outerWidth / 2 + 2, 0, Math.PI * 2);
+    ctx.fill();
+    const arc = (r: number, w: number, v: number, col: string) => {
+      ctx.lineCap = 'round';
+      ctx.lineWidth = w;
+      ctx.strokeStyle = C.track;
+      ctx.beginPath();
+      ctx.arc(c, c, r, R.start, R.start + R.sweep);
+      ctx.stroke();
+      if (v <= 0) return;
+      ctx.strokeStyle = col;
+      ctx.beginPath();
+      ctx.arc(c, c, r, R.start, R.start + R.sweep * Math.min(1, v));
+      ctx.stroke();
+    };
+    arc(R.outer, R.outerWidth, hpF, hpLow ? C.hpLow : C.hp);
+    arc(R.inner, R.innerWidth, foodF, foodLow ? C.foodLow : C.food);
+    // Портрет: пешка лицом к нам, видна голова и плечи.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(c, c, R.portrait, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = C.portrait;
+    ctx.fillRect(0, 0, R.size, R.size);
+    drawPawn(ctx, look, c, c + R.pawnY - 12, R.pawnScale, 'S');
+    ctx.restore();
+    // Цифры в разрыве колец снизу.
+    ctx.font = '700 11px "Segoe UI", Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = C.numOutline;
+    const num = (s: string, x: number, col: string, align: CanvasTextAlign) => {
+      ctx.textAlign = align;
+      ctx.strokeText(s, x, R.size - 9);
+      ctx.fillStyle = col;
+      ctx.fillText(s, x, R.size - 9);
+    };
+    if (showHp) num(String(hp), c - 5, hpLow ? C.hpLow : C.hpText, 'right');
+    if (showFood) num(String(food), c + 5, foodLow ? C.foodLow : C.foodText, 'left');
+  }
+
+  private updateStatus(p: Character, now: number): void {
+    const list = statusOf(p, now);
+    const key = list.map((s) => `${s.icon}${s.blink ? '!' : ''}`).join(',');
+    if (key === this.lastStatus) return;
+    this.lastStatus = key;
+    this.statusEl.replaceChildren(
+      ...list.map((s) => {
+        const d = document.createElement('div');
+        d.className = `hud-st st-${s.tone}${s.blink ? ' blink' : ''}`;
+        const img = document.createElement('img');
+        img.src = iconUrl(s.icon, HUD.status.icon * 2);
+        img.width = img.height = HUD.status.icon;
+        d.appendChild(img);
+        if (s.key) {
+          const k = document.createElement('b');
+          k.textContent = s.key;
+          d.appendChild(k);
+        }
+        const l = document.createElement('span');
+        l.textContent = s.label;
+        d.appendChild(l);
+        return d;
+      }),
+    );
+  }
+
+  private updateGun(info: HudInfo): void {
+    const W = HUD.weapon;
+    const w = info.weapon ? WEAPONS[info.weapon] : null;
+    const key = `${info.weapon}|${info.mag}|${info.reserve}|${info.reloading}|${info.grenade}|${info.grenades}`;
+    if (key === this.lastGun) return;
+    const weaponChanged = key.split('|')[0] !== this.lastGun.split('|')[0];
+    this.lastGun = key;
+    this.gunBox.hidden = !w && !info.grenade;
+    if (weaponChanged) {
+      const dpr = window.devicePixelRatio || 1;
+      this.gun.width = Math.round(W.len * dpr);
+      this.gun.height = Math.round(W.maxH * dpr);
+      const ctx = this.gun.getContext('2d')!;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W.len, W.maxH);
+      if (info.weapon) drawGunIcon(ctx, info.weapon, W.len / 2, W.maxH / 2, W.len - 4, { maxH: W.maxH - 4 });
+    }
+    this.gun.hidden = !w;
+    if (!w) {
+      this.mag.textContent = '';
+      this.res.textContent = '';
+    } else if (w.mode === 'melee') {
+      this.mag.textContent = '';
+      this.res.textContent = w.class === 'blade' ? 'в спину — сильнее' : 'оглушает';
+    } else if (info.reloading) {
+      this.mag.textContent = '…';
+      this.res.textContent = 'перезарядка';
+    } else {
+      this.mag.textContent = String(info.mag);
+      this.res.textContent = `/ ${info.reserve}`;
+    }
+    this.mag.classList.toggle('empty', !!w?.ammo && info.mag === 0 && !info.reloading);
+    if (info.grenade) {
+      this.nade.replaceChildren();
+      const img = document.createElement('img');
+      img.src = iconUrl(info.grenade, W.grenade * 2);
+      img.width = img.height = W.grenade;
+      const n = document.createElement('span');
+      n.textContent = `×${info.grenades}`;
+      this.nade.append(img, n);
+      this.nade.hidden = false;
+    } else this.nade.hidden = true;
+  }
+
+  private updateText(p: Character, now: number, info: HudInfo): void {
+    const law = lawStatus(p, now);
+    const busy = busyStatus(p, now);
+    const key = `${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${p.profession}|${p.disguised}|${p.money}|${p.loyalty}|${law}|${busy}|${info.ration}|${info.rally > 0 ? Math.ceil(info.rally) : info.rally}`;
+    if (key === this.lastText) return;
+    this.lastText = key;
     this.name.textContent = p.name;
     const f = FACTIONS[p.faction];
     const r = rankOf(p.faction, p.rank);
     const div = p.division && p.faction === 'cp' ? ` · ${CP_DIVISIONS[p.division].short}` : '';
     const prof = p.profession ? PROFESSIONS[p.profession] : null;
-    const pname = prof && prof.id !== DEFAULT_PROFESSION[p.faction] ? ` · ${prof.name}` : '';
-    const mask = p.disguised ? ' · в маскировке' : '';
-    // Глава восстания: готовность клича.
-    const cd = p.profession === 'rebel_leader' && p.faction === 'rebel' ? rallyCooldown : -1;
+    const pname = prof && prof.id !== DEFAULT_PROFESSION[p.faction] && prof.name !== r?.name ? ` · ${prof.name}` : '';
+    const cd = p.profession === 'rebel_leader' && p.faction === 'rebel' ? info.rally : -1;
     const rally = cd < 0 ? '' : cd > 0 ? ` · клич через ${Math.ceil(cd)} с` : ' · клич готов (G)';
-    this.role.textContent = r ? `${f.role} · ${r.name}${div}${pname}${mask}${rally}` : `${prof && pname ? prof.name : f.role} · CID #${p.cid}`;
+    this.role.textContent = r ? `${r.name}${div}${pname}${rally}` : `${prof && pname ? prof.name : f.role} · CID #${p.cid}`;
     this.role.style.color = r ? r.color : f.label;
-    const loyal = hasLoyalty(p);
-    this.loyaltyEl.hidden = !loyal;
-    if (loyal) {
-      const t = loyaltyTier(p);
-      this.loyaltyEl.textContent = `Лояльность ${p.loyalty} · ${t.name}`;
-      this.loyaltyEl.style.color = t.color;
-    }
-    this.lawEl.textContent = status;
-    this.lawEl.hidden = status === '';
+    let meta = `◉ ${p.money}`;
+    if (hasLoyalty(p)) meta += ` · ${loyaltyTier(p).name} (${p.loyalty})`;
+    this.meta.textContent = `${meta} · `;
+    const chip = [law, busy].filter(Boolean).join(' · ');
+    this.lawEl.textContent = chip;
+    this.lawEl.hidden = chip === '';
+    this.rationEl.textContent = info.ration;
+    this.rationEl.hidden = info.ration === '';
   }
 }
 
-/** Состояние игрока: тяжёлое ранение, подавление, присед, раненый на руках, кровотечение, нога, рука. */
-function woundStatus(p: Character, now: number): string {
+/** Значки состояний игрока (S1). */
+function statusOf(p: Character, now: number): Status[] {
+  if (!p.alive) return [];
+  const out: Status[] = [];
+  if (p.bandageUntil > now) out.push({ icon: 'bandage', label: 'перевязка', tone: 'dark' });
+  else if (p.bleed > 0) out.push({ icon: 'drop', label: `кровь −${p.bleed.toFixed(1)}`, key: 'B', tone: 'red', blink: true });
+  if (p.limpUntil > now) out.push({ icon: 'leg', label: 'нога', tone: 'dark' });
+  if (p.armUntil > now) out.push({ icon: 'arm', label: 'рука', tone: 'dark' });
+  if (p.suppress >= SUPPRESS.pinned) out.push({ icon: 'suppress', label: 'прижат', tone: 'amber' });
+  if (p.crouch) out.push({ icon: 'crouch', label: 'присел', key: 'C', tone: 'dark' });
+  if (p.hunger <= HUD.ring.low * 100) out.push({ icon: 'hunger', label: p.hunger <= 0 ? 'голод!' : 'голоден', tone: 'amber', blink: p.hunger <= 0 });
+  if (p.law.wanted) out.push({ icon: 'wanted', label: 'розыск', tone: 'red' });
+  if (p.disguised || p.cover) out.push({ icon: 'mask', label: 'личина', tone: 'blue' });
+  return out;
+}
+
+/** Чем игрок занят (текстом — тащит раненого, поднимает, тяжело ранен). */
+function busyStatus(p: Character, now: number): string {
   if (!p.alive) return '';
   if (p.downed) return `тяжело ранен · ${Math.max(0, Math.ceil(p.downedUntil - now))} с`;
-  const out: string[] = [];
-  if (p.suppress >= SUPPRESS.pinned) out.push('прижат огнём');
-  if (p.crouch) out.push('присел');
-  if (p.dragging) out.push(`тащите ${p.dragging.name} · X — отпустить`);
-  if (p.reviveUntil > now) out.push(p.reviveArrest ? 'задержание…' : 'поднимаете раненого…');
-  if (p.bandageUntil > now) out.push('перевязка…');
-  else if (p.bleed > 0) out.push(`кровотечение −${p.bleed.toFixed(1)}/с · B — перевязать`);
-  if (p.limpUntil > now) out.push('ранена нога');
-  if (p.armUntil > now) out.push('ранена рука');
-  return out.join(' · ');
+  if (p.dragging) return `тащите ${p.dragging.name} · X — отпустить`;
+  if (p.reviveUntil > now) return p.reviveArrest ? 'задержание…' : 'поднимаете раненого…';
+  return '';
 }
 
 /** Строка «что со мной сейчас» для игрока. */
@@ -136,5 +324,5 @@ function lawStatus(p: Character, now: number): string {
     case 'jailed': return `КПЗ: ещё ${Math.max(0, Math.ceil(l.jailUntil - now))} с`;
     case 'releasing': return 'Свободны';
   }
-  return l.wanted ? 'В розыске' : '';
+  return '';
 }

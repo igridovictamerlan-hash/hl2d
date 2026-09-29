@@ -52,6 +52,16 @@ export class EntityRenderer {
   /** Банды: повязка цвета банды и её название в подписи. */
   gangs: GangSystem | null = null;
 
+  /** Внешность пешки: партизан в маскировке — по личине; лоялист — в форме; семья и банда — повязка. */
+  lookOf(c: Character): PawnLook {
+    const faction = apparentFaction(c);
+    const rank = c.disguised ? c.cover?.rank ?? 0 : c.rank;
+    const loyalist = isLoyalistUniform(c);
+    const fam = !c.disguised ? this.families?.of(c) ?? null : null;
+    const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
+    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color };
+  }
+
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
     const s = v.scale;
     // Пешка мельче круга столкновений (PAWN.scale) — как в RimWorld.
@@ -73,13 +83,7 @@ export class EntityRenderer {
       ctx.globalAlpha = c.visible ? 1 : 0.4;
       // Сторона — по походке (идёт — по ходу, боком — профилем; целится или стоит — куда смотрит).
       const dir = c.bodyDir;
-      // Партизан в маскировке выглядит по личине (гражданин, ГСР, убитый сотрудник, OTA).
-      const faction = apparentFaction(c);
-      const rank = c.disguised ? c.cover?.rank ?? 0 : c.rank;
-      const loyalist = isLoyalistUniform(c);
-      const fam = !c.disguised ? this.families?.of(c) ?? null : null;
-      const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
-      const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color };
+      const look = this.lookOf(c);
       const reloading = c.reloadUntil > now;
       // Тяжело ранен — лежит.
       if (c.downed) {
@@ -115,7 +119,7 @@ export class EntityRenderer {
       // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
       const x = 0;
       const y = -footY - bob * ps;
-      this.feet(ctx, dir, look, ps, walking ? phase : null, amt);
+      drawFeet(ctx, dir, look, ps, walking ? phase : null, amt);
       // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу.
       const hold = pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
       // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
@@ -190,31 +194,7 @@ export class EntityRenderer {
     ctx.stroke();
   }
 
-  /**
-   * Ступни у земли (до пешки — корпус их перекрывает сверху): спереди и сзади — рядом, шагающая
-   * приподнята; в профиль — одна впереди, другая позади, выносится вперёд по фазе шага. phase —
-   * фаза шага (null — стоит), amt — доля шага от скорости.
-   */
-  private feet(ctx: CanvasRenderingContext2D, dir: string, look: PawnLookLite, ps: number, phase: number | null, amt: number): void {
-    const F = PAWN.walk.foot;
-    const sn = phase === null ? 0 : Math.sin(phase);
-    const cs = phase === null ? 1 : Math.cos(phase);
-    ctx.fillStyle = bootColor(look);
-    ctx.strokeStyle = PAWN.outline;
-    ctx.lineWidth = Math.max(1, PAWN.outlineWidth * 0.8 * ps);
-    const side = dir === 'E' || dir === 'W';
-    const fwd = dir === 'W' ? -1 : 1;
-    for (let i = 0; i < 2; i++) {
-      // Ступня 0 опорная в первом шаге (уходит назад), 1 — переносится вперёд и приподнята.
-      const k = i === 0 ? 1 : -1;
-      const lift = Math.max(0, -k * sn) * F.lift * amt;
-      const fx = side ? (phase === null ? (i === 0 ? 1.2 : -1.2) : k * cs * F.swing * amt) * fwd : (i === 0 ? -F.dx : F.dx);
-      ctx.beginPath();
-      ctx.ellipse(fx * ps, -lift * ps, F.rx * ps, F.ry * ps, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-  }
+
 
   drawLabels(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, dpr: number, now: number, showAll: boolean): void {
     const s = v.scale;
@@ -284,4 +264,30 @@ function scaleFont(font: string, dpr: number): string {
 /** Гражданин-лоялист (не партизан в маскировке) — в светло-фиолетовой форме. */
 export function isLoyalistUniform(c: Character): boolean {
   return c.faction === 'citizen' && !c.disguised && c.loyalty >= LOYALTY.uniform.min;
+}
+
+/**
+ * Ступни у земли (до пешки — корпус их перекрывает сверху): спереди и сзади — рядом, шагающая
+ * приподнята; в профиль — одна впереди, другая позади, выносится вперёд по фазе шага. phase —
+ * фаза шага (null — стоит), amt — доля шага от скорости.
+ */
+export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnLookLite, ps: number, phase: number | null, amt: number): void {
+  const F = PAWN.walk.foot;
+  const sn = phase === null ? 0 : Math.sin(phase);
+  const cs = phase === null ? 1 : Math.cos(phase);
+  ctx.fillStyle = bootColor(look);
+  ctx.strokeStyle = PAWN.outline;
+  ctx.lineWidth = Math.max(1, PAWN.outlineWidth * 0.8 * ps);
+  const side = dir === 'E' || dir === 'W';
+  const fwd = dir === 'W' ? -1 : 1;
+  for (let i = 0; i < 2; i++) {
+    // Ступня 0 опорная в первом шаге (уходит назад), 1 — переносится вперёд и приподнята.
+    const k = i === 0 ? 1 : -1;
+    const lift = Math.max(0, -k * sn) * F.lift * amt;
+    const fx = side ? (phase === null ? (i === 0 ? 1.2 : -1.2) : k * cs * F.swing * amt) * fwd : (i === 0 ? -F.dx : F.dx);
+    ctx.beginPath();
+    ctx.ellipse(fx * ps, -lift * ps, F.rx * ps, F.ry * ps, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
 }
