@@ -1,3 +1,4 @@
+import { ITEMS } from '../config/items';
 import type { Character } from './Character';
 import type { View } from '../core/Camera';
 import { FACTIONS, colorsOf, rankOf } from '../config/factions';
@@ -59,7 +60,7 @@ export class EntityRenderer {
     const loyalist = isLoyalistUniform(c);
     const fam = !c.disguised ? this.families?.of(c) ?? null : null;
     const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
-    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color };
+    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso') };
   }
 
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
@@ -290,4 +291,10 @@ export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnL
     ctx.fill();
     ctx.stroke();
   }
+}
+
+/** Цвет надетого в слоте (шлем, бронежилет) — для пешки; ничего — undefined. */
+function gearColor(c: Character, slot: 'head' | 'torso'): string | undefined {
+  const id = c.gear[slot];
+  return id ? ITEMS[id].gear?.color : undefined;
 }

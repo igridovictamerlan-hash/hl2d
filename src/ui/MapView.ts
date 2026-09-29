@@ -50,6 +50,17 @@ export class MapView {
   private turfsFor: GameMap | null = null;
   private zoneLabels: { name: string; x: number; y: number }[] = [];
   private time = 0;
+  /** Метка игрока (мир, px) и её уровень; null — нет. */
+  marker: { x: number; y: number; level: Level } | null = null;
+  /** Дошёл до метки (UI пишет в журнал). */
+  onArrive: (() => void) | null = null;
+  /** Большая карта: масштаб (1 — уровень целиком) и центр вида (тайлы; NaN — по игроку). */
+  private zoom = 1;
+  private cx = NaN;
+  private cy = NaN;
+  /** Как нарисована большая карта в последний раз (для мыши). */
+  private view: { x0: number; y0: number; k: number; level: Level } | null = null;
+  private drag: { sx: number; sy: number; cx: number; cy: number; moved: boolean } | null = null;
 
   constructor(parent: HTMLElement) {
     this.mini = document.createElement('canvas');
@@ -58,7 +69,7 @@ export class MapView {
     this.big = document.createElement('div');
     this.big.className = 'bigmap';
     this.big.hidden = true;
-    this.big.innerHTML = `<div class="bigmap-box panel"><div class="inv-head"><span data-title>КАРТА</span><span class="bigmap-hint">M / Esc — закрыть</span></div><canvas></canvas><div class="bigmap-legend"></div></div>`;
+    this.big.innerHTML = `<div class="bigmap-box panel"><div class="inv-head"><span data-title>КАРТА</span><span class="bigmap-hint">колесо — масштаб · тянуть — сдвиг · ЛКМ — метка · ПКМ — снять · M / Esc — закрыть</span></div><canvas></canvas><div class="bigmap-legend"></div></div>`;
     this.bigCanvas = this.big.querySelector('canvas')!;
     this.legend = this.big.querySelector('.bigmap-legend')!;
     parent.appendChild(this.big);
@@ -66,6 +77,7 @@ export class MapView {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Escape' && this.bigOpen) this.toggleBig(false);
     });
+    this.bindMouse();
     this.legend.innerHTML = [
       [C.player, 'вы'],
       [C.fight, 'КПП: бой'],
@@ -78,6 +90,7 @@ export class MapView {
       [C.hatch, 'люк'],
       [C.nodeBroken, 'узел Альянса выведен из строя'],
       [C.alarm, 'тревога'],
+      [MINIMAP.waypoint.color, 'ваша метка'],
       [C.scene, 'место происшествия (оцепление)'],
       [C.base, 'лагерь / схрон'],
       [C.market, 'барыга (чёрный рынок)'],
@@ -93,11 +106,75 @@ export class MapView {
 
   toggleBig(open = !this.bigOpen): void {
     this.big.hidden = !open;
+    // Открыли — вид вокруг себя (при том же масштабе).
+    if (open) this.cx = this.cy = NaN;
+    this.drag = null;
+  }
+
+  /** Мышь на большой карте: колесо — масштаб к курсору, тянуть — сдвиг, клик — метка, ПКМ — снять. */
+  private bindMouse(): void {
+    const B = MINIMAP.big;
+    const cv = this.bigCanvas;
+    const tileAt = (e: MouseEvent) => {
+      const v = this.view!;
+      const r = cv.getBoundingClientRect();
+      return { x: v.x0 + (e.clientX - r.left) / v.k, y: v.y0 + (e.clientY - r.top) / v.k };
+    };
+    cv.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        if (!this.view) return;
+        const before = tileAt(e);
+        const z = Math.max(1, Math.min(B.maxZoom, this.zoom * (e.deltaY < 0 ? B.step : 1 / B.step)));
+        if (z === this.zoom) return;
+        // Точка под курсором остаётся на месте.
+        const v = this.view;
+        const k1 = (v.k / this.zoom) * z;
+        const r = cv.getBoundingClientRect();
+        const mx = e.clientX - r.left;
+        const my = e.clientY - r.top;
+        this.zoom = z;
+        this.cx = before.x - mx / k1 + r.width / 2 / k1;
+        this.cy = before.y - my / k1 + r.height / 2 / k1;
+      },
+      { passive: false },
+    );
+    cv.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || !this.view) return;
+      const v = this.view;
+      const r = cv.getBoundingClientRect();
+      this.drag = { sx: e.clientX, sy: e.clientY, cx: v.x0 + r.width / 2 / v.k, cy: v.y0 + r.height / 2 / v.k, moved: false };
+    });
+    window.addEventListener('mousemove', (e) => {
+      const d = this.drag;
+      if (!d || !this.view) return;
+      const dx = e.clientX - d.sx;
+      const dy = e.clientY - d.sy;
+      if (!d.moved && Math.hypot(dx, dy) < B.drag) return;
+      d.moved = true;
+      this.cx = d.cx - dx / this.view.k;
+      this.cy = d.cy - dy / this.view.k;
+    });
+    window.addEventListener('mouseup', (e) => {
+      const d = this.drag;
+      this.drag = null;
+      if (!d || d.moved || e.button !== 0 || !this.view || !this.map) return;
+      const t = tileAt(e);
+      const ts = this.map.tileSize;
+      this.marker = { x: t.x * ts, y: t.y * ts, level: this.view.level };
+    });
+    cv.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.marker = null;
+    });
   }
 
   /** Сбросить знания (новая карта) и при необходимости восстановить из сохранения. */
   reset(map: GameMap, explored?: Uint8Array | null, hatches?: number[]): void {
     this.map = map;
+    this.marker = null;
+    this.zoom = 1;
     this.explored = explored && explored.length === map.width * map.height ? explored : new Uint8Array(map.width * map.height);
     this.hatches.clear();
     for (const h of hatches ?? []) this.hatches.add(h);
@@ -233,6 +310,11 @@ export class MapView {
       const p = level === 'sewer' ? h.sewer : h.city;
       if (Math.hypot(p.x - player.x, p.y - player.y) < MINIMAP.discoverHatch) this.hatches.add(h.id);
     }
+    const m = this.marker;
+    if (m && m.level === level && Math.hypot(m.x - player.x, m.y - player.y) < MINIMAP.waypoint.reach) {
+      this.marker = null;
+      this.onArrive?.();
+    }
     this.drawMini(host, level);
     if (this.bigOpen) this.drawBig(host, level);
   }
@@ -293,6 +375,8 @@ export class MapView {
     if (base) ctx.drawImage(base, x0 - r.x, y0 - r.y, span, span, 0, 0, S, S);
     const k = S / span;
     this.drawMarkers(ctx, host, level, (x, y) => [(x / ts - x0) * k, (y / ts - y0) * k], 1);
+    const m = this.marker;
+    if (m && m.level === level) this.drawPin(ctx, (m.x / ts - x0) * k, (m.y / ts - y0) * k, 1, S);
     ctx.strokeStyle = C.frame;
     ctx.lineWidth = 1;
     ctx.strokeRect(0.5, 0.5, S - 1, S - 1);
@@ -302,30 +386,76 @@ export class MapView {
     const r = this.levelRect(level);
     const maxW = Math.min(window.innerWidth - 80, 900);
     const maxH = Math.min(window.innerHeight - 170, 900);
-    const k = Math.min(maxW / r.w, maxH / r.h);
-    const W = Math.floor(r.w * k);
-    const H = Math.floor(r.h * k);
+    const k0 = Math.min(maxW / r.w, maxH / r.h);
+    const W = Math.floor(r.w * k0);
+    const H = Math.floor(r.h * k0);
     const ctx = this.fit(this.bigCanvas, W, H);
     this.legend.style.maxWidth = `${W}px`;
-    (this.big.querySelector('[data-title]') as HTMLElement).textContent = level === 'sewer' ? 'КАРТА · КАНАЛИЗАЦИЯ' : 'КАРТА · СИТИ-17';
+    (this.big.querySelector('[data-title]') as HTMLElement).textContent = `${level === 'sewer' ? 'КАРТА · КАНАЛИЗАЦИЯ' : 'КАРТА · СИТИ-17'}${this.zoom > 1 ? ` · ×${this.zoom.toFixed(1)}` : ''}`;
+    const ts = host.map.tileSize;
+    // Вид: масштаб zoom, центр — выбранный или игрок; не выходит за уровень.
+    const k = k0 * this.zoom;
+    const vw = W / k;
+    const vh = H / k;
+    if (Number.isNaN(this.cx)) {
+      this.cx = host.player.x / ts;
+      this.cy = host.player.y / ts;
+    }
+    const x0 = Math.max(r.x, Math.min(r.x + r.w - vw, this.cx - vw / 2));
+    const y0 = Math.max(r.y, Math.min(r.y + r.h - vh, this.cy - vh / 2));
+    this.cx = x0 + vw / 2;
+    this.cy = y0 + vh / 2;
+    this.view = { x0, y0, k, level };
+    this.bigCanvas.style.cursor = this.drag?.moved ? 'grabbing' : 'crosshair';
     ctx.fillStyle = '#050607';
     ctx.fillRect(0, 0, W, H);
     const base = this.base.get(level);
-    if (base) ctx.drawImage(base, 0, 0, W, H);
-    const ts = host.map.tileSize;
+    if (base) ctx.drawImage(base, x0 - r.x, y0 - r.y, vw, vh, 0, 0, W, H);
     if (level === 'city') {
-      ctx.font = '600 11px "Segoe UI", Roboto, Arial, sans-serif';
+      ctx.font = `600 ${Math.round(11 + Math.min(3, this.zoom - 1))}px "Segoe UI", Roboto, Arial, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(0,0,0,0.85)';
       ctx.fillStyle = C.zoneLabel;
       for (const z of this.zoneLabels) {
-        ctx.strokeText(z.name, (z.x - r.x) * k, (z.y - r.y) * k);
-        ctx.fillText(z.name, (z.x - r.x) * k, (z.y - r.y) * k);
+        const zx = (z.x - x0) * k;
+        const zy = (z.y - y0) * k;
+        if (zx < -60 || zy < -20 || zx > W + 60 || zy > H + 20) continue;
+        ctx.strokeText(z.name, zx, zy);
+        ctx.fillText(z.name, zx, zy);
       }
     }
-    this.drawMarkers(ctx, host, level, (x, y) => [(x / ts - r.x) * k, (y / ts - r.y) * k], 1.6);
+    const size = 1.6 * Math.min(2, Math.sqrt(this.zoom));
+    this.drawMarkers(ctx, host, level, (x, y) => [(x / ts - x0) * k, (y / ts - y0) * k], size);
+    const m = this.marker;
+    if (m && m.level === level) this.drawPin(ctx, (m.x / ts - x0) * k, (m.y / ts - y0) * k, size, null);
+  }
+
+  /** Метка: булавка; за краем мини-карты — у края (edge — размер области). */
+  private drawPin(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, edge: number | null): void {
+    const P = MINIMAP.waypoint;
+    let px = x;
+    let py = y;
+    if (edge !== null) {
+      px = Math.max(4, Math.min(edge - 4, x));
+      py = Math.max(4, Math.min(edge - 4, y));
+    }
+    const s = 3.2 * size;
+    ctx.fillStyle = P.color;
+    ctx.strokeStyle = P.edge;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px - s * 0.8, py - s * 1.6);
+    ctx.arc(px, py - s * 1.9, s, Math.PI * 0.8, Math.PI * 0.2, false);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.edge;
+    ctx.beginPath();
+    ctx.arc(px, py - s * 1.9, s * 0.38, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   private drawMarkers(

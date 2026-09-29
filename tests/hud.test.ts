@@ -75,3 +75,53 @@ describe('колесо оружия (B1)', () => {
     expect(w.close()).toEqual({ kind: 'weapon', id: 'm4a4' });
   });
 });
+
+describe('снаряжение: надеть и снять', () => {
+  it('шлем и бронежилет дают броню, рюкзак — ячейки; всё остаётся на теле', async () => {
+    const { wear, takeOff, capacityOf } = await import('../src/systems/Gear');
+    const { armorOf } = await import('../src/systems/wounds');
+    const { ECONOMY } = await import('../src/config/economy');
+    const sim = makeSim(12345);
+    const cit = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: null, division: null, rank: 0, kit: 'citizen' }, { x: 400, y: 400 })!;
+    expect(armorOf(cit)).toEqual({ head: 0, torso: 0 });
+    cit.inventory.add('helmet', 1);
+    cit.inventory.add('vest', 1);
+    cit.inventory.add('backpack', 1);
+    expect(wear(cit, 'helmet')).toBeNull();
+    expect(wear(cit, 'vest')).toBeNull();
+    expect(cit.inventory.has('helmet')).toBe(false);
+    expect(armorOf(cit).head).toBeGreaterThan(0.4);
+    expect(armorOf(cit).torso).toBeGreaterThan(0.3);
+    expect(wear(cit, 'backpack')).toBeNull();
+    expect(cit.inventory.capacity).toBe(ECONOMY.inventorySlots + 4);
+    expect(capacityOf(cit)).toBe(cit.inventory.capacity);
+    // Забить рюкзак — снять его нельзя.
+    for (let k = 0; cit.inventory.slots.length < cit.inventory.capacity; k++) cit.inventory.add('ammo_pistol', 120);
+    expect(takeOff(cit, 'back')).not.toBeNull();
+    expect(cit.gear.back).toBe('backpack');
+    // Шлем снять — в инвентарь нет места, откажет; освободили — снялся.
+    cit.inventory.remove('ammo_pistol', 120);
+    expect(takeOff(cit, 'head')).toBeNull();
+    expect(cit.inventory.has('helmet')).toBe(true);
+    expect(armorOf(cit).head).toBe(0);
+    // Гибель: надетое — на теле.
+    sim.ctx.combat.kill(cit, null, 'тест');
+    const body = sim.ctx.combat.corpses[sim.ctx.combat.corpses.length - 1];
+    const ids = body.loot.map((s) => s.id);
+    expect(ids).toContain('vest');
+    expect(ids).toContain('backpack');
+    expect(cit.gear).toEqual({});
+  });
+
+  it('форма роли не хуже надетого: у ГО броня — максимум из формы и надетого', async () => {
+    const { wear } = await import('../src/systems/Gear');
+    const { armorOf, roleArmor } = await import('../src/systems/wounds');
+    const sim = makeSim(12345);
+    const cp = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, { x: 400, y: 400 })!;
+    const base = roleArmor(cp);
+    cp.inventory.add('plate_vest', 1);
+    wear(cp, 'plate_vest');
+    expect(armorOf(cp).torso).toBe(Math.max(base.torso, 0.55));
+    expect(armorOf(cp).head).toBe(base.head);
+  });
+});

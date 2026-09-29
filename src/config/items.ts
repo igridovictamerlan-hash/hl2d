@@ -27,9 +27,25 @@ export type ItemId =
   | 'fake_cid'
   | GrenadeId
   | 'lockpick'
+  | GearId
   | WeaponId;
 
-export type ItemKind = 'food' | 'medical' | 'weapon' | 'ammo' | 'tool' | 'misc';
+/** Снаряжение, которое можно надеть (слоты пешки в инвентаре). */
+export type GearId = 'helmet' | 'helmet_cp' | 'vest' | 'plate_vest' | 'backpack';
+/** Куда надевается: голова, корпус, спина. */
+export type GearSlot = 'head' | 'torso' | 'back';
+export interface GearDef {
+  slot: GearSlot;
+  /** Броня зоны (0..1): надетое заменяет форму роли, если крепче. */
+  head?: number;
+  torso?: number;
+  /** Рюкзак: сколько ячеек инвентаря добавляет. */
+  capacity?: number;
+  /** Цвет на пешке. */
+  color: string;
+}
+
+export type ItemKind = 'food' | 'medical' | 'weapon' | 'ammo' | 'tool' | 'gear' | 'misc';
 
 export interface ItemDef {
   id: ItemId;
@@ -44,6 +60,8 @@ export interface ItemDef {
   heal?: number;
   price?: number;
   ammo?: AmmoType;
+  /** Надевается (шлем, бронежилет, рюкзак). */
+  gear?: GearDef;
 }
 
 /**
@@ -232,6 +250,11 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   medkit: { id: 'medkit', name: 'Аптечка', desc: 'Лечение +40.', kind: 'medical', stack: 3, heal: 40, price: 28 },
   bandage: { id: 'bandage', name: 'Бинт', desc: 'Лечение +15.', kind: 'medical', stack: 5, heal: 15, price: 9 },
   cigarettes: { id: 'cigarettes', name: 'Сигареты', desc: 'Ходовая валюта «чёрного рынка».', kind: 'misc', stack: 10, price: 5 },
+  helmet: { id: 'helmet', name: 'Армейский шлем', desc: 'Шлем армии сопротивления: держит часть пуль в голову.', kind: 'gear', stack: 1, price: 60, gear: { slot: 'head', head: 0.45, color: '#55603a' } },
+  helmet_cp: { id: 'helmet_cp', name: 'Каска ГО', desc: 'Каска городской полиции: снята с тела.', kind: 'gear', stack: 1, price: 45, gear: { slot: 'head', head: 0.35, color: '#3f4a55' } },
+  vest: { id: 'vest', name: 'Бронежилет', desc: 'Мягкий бронежилет: держит часть пуль в корпус.', kind: 'gear', stack: 1, price: 70, gear: { slot: 'torso', torso: 0.4, color: '#4b5663' } },
+  plate_vest: { id: 'plate_vest', name: 'Плитник', desc: 'Бронежилет с пластинами: крепче, но редкость.', kind: 'gear', stack: 1, price: 110, gear: { slot: 'torso', torso: 0.55, color: '#5d6b3a' } },
+  backpack: { id: 'backpack', name: 'Рюкзак', desc: 'Больше места: +4 ячейки инвентаря, пока надет.', kind: 'gear', stack: 1, price: 40, gear: { slot: 'back', capacity: 4, color: '#5a6238' } },
   lockpick: { id: 'lockpick', name: 'Отмычка', desc: 'Для взлома раздатчика рационов (вор). Ломается.', kind: 'tool', stack: 5 },
   grenade: { id: 'grenade', name: 'Осколочная граната', desc: 'T — бросить к курсору (взрыв через 2 с), Y — сменить гранату.', kind: 'misc', stack: 3 },
   smoke_grenade: { id: 'smoke_grenade', name: 'Дымовая граната', desc: 'Дымовая завеса: сквозь неё не видно (пули летят).', kind: 'misc', stack: 3 },
@@ -332,3 +355,15 @@ export const KITS: Record<string, [ItemId, number][]> = {
   fugitive: [['bandage', 1]],
 };
 
+
+/**
+ * Снаряжение с тел: у убитого с бронёй формы (ГО, армия сопротивления) с шансом dropChance в луте
+ * остаётся шлем и бронежилет его стороны — их можно снять и надеть.
+ */
+export const GEAR = {
+  dropChance: 0.5,
+  drops: {
+    cp: { head: 'helmet_cp', torso: 'vest' },
+    rebel: { head: 'helmet', torso: 'plate_vest' },
+  } as Partial<Record<string, { head: GearId; torso: GearId }>>,
+} as const;

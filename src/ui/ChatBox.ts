@@ -3,7 +3,7 @@
  * клавиши не перехватываются (Input пропускает ввод в поля). Логика команд — systems/ChatSystem.
  */
 export class ChatBox {
-  private readonly el: HTMLElement;
+  readonly el: HTMLElement;
   private readonly input: HTMLInputElement;
   private readonly history: string[] = [];
   private histPos = -1;

@@ -1,3 +1,4 @@
+import { wornArmor } from './Gear';
 import type { Character } from '../entities/Character';
 import type { Rng } from '../core/rng';
 import { ARMOR, HITS, type ArmorProfile, type HitZone } from '../config/combat';
@@ -6,9 +7,18 @@ import { cpUnit } from '../config/factions';
 /**
  * Броня персонажа по зонам: силовой блок — по юниту, OTA и армия сопротивления — по профессии,
  * остальные (граждане, ГСР, бандиты, партизаны, новобранцы) — без брони. Спецагент в чужой форме
- * брони не получает: форма, а не бронежилет.
+ * брони не получает: форма, а не бронежилет. Надетые шлем и бронежилет (systems/Gear) — если крепче.
  */
 export function armorOf(c: Character): ArmorProfile {
+  const base = roleArmor(c);
+  // Надетый шлем или бронежилет (systems/Gear) — если крепче формы.
+  const g = wornArmor(c);
+  if (g.head <= base.head && g.torso <= base.torso) return base;
+  return { head: Math.max(base.head, g.head), torso: Math.max(base.torso, g.torso) };
+}
+
+/** Броня формы роли: силовой блок по юниту, OTA и армия — по профессии. */
+export function roleArmor(c: Character): ArmorProfile {
   if (c.faction === 'cp') return ARMOR.cp[cpUnit(c.rank).unit] ?? ARMOR.none;
   if (c.profession) return ARMOR.profession[c.profession] ?? ARMOR.none;
   return ARMOR.none;

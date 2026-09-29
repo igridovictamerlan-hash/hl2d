@@ -24,6 +24,7 @@ import type { PawnLook } from '../entities/PawnRenderer';
 import { EntityRenderer } from '../entities/EntityRenderer';
 import { WeaponWheel } from '../ui/WeaponWheel';
 import { HUD } from '../config/hud';
+import { MINIMAP } from '../config/minimap';
 import { Particles } from '../world/Particles';
 import { SquadArena } from '../systems/SquadArena';
 import { ARENA, type ArenaSide } from '../config/arena';
@@ -66,7 +67,8 @@ import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION, type ProfessionId } from '../config/professions';
-import { ITEMS, type ItemId, type WeaponId, type GrenadeId } from '../config/items';
+import { ITEMS, type ItemId, type WeaponId, type GrenadeId, type GearId, type GearSlot } from '../config/items';
+import { wear, takeOff } from '../systems/Gear';
 import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
 import type { CheckChoice } from '../ui/CheckPanel';
@@ -587,6 +589,21 @@ export class Game {
     if (this.economy.use(this.player, id)) this.bus.emit('log', { text: `Вы использовали: ${ITEMS[id].name}.`, kind: 'system' });
   }
 
+  /** Инвентарь: надеть шлем, бронежилет, рюкзак. */
+  wearGear(id: GearId): void {
+    if (!this.player.alive) return;
+    const err = wear(this.player, id);
+    this.bus.emit('log', { text: err ?? `Вы надели: ${ITEMS[id].name}.`, kind: 'system' });
+  }
+
+  /** Инвентарь: снять надетое в рюкзак. */
+  takeOffGear(slot: GearSlot): void {
+    if (!this.player.alive) return;
+    const id = this.player.gear[slot];
+    const err = takeOff(this.player, slot);
+    this.bus.emit('log', { text: err ?? `Вы сняли: ${id ? ITEMS[id].name : ''}.`, kind: 'system' });
+  }
+
   /** Инвентарь: выбрать гранату для T. */
   chooseGrenade(id: GrenadeId): void {
     if (this.player.inventory.has(id)) this.player.grenadeKind = id;
@@ -853,6 +870,7 @@ export class Game {
     this.autoLite(dt);
     if (this.input.wasPressed('debug')) this.debug.enabled = !this.debug.enabled;
     if (this.input.wasPressed('devPanel')) this.ui.dev.toggle();
+    if (this.input.wasPressed('help')) this.ui.help.toggle();
     if (this.input.wasPressed('bigMap')) this.ui.mapView.toggleBig();
     if (this.input.wasPressed('zoom')) {
       const k = this.camera.cycleZoom();
@@ -935,9 +953,70 @@ export class Game {
     this.drawCondition(v, dpr);
     this.effects.drawAlert(ctx, v, this.war.code, this.law.now, this.player);
     if (!sewer) this.effects.drawFrontMarkers(ctx, v, this.war, this.player, dpr, this.law.now);
+    this.drawWaypoint(v, dpr);
     this.particles.drawHud(ctx, v, this.input.mouseInside ? this.input.mouseX * dpr : null, this.input.mouseInside ? this.input.mouseY * dpr : null, dpr);
     this.wheel.draw(ctx, v.width, v.height, dpr, this.player, this.combat);
     if (this.input.mouseInside) this.drawCrosshair(this.input.mouseX * dpr, this.input.mouseY * dpr, dpr);
+  }
+
+  /** Метка с большой карты: булавка на месте, за краем экрана — стрелка у кромки с расстоянием. */
+  private drawWaypoint(v: View, dpr: number): void {
+    const m = this.ui.mapView.marker;
+    if (!m || m.level !== this.level) return;
+    const ctx = this.ctx;
+    const P = MINIMAP.waypoint;
+    const M = RENDER.frontMarker;
+    const sx = (m.x - v.left) * v.scale;
+    const sy = (m.y - v.top) * v.scale;
+    const inset = M.inset * dpr;
+    const meters = Math.round((Math.hypot(m.x - this.player.x, m.y - this.player.y) / this.map.tileSize) * M.metersPerTile);
+    ctx.font = M.font.replace(/(\d+)px/, (_, n) => `${Number(n) * dpr}px`);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3 * dpr;
+    ctx.strokeStyle = P.edge;
+    ctx.fillStyle = P.color;
+    let x = sx;
+    let y = sy;
+    let label = `${meters} м`;
+    if (sx > inset && sy > inset && sx < v.width - inset && sy < v.height - inset) {
+      // Булавка на месте.
+      const r = 5 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx - r * 0.8, sy - r * 1.6);
+      ctx.arc(sx, sy - r * 1.9, r, Math.PI * 0.8, Math.PI * 0.2, false);
+      ctx.closePath();
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.stroke();
+      ctx.fill();
+      y = sy - r * 4.2;
+    } else {
+      // Стрелка у кромки по направлению на метку.
+      const cx = v.width / 2;
+      const cy = v.height / 2;
+      const dx = sx - cx;
+      const dy = sy - cy;
+      const k = Math.min((cx - inset) / Math.max(1e-6, Math.abs(dx)), (cy - inset) / Math.max(1e-6, Math.abs(dy)));
+      x = cx + dx * k;
+      y = cy + dy * k;
+      const ang = Math.atan2(dy, dx);
+      const a = 10 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(ang) * a, y + Math.sin(ang) * a);
+      ctx.lineTo(x + Math.cos(ang + 2.5) * a, y + Math.sin(ang + 2.5) * a);
+      ctx.lineTo(x + Math.cos(ang - 2.5) * a, y + Math.sin(ang - 2.5) * a);
+      ctx.closePath();
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.stroke();
+      ctx.fill();
+      label = `метка · ${meters} м`;
+      x -= Math.cos(ang) * 30 * dpr;
+      y -= Math.sin(ang) * 18 * dpr;
+    }
+    ctx.lineWidth = 3 * dpr;
+    ctx.strokeText(label, x, y);
+    ctx.fillText(label, x, y);
   }
 
   /** Состояние игрока на экране: под огнём — тёмные края, тяжело ранен — красные и надпись. */

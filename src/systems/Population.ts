@@ -10,11 +10,14 @@ import { KITS, ITEMS, type WeaponId } from '../config/items';
 import { cpUnit, CP_UNIT, rebelUnitOf, type CpUnitId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import { ROSTER } from '../config/roster';
+import { ECONOMY } from '../config/economy';
 import { HOUSING } from '../config/housing';
 import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
 
 /** Выдать набор предметов роли; первое оружие из набора — в руки, магазин заряжен. */
 export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat'>): void {
+  c.gear = {};
+  c.inventory.capacity = ECONOMY.inventorySlots;
   c.inventory.clear();
   c.weapon = null;
   c.mag = 0;

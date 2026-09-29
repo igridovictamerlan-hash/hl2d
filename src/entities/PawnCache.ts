@@ -14,7 +14,7 @@ const cache = new LruCache<HTMLCanvasElement>(PAWN.cache.max);
 export function drawPawnCached(ctx: CanvasRenderingContext2D, look: PawnLook, x: number, y: number, s: number, dir: PawnDir): void {
   const C = PAWN.cache;
   const q = scaleLevel(s, C.perOctave);
-  const key = `${look.faction}|${look.rank}|${look.color}|${look.seed}|${look.profession ?? ''}|${look.kin ?? ''}|${look.band ?? ''}|${dir}|${q}`;
+  const key = `${look.faction}|${look.rank}|${look.color}|${look.seed}|${look.profession ?? ''}|${look.kin ?? ''}|${look.band ?? ''}|${look.helmet ?? ''}|${look.vest ?? ''}|${dir}|${q}`;
   let sprite = cache.get(key);
   if (!sprite) {
     sprite = document.createElement('canvas');

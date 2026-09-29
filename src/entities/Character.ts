@@ -1,7 +1,7 @@
 import type { RoleSpec } from '../systems/Roster';
 import type { FactionId, DivisionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
-import type { ItemId, WeaponId, GrenadeId } from '../config/items';
+import type { ItemId, WeaponId, GrenadeId, GearId, GearSlot } from '../config/items';
 import { ECONOMY } from '../config/economy';
 import { Inventory } from './Inventory';
 import { CHARACTER } from '../config/entities';
@@ -150,6 +150,8 @@ export class Character {
   hunger: number = ECONOMY.hunger.max;
   /** Оружие в руках (предмет из инвентаря) или null. */
   weapon: WeaponId | null = null;
+  /** Надетое снаряжение (шлем, бронежилет, рюкзак) — не в ячейках инвентаря (systems/Gear). */
+  gear: Partial<Record<GearSlot, GearId>> = {};
   /** Патронов в магазине оружия в руках. */
   mag = 0;
   /** Патроны, оставшиеся в магазинах убранных стволов. */

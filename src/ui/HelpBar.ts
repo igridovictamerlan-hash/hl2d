@@ -1,38 +1,71 @@
-/** Клавиши и действия — для подсказки и экрана «Управление» в меню. */
-export const CONTROLS_HELP: [string, string][] = [
-  ['WASD', 'ходьба'],
-  ['Shift', 'бег'],
-  ['Мышь', 'взгляд'],
-  ['ЛКМ', 'огонь'],
-  ['ПКМ', 'прицел'],
-  ['Q', 'сменить оружие (зажать — колесо)'],
-  ['R', 'перезарядка'],
-  ['T', 'граната'],
-  ['Y', 'сменить гранату'],
-  ['B', 'перевязаться'],
-  ['Z', 'растяжка из гранаты'],
-  ['C', 'присесть / встать'],
-  ['E', 'действие рядом; поднять раненого (бинт), ГО — задержать лежащего'],
-  ['X', 'тащить раненого'],
-  ['Tab', 'инвентарь'],
-  ['F', 'проверить CID (ГО)'],
-  ['G', 'умение роли (лечить, блок, сканер, маскировка, клич главы)'],
-  ['N', 'звук'],
-  ['M', 'карта'],
-  ['V', 'масштаб камеры'],
-  ['Enter', 'чат (/помощь)'],
-  ['P', 'пауза'],
-  ['F2', 'генератор'],
-  ['F3', 'отладка ИИ'],
-  ['Esc', 'меню'],
+/** Клавиши по группам — для панели F1 и экрана «Управление» в меню. */
+export const CONTROLS_GROUPS: [string, [string, string][]][] = [
+  ['Движение', [
+    ['WASD', 'ходьба'],
+    ['Shift', 'бег'],
+    ['C', 'присесть / встать'],
+    ['Мышь', 'взгляд'],
+  ]],
+  ['Бой', [
+    ['ЛКМ', 'огонь'],
+    ['ПКМ', 'прицел'],
+    ['R', 'перезарядка'],
+    ['Q', 'следующее оружие; зажать — колесо оружия'],
+    ['H', 'убрать оружие'],
+    ['T / Y', 'бросить / сменить гранату'],
+    ['Z', 'растяжка из гранаты'],
+    ['B', 'перевязаться'],
+    ['X', 'тащить раненого'],
+  ]],
+  ['Действия', [
+    ['E', 'действие рядом; поднять раненого, ГО — задержать лежащего'],
+    ['F', 'проверить CID (ГО)'],
+    ['G', 'умение роли (лечить, блок, сканер, маскировка, клич главы)'],
+    ['Tab', 'инвентарь: еда, оружие, снаряжение'],
+    ['Enter', 'чат (/помощь — команды)'],
+  ]],
+  ['Интерфейс', [
+    ['M', 'карта: колесо — масштаб, ЛКМ — метка'],
+    ['V', 'масштаб камеры'],
+    ['N', 'звук'],
+    ['P / Esc', 'пауза / меню'],
+    ['F1', 'эта подсказка'],
+    ['F2 / F3', 'генератор / отладка ИИ'],
+  ]],
 ];
 
-/** Подсказка по управлению (правый нижний угол). */
+/** Все клавиши одним списком (экран «Управление»). */
+export const CONTROLS_HELP: [string, string][] = CONTROLS_GROUPS.flatMap(([, rows]) => rows);
+
+/**
+ * Подсказка по управлению: в углу — маленький значок «F1 — управление», по F1 — панель со всеми
+ * клавишами по группам (не мешает игре — сквозь неё можно стрелять).
+ */
 export class HelpBar {
+  private readonly chip: HTMLElement;
+  private readonly panel: HTMLElement;
+
   constructor(parent: HTMLElement) {
-    const el = document.createElement('div');
-    el.className = 'help panel';
-    el.innerHTML = CONTROLS_HELP.map(([k, v]) => `<span><kbd>${k}</kbd> ${v}</span>`).join('');
-    parent.appendChild(el);
+    this.chip = document.createElement('div');
+    this.chip.className = 'help-chip panel';
+    this.chip.innerHTML = '<kbd>F1</kbd> управление';
+    parent.appendChild(this.chip);
+    this.panel = document.createElement('div');
+    this.panel.className = 'help panel';
+    this.panel.hidden = true;
+    this.panel.innerHTML =
+      `<div class="help-head"><span>УПРАВЛЕНИЕ</span><span><kbd>F1</kbd> — скрыть</span></div><div class="help-cols">` +
+      CONTROLS_GROUPS.map(([title, rows]) => `<div class="help-col"><div class="help-title">${title}</div>${rows.map(([k, v]) => `<div class="help-row"><kbd>${k}</kbd><span>${v}</span></div>`).join('')}</div>`).join('') +
+      '</div>';
+    parent.appendChild(this.panel);
+  }
+
+  get isOpen(): boolean {
+    return !this.panel.hidden;
+  }
+
+  toggle(): void {
+    this.panel.hidden = !this.panel.hidden;
+    this.chip.hidden = !this.panel.hidden;
   }
 }

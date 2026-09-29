@@ -2,7 +2,8 @@ import type { Character } from '../entities/Character';
 import type { FactionId, DivisionId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import type { Stack } from '../entities/Inventory';
-import type { ItemId, WeaponId } from '../config/items';
+import type { ItemId, WeaponId, GearId, GearSlot } from '../config/items';
+import { capacityOf } from './Gear';
 import { ITEMS, WEAPONS } from '../config/items';
 import { FACTIONS } from '../config/factions';
 
@@ -28,6 +29,8 @@ export interface SaveData {
   weapon: WeaponId | null;
   mag: number;
   mags: Partial<Record<WeaponId, number>>;
+  /** Надетое снаряжение (нет в старых сохранениях). */
+  gear?: Partial<Record<GearSlot, GearId>>;
   law: { hasCid: boolean; wanted: boolean };
   pos: { x: number; y: number } | null;
   explored: string;
@@ -61,6 +64,7 @@ export function capturePlayer(
     weapon: p.weapon,
     mag: p.mag,
     mags: { ...p.mags },
+    gear: { ...p.gear },
     law: { hasCid: p.law.hasCid, wanted: p.law.wanted || caught },
     pos: caught ? null : { x: Math.round(p.x), y: Math.round(p.y) },
     explored: encodeBits(knowledge.explored),
@@ -94,6 +98,12 @@ export function applyToPlayer(p: Character, d: SaveData): void {
   p.health = Math.min(p.maxHealth, Math.max(1, d.health));
   p.hunger = Math.max(0, Math.min(100, d.hunger));
   p.inventory.clear();
+  // Снаряжение — до вещей: рюкзак добавляет ячейки.
+  p.gear = {};
+  for (const [slot, id] of Object.entries(d.gear ?? {}) as [GearSlot, GearId][]) {
+    if (id in ITEMS && ITEMS[id].gear?.slot === slot) p.gear[slot] = id;
+  }
+  p.inventory.capacity = capacityOf(p);
   for (const s of d.inventory) p.inventory.add(s.id as ItemId, s.qty);
   p.mags = { ...(d.mags ?? {}) };
   p.weapon = d.weapon && p.inventory.has(d.weapon) ? d.weapon : null;

@@ -249,6 +249,16 @@ I.helmet = (c) => {
   ln(c, [[-20, 4], [20, 4]], 2, '#3a4226');
   shp(c, '#2b2d31', () => c.rect(-5, -24, 10, 5), 2);
 };
+I.helmet_cp = (c) => {
+  shp(c, '#3f4a55', () => { c.moveTo(-26, 8); c.quadraticCurveTo(-22, -22, 0, -22); c.quadraticCurveTo(22, -22, 26, 8); c.lineTo(20, 10); c.lineTo(-20, 10); c.closePath(); });
+  fl(c, '#5a6875', () => c.ellipse(-8, -10, 8, 5, -0.4, 0, TAU));
+  shp(c, '#6fa0c8', () => c.rect(-18, -2, 36, 5), 2);
+};
+I.plate_vest = (c) => {
+  shp(c, '#5d6b3a', () => { c.moveTo(-20, -22); c.lineTo(-10, -22); c.lineTo(-6, -14); c.lineTo(6, -14); c.lineTo(10, -22); c.lineTo(20, -22); c.lineTo(22, 22); c.lineTo(-22, 22); c.closePath(); });
+  shp(c, '#4b5730', () => c.roundRect(-14, -10, 28, 20, 3), 2.5);
+  for (let i = 0; i < 3; i++) shp(c, '#6f7e48', () => c.roundRect(-18 + i * 12.5, 12, 11, 9, 2), 2);
+};
 I.vest = (c) => {
   shp(c, '#5d6b3a', () => { c.moveTo(-20, -22); c.lineTo(-10, -22); c.lineTo(-6, -14); c.lineTo(6, -14); c.lineTo(10, -22); c.lineTo(20, -22); c.lineTo(22, 22); c.lineTo(-22, 22); c.closePath(); });
   for (let i = 0; i < 3; i++) shp(c, '#4b5730', () => c.roundRect(-18 + i * 12.5, 4, 11, 16, 2), 2.5);
@@ -385,6 +395,8 @@ const ITEM_ICON: Partial<Record<ItemId, string>> = {
   ammo_545: 'ammo_rifle',
   ammo_338: 'rounds_long',
   ammo_rocket: 'rocket',
+  helmet_cp: 'helmet_cp',
+  plate_vest: 'plate_vest',
 };
 
 export function iconOf(id: ItemId): string {

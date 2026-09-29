@@ -2,8 +2,8 @@ import type { Character } from '../entities/Character';
 import type { PawnDir, PawnLook } from '../entities/PawnRenderer';
 import type { CombatSystem } from '../systems/CombatSystem';
 import { GRENADE_KINDS } from '../systems/CombatSystem';
-import { armorOf } from '../systems/wounds';
-import { ITEMS, WEAPONS, type ItemId, type WeaponId, type WeaponDef, type GrenadeId } from '../config/items';
+import { armorOf, roleArmor } from '../systems/wounds';
+import { ITEMS, WEAPONS, type ItemId, type WeaponId, type WeaponDef, type GrenadeId, type GearId, type GearSlot } from '../config/items';
 import { REBEL_RANKS } from '../config/factions';
 import { HUD } from '../config/hud';
 import { drawGunIcon, drawIcon, iconOf } from './icons';
@@ -13,6 +13,8 @@ export interface InventoryHost {
   useItem(id: ItemId): void;
   equipItem(id: WeaponId | null): void;
   chooseGrenade(id: GrenadeId): void;
+  wearGear(id: GearId): void;
+  takeOffGear(slot: GearSlot): void;
 }
 
 /** Область на холсте: что под мышью и что делать по клику. */
@@ -110,7 +112,7 @@ export class InventoryPanel {
   update(p: Character, combat: CombatSystem, look: PawnLook): void {
     if (!this.isOpen) return;
     const hoverKey = this.hover ? `${this.hover.x},${this.hover.y}` : '';
-    const sig = `${p.inventory.slots.map((s) => `${s.id}:${s.qty}`).join(',')}|${p.weapon}|${p.mag}|${p.grenadeKind}|${p.money}|${this.dir}|${hoverKey}|${look.seed}|${look.color}|${combat.reloading(p)}|${window.innerWidth}x${window.innerHeight}`;
+    const sig = `${p.inventory.slots.map((s) => `${s.id}:${s.qty}`).join(',')}|${p.weapon}|${p.gear.head}|${p.gear.torso}|${p.gear.back}|${p.mag}|${p.grenadeKind}|${p.money}|${this.dir}|${hoverKey}|${look.seed}|${look.color}|${combat.reloading(p)}|${window.innerWidth}x${window.innerHeight}`;
     if (sig === this.sig) return;
     this.sig = sig;
     this.draw(p, combat, look);
@@ -145,23 +147,47 @@ export class InventoryPanel {
     text(ctx, 'ИНВЕНТАРЬ', L, 22, 15, C.text, 'left', 800);
     text(ctx, 'Tab — закрыть', W - 16, 22, 11, C.textDim, 'right', 700);
 
-    // --- снаряжение по роли (как одета пешка) ---
-    const armor = armorOf(p);
+    // --- снаряжение: надетое (шлем, бронежилет, рюкзак — снимается) и форма роли (не снять) ---
+    const role = roleArmor(p);
     const army = p.faction === 'rebel' && !!p.profession && ARMY.has(p.profession);
     const uniformed = p.faction === 'cp' || p.faction === 'ota';
-    const gear = {
-      head: armor.head > 0 ? 'helmet' : p.faction === 'cwu' ? 'cap' : null,
+    const worn = {
+      head: role.head > 0 ? 'helmet' : p.faction === 'cwu' ? 'cap' : null,
       face: (p.faction === 'cp' && p.division === 'pcu') || p.faction === 'ota' ? 'gasmask' : null,
-      vest: armor.torso > 0 ? 'vest' : null,
-      body: 'jumpsuit',
-      pack: army || p.faction === 'ota' ? 'backpack' : null,
+      torso: role.torso > 0 ? 'vest' : null,
+      back: army || p.faction === 'ota' ? 'backpack' : null,
       radio: uniformed || army ? 'radio' : null,
       p1: uniformed || army ? 'flashlight' : null,
     };
-    const gearSlot = (x: number, y: number, w: number, h: number, label: string, id: string | null, ghost: string, name: string) => {
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    /** Слот формы роли (лицо, рация, фонарь, одежда): только показывает. */
+    const roleSlot = (x: number, y: number, w: number, h: number, label: string, id: string | null, ghost: string, name: string) => {
       this.slot(ctx, x, y, w, h, label, id ? null : ghost);
       if (id) drawIcon(ctx, id, x + w / 2, y + h / 2 + 2, 0.85);
-      this.hits.push({ x, y, w, h, title: id ? name : `${label.toLowerCase()}: пусто`, desc: id ? 'Снаряжение вашей роли.' : 'Снаряжение выдаётся по роли.', act: '' });
+      this.hits.push({ x, y, w, h, title: id ? name : `${label.toLowerCase()}: пусто`, desc: id ? 'Часть формы вашей роли.' : 'Выдаётся по роли.', act: '' });
+    };
+    /** Рабочий слот: надетое — снять; нет — форма роли или пусто (надеть из рюкзака). */
+    const gearSlot = (x: number, y: number, label: string, slot: GearSlot, uniform: string | null, uniformArmor: number, ghost: string) => {
+      const on = p.gear[slot];
+      const hot = !!on && this.hover?.x === x && this.hover?.y === y;
+      this.slot(ctx, x, y, S, S, label, on || uniform ? null : ghost, hot);
+      if (on) {
+        const g = ITEMS[on].gear!;
+        drawIcon(ctx, iconOf(on), x + S / 2, y + S / 2 + 2, 0.85);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = C.equipped;
+        ctx.strokeRect(x + 4, y + 4, S - 8, S - 8);
+        const stat = g.capacity ? `+${g.capacity} ячейки` : `броня ${pct(g.head ?? g.torso ?? 0)}`;
+        this.hits.push({ x, y, w: S, h: S, title: `${ITEMS[on].name} (надето)`, desc: `${ITEMS[on].desc} ${stat[0].toUpperCase()}${stat.slice(1)}.`, act: 'ЛКМ — снять', click: () => this.host.takeOffGear(slot) });
+      } else if (uniform) {
+        ctx.globalAlpha = 0.75;
+        drawIcon(ctx, uniform, x + S / 2, y + S / 2 + 2, 0.85);
+        ctx.globalAlpha = 1;
+        text(ctx, 'форма', x + 6, y + S - 10, 9, C.ink, 'left', 800);
+        this.hits.push({ x, y, w: S, h: S, title: 'Форма роли', desc: uniformArmor > 0 ? `Броня формы ${pct(uniformArmor)}: не снять. Надетое из рюкзака заменит, если крепче.` : 'Часть формы роли. Можно надеть поверх снаряжение из рюкзака.', act: '' });
+      } else {
+        this.hits.push({ x, y, w: S, h: S, title: `${label.toLowerCase()}: пусто`, desc: 'Наденьте снаряжение из рюкзака: ЛКМ по предмету. Найти — на телах, купить — у барыги.', act: '' });
+      }
     };
     // Верхний ряд: CID и токены; лицо и рация — над правой колонкой.
     const cidId = p.inventory.has('fake_cid') ? 'fake_cid' : 'cid';
@@ -175,15 +201,15 @@ export class InventoryPanel {
     const dollX = L + S + G;
     const dollW = 2 * S + G + 120;
     const rx = dollX + dollW + G;
-    gearSlot(rx - S - G, T, S, S - 4, 'ЛИЦО', gear.face, 'gasmask', 'Противогаз');
-    gearSlot(rx, T, S, S - 4, 'РАЦИЯ', gear.radio, 'radio', 'Рация');
+    roleSlot(rx - S - G, T, S, S - 4, 'ЛИЦО', worn.face, 'gasmask', 'Противогаз');
+    roleSlot(rx, T, S, S - 4, 'РАЦИЯ', worn.radio, 'radio', 'Рация');
     const y0 = T + S + 2;
-    gearSlot(L, y0, S, S, 'ГОЛОВА', gear.head, 'helmet', gear.head === 'cap' ? 'Кепка ГСР' : 'Шлем');
-    gearSlot(L, y0 + S + 4, S, S, 'БРОНЯ', gear.vest, 'vest', 'Бронежилет');
-    gearSlot(L, y0 + 2 * (S + 4), S, S, 'ОДЕЖДА', gear.body, 'jumpsuit', 'Одежда');
-    gearSlot(rx, y0, S, S, 'РЮКЗАК', gear.pack, 'backpack', 'Рюкзак');
-    gearSlot(rx, y0 + S + 4, S, S, 'КАРМАН', gear.p1, 'flashlight', 'Фонарь');
-    gearSlot(rx, y0 + 2 * (S + 4), S, S, 'КАРМАН', null, 'lockpick', '');
+    gearSlot(L, y0, 'ГОЛОВА', 'head', worn.head, role.head, 'helmet');
+    gearSlot(L, y0 + S + 4, 'БРОНЯ', 'torso', worn.torso, role.torso, 'vest');
+    roleSlot(L, y0 + 2 * (S + 4), S, S, 'ОДЕЖДА', 'jumpsuit', 'jumpsuit', 'Одежда');
+    gearSlot(rx, y0, 'РЮКЗАК', 'back', worn.back, 0, 'backpack');
+    roleSlot(rx, y0 + S + 4, S, S, 'КАРМАН', worn.p1, 'flashlight', 'Фонарь');
+    roleSlot(rx, y0 + 2 * (S + 4), S, S, 'КАРМАН', null, 'lockpick', '');
 
     // --- пешка с оружием в руках ---
     const dollH = 3 * S + 8;
@@ -204,6 +230,8 @@ export class InventoryPanel {
     ctx.strokeStyle = C.line;
     ctx.strokeRect(dollX, y0, dollW, dollH);
     text(ctx, p.name, dollX + 10, y0 + 14, 12, C.text, 'left', 800);
+    const ar = armorOf(p);
+    text(ctx, `броня: голова ${pct(ar.head)} · корпус ${pct(ar.torso)}`, dollX + 10, y0 + 30, 10, C.textDim, 'left', 700);
     for (const sg of [-1, 1]) {
       const ax = sg < 0 ? dollX + 4 : dollX + dollW - 34;
       const ay = y0 + dollH - 50;
@@ -265,6 +293,9 @@ export class InventoryPanel {
       } else if (def.kind === 'weapon') {
         act = 'ЛКМ — взять в руки';
         click = () => this.host.equipItem(st.id as WeaponId);
+      } else if (def.gear) {
+        act = 'ЛКМ — надеть';
+        click = () => this.host.wearGear(st.id as GearId);
       }
       this.hits.push({ x, y, w: S, h: S - 6, title: `${def.name}${st.qty > 1 ? ` ×${st.qty}` : ''}`, desc: def.kind === 'weapon' ? `${def.desc} ${weaponStats(WEAPONS[st.id as WeaponId])}` : def.desc, act, click });
     }

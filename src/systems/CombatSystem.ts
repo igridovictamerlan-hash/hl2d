@@ -12,8 +12,9 @@ import { COMBAT, GRENADE, FIRE, HITS, ROCKET, MINE, type HitZone } from '../conf
 import { SUPPRESS, CROUCH, DOWNED } from '../config/tactics';
 import { resolveCircleVsTiles } from '../world/collision';
 import { CHARACTER } from '../config/entities';
-import { WEAPONS, AMMO_ITEM, ITEMS, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
-import { armorOf, rollZone, behind } from './wounds';
+import { WEAPONS, AMMO_ITEM, ITEMS, GEAR, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
+import { gearLoot } from './Gear';
+import { armorOf, roleArmor, rollZone, behind } from './wounds';
 import { FACTIONS, cpHas, type FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { muzzleWorld } from '../entities/weaponPose';
@@ -938,6 +939,14 @@ export class CombatSystem {
     this.stopDrag(c);
     this.kills++;
     const loot = c.inventory.takeAll();
+    // Надетое — на теле; у бойца в форме (ГО, армия) с шансом — шлем и бронежилет его стороны.
+    loot.push(...gearLoot(c));
+    const drop = GEAR.drops[c.faction];
+    if (drop && this.rng.chance(GEAR.dropChance)) {
+      const a = roleArmor(c);
+      if (a.head > 0) loot.push({ id: drop.head, qty: 1 });
+      if (a.torso > 0) loot.push({ id: drop.torso, qty: 1 });
+    }
     c.weapon = null;
     c.mag = 0;
     c.mags = {};

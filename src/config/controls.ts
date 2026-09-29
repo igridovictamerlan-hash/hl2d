@@ -16,6 +16,8 @@ export const CONTROLS = {
   bigMap: ['KeyM'],
   /** Масштаб камеры: следующий из CAMERA.zoomLevels. */
   zoom: ['KeyV'],
+  /** Подсказка по клавишам. */
+  help: ['F1'],
   devPanel: ['F2'],
   debug: ['F3'],
   choice1: ['Digit1', 'Numpad1'],

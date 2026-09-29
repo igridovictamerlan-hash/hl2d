@@ -22,6 +22,9 @@ export interface PawnLook {
   /** Семья: зерно общей внешности (кожа, волосы) и цвет повязки на рукаве. */
   kin?: number;
   band?: string;
+  /** Надетые шлем и бронежилет (systems/Gear): цвет; поверх гражданской одежды. */
+  helmet?: string;
+  vest?: string;
 }
 
 type Outfit = Record<string, string | boolean | number>;
@@ -97,9 +100,11 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   ctx.lineCap = 'round';
   const O = outfitOf(look);
   const base = O.base === 'rank' ? look.color : (O.base as string);
-  const armor = O.armor === 'rank' ? look.color : (O.armor as string | undefined);
-  const vest = !!armor && O.vest !== false && look.rank >= ((O.vestFromRank as number | undefined) ?? 99);
+  const armor = look.vest ?? (O.armor === 'rank' ? look.color : (O.armor as string | undefined));
+  const vest = !!look.vest || (!!armor && O.vest !== false && look.rank >= ((O.vestFromRank as number | undefined) ?? 99));
   let head = O.head as string;
+  // Надетый шлем — вместо кепки, колпака и капюшона.
+  if (look.helmet && (head === 'cap' || head === 'chef' || head === 'hood' || head === 'bandana' || head === 'beret')) head = 'hair';
   if (head === 'bandana' && !vest) head = 'hair';
   const hairy = head === 'hair' || head === 'bandana' || head === 'cap' || head === 'chef' || head === 'beret';
   const style: HairStyle = hairy ? hairStyleOf(look.seed) : 'bald';
@@ -236,6 +241,7 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   if (head === 'chef') chefHat(ctx, d, O.chef as string, hx);
   if (head === 'hood') hood(ctx, d, O.hood as string, hx);
   if (O.goggles && d !== 'N') goggles(ctx, d, O.goggles as string, hx);
+  if (look.helmet) michHelmet(ctx, d, { helmet: look.helmet }, hx, look.seed);
   ctx.restore();
 }
 

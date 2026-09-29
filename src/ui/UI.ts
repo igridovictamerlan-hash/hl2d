@@ -3,7 +3,7 @@ import type { ProfessionId } from '../config/professions';
 import type { EventBus } from '../core/EventBus';
 import type { Character } from '../entities/Character';
 import type { FactionId, DivisionId } from '../config/factions';
-import type { ItemId, WeaponId, GrenadeId } from '../config/items';
+import type { ItemId, WeaponId, GrenadeId, GearId, GearSlot } from '../config/items';
 import type { EconomySystem } from '../systems/EconomySystem';
 import type { CombatSystem } from '../systems/CombatSystem';
 import { Hud } from './Hud';
@@ -53,6 +53,8 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   useItem(id: ItemId): void;
   equipItem(id: WeaponId | null): void;
   chooseGrenade(id: GrenadeId): void;
+  wearGear(id: GearId): void;
+  takeOffGear(slot: GearSlot): void;
   buyItem(id: ItemId): string | null;
   buyBlack(k: number): string | null;
   blackInStock(k: number): boolean;
@@ -88,6 +90,7 @@ export class UI {
   readonly chat: ChatBox;
   readonly mapView: MapView;
   readonly menu: GameMenu;
+  readonly help: HelpBar;
   private readonly pauseEl: HTMLElement;
   private hudHeight = 0;
   private acc = 0;
@@ -104,6 +107,7 @@ export class UI {
     this.capture = new CaptureBar(root);
     this.arenaBar = new ArenaBar(root);
     this.mapView = new MapView(root);
+    this.mapView.onArrive = () => bus.emit('log', { text: 'Вы у своей метки.', kind: 'system' });
     this.menu = new GameMenu(root, host);
     this.pauseEl = document.createElement('div');
     this.pauseEl.className = 'pause-overlay';
@@ -114,7 +118,7 @@ export class UI {
     this.shop = new ShopPanel(root, { price: (id) => host.shopPrice(id), buy: (id) => host.buyItem(id), buyBlack: (k) => host.buyBlack(k), blackInStock: (k) => host.blackInStock(k), sell: (id) => host.sellItem(id) });
     this.alert = new AlertBar(root, bus);
     this.death = new DeathScreen(root);
-    new HelpBar(root);
+    this.help = new HelpBar(root);
     this.roles = new RoleMenu(root, (f, r, d, p) => host.chooseRole(f, r, d, p), () => host.newGame());
     this.dev.toggle(); // панель карты по умолчанию свёрнута — F2
     bus.on('announce', ({ text }) => this.banner.show(text));
@@ -126,6 +130,23 @@ export class UI {
     });
   }
 
+  /**
+   * Журнал — над HUD, какой бы высоты тот ни был; открыт чат — строка ввода там же, над ней вся
+   * история журнала с прокруткой.
+   */
+  private placeLog(): void {
+    const h = this.hud.el.offsetHeight;
+    const chat = this.chat.isOpen;
+    if (h === this.hudHeight && chat === this.chatShown) return;
+    this.hudHeight = h;
+    this.chatShown = chat;
+    this.chat.el.style.bottom = `${h + 24}px`;
+    this.log.el.style.bottom = `${h + 24 + (chat ? 46 : 4)}px`;
+    this.log.expand(chat);
+  }
+
+  private chatShown = false;
+
   setPaused(on: boolean): void {
     this.pauseEl.hidden = !on;
   }
@@ -135,6 +156,7 @@ export class UI {
     const level = map.levelAt(player.x, player.y);
     this.audio.update(this.host.combat.shots, player, this.host.combat.now, (x, y) => map.levelAt(x, y) === level, this.host.combat.fx);
     this.audio.ambient(player, this.host.fireSpots, this.host.darkness, level === 'sewer', dt, this.host.arsenal?.shipView() ?? null);
+    this.placeLog();
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
@@ -171,12 +193,7 @@ export class UI {
       rally: this.host.war.command.rallyCooldown,
     });
     this.hud.setClock(this.host.clock);
-    // Журнал событий — над HUD, какой бы высоты тот ни был.
-    const h = this.hud.el.offsetHeight;
-    if (h !== this.hudHeight) {
-      this.hudHeight = h;
-      this.log.el.style.bottom = `${h + 28}px`;
-    }
+    this.placeLog();
     this.inventory.update(player, combat, this.host.pawnLook(player));
     if (this.host.arena) this.arenaBar.update(this.host.arena);
     else {

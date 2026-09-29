@@ -171,19 +171,23 @@ html, body {
 .dev-info.error { color: var(--danger); }
 
 /* Подсказка */
+.help-chip { right: 16px; bottom: 16px; padding: 3px 9px; font-size: 11px; color: var(--muted); pointer-events: none !important; }
 .help {
   right: 16px;
   bottom: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  max-width: calc(100vw - 390px);
-  gap: 4px 12px;
-  padding: 6px 10px;
+  padding: 10px 14px 12px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text);
   pointer-events: none !important;
+  max-width: calc(100vw - 400px);
+  z-index: 4;
 }
+.help-head { display: flex; justify-content: space-between; gap: 20px; color: var(--hud); letter-spacing: 0.14em; font-size: 11px; margin-bottom: 8px; }
+.help-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 6px 22px; }
+.help-title { color: var(--hud-dim); letter-spacing: 0.12em; font-size: 10px; text-transform: uppercase; margin: 2px 0 4px; }
+.help-row { display: flex; gap: 8px; align-items: baseline; margin: 2px 0; }
+.help-row kbd { flex: none; min-width: 52px; text-align: center; }
+.help-row span { color: var(--muted); }
 kbd {
   font: 11px var(--font);
   color: var(--hud);
@@ -194,7 +198,7 @@ kbd {
 
 @media (max-width: 700px) {
   .dev { width: calc(100vw - 32px); }
-  .help { display: none; }
+  .help, .help-chip { display: none; }
 }
 
 .hud-law { align-self: flex-start; padding: 3px 7px; border-radius: 4px; background: rgba(255, 91, 74, 0.16); color: #ffb3a8; font-size: 13px; }
@@ -204,15 +208,27 @@ kbd {
   position: absolute;
   left: 16px;
   bottom: 200px;
-  width: min(460px, calc(100vw - 32px));
+  width: min(400px, calc(100vw - 32px));
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 13px;
+  gap: 1px;
+  font-size: 12px;
   pointer-events: none;
 }
-.log-line { padding: 2px 8px; background: rgba(8, 10, 12, 0.6); border-radius: 3px; transition: opacity 1.5s; text-shadow: 0 1px 2px #000; }
-.log-line.old { opacity: 0.35; }
+.event-log.expanded {
+  max-height: 42vh;
+  overflow-y: auto;
+  pointer-events: auto;
+  padding: 6px;
+  background: rgba(8, 10, 12, 0.72);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  z-index: 5;
+}
+.log-line { padding: 1px 7px; background: rgba(8, 10, 12, 0.5); border-radius: 3px; transition: opacity 1.5s; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; align-self: flex-start; max-width: 100%; }
+.log-line.hidden-line { display: none; }
+.event-log.expanded .log-line { white-space: normal; background: none; opacity: 1; align-self: stretch; }
+.log-line.old { opacity: 0; }
 .log-law { color: var(--hud); }
 .log-radio { color: #8fc3f5; }
 .log-world { color: var(--text); }
@@ -289,7 +305,6 @@ kbd {
 .hunger-fill.low { background: var(--danger); }
 .hud-ration { white-space: pre-line; font-size: 11px; color: var(--hud-dim); text-shadow: 0 1px 2px #000; }
 .hud-clock { font-variant-numeric: tabular-nums; }
-.event-log { bottom: 250px; }
 
 /* Инвентарь и магазин */
 .shop {

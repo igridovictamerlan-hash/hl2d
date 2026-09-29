@@ -84,11 +84,17 @@ export const ECONOMY = {
       { id: 'bandage', qty: 2, price: 8 },
       { id: 'lockpick', qty: 2, price: 14 },
       { id: 'fake_cid', qty: 1, price: 60 },
+      // Снаряжение: надевается в инвентаре (Tab).
+      { id: 'helmet', qty: 1, price: 60 },
+      { id: 'vest', qty: 1, price: 70 },
+      { id: 'plate_vest', qty: 1, price: 110 },
+      { id: 'backpack', qty: 1, price: 40 },
     ] as { id: ItemId; qty: number; price: number }[],
     sell: {
       ration: 12, canned: 8, cigarettes: 3, medkit: 14, bandage: 4, toolkit: 8,
       usp: 25, mp7: 40, stunstick: 10, ar2: 60, spas12: 35, revolver: 30, crossbow: 40, rebel_pistol: 12, rebel_smg: 28, grenade: 12,
       m4a4: 55, ak74: 50, sniper: 70, rpg: 90, knife: 5, smoke_grenade: 7, fire_grenade: 10,
+      helmet: 25, helmet_cp: 20, vest: 30, plate_vest: 45, backpack: 15,
     } as Partial<Record<ItemId, number>>,
   },
   /** Штраф к токенам при гибели игрока (доля). */
