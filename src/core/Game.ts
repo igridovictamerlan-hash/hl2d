@@ -51,6 +51,7 @@ import { FamilySystem } from '../systems/Families';
 import { SecuritySystem } from '../systems/Security';
 import { CwuHqSystem } from '../systems/CwuHq';
 import { ArsenalSystem } from '../systems/Arsenal';
+import { PrisonSystem } from '../systems/Prison';
 import { StreetShops } from '../systems/StreetShops';
 import { Housing } from '../systems/Housing';
 import { Fence } from '../systems/Fence';
@@ -108,6 +109,10 @@ export class Game {
   /** Банды и барыга (для карты). */
   get gangs(): GangSystem {
     return this.ai.gangs;
+  }
+
+  get prison(): PrisonSystem | null {
+    return this.ai?.prison ?? null;
   }
 
   get fence(): Fence {
@@ -284,6 +289,7 @@ export class Game {
       security: null as unknown as SecuritySystem,
       cwuHq: null as unknown as CwuHqSystem,
       arsenal: null as unknown as ArsenalSystem,
+      prison: null as unknown as PrisonSystem,
       shops: null as unknown as StreetShops,
       housing: null as unknown as Housing,
       fence: null as unknown as Fence,
@@ -304,6 +310,7 @@ export class Game {
     this.ai.security = new SecuritySystem(this.ai);
     this.ai.cwuHq = new CwuHqSystem(this.ai);
     this.ai.arsenal = new ArsenalSystem(this.ai);
+    this.ai.prison = new PrisonSystem(this.ai);
     this.ai.shops = new StreetShops(this.ai);
     this.ai.housing = new Housing(this.ai);
     this.ai.fence = new Fence(this.ai);
@@ -847,6 +854,7 @@ export class Game {
     this.ai.shops.update();
     this.ai.gangs.update(dt);
     this.ai.arsenal.update(dt);
+    this.ai.prison.update();
     // Красный код (штурм Нексуса) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
@@ -924,7 +932,7 @@ export class Game {
     this.arsenalView.drawCarried(ctx, v, this.ai.arsenal, alpha);
     this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
     this.effects.drawNotepads(ctx, v, this.entities.list, this.combat.now, this.law.now);
-    this.effects.drawCages(ctx, v, this.law.cells, this.law.now);
+    this.effects.drawPrisonBars(ctx, v, this.law.cells, this.map.tileSize, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     // Дымок из труб, затем свет суток и источников (умножение), свечение ламп и огня, пылинки.
     const sewer = this.level === 'sewer';

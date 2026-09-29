@@ -6,5 +6,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    // Генерация города — до 32 попыток (у некоторых сидов — несколько секунд): 5 с по умолчанию мало.
+    testTimeout: 30_000,
   },
 });

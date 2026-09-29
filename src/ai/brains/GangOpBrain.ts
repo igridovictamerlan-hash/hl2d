@@ -63,7 +63,7 @@ export class GangOpBrain implements Brain {
     for (const o of ctx.entities.list) {
       if (!o.alive || o.faction !== 'cp' || !o.fit || ctx.map.levelAt(o.x, o.y) !== 'city') continue;
       const k = ctx.map.zoneAtWorld(o.x, o.y)?.kind;
-      if (k === 'nexus' || k === 'cells' || k === 'checkpoint' || k === 'outlands' || k === 'wasteland' || k === 'arsenal') continue;
+      if (k === 'nexus' || k === 'cells' || k === 'checkpoint' || k === 'outlands' || k === 'wasteland' || k === 'arsenal' || k === 'prison') continue;
       const d = Math.hypot(o.x - self.x, o.y - self.y);
       if (d < bestD) {
         bestD = d;

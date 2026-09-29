@@ -17,12 +17,16 @@ import { HiredGunBrain } from '../ai/brains/HiredGunBrain';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
+import { RebelBrain } from '../ai/brains/RebelBrain';
+import { PRISON } from '../config/prison';
+import { isArmy } from './Prison';
+import { wear } from './Gear';
 import { randomAnchorAround, zoneIds } from '../ai/destinations';
 import type { Convoy } from './Arsenal';
 
 /** Текущая операция подпольщиков в городе. */
 export interface Operation {
-  kind: 'sabotage' | 'arm' | 'fence' | 'jailbreak' | 'mine' | 'depot' | 'ambush';
+  kind: 'sabotage' | 'arm' | 'fence' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'prison';
   team: Character[];
   where: string;
   /** Группа (ячейка), если на дело вышли вдвоём-втроём. */
@@ -40,7 +44,7 @@ export type GroupRole = 'lead' | 'cover' | 'lookout';
  */
 export interface UndergroundGroup {
   id: number;
-  task: 'ambush' | 'sabotage' | 'jailbreak';
+  task: 'ambush' | 'sabotage' | 'jailbreak' | 'prison';
   lead: Character;
   members: Character[];
   roles: Map<Character, GroupRole>;
@@ -54,9 +58,11 @@ export interface UndergroundGroup {
   since: number;
   firedAt: number;
   allies: Character[];
+  /** Штурм тюрьмы: какую камеру вскрывает каждый (не все в одну). */
+  cells?: Map<Character, Cell>;
 }
 
-/** Рейд ГО на логово сопротивления (оба подпольщика в клетках). */
+/** Рейд ГО на логово сопротивления (двое подпольщиков в тюрьме). */
 export interface Raid {
   until: number;
   force: Character[];
@@ -66,9 +72,10 @@ export interface Raid {
  * Сопротивление под городом: схрон в канализации, торговец чёрного рынка, два подпольщика и
  * спецагент (config/underground.ts, PARTISANS). Подпольщики всегда в личине горожанина или рабочего
  * ГСР, огня не открывают: выходят через люк саботировать узлы Альянса и раздавать оружие бандитам —
- * те идут на ГО чужими руками (HiredGunBrain). Раскрытого партизана сажают в клетку в кабинете
- * Администратора: CMD.EPU допрашивает (боль, реплики) — расколовшийся выдаёт личину другого. Оба
- * подпольщика в клетках — гарнизоны КПП и резерв OTA идут штурмовать лагерь сопротивления.
+ * те идут на ГО чужими руками (HiredGunBrain). Раскрытого партизана ведут в тюрьму Альянса: начальник
+ * тюрьмы (третий SU.INSP) допрашивает у камеры (боль, реплики) — расколовшийся выдаёт личину другого.
+ * Двое подпольщиков в тюрьме — гарнизоны КПП и резерв OTA идут штурмовать лагерь сопротивления.
+ * Штурм тюрьмы (операция prison): все свободные подпольщики и спецагенты вместе выбивают двери камер.
  * Спецагент (AgentBrain) — переодевания, покушения, взлом КПЗ, бунты (startRiot).
  */
 export class InsurgencySystem {
@@ -91,7 +98,7 @@ export class InsurgencySystem {
   private readonly papers = new Map<Character, number>();
   op: Operation | null = null;
   raid: Raid | null = null;
-  /** Рейд ещё не было за этот раз (оба подпольщика в клетках). */
+  /** Рейда ещё не было за этот раз (двое подпольщиков в тюрьме). */
   private raidArmed = true;
   /** Сколько операций было (для тестов и отладки). */
   opsStarted = 0;
@@ -120,6 +127,42 @@ export class InsurgencySystem {
     this.sewerMarket = poiWorld(ctx, 'black_market');
     this.nextOp = ctx.rng.range(INSURGENCY.firstOp[0], INSURGENCY.firstOp[1]);
     ctx.law.onReleased = (c) => this.released(c);
+    ctx.law.onFreed = (c) => this.freed(c);
+  }
+
+  /**
+   * Своего вызволили из тюрьмы (оружие забрал из изъятого): подпольщик — в схрон (личины нет, в
+   * розыске — документы сделают там); боец армии при выходе в город — снова в штурм (цель — тюрьма или
+   * Нексус, WarSystem), иначе — тропой в лагерь.
+   */
+  private freed(c: Character): void {
+    const { ctx } = this;
+    c.hostile = true;
+    const best = ctx.combat.bestWeapon(c, 200);
+    if (best) ctx.combat.equip(c, best);
+    if (c.isPlayer) {
+      ctx.bus.emit('log', { text: 'Дверь камеры выбита — вы свободны! Оружие — из комнаты изъятого.', kind: 'world' });
+      return;
+    }
+    c.say(ctx.rng.pick(PRISON.lines.freed), ctx.law.now, 2.5);
+    const b = c.brain;
+    if (b instanceof UndergroundBrain || b instanceof AgentBrain) {
+      c.disguised = false;
+      c.cover = null;
+      b.retreat(c, ctx);
+      return;
+    }
+    if (b instanceof RebelBrain) {
+      if (ctx.war.cityPush) {
+        ctx.war.infiltrators.add(c);
+        b.storm();
+      } else b.withdraw();
+    }
+  }
+
+  /** Раскололся ли подпольщик на допросе (его больше не допрашивают). */
+  brokeUnder(c: Character): boolean {
+    return this.questioning.get(c)?.broke ?? false;
   }
 
   /**
@@ -453,12 +496,14 @@ export class InsurgencySystem {
     const c = free[0];
     const brain = c.brain as UndergroundBrain;
     // Взлом — только если в КПЗ кто-то сидит (идти «на авось» к пустым камерам — верный арест).
-    const cell = kind === 'jailbreak' ? this.occupiedCell() ?? ctx.law.cells.reduce<Cell | null>((a, c) => (!a || c.slots.length > a.slots.length ? c : a), null) : this.occupiedCell();
+    const cell = kind === 'jailbreak' ? this.occupiedCell() ?? ctx.law.cells.filter((q) => !q.prison).reduce<Cell | null>((a, c) => (!a || c.slots.length > a.slots.length ? c : a), null) : this.occupiedCell();
     // Краденое на явках — к барыге; нечего нести — за добычей на склад.
     const goods = this.goodsStash();
     const mineSpot = ctx.combat.mineKindOf(c) ? this.mineSpot() : null;
     let type = kind;
-    // Свой в клетке — сперва вытащить его (с шансом PARTISANS.rescueChance).
+    // Свои в тюрьме Альянса — штурм тюрьмы всем подпольем (важнее прочих дел).
+    if (type === 'prison' || (!type && this.prisonReady() && ctx.rng.chance(PRISON.assault.chance))) return this.startPrisonAssault();
+    // Свой в КПЗ — сперва вытащить его (с шансом PARTISANS.rescueChance).
     if (!type && cell && this.jailbreakReady && this.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) type = 'jailbreak';
     // Конвой ГО на марше или на погрузке — засада (нужны двое).
     const convoy = ctx.arsenal?.present ? ctx.arsenal.convoys.find((v) => v.phase !== 'unload' && !this.groups.some((g) => g.convoy === v)) ?? null : null;
@@ -485,7 +530,7 @@ export class InsurgencySystem {
       if (!cell) return null;
       this.jailbreakAt = this.time;
       brain.startJailbreak(c, ctx, cell);
-      const where = cell.cage ? 'клетка у Администратора' : 'КПЗ Нексуса';
+      const where = 'КПЗ Нексуса';
       // Второй — прикрытие у камер (стоит рядом под личиной, отвечает, если стреляют).
       const team = free.length >= 2 ? [c, free[1]] : [c];
       const g = team.length > 1 ? this.formGroup('jailbreak', team, { x: cell.frontX, y: cell.frontY }, 'cover') : undefined;
@@ -622,19 +667,106 @@ export class InsurgencySystem {
     this.jailbreakAt = this.time;
   }
 
-  /** Сидит ли в камере или клетке подпольщик или спецагент. */
+  /** Сидит ли в КПЗ Нексуса подпольщик или спецагент (тюрьму берут штурмом — prisonReady). */
   comradeCaged(): boolean {
-    return this.ctx.law.cells.some((c) => c.slots.some((s) => s.occupant && (s.occupant.profession === 'partisan' || s.occupant.profession === 'spec_agent')));
+    return this.ctx.law.cells.some((c) => !c.prison && c.slots.some((s) => s.occupant && isUnderground(s.occupant)));
   }
 
-  /** Занятая камера или клетка (клетки со своими — первыми). */
+  /**
+   * Пора штурмовать тюрьму: тюрьма есть, в ней свой подпольщик (или не меньше PRISON.assault.minArmy
+   * бойцов армии), взлома давно не было и свободных подпольщиков и спецагентов хватает на группу.
+   */
+  prisonReady(): boolean {
+    const { ctx } = this;
+    if (!ctx.prison?.present || !this.jailbreakReady) return false;
+    const jailed = ctx.law.imprisoned();
+    if (!jailed.some(isUnderground) && jailed.filter(isArmy).length < PRISON.assault.minArmy) return false;
+    return this.prisonTeam().length >= PRISON.assault.team[0];
+  }
+
+  /** Кто пойдёт на тюрьму: свободные подпольщики под личиной и спецагенты в схроне. */
+  private prisonTeam(): Character[] {
+    const free = this.idle().filter((c) => c.disguised && !c.law.wanted);
+    const agents = this.agents.filter((a) => a.alive && !a.isPlayer && a.brain instanceof AgentBrain && a.brain.mode === 'base' && a.law.phase === 'none' && !a.law.wanted);
+    return [...free, ...agents].slice(0, PRISON.assault.team[1]);
+  }
+
+  /**
+   * Штурм тюрьмы Альянса: вся группа через люки к месту сбора у ворот тюрьмы (под личиной), по сигналу
+   * ведущего — огонь, двери камер выбиваются одна за другой (UndergroundBrain / AgentBrain + PrisonAssault).
+   */
+  startPrisonAssault(): Operation | null {
+    const { ctx } = this;
+    const gate = ctx.law.prisonGate;
+    if (!ctx.prison?.present || !gate) return null;
+    const team = this.prisonTeam();
+    if (team.length < PRISON.assault.team[0]) return null;
+    const P = PRISON.assault;
+    const avoid = zoneIds(ctx, INSURGENCY.ambushAvoidZones);
+    let center: Vec2 = gate;
+    for (let k = 0; k < 10; k++) {
+      const a = randomAnchorAround(gate, ctx, P.gather[0], P.gather[1], avoid);
+      if (a >= 0 && ctx.map.levelAt(ctx.nav.worldX(a), ctx.nav.worldY(a)) === 'city') {
+        center = { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) };
+        break;
+      }
+    }
+    this.jailbreakAt = this.time;
+    const g = this.formGroup('prison', team, center, 'cover');
+    team.forEach((c, k) => {
+      const spot = k === 0 ? center : this.groupSpot(center, [1, 3]);
+      // Из схрона — автомат с патронами, гранаты, бронежилет под куртку и шлем.
+      const A = PARTISANS.ambush;
+      if (!c.inventory.has(A.weapon)) {
+        c.inventory.add(A.weapon, 1);
+        const ammo = WEAPONS[A.weapon].ammo;
+        if (ammo) c.inventory.add(AMMO_ITEM[ammo], A.ammo);
+      }
+      const need = P.grenades - c.inventory.count('grenade');
+      if (need > 0) c.inventory.add('grenade', need);
+      if (!c.gear.torso && c.inventory.add(P.vest, 1) > 0) wear(c, P.vest);
+      if (!c.gear.head && c.inventory.add(P.helmet, 1) > 0) wear(c, P.helmet);
+      const b = c.brain;
+      if (b instanceof UndergroundBrain) b.startPrison(c, ctx, spot);
+      else if (b instanceof AgentBrain) b.joinPrison(c, ctx, spot);
+    });
+    const op: Operation = { kind: 'prison', team, where: 'тюрьма Альянса', group: g };
+    this.op = op;
+    this.ops.push(op);
+    this.operations++;
+    ctx.prison.stats.assaults++;
+    this.say(`все свободные (${team.length}) идут на тюрьму Альянса — вызволять наших!`);
+    return op;
+  }
+
+  /** Сигнал штурма тюрьмы: личины долой, враги Альянса, тревога. */
+  prisonAttack(g: UndergroundGroup, by: Character): void {
+    if (g.attack) return;
+    const { ctx } = this;
+    g.attack = true;
+    g.firedAt = this.time;
+    by.say(ctx.rng.pick(PRISON.lines.assault), ctx.law.now, 2.5);
+    for (const m of g.members) {
+      ctx.combat.reveal(m, 'штурм тюрьмы');
+      m.hostile = true;
+      m.law.wanted = true;
+      const w = ctx.combat.bestWeapon(m, 200);
+      if (w) ctx.combat.equip(m, w);
+    }
+    ctx.law.log('Тюрьма Альянса: вооружённое нападение! Охрана — к бою!', 'radio');
+    ctx.war.raiseAlarm(by.x, by.y, 'нападение на тюрьму', false);
+    this.say('штурм тюрьмы — выбиваем двери камер!');
+  }
+
+  /** Занятая камера КПЗ Нексуса (со своими — первыми); тюрьму берут только штурмом. */
   occupiedCell(): Cell | null {
     const cells = this.ctx.law.cells;
     const comrade = (c: Cell) => c.slots.some((s) => s.occupant && isUnderground(s.occupant));
-    // Свои в клетке или камере — первыми; иначе больше всего сидящих (общая КПЗ).
+    // Свои в камере — первыми; иначе больше всего сидящих (общая КПЗ).
     let best: Cell | null = null;
     let bestScore = 0;
     for (const c of cells) {
+      if (c.prison) continue;
       const n = c.slots.filter((s) => s.occupant).length;
       if (!n) continue;
       const score = n + (comrade(c) ? 100 : 0);
@@ -691,14 +823,18 @@ export class InsurgencySystem {
     c.law.wanted = true;
   }
 
-  /** Взлом камеры КПЗ или клетки: все сидевшие сбегают, тревога. Возвращает, сколько сбежало. */
+  /** Взлом камеры КПЗ или тюрьмы: все сидевшие сбегают, тревога. Возвращает, сколько сбежало. */
   jailbreak(by: Character, cell: Cell): number {
     const { ctx } = this;
     const n = ctx.law.breakCell(cell);
     if (n <= 0) return 0;
     this.stats.jailbreaks++;
-    ctx.law.log(`Нексус: ${cell.cage ? 'клетка у Администратора вскрыта' : 'дверь камеры КПЗ выбита'} — сбежали ${n}!`, 'radio');
-    ctx.war.raiseAlarm(cell.x, cell.y, 'побег из КПЗ Нексуса');
+    if (cell.prison && ctx.prison) {
+      if (isArmy(by)) ctx.prison.stats.freedByArmy += n;
+      else ctx.prison.stats.freedByUnderground += n;
+    }
+    ctx.law.log(`${cell.prison ? 'Тюрьма Альянса: дверь камеры выбита' : 'Нексус: дверь камеры КПЗ выбита'} — сбежали ${n}!`, 'radio');
+    ctx.war.raiseAlarm(cell.x, cell.y, cell.prison ? 'побег из тюрьмы' : 'побег из КПЗ Нексуса');
     this.say(`${by.isPlayer ? 'вы вскрыли' : by.profession === 'partisan' ? 'подпольщик вскрыл' : 'спецагент вскрыл'} камеру — наши на свободе (${n}).`);
     return n;
   }
@@ -724,19 +860,22 @@ export class InsurgencySystem {
 
   // ——— Допрос и рейд ———
 
-  /** Допрос пленных в клетках: CMD.EPU перед клеткой — боль и вопросы; раскололся — выдал своего. */
+  /**
+   * Допрос подпольщиков в тюрьме: начальник тюрьмы (SU.INSP, служба warden) у двери камеры — боль и
+   * вопросы; раскололся — выдал своего.
+   */
   private interrogate(dt: number): void {
     const { ctx } = this;
     const I = PARTISANS.interrogation;
     const now = ctx.law.now;
     for (const cell of ctx.law.cells) {
-      if (!cell.cage) continue;
+      if (!cell.prison) continue;
       for (const s of cell.slots) {
         const p = s.occupant;
-        if (!p) continue;
+        if (!p || !isUnderground(p)) continue;
         let epu: Character | null = null;
         for (const o of ctx.entities.near(cell.frontX, cell.frontY, I.reach, near)) {
-          if (o.alive && o.faction === 'cp' && (o.brain as CpBrain | null)?.duty === 'epu') {
+          if (o.fit && o.faction === 'cp' && (o.brain as CpBrain | null)?.duty === 'warden') {
             epu = o;
             break;
           }
@@ -747,7 +886,7 @@ export class InsurgencySystem {
           q = { t: 0, next: 0, broke: false };
           this.questioning.set(p, q);
           this.stats.interrogations++;
-          ctx.law.log(`${epu.name} допрашивает пленного партизана в кабинете Администратора.`, 'radio');
+          ctx.law.log(`${epu.name} допрашивает пленного подпольщика в тюрьме Альянса.`, 'radio');
         }
         q.t += dt;
         if (q.t >= q.next) {
@@ -760,8 +899,9 @@ export class InsurgencySystem {
           q.broke = true;
           this.stats.broke++;
           p.say(ctx.rng.pick(PARTISANS.lines.broke), now, 3);
-          // Выдал личину другого подпольщика (или спецагента): теперь его узнают в лицо.
-          const other = [...this.garrison, ...this.agents].find((o) => o !== p && o.alive && o.disguised && o.law.phase === 'none');
+          // Выдал личину другого подпольщика (или спецагента) — того, кто сейчас в схроне (кто на деле, того
+          // пленный не знает, где искать): в следующий раз его узнают в лицо.
+          const other = [...this.garrison, ...this.agents].find((o) => o !== p && o.alive && o.disguised && o.law.phase === 'none' && !onJob(o));
           if (other) {
             other.disguised = false;
             other.cover = null;
@@ -774,9 +914,9 @@ export class InsurgencySystem {
     for (const p of [...this.questioning.keys()]) if (!p.alive || p.law.phase === 'none') this.questioning.delete(p);
   }
 
-  /** Сколько подпольщиков сейчас в клетках. */
+  /** Сколько подпольщиков сейчас в тюрьме. */
   cagedPartisans(): number {
-    return this.ctx.law.caged().filter((c) => c.profession === 'partisan').length;
+    return this.ctx.law.imprisoned().filter((c) => c.profession === 'partisan').length;
   }
 
   /** Рейд: гарнизоны КПП (SU) и резерв OTA выходят за стену на лагерь сопротивления. */
@@ -807,7 +947,7 @@ export class InsurgencySystem {
     this.stats.raids++;
     const lead = force.find((c) => c.faction === 'cp') ?? force[0];
     lead.say(PARTISANS.lines.raid[0], ctx.law.now, 3);
-    ctx.law.log(`Допрос: оба подпольщика в клетках — логово найдено! Гарнизоны КПП и OTA (${force.length}) штурмуют лагерь сопротивления.`, 'radio');
+    ctx.law.log(`Допрос: подпольщики в тюрьме раскололись — логово найдено! Гарнизоны КПП и OTA (${force.length}) штурмуют лагерь сопротивления.`, 'radio');
     ctx.bus.emit('announce', { text: 'ГО штурмует лагерь сопротивления' });
     this.say('ГО и OTA идут на лагерь! Все к оружию!');
     return true;
@@ -861,11 +1001,11 @@ export class InsurgencySystem {
     // Группы: погибших и вернувшихся — из группы; никого на деле — группа распущена.
     for (let i = this.groups.length - 1; i >= 0; i--) {
       const g = this.groups[i];
-      g.members = g.members.filter((c) => c.alive && c.brain instanceof UndergroundBrain && c.brain.mode !== 'base');
+      g.members = g.members.filter((c) => c.alive && onJob(c));
       if (!g.members.length) this.groups.splice(i, 1);
       else if (!g.members.includes(g.lead)) g.lead = g.members[0];
     }
-    // Подпольщиков в клетках не меньше raid.caged (двое из трёх) — рейд на логово; по времени — назад.
+    // Подпольщиков в тюрьме не меньше raid.caged (двое из трёх) — рейд на логово; по времени — назад.
     // Один рейд на каждый такой раз.
     const allCaged = ROSTER.partisans > 0 && this.cagedPartisans() >= Math.min(ROSTER.partisans, PARTISANS.raid.caged);
     if (!allCaged) this.raidArmed = true;
@@ -887,7 +1027,7 @@ export class InsurgencySystem {
     // Операции кончаются, когда все вернулись или погибли; новая — когда подошёл срок и есть свободный.
     for (let i = this.ops.length - 1; i >= 0; i--) {
       const op = this.ops[i];
-      const active = op.team.filter((c) => c.alive && c.brain instanceof UndergroundBrain && c.brain.mode !== 'base');
+      const active = op.team.filter((c) => c.alive && onJob(c));
       if (active.length > 0) continue;
       const alive = op.team.filter((c) => c.alive).length;
       this.say(op.team.length > 1 ? `группа вернулась (${alive} из ${op.team.length}).` : `подпольщик вернулся (${alive} из ${op.team.length}).`);
@@ -905,3 +1045,9 @@ export class InsurgencySystem {
 }
 
 const near: Character[] = [];
+
+/** Подпольщик или спецагент на деле (не в схроне). */
+function onJob(c: Character): boolean {
+  const b = c.brain;
+  return (b instanceof UndergroundBrain || b instanceof AgentBrain) && b.mode !== 'base';
+}

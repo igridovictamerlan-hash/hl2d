@@ -319,9 +319,10 @@ function lawStatus(p: Character, now: number): string {
     case 'ordered': return `${l.handler?.name ?? 'ГО'}: стоять на месте!`;
     case 'checking': return 'Проверка документов…';
     case 'fleeing': return 'Вы в бегах — ГО преследует!';
-    case 'cuffed': return 'Задержаны. Конвой в КПЗ';
+    // Повстанцев ведут в тюрьму Альянса (свои могут отбить раньше срока).
+    case 'cuffed': return p.faction === 'rebel' ? 'Задержаны. Конвой в тюрьму' : 'Задержаны. Конвой в КПЗ';
     case 'entering': return 'Вас заводят в камеру';
-    case 'jailed': return `КПЗ: ещё ${Math.max(0, Math.ceil(l.jailUntil - now))} с`;
+    case 'jailed': return `${p.faction === 'rebel' ? 'Тюрьма (ждите своих)' : 'КПЗ'}: ещё ${Math.max(0, Math.ceil(l.jailUntil - now))} с`;
     case 'releasing': return 'Свободны';
   }
   return '';

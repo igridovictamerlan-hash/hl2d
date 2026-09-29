@@ -153,6 +153,14 @@ export const GENERATOR = {
    * если до такой улицы не дальше reach; за каждый тайл проезда место «ближе» к проспекту на penalty.
    */
   arsenal: { tries: 2500, road: { width: 4, apron: 3, maxLen: 80, reach: 60, penalty: 0.6 } },
+  /**
+   * Тюрьма Альянса (PRISON_TEMPLATE) — на своём генераторе после склада: из tries свободных мест у улицы от
+   * проспекта (не дальше road.reach) — где до Нексуса ближе всего к nexusIdeal тайлов (далеко от Цитадели —
+   * отдельная цель для штурма, но конвой с задержанным не идёт через весь город) и до склада не ближе
+   * arsenalMin; штраф road.penalty за тайл проезда. Здание вдоль или поперёк (вход сбоку); не нашлось места —
+   * второй проход: склад ближе в relax раз, проезд длиннее в relax раз.
+   */
+  prison: { tries: 2500, nexusIdeal: 85, arsenalMin: 70, relax: 2, road: { width: 4, apron: 3, maxLen: 80, reach: 60, penalty: 0.6 } },
 
   restricted: {
     size: [38, 44] as const,

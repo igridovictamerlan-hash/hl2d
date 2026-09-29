@@ -328,6 +328,8 @@ export class CrimeScenes {
     for (const c of this.ctx.entities.list) {
       const b = c.brain;
       if (!c.alive || c.isPlayer || !(b instanceof CpBrain) || b.scene || b.guardPost || b.medicStation || b.rally) continue;
+      // Начальник тюрьмы (SU.INSP) тюрьму не бросает.
+      if (b.duty === 'warden') continue;
       const st = b.fsm.current;
       if (st === 'fight' || st === 'escort' || st === 'retreat' || st === 'check' || st === 'chase') continue;
       if (this.ctx.map.levelAt(c.x, c.y) !== 'city' || !ok(c, b)) continue;

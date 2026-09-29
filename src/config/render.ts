@@ -189,7 +189,8 @@ export const RENDER = {
     },
     /** Планшет медика (px мира): доска, бумага, зажим, строки. */
     notepad: { w: 6, h: 8, board: '#8a6238', paper: '#f6f2e6', clip: '#b8bdc2', ink: 'rgba(40,50,90,0.8)', outline: '#1c1712' },
-    cage: { frame: '#2c2f33', bar: '#5b6068', floor: 'rgba(20,22,26,0.35)', size: 34, step: 5 },
+    /** Решётки камер тюрьмы: рама, прутья, тень проёма; шаг прутьев (px мира). */
+    cage: { frame: '#2c2f33', bar: '#5b6068', floor: 'rgba(20,22,26,0.35)', step: 5 },
     smoke: { ember: ['#ff9a3a', '#c9542a'] as readonly string[], puff: 'rgba(200,200,200,0.5)' },
     /** Скамейка: доски, спинка у стены, ножки. */
     bench: { wood: '#7a5a3a', dark: '#4e3924', leg: '#2a2b2e', length: 46, depth: 9 },

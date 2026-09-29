@@ -26,6 +26,7 @@ import { FamilySystem } from '../src/systems/Families';
 import { SecuritySystem } from '../src/systems/Security';
 import { CwuHqSystem } from '../src/systems/CwuHq';
 import { ArsenalSystem } from '../src/systems/Arsenal';
+import { PrisonSystem } from '../src/systems/Prison';
 import { StreetShops } from '../src/systems/StreetShops';
 import { Housing } from '../src/systems/Housing';
 import { Fence } from '../src/systems/Fence';
@@ -74,6 +75,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     security: null as unknown as SecuritySystem,
     cwuHq: null as unknown as CwuHqSystem,
     arsenal: null as unknown as ArsenalSystem,
+    prison: null as unknown as PrisonSystem,
     shops: null as unknown as StreetShops,
     housing: null as unknown as Housing,
       fence: null as unknown as Fence,
@@ -102,6 +104,8 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.cwuHq = cwuHq;
   const arsenal = new ArsenalSystem(ctx);
   ctx.arsenal = arsenal;
+  const prison = new PrisonSystem(ctx);
+  ctx.prison = prison;
   ctx.shops = new StreetShops(ctx);
   ctx.housing = new Housing(ctx);
   ctx.fence = new Fence(ctx);
@@ -129,6 +133,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     ctx.shops.update();
     ctx.gangs.update(dt);
     arsenal.update(dt);
+    prison.update();
   };
-  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal };
+  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison };
 }

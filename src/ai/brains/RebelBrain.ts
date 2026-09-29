@@ -17,6 +17,8 @@ import type { Vec2 } from '../../core/math';
 import type { Front } from '../../systems/WarSystem';
 import { Tactician, followColumn, watchSector } from '../Tactics';
 import { TACTICS, SUPPRESS } from '../../config/tactics';
+import { PRISON } from '../../config/prison';
+import type { Cell } from '../../systems/LawSystem';
 
 const nearRebels: Character[] = [];
 /** У КПП укрытия ищем только на пустоши перед ним и в самом КПП (не на тропе за скалами). */
@@ -31,7 +33,8 @@ export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 
  *  raid — занимает позицию на пустоши с видом на ворота КПП и перестреливается с часовыми;
  *  assault — идёт на прорыв через коридор КПП в город (стреляет по пути);
  *  infiltrate — прорвался: прячется в кварталах, отстреливается, если нашли;
- *  storm — все точки D наши: штурм Нексуса (перебежками к зоне Нексуса и держать её);
+ *  storm — все точки D наши: штурм Нексуса (перебежками к зоне Нексуса и держать её); своих в тюрьме
+ *    много, а на воле мало (PrisonSystem.rescue) — сперва штурм тюрьмы: выбить двери камер;
  *  retreat — ранен или без патронов: уходит тропой в лагерь (там — camp);
  *  capture — идёт капт КПП: занимает позиции в передней части коридора и у внешних ворот;
  *  hold — КПП захвачен: держит пост часового.
@@ -534,13 +537,73 @@ export class RebelBrain implements Brain {
 
   /** В городе к Нексусу — переулками, пока до него дальше WAR.nexus.alleysUntil; у Нексуса — напрямую. */
   private approachNexus(): void {
-    const { ctx, self } = this;
+    const { ctx } = this;
     const gate = ctx.map.poisOf('nexus_gate')[0];
     const ts = ctx.map.tileSize;
-    const far = !gate || Math.hypot((gate.x + 0.5) * ts - self.x, (gate.y + 0.5) * ts - self.y) > WAR.nexus.alleysUntil;
+    this.approach(gate ? { x: (gate.x + 0.5) * ts, y: (gate.y + 0.5) * ts } : null);
+  }
+
+  /** К цели в городе — переулками, пока до неё дальше WAR.nexus.alleysUntil; вблизи — напрямую. */
+  private approach(to: Vec2 | null): void {
+    const { ctx, self } = this;
+    const far = !to || Math.hypot(to.x - self.x, to.y - self.y) > WAR.nexus.alleysUntil;
     this.openStreets ??= zoneIds(ctx, ['avenue', 'plaza']);
     this.mover.avoidZones = far ? this.openStreets : undefined;
     this.mover.avoidCost = WAR.nexus.alleyCost;
+  }
+
+  /** Выручка своих: какую камеру тюрьмы вскрывает и сколько уже возится с дверью. */
+  jailCell: Cell | null = null;
+  private jailWork = 0;
+
+  /**
+   * Штурм тюрьмы (выход в город, своих в тюрьме много, а на воле мало — PrisonSystem.rescue): перебежками
+   * к своей занятой камере (не туда, куда уже идут другие), дверь выбить за PRISON.assault.breakTime с,
+   * потом к следующей. Выпущенные берут оружие из изъятого и идут со всеми.
+   */
+  private stormPrison(self: Character, ctx: AiContext, dt: number, fighting: boolean): void {
+    const P = PRISON.assault;
+    const C = WAR.capture;
+    this.phaseLeft -= dt;
+    if (fighting && this.gunner.target) {
+      if (this.phaseLeft <= 0) {
+        this.shooting = !this.shooting;
+        this.phaseLeft = this.shooting ? ctx.rng.range(C.shootStop[0], C.shootStop[1]) : ctx.rng.range(C.dash[0], C.dash[1]);
+        if (!this.shooting) bark(self, 'advance', ctx.combat.now, ctx.rng);
+      }
+    } else this.shooting = false;
+    if (!this.jailCell || !this.jailCell.slots.some((s) => s.occupant)) {
+      const taken = new Set<Cell>();
+      for (const o of ctx.entities.list) {
+        const b = o.brain;
+        if (o !== self && o.alive && b instanceof RebelBrain && b.jailCell) taken.add(b.jailCell);
+      }
+      this.jailCell = ctx.prison.occupiedCellNear(self.x, self.y, taken) ?? ctx.prison.occupiedCellNear(self.x, self.y);
+      this.jailWork = 0;
+      this.goal = -1;
+    }
+    const cell = this.jailCell;
+    const to = cell ? { x: cell.frontX, y: cell.frontY } : ctx.prison.center;
+    this.mover.speed = CHARACTER.runSpeed * 0.75;
+    if (cell && Math.hypot(cell.frontX - self.x, cell.frontY - self.y) < P.reach) {
+      this.mover.stop();
+      if (!this.gunner.target) faceTowards(self, cell.x, cell.y, dt);
+      this.jailWork += dt;
+      if (this.jailWork >= P.breakTime) {
+        ctx.insurgency.jailbreak(self, cell);
+        this.jailCell = null;
+      }
+      return;
+    }
+    if (this.shooting) {
+      this.mover.stop();
+      return;
+    }
+    const st = this.mover.status;
+    if (to && (this.goal < 0 || st === 'failed' || st === 'idle' || st === 'arrived')) {
+      this.approach(to);
+      this.go(ctx.nav.nearestWalkable(to.x, to.y, 4));
+    }
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
@@ -705,8 +768,14 @@ export class RebelBrain implements Brain {
         const stalled = this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived' || (this.mover.status === 'idle' && !(fighting && this.gunner.target));
         if (ctx.war.cityPush && (this.stageSpot || stalled)) {
           this.stageSpot = false;
-          this.approachNexus();
-          this.go(randomAnchorInZone(ctx, 'nexus'));
+          // Цель волны — Нексус или (своих в тюрьме много) тюрьма.
+          if (ctx.prison?.rescue && ctx.prison.center) {
+            this.approach(ctx.prison.center);
+            this.go(ctx.nav.nearestWalkable(ctx.prison.center.x, ctx.prison.center.y, 6));
+          } else {
+            this.approachNexus();
+            this.go(randomAnchorInZone(ctx, 'nexus'));
+          }
         } else if (stalled) {
           // Цель — за внутренними воротами, в город.
           const beyond = { x: f.apron.x + (f.apron.x - f.outerGate.x) * 0.6, y: f.apron.y + (f.apron.y - f.outerGate.y) * 0.6 };
@@ -836,6 +905,12 @@ export class RebelBrain implements Brain {
         break;
       }
       case 'storm': {
+        // Своих в тюрьме много, а на воле мало — сперва выручить их.
+        if (ctx.prison?.rescue) {
+          this.stormPrison(self, ctx, dt, fighting);
+          break;
+        }
+        this.jailCell = null;
         // Перебежками к Нексусу; внутри — меняет позицию, держит зону.
         const N = WAR.nexus;
         const C = WAR.capture;

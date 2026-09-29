@@ -14,7 +14,7 @@ import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked, carveAccessRoad } from './stamps';
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
@@ -77,10 +77,11 @@ export function validateMap(map: GameMap): string[] {
   const need: [Poi['type'], number][] = [
     ['ration_window', 1], ['plaza_center', 1], ['nexus_gate', 1], ['nexus_desk', 1], ['cell', 7], ['common_cell', 1], ['bunk', 10], ['clerk_desk', 6], ['ota_spot', 6], ['restricted_gate', 1],
     ['checkpoint_post', 10], ['gate_post', 4], ['dorm', 2], ['villa', 2], ['outlands_exit', 2], ['shop_counter', 1],
-    ['cwu_hq', 1], ['partisan_cage', 2], ['cwu_hire', 1], ['cwu_head_desk', 1], ['ration_line', 3], ['cwu_store', 1],
+    ['cwu_hq', 1], ['cwu_hire', 1], ['cwu_head_desk', 1], ['ration_line', 3], ['cwu_store', 1],
     ['arsenal', 1], ['arsenal_desk', 1], ['arsenal_window', 2], ['arsenal_ledger', 1], ['arsenal_drop', 8], ['arsenal_beacon', 1],
     ['arsenal_post', 4], ['arsenal_bench', 1], ['arsenal_pad', 1], ['arsenal_hall', 1], ['arsenal_issue', 4], ['arsenal_repair', 1],
     ['arsenal_breakroom', 1], ['arsenal_issue_room', 1], ['arsenal_ammo', 40], ['arsenal_grenades', 12], ['arsenal_rack', 20],
+    ['prison', 1], ['prison_cell', 8], ['prison_post', 6], ['prison_desk', 1], ['prison_office', 1], ['prison_guardroom', 1], ['prison_evidence', 1], ['prison_yard', 1],
     ['canteen', 1], ['canteen_table', 2], ['kiosk', 2], ['facade', 40], ['vendor_spot', 4],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
@@ -132,7 +133,7 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     const vb = layout.vAvenue.band;
     streetBlocked.push({ x: vb.x - R, y: vb.y, w: vb.w + 2 * R, h: vb.h });
   }
-  const streets = planStreets(lat, rng.fork(11), layout.hLine, { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H);
+  const streets = planStreets(lat, rng.fork(11), layout.hLine, { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H, layout.nexus);
   const starts: number[] = [];
   lat.nodes.forEach((n, k) => n.onAvenue && starts.push(k));
   for (const a of streets.arteries) for (const n of a.nodes) if (!starts.includes(n)) starts.push(n);
@@ -326,6 +327,28 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     area('z', 'arsenal_guardroom');
     area('N', 'arsenal_workshop');
     pois.push({ type: 'arsenal', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
+  }
+
+  // Тюрьма Альянса: блок камер, караулка, допросная, изъятое, двор с воротами; подъезд — улицей.
+  if (streets.prison) {
+    const p = streets.prison;
+    const z = addZone('prison', ZONE_NAMES.prison, null);
+    const res = stampTemplate(g, faceTemplate(PRISON_TEMPLATE, p.face), p.rect.x, p.rect.y, () => z, pois);
+    const A = G.prison;
+    const road = addZone('avenue', ZONE_NAMES.prisonRoad, null);
+    roadTargets.add(zPlaza);
+    if (!carveAccessRoad(g, p.rect, p.face, A.road.width, A.road.apron, A.road.maxLen, road, (i) => roadTargets.has(g.zones[i]))) {
+      for (const exit of res.exits) if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
+    }
+    for (const r of res.areas['6'] ?? []) pois.push({ type: 'prison_cell', x: r.x + (r.w >> 1), y: r.y + (r.h >> 1), w: r.w, h: r.h });
+    const area = (mark: string, type: Poi['type']) => {
+      for (const r of res.areas[mark] ?? []) pois.push({ type, x: r.x, y: r.y, w: r.w, h: r.h });
+    };
+    area('0', 'prison_guardroom');
+    area('9', 'prison_office');
+    area('&', 'prison_evidence');
+    area('8', 'prison_yard');
+    pois.push({ type: 'prison', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
   }
 
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);

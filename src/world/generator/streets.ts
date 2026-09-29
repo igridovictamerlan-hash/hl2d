@@ -4,7 +4,7 @@ import { GENERATOR } from '../../config/generator';
 import { T } from '../tiles';
 import type { GenGrid } from './GenGrid';
 import type { Lattice, LEdge } from './lattice';
-import { ARSENAL_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE } from './templates';
+import { ARSENAL_TEMPLATE, DORM_TEMPLATE, PRISON_TEMPLATE, VILLA_TEMPLATE } from './templates';
 
 /** Улица-артерия: рёбра и узлы решётки, по которым она идёт. */
 export interface Artery {
@@ -28,6 +28,8 @@ export interface StreetPlan {
   villas: Placement[];
   /** Склад Альянса (на окраине, у улицы от проспекта) или null. */
   arsenal: Placement | null;
+  /** Тюрьма Альянса (у улицы от проспекта, вдали от Нексуса и склада) или null. */
+  prison: Placement | null;
 }
 
 /**
@@ -35,7 +37,7 @@ export interface StreetPlan {
  * разметки регионов, до лабиринта: рёбра артерий сразу вырезаются (carved), места зданий
  * становятся пустотами — лабиринт их обходит, а переулки подходят к ним снаружи.
  */
-export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect: Rect; side: 'N' | 'S' }, blocked: readonly Rect[], mapW: number, mapH: number): StreetPlan {
+export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect: Rect; side: 'N' | 'S' }, blocked: readonly Rect[], mapW: number, mapH: number, nexus: Rect | null = null): StreetPlan {
   const S = GENERATOR.streets;
   const arteries: Artery[] = [];
   const inArtery = new Uint8Array(lat.edges.length);
@@ -237,15 +239,64 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   }
   if (arsenal) taken.push(arsenal.rect);
 
+  // Тюрьма — так же, на своём генераторе: у улицы от проспекта, не у склада, на расстоянии от Нексуса
+  // около nexusIdeal (отдельная цель штурма, но конвою с задержанным не через весь город).
+  const PR = GENERATOR.prison;
+  const prng = rng.fork(0x9215);
+  const pw = PRISON_TEMPLATE[0].length;
+  const ph = PRISON_TEMPLATE.length;
+  const centre = (r: Rect) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+  const nx = nexus ? centre(nexus) : { x: mapW / 2, y: avY };
+  const ac = arsenal ? centre(arsenal.rect) : null;
+  let prison: Placement | null = null;
+  let prisonScore = -Infinity;
+  const roadTo = (fx: number, fy: number) => {
+    let road = Infinity;
+    for (const r of rootedRects) road = Math.min(road, Math.hypot(Math.max(r.x - fx, 0, fx - r.x - r.w), Math.max(r.y - fy, 0, fy - r.y - r.h)));
+    return road;
+  };
+  // Строгий проход, потом (места не нашлось) — с ослабленными условиями (relax).
+  for (const relax of [1, PR.relax]) {
+    for (let t = 0; t < PR.tries && rootedRects.length && avenueNodes.length; t++) {
+      // Здание стоит вдоль (вход сверху/снизу) или поперёк (вход сбоку) — где поместится.
+      const upright = prng.chance(0.5);
+      const w = upright ? pw : ph;
+      const h = upright ? ph : pw;
+      const rect: Rect = { x: prng.int(margin, mapW - margin - w), y: prng.int(margin, mapH - margin - h), w, h };
+      if (!fits(rect)) continue;
+      const c = centre(rect);
+      if (ac && Math.hypot(ac.x - c.x, ac.y - c.y) < PR.arsenalMin / relax) continue;
+      let face: Placement['face'];
+      let road: number;
+      if (upright) {
+        face = rect.y + h / 2 < avY ? 'S' : 'N';
+        road = roadTo(rect.x + w / 2, face === 'S' ? rect.y + h : rect.y);
+      } else {
+        const east = roadTo(rect.x + w, rect.y + h / 2);
+        const west = roadTo(rect.x, rect.y + h / 2);
+        face = east <= west ? 'E' : 'W';
+        road = Math.min(east, west);
+      }
+      if (road > PR.road.reach * relax) continue;
+      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - PR.nexusIdeal) - road * PR.road.penalty;
+      if (score > prisonScore) {
+        prison = { rect, face };
+        prisonScore = score;
+      }
+    }
+    if (prison) break;
+  }
+  if (prison) taken.push(prison.rect);
+
   // Здания — пустоты решётки: лабиринт туда не заходит.
   const w = GENERATOR.alley.mainWidth;
-  for (const p of [...dorms, ...villas, ...(arsenal ? [arsenal] : [])]) {
+  for (const p of [...dorms, ...villas, ...(arsenal ? [arsenal] : []), ...(prison ? [prison] : [])]) {
     for (const nd of lat.nodes) if (rectsOverlap({ x: nd.x, y: nd.y, w, h: w }, p.rect, 2)) nd.region = 'void';
     lat.edges.forEach((e, id) => {
       if (!inArtery[id] && rectsOverlap(lat.edgeBounds(e), p.rect, 1)) e.valid = false;
     });
   }
-  return { arteries, dorms, villas, arsenal };
+  return { arteries, dorms, villas, arsenal, prison };
 }
 
 /** Асфальт артерий поверх вырезанных переулков. Возвращает прямоугольники каждой артерии. */

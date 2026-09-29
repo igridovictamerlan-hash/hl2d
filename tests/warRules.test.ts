@@ -1,3 +1,4 @@
+import { CRIME } from '../src/config/crime';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { spawnPopulation, poiWorld, armySpec, armyKit } from '../src/systems/Population';
@@ -386,6 +387,12 @@ describe('место преступления', () => {
     };
     const s1 = sim.war.scenes.open(body(spotNear(sim, plaza, 0, 3)), 'civil')!;
     expect(s1.medic?.rank).toBe(CP_UNIT.su2);
+    // Второе происшествие — далеко от первого (иначе одна зона): медик ГСР сейчас не у площади.
+    if (Math.hypot(medic.x - plaza.x, medic.y - plaza.y) < CRIME.scene.merge * 3) {
+      const away = spotNear(sim, plaza, 30, 45);
+      medic.x = medic.prevX = away.x;
+      medic.y = medic.prevY = away.y;
+    }
     const s2 = sim.war.scenes.open(body(spotNear(sim, medic, 4, 8)), 'civil')!;
     expect(s2).toBeTruthy();
     expect(s2.medic?.profession).toBe('cwu_medic');

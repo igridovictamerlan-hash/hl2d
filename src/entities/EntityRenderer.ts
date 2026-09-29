@@ -38,7 +38,8 @@ export function roleLabel(c: Character): string {
   let s = c.faction === 'rebel' && r ? r.name : r ? `${role} · ${r.short}` : c.faction === 'admin' || c.faction === 'vort' ? role : `${role} · #${c.cid}`;
   const phase = c.law.phase;
   if (phase === 'cuffed' || phase === 'entering') s += ' · задержан';
-  else if (phase === 'jailed') s += ' · в КПЗ';
+  // Бессрочно сидят только в тюрьме Альянса (повстанцы).
+  else if (phase === 'jailed') s += c.law.jailUntil === Infinity ? ' · в тюрьме' : ' · в КПЗ';
   return s;
 }
 

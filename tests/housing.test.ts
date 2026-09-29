@@ -11,7 +11,7 @@ import { createCharacter } from '../src/entities/factory';
 
 describe('штаб ГСР на проспекте', () => {
   for (const seed of [12345, 777, 3]) {
-    test(`сид ${seed}: штаб фасадом на главный проспект, вдали от Нексуса и площади`, () => {
+    test(`сид ${seed}: штаб фасадом на главный проспект, вдали от Нексуса и площади`, { timeout: 30_000 }, () => {
       const map = generateCity(seed);
       const hq = map.poisOf('cwu_hq')[0];
       expect(hq).toBeTruthy();

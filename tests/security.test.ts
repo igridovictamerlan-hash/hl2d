@@ -31,7 +31,9 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(by('su3')[0].maxHealth).toBe(120);
     expect(by('su2')[0].maxHealth).toBe(125);
     expect(by('ofc')).toHaveLength(ROSTER.cp.officers);
-    expect(by('insp')).toHaveLength(ROSTER.cp.inspectors);
+    // Инспекторы: в штабе — ROSTER.cp.inspectors, третий — начальник тюрьмы.
+    expect(by('insp')).toHaveLength(ROSTER.cp.inspectors + (sim.ctx.prison.present ? 1 : 0));
+    expect(by('insp').filter((c) => c.role?.kind === 'inspector')).toHaveLength(ROSTER.cp.inspectors);
     expect(by('epu')).toHaveLength(ROSTER.cp.epu);
     // Охранников меньше, чем целей охраны (инспекторы, глава, Администратор, лоялисты); охрана склада
     // стоит на своих постах и в очередь охраны не входит.
@@ -94,7 +96,13 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     sim.insurgency.paused = true;
     sim.scanners.update = () => {};
     run(sim, 5);
-    expect(sim.security.startFormation()).toBe(true);
+    // Офицер может быть занят (погоня, проверка) — построение, как только освободится.
+    let started = sim.security.startFormation();
+    for (let k = 0; k < 60 && !started; k++) {
+      run(sim, 1);
+      started = sim.security.startFormation();
+    }
+    expect(started).toBe(true);
     const f = sim.security.formation!;
     expect(f.officer.rank).toBe(CP_UNIT.ofc);
     expect(f.members.every((m) => cpUnit(m.rank).group === 'pcu')).toBe(true);

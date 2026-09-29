@@ -25,11 +25,11 @@ function run(sim: Sim, seconds: number, until?: () => boolean): number {
   return seconds;
 }
 
-/** Задержать и сразу завести в свободную клетку (без конвоя). */
+/** Задержать и сразу завести в свободную камеру тюрьмы (без конвоя). */
 function cage(sim: Sim, handler: Character, p: Character): void {
   sim.law.arrest(handler, p, 'rebel');
   const cell = sim.law.freeCell(p.x, p.y, p)!;
-  expect(cell.cage).toBe(true);
+  expect(cell.prison).toBe(true);
   sim.law.putInCell(p, cell);
   const slot = sim.law.slotOf(cell, p)!;
   p.x = p.prevX = slot.x;
@@ -91,23 +91,26 @@ describe('юниты сопротивления', () => {
   });
 });
 
-describe('клетки у Администратора', () => {
-  test('пойманного партизана сажают в клетку, CMD.EPU допрашивает — тот выдаёт второго', { timeout: 120_000 }, () => {
+describe('тюрьма Альянса: допрос и рейд', () => {
+  test('пойманного партизана ведут в тюрьму, начальник тюрьмы допрашивает — тот выдаёт второго', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
     spawnPopulation(sim.ctx, 10);
     sim.insurgency.paused = true;
-    const cages = sim.law.cells.filter((c) => c.cage);
-    expect(cages.length).toBeGreaterThanOrEqual(2);
+    const cells = sim.law.cells.filter((c) => c.prison);
+    expect(cells.length).toBeGreaterThanOrEqual(8);
     const [p1, p2] = sim.insurgency.garrison;
     const cp = sim.entities.list.find((c) => c.faction === 'cp')!;
-    // Обычного горожанина в клетку не сажают.
+    // Обычного горожанина в тюрьму не сажают.
     const citizen = sim.entities.list.find((c) => c.faction === 'citizen')!;
-    expect(sim.law.freeCell(citizen.x, citizen.y, citizen)?.cage ?? false).toBe(false);
+    expect(sim.law.freeCell(citizen.x, citizen.y, citizen)?.prison ?? false).toBe(false);
     cage(sim, cp, p1);
     expect(p1.disguised).toBe(false);
-    expect(sim.law.caged()).toContain(p1);
+    expect(sim.law.imprisoned()).toContain(p1);
+    // Бессрочно; оружие — в изъятом.
+    expect(p1.law.jailUntil).toBe(Infinity);
+    expect(p1.weapon).toBeNull();
     const hp0 = p1.health;
     const t = run(sim, 200, () => sim.insurgency.stats.broke > 0);
     console.log(`допрос: раскололся через ${t.toFixed(0)} с`);
@@ -121,7 +124,7 @@ describe('клетки у Администратора', () => {
     expect(outed[0].law.wanted).toBe(true);
   });
 
-  test('оба подпольщика в клетках — гарнизоны КПП и OTA штурмуют лагерь', { timeout: 120_000 }, () => {
+  test('двое подпольщиков в тюрьме — гарнизоны КПП и OTA штурмуют лагерь', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
@@ -152,7 +155,7 @@ describe('клетки у Администратора', () => {
 });
 
 describe('спецагент', () => {
-  test('в форме ГО — ГО не проверяет; взлом клетки; раскрытие', () => {
+  test('в форме ГО — ГО не проверяет; взлом камеры тюрьмы; раскрытие', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 10);
@@ -163,13 +166,15 @@ describe('спецагент', () => {
     expect(agent.cover?.faction).toBe('cp');
     expect(sim.law.checkable(agent)).toBe(false);
     expect(sim.law.observe(cp, agent)).toBeNull();
-    // Взлом клетки с пленным партизаном.
+    // Взлом камеры тюрьмы с пленным партизаном.
     const p = sim.insurgency.garrison[0];
     cage(sim, cp, p);
-    const cell = sim.law.cells.find((c) => c.cage && c.slots.some((s) => s.occupant === p))!;
+    const cell = sim.law.cells.find((c) => c.prison && c.slots.some((s) => s.occupant === p))!;
     expect(sim.insurgency.jailbreak(agent, cell)).toBe(1);
-    expect(p.law.phase).toBe('releasing');
-    expect(sim.law.caged()).not.toContain(p);
+    // Из тюрьмы — сразу на свободу, в розыске.
+    expect(p.law.phase).toBe('none');
+    expect(p.law.wanted).toBe(true);
+    expect(sim.law.imprisoned()).not.toContain(p);
     expect(sim.war.alarmActive).toBe(true);
     // Покушение раскрывает агента.
     sim.insurgency.revealAgent(agent, 'покушение');
@@ -274,15 +279,25 @@ describe('спецагент', () => {
 });
 
 describe('подполье: взлом и растяжки', () => {
-  test('товарищ в клетке — подпольщик идёт через люк в Нексус и вскрывает её, у двери оставляет растяжку', { timeout: 240_000 }, () => {
+  test('в КПЗ Нексуса сидят — подпольщик идёт через люк и выбивает дверь, у двери оставляет растяжку', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
     spawnPopulation(sim.ctx, 20);
-    const [caught, free] = sim.insurgency.garrison;
+    const [free] = sim.insurgency.garrison;
     const cp = sim.entities.list.find((c) => c.faction === 'cp')!;
-    cage(sim, cp, caught);
-    // Свободному пора на операцию: товарищ в клетке — почти наверняка взлом.
+    // В КПЗ — задержанный горожанин (повстанцев ведут в тюрьму: её берут штурмом всем подпольем).
+    const caught = sim.entities.list.find((c) => c.faction === 'citizen' && c.law.phase === 'none')!;
+    sim.law.arrest(cp, caught, 'no_cid');
+    const cell = sim.law.freeCell(caught.x, caught.y, caught)!;
+    expect(cell.prison).toBe(false);
+    sim.law.putInCell(caught, cell);
+    const slot = sim.law.slotOf(cell, caught)!;
+    caught.x = caught.prevX = slot.x;
+    caught.y = caught.prevY = slot.y;
+    run(sim, 0.5);
+    expect(caught.law.phase).toBe('jailed');
+    expect(sim.insurgency.occupiedCell()).toBe(cell);
     const op = sim.insurgency.startOperation('jailbreak');
     expect(op?.kind).toBe('jailbreak');
     expect(op?.team[0]).toBe(free);

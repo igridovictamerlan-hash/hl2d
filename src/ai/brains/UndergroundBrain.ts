@@ -13,6 +13,7 @@ import { Mover } from '../Mover';
 import { complyWithCp } from '../comply';
 import { Gunner } from '../Gunner';
 import { HatchTravel } from '../HatchTravel';
+import { PrisonAssault } from '../PrisonAssault';
 import { faceMovement, faceTowards } from '../facing';
 import { randomAnchorInZone } from '../destinations';
 import { COMBAT, GRENADE, MINE } from '../../config/combat';
@@ -21,7 +22,7 @@ import { INSURGENCY, PARTISANS } from '../../config/underground';
 import { FENCE } from '../../config/gangs';
 import type { ItemId } from '../../config/items';
 
-export type OpMode = 'base' | 'sabotage' | 'arm' | 'fence' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'stash' | 'return' | 'outing';
+export type OpMode = 'base' | 'sabotage' | 'arm' | 'fence' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'stash' | 'return' | 'outing' | 'prison';
 
 const coverNear: Character[] = [];
 
@@ -47,6 +48,8 @@ const DEPOT_DONE: Record<DepotAct, string> = {
  *  cover — второй в группе: прикрытие у камер (взлом) или дозор у узла (саботаж: видит ГО — «шухер»);
  *  stash — с добычей на свою явку в городе: спрятать в тайник (Housing), потом к люку;
  *  fence — через люк на явку забрать краденое, отнести барыге (выручка подполью, заказ банде), назад;
+ *  prison — штурм тюрьмы Альянса всей группой (ai/PrisonAssault): сбор под личиной у ворот, по
+ *    сигналу — огонь и двери камер;
  *  return — к ближайшему люку и вниз, в убежище (раненый — сразу сюда).
  */
 export class UndergroundBrain implements Brain {
@@ -78,6 +81,8 @@ export class UndergroundBrain implements Brain {
   private bag: { id: ItemId; qty: number }[] | null = null;
   /** Чья явка: откуда нести краденое барыге. */
   private fenceFrom: Dwelling | null = null;
+  /** Штурм тюрьмы (режим prison). */
+  private assault: PrisonAssault | null = null;
 
   constructor(self: Character, ctx: AiContext) {
     this.gunner = new Gunner(ctx.rng);
@@ -178,6 +183,15 @@ export class UndergroundBrain implements Brain {
     if (this.spot) this.travel.start(self, ctx, this.mover, this.spot);
   }
 
+  /** Штурм тюрьмы: к своему месту сбора у тюрьмы (дальше — PrisonAssault). */
+  startPrison(self: Character, ctx: AiContext, spot: Vec2): void {
+    this.mode = 'prison';
+    this.assault = new PrisonAssault(spot);
+    this.work = 0;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    this.travel.start(self, ctx, this.mover, spot);
+  }
+
   /** Прикрытие или дозор в группе: встать у места дела и смотреть по сторонам. */
   startCover(self: Character, ctx: AiContext, _g: UndergroundGroup, spot: Vec2): void {
     this.mode = 'cover';
@@ -254,7 +268,7 @@ export class UndergroundBrain implements Brain {
     const group = this.mode === 'base' ? null : ctx.insurgency.groupOf(self);
     if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot' || this.mode === 'cover' || this.mode === 'stash' || this.mode === 'sabotage' || this.mode === 'fence') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     // Засада: до сигнала — под личиной, огня не открывают (разве что ранили).
-    else if (this.mode === 'ambush') this.gunner.holdFire = !group?.attack && ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
+    else if (this.mode === 'ambush' || this.mode === 'prison') this.gunner.holdFire = !group?.attack && ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     else if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
     // Под личиной ствол в кармане, пока не стреляет (огонь запрещён — тоже, даже если цель на виду).
@@ -262,7 +276,8 @@ export class UndergroundBrain implements Brain {
     const now = ctx.combat.now;
     this.repath -= dt;
     // Раненый — отход (если уже не в убежище).
-    if (self.health < self.maxHealth * COMBAT.woundedFraction && this.mode !== 'base' && this.mode !== 'return') this.goHome(self, ctx);
+    const hurt = this.mode === 'prison' ? PrisonAssault.tooHurt(self, group) : self.health < self.maxHealth * COMBAT.woundedFraction;
+    if (hurt && this.mode !== 'base' && this.mode !== 'return') this.goHome(self, ctx);
 
     switch (this.mode) {
       case 'base': {
@@ -323,6 +338,13 @@ export class UndergroundBrain implements Brain {
           this.repath = 2;
           this.travel.start(self, ctx, this.mover, { x: b.x, y: b.y });
         } else if (st === 'failed') this.goHome(self, ctx);
+        break;
+      }
+      case 'prison': {
+        if (!this.assault || !this.assault.step(self, ctx, group, this.travel, this.mover, this.gunner, dt, fighting)) {
+          this.assault = null;
+          this.goHome(self, ctx);
+        }
         break;
       }
       case 'jailbreak': {
@@ -687,3 +709,4 @@ export class UndergroundBrain implements Brain {
     return this.travel.goal;
   }
 }
+

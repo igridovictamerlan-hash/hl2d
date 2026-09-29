@@ -19,7 +19,8 @@ export type ZoneKind =
   | 'rebel_camp'
   | 'cwu_hq'
   | 'arsenal'
-  | 'canteen';
+  | 'canteen'
+  | 'prison';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -81,6 +82,15 @@ export type PoiType =
   | 'cwu_production'
   | 'partisan_cage'
   | 'arsenal'
+  | 'prison'
+  | 'prison_cell'
+  | 'prison_post'
+  | 'prison_desk'
+  | 'prison_shelf'
+  | 'prison_office'
+  | 'prison_guardroom'
+  | 'prison_evidence'
+  | 'prison_yard'
   | 'arsenal_rack'
   | 'arsenal_ammo'
   | 'arsenal_grenades'
@@ -162,6 +172,8 @@ export class GameMap {
   readonly doorClosed: Uint8Array;
   /** 1 — дверь заперта и непроходима (камеры КПЗ). */
   readonly doorLocked: Uint8Array;
+  /** 1 — дверь-решётка (камеры тюрьмы): закрытая держит пулю, но сквозь неё видно. */
+  readonly grate: Uint8Array;
   /** Дым от дымовых гранат: сколько облаков накрывает тайл (> 0 — не видно насквозь, пули летят). */
   readonly smoke: Uint8Array;
   /** Прямоугольник канализации в тайлах (null — карта без неё). */
@@ -184,6 +196,7 @@ export class GameMap {
     this.worldHeight = height * tileSize;
     this.doorClosed = new Uint8Array(width * height);
     this.doorLocked = new Uint8Array(width * height);
+    this.grate = new Uint8Array(width * height);
     this.smoke = new Uint8Array(width * height);
     for (let i = 0; i < tiles.length; i++) if (tiles[i] === T.DOOR) this.doorClosed[i] = 1;
     // Канализация — описывающий прямоугольник её зон.
@@ -244,11 +257,11 @@ export class GameMap {
     return SOLID[this.tiles[i]] === 1 || this.doorLocked[i] === 1;
   }
 
-  /** Перекрывает ли тайл обзор (стены, закрытые двери, дым). */
+  /** Перекрывает ли тайл обзор (стены, закрытые двери — кроме решёток, дым). */
   isOpaque(tx: number, ty: number): boolean {
     if (!this.inBounds(tx, ty)) return true;
     const i = ty * this.width + tx;
-    return OPAQUE[this.tiles[i]] === 1 || this.doorClosed[i] === 1 || this.smoke[i] > 0;
+    return OPAQUE[this.tiles[i]] === 1 || (this.doorClosed[i] === 1 && this.grate[i] === 0) || this.smoke[i] > 0;
   }
 
   /** Останавливает ли тайл пулю и гранату (стены и закрытые двери; дым — нет). */

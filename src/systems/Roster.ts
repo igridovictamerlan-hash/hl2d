@@ -27,6 +27,8 @@ export type RoleKind =
   | 'qm' | 'depot'
   /** Экипаж конвоя склада (ГО): носит ящики на пункты боепитания КПП и Нексуса. */
   | 'convoy'
+  /** Тюрьма Альянса: охрана SU.GUARD на постах и начальник — третий инспектор SU.INSP. */
+  | 'jailer' | 'warden'
   /** Боец или авторитет банды (живут в общаге банды). */
   | 'gang';
 
@@ -97,6 +99,8 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'qm':
     case 'depot':
     case 'convoy':
+    case 'jailer':
+    case 'warden':
     case 'epu': {
       // ГО — из казармы Нексуса (нары), нет казармы — у ворот.
       const n = ctx.map.poisOf('bunk').length;
@@ -165,6 +169,12 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
       break;
     case 'convoy':
       c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'convoy' });
+      break;
+    case 'jailer':
+      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'jailer' });
+      break;
+    case 'warden':
+      c.brain = new CpBrain(c, ctx, { duty: 'warden' });
       break;
     case 'qm':
       c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'qm' });

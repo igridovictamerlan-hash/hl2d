@@ -100,25 +100,25 @@ describe('городок с домиками', () => {
 });
 
 describe('Нексус: общая камера, лоялисты, проспект', () => {
-  test('общая камера вмещает нескольких граждан, партизан — в клетку; дверь заперта, пока там сидят', { timeout: 60_000 }, () => {
+  test('общая камера вмещает нескольких граждан, повстанцев — в тюрьму; дверь заперта, пока там сидят', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const { law, entities, ctx } = sim;
     const common = law.cells.find((c) => c.common)!;
     expect(common).toBeTruthy();
     expect(common.slots.length).toBeGreaterThanOrEqual(6);
-    expect(law.cells.filter((c) => !c.common && !c.cage)).toHaveLength(7);
-    // Клетки у Администратора — для партизан.
-    expect(law.cells.filter((c) => c.cage)).toHaveLength(2);
+    expect(law.cells.filter((c) => !c.common && !c.prison)).toHaveLength(7);
+    // Тюрьма Альянса — для повстанцев.
+    expect(law.cells.filter((c) => c.prison)).toHaveLength(8);
     const cp = createCharacter(entities, ctx.rng, 'cp', common.frontX, common.frontY - 40);
     const partisan = createCharacter(entities, ctx.rng, 'rebel', common.frontX, common.frontY);
     partisan.profession = 'partisan';
     const prisoners = [0, 1, 2, 3].map((k) => createCharacter(entities, ctx.rng, 'citizen', common.frontX + (k - 1.5) * 30, common.frontY + 20));
-    // Граждан — в общую камеру; партизана — в клетку у Администратора; солдата армии — в одиночную.
-    expect(law.freeCell(cp.x, cp.y, partisan)?.cage).toBe(true);
+    // Граждан — в общую камеру; партизана и солдата армии — в тюрьму Альянса.
+    expect(law.freeCell(cp.x, cp.y, partisan)?.prison).toBe(true);
     partisan.alive = false;
     for (const p of prisoners) expect(law.freeCell(cp.x, cp.y, p)?.common).toBe(true);
     const soldier = createCharacter(entities, ctx.rng, 'rebel', cp.x, cp.y);
-    expect(law.freeCell(cp.x, cp.y, soldier)?.common).toBe(false);
+    expect(law.freeCell(cp.x, cp.y, soldier)?.prison).toBe(true);
     soldier.alive = false;
     for (const p of prisoners) {
       law.arrest(cp, p, 'running');

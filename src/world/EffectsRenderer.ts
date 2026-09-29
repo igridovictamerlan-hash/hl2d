@@ -653,31 +653,45 @@ export class EffectsRenderer {
     }
   }
 
-  /** Клетки у Администратора: рама и прутья поверх пленного; вскрытая — без передней стенки. */
-  drawCages(ctx: CanvasRenderingContext2D, v: View, cells: readonly Cell[], now: number): void {
+  /**
+   * Решётки камер тюрьмы: поверх закрытой двери — рама и прутья (видно, кто сидит), выбитая — погнутая
+   * решётка настежь. ts — размер тайла в px мира.
+   */
+  drawPrisonBars(ctx: CanvasRenderingContext2D, v: View, cells: readonly Cell[], ts: number, now: number): void {
     const s = v.scale;
     const C = RENDER.effects.cage;
-    const h = (C.size / 2) * s;
     for (let k = 0; k < cells.length; k++) {
       const c = cells[k];
-      if (!c.cage) continue;
-      const x = Math.round((c.x - v.left) * s);
-      const y = Math.round((c.y - v.top) * s);
-      if (x < -h * 2 || y < -h * 2 || x > v.width + h * 2 || y > v.height + h * 2) continue;
-      const open = c.brokenUntil > now;
+      const d = c.door;
+      if (!c.prison || !d) continue;
+      const x0 = Math.round((d.bounds.x0 * ts - v.left) * s);
+      const y0 = Math.round((d.bounds.y0 * ts - v.top) * s);
+      const x1 = Math.round(((d.bounds.x1 + 1) * ts - v.left) * s);
+      const y1 = Math.round(((d.bounds.y1 + 1) * ts - v.top) * s);
+      if (x1 < 0 || y1 < 0 || x0 > v.width || y0 > v.height) continue;
+      const broken = c.brokenUntil > now;
+      if (!d.closed && !broken) continue;
+      const w = x1 - x0;
+      const h = y1 - y0;
+      const vertical = h > w;
       ctx.fillStyle = C.floor;
-      ctx.fillRect(x - h, y - h, h * 2, h * 2);
+      ctx.fillRect(x0, y0, w, h);
       ctx.fillStyle = C.bar;
-      const w = Math.max(1, s);
-      for (let bx = -h; bx <= h; bx += C.step * s) {
-        ctx.fillRect(x + bx - w / 2, y - h, w, h * 2 * (open ? 0.35 : 1));
-      }
+      const bw = Math.max(1, s * 1.2);
+      const step = C.step * s;
+      // Прутья поперёк проёма; выбитая дверь — прутья вполовину (решётка сорвана).
+      const part = broken ? 0.4 : 1;
+      if (vertical) for (let by = y0 + step / 2; by < y1; by += step) ctx.fillRect(x0, by - bw / 2, w * part, bw);
+      else for (let bx = x0 + step / 2; bx < x1; bx += step) ctx.fillRect(bx - bw / 2, y0, bw, h * part);
       ctx.fillStyle = C.frame;
       const t = Math.max(1.5, 2 * s);
-      ctx.fillRect(x - h, y - h, h * 2, t);
-      ctx.fillRect(x - h, y - h, t, h * 2);
-      ctx.fillRect(x + h - t, y - h, t, h * 2);
-      if (!open) ctx.fillRect(x - h, y + h - t, h * 2, t);
+      if (vertical) {
+        ctx.fillRect(x0, y0, w, t);
+        ctx.fillRect(x0, y1 - t, w, t);
+      } else {
+        ctx.fillRect(x0, y0, t, h);
+        ctx.fillRect(x1 - t, y0, t, h);
+      }
     }
   }
 

@@ -163,7 +163,7 @@ export class CitizenBrain implements Brain {
     const [smin, smax] = CHARACTER.npcWalkSpeed;
     this.walkSpeed = ctx.rng.range(smin, smax);
     this.mover = new Mover(this.walkSpeed);
-    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal']);
+    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison']);
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];

@@ -1072,7 +1072,8 @@ export class WarSystem {
       if (!c.alive || c.isPlayer || !(b instanceof CpBrain) || b.rally || c.law.phase !== 'none') continue;
       const kind = c.role?.kind;
       const posted = !!b.guardPost || !!b.medicStation || b.duty === 'convoy' || b.duty === 'qm';
-      if (!posted || kind === 'epu' || kind === 'bodyguard' || kind === 'inspector' || kind === 'officer') continue;
+      // Тюрьму не бросают: охрана остаётся стеречь заключённых.
+      if (!posted || kind === 'epu' || kind === 'bodyguard' || kind === 'inspector' || kind === 'officer' || kind === 'jailer' || kind === 'warden') continue;
       // Пара часовых остаётся стеречь склад.
       if (b.duty === 'sentry' && depot < M.depotKeep) {
         depot++;

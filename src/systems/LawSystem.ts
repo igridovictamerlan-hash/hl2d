@@ -18,6 +18,8 @@ import { apparentFaction, coverAuthority } from '../entities/cover';
 import { PrisonerBrain } from '../ai/brains/PrisonerBrain';
 import { CHARACTER } from '../config/entities';
 import { PARTISANS } from '../config/underground';
+import { ITEMS, type ItemId } from '../config/items';
+import type { Vec2 } from '../core/math';
 
 const PRISONER_MASS = 0.4;
 
@@ -41,8 +43,8 @@ export interface Cell {
   common: boolean;
   /** Места: у одиночной — одно в центре, у общей — по площади. */
   slots: CellSlot[];
-  /** Клетка в кабинете Администратора (без двери): для пойманных партизан — допрос CMD.EPU. */
-  cage: boolean;
+  /** Камера тюрьмы Альянса: повстанцев держат бессрочно, пока не освободят свои. */
+  prison: boolean;
   /** Дверь выбита спецагентом: до этого времени не запирается. */
   brokenUntil: number;
 }
@@ -54,9 +56,20 @@ export interface CellSlot {
   reserved: Character | null;
 }
 
-/** Партизан или спецагент — их сажают в клетки у Администратора на допрос. */
+/** Партизан или спецагент (подполье). */
 export function isUnderground(c: Character): boolean {
   return c.faction === 'rebel' && (c.profession === 'partisan' || c.profession === 'spec_agent');
+}
+
+/** Кого ведут в тюрьму Альянса: всех повстанцев — армию, подполье, перебежчиков. */
+export function belongsInPrison(c: Character): boolean {
+  return c.faction === 'rebel';
+}
+
+/** Изъятое при водворении в тюрьму: стволы, патроны, гранаты. */
+function confiscable(id: ItemId): boolean {
+  const k = ITEMS[id].kind;
+  return k === 'weapon' || k === 'ammo' || id === 'grenade' || id === 'smoke_grenade' || id === 'fire_grenade';
 }
 
 /** Кого сажают в общую камеру: граждан, ГСР и вортигонтов (не бойцов армии). */
@@ -72,6 +85,12 @@ function belongsInCommon(c: Character): boolean {
 export class LawSystem {
   readonly cells: Cell[] = [];
   private time = 0;
+  /** Комната изъятого тюрьмы: что забрали у каждого заключённого (отдают при освобождении своими). */
+  readonly evidence = new Map<Character, { id: ItemId; qty: number }[]>();
+  /** Выход из тюрьмы (за воротами двора) — туда выводят отсидевшего игрока. */
+  prisonGate: Vec2 | null = null;
+  /** Куда выводить отпущенного (из тюрьмы — за её ворота; иначе ворота Нексуса). */
+  readonly releaseSpot = new Map<Character, Vec2>();
 
   constructor(
     private readonly map: GameMap,
@@ -91,8 +110,12 @@ export class LawSystem {
   private buildCells(): void {
     const map = this.map;
     const ts = map.tileSize;
-    const pois = [...map.poisOf('cell').map((p) => ({ p, common: false })), ...map.poisOf('common_cell').map((p) => ({ p, common: true }))];
-    pois.forEach(({ p: poi, common }, index) => {
+    const pois = [
+      ...map.poisOf('cell').map((p) => ({ p, common: false, prison: false })),
+      ...map.poisOf('common_cell').map((p) => ({ p, common: true, prison: false })),
+      ...map.poisOf('prison_cell').map((p) => ({ p, common: false, prison: true })),
+    ];
+    pois.forEach(({ p: poi, common, prison }, index) => {
       // Камера — связная область пола в зоне КПЗ вокруг точки.
       const zone = map.zoneAtTile(poi.x, poi.y);
       let x0 = poi.x, y0 = poi.y, x1 = poi.x, y1 = poi.y;
@@ -124,9 +147,9 @@ export class LawSystem {
         fy = door.y + (dy / d) * 36;
       }
       const slots: CellSlot[] = [];
-      if (common) {
+      if (common || prison) {
         // Места — центры якорей внутри камеры, не ближе spacing друг к другу и не у самой двери.
-        const C = LAW.commonCell;
+        const C = prison ? LAW.prison.cell : LAW.commonCell;
         const nav = this.nav;
         for (let ay = y0; ay < y1 && slots.length < C.max; ay++) {
           for (let ax = x0; ax < x1 && slots.length < C.max; ax++) {
@@ -140,27 +163,34 @@ export class LawSystem {
         }
       }
       if (!slots.length) slots.push({ x: cx, y: cy, occupant: null, reserved: null });
-      this.cells.push({ index, x: cx, y: cy, frontX: fx, frontY: fy, door, bounds: { x0, y0, x1, y1 }, common, slots, cage: false, brokenUntil: 0 });
+      // Дверь камеры тюрьмы — решётка: сквозь неё видно, кто сидит.
+      if (prison && door) for (const t of door.tiles) map.grate[t] = 1;
+      this.cells.push({ index, x: cx, y: cy, frontX: fx, frontY: fy, door, bounds: { x0, y0, x1, y1 }, common, slots, prison, brokenUntil: 0 });
     });
-    // Клетки в кабинете Администратора (POI partisan_cage — якорь 2×2): без двери, одно место,
-    // перед клеткой — место допрашивающего.
-    for (const p of map.poisOf('partisan_cage')) {
-      // Нексус может быть повёрнут — якорь клетки ищем у тайла Z (он в любом случае внутри).
-      const a = this.nav.nearestWalkable((p.x + 0.5) * ts, (p.y + 0.5) * ts, 1);
-      if (a < 0) continue;
-      const cx = this.nav.worldX(a);
-      const cy = this.nav.worldY(a);
-      const ax = this.nav.ax(a);
-      const ay = this.nav.ay(a);
-      const f = this.nav.nearestWalkable(cx, cy + LAW.cageFront, 3);
-      const fx = f >= 0 ? this.nav.worldX(f) : cx;
-      const fy = f >= 0 ? this.nav.worldY(f) : cy;
-      this.cells.push({
-        index: this.cells.length, x: cx, y: cy, frontX: fx, frontY: fy, door: null,
-        bounds: { x0: ax, y0: ay, x1: ax + 1, y1: ay + 1 }, common: false,
-        slots: [{ x: cx, y: cy, occupant: null, reserved: null }], cage: true, brokenUntil: 0,
-      });
-    }
+    this.prisonGate = this.findPrisonGate();
+  }
+
+  /**
+   * Ворота тюрьмы: середина той стороны здания, к которой ближе двор, и на PRISON.gateOut тайлов наружу
+   * (там начинается проезд к улице).
+   */
+  private findPrisonGate(): Vec2 | null {
+    const p = this.map.poisOf('prison')[0];
+    const yard = this.map.poisOf('prison_yard')[0];
+    if (!p || !yard || p.w == null || p.h == null || yard.w == null || yard.h == null) return null;
+    const ts = this.map.tileSize;
+    const yx = yard.x + yard.w / 2;
+    const yy = yard.y + yard.h / 2;
+    const cx = p.x + p.w / 2;
+    const cy = p.y + p.h / 2;
+    const out = LAW.prison.gateOut;
+    let gx = cx;
+    let gy = cy;
+    // Сторона со двором: смещение центра двора от центра здания — по большей оси.
+    if (Math.abs(yx - cx) / p.w > Math.abs(yy - cy) / p.h) gx = yx > cx ? p.x + p.w + out : p.x - out;
+    else gy = yy > cy ? p.y + p.h + out : p.y - out;
+    const a = this.nav.nearestWalkable(gx * ts, gy * ts, 6);
+    return a >= 0 ? { x: this.nav.worldX(a), y: this.nav.worldY(a) } : null;
   }
 
   /** Может ли observer увидеть target: дальность, угол обзора, стены и закрытые двери. */
@@ -202,6 +232,8 @@ export class LawSystem {
     if (zk === 'restricted') return 'restricted';
     // На склад Альянса посторонним нельзя (рабочие ГСР — по работе).
     if (zk === 'arsenal' && apparentFaction(target) === 'citizen') return 'restricted';
+    // В тюрьму посторонним нельзя никому.
+    if (zk === 'prison' && target.law.phase === 'none') return 'restricted';
     if (this.curfewCheck(target)) return 'curfew';
     // Лоялистам бегать разрешено.
     if (target.moveSpeed > LAW.runSpeed && !this.panicking(target) && !loyalistPerk(target, 'run')) return 'running';
@@ -383,19 +415,19 @@ export class LawSystem {
   }
 
   /**
-   * Камера со свободным местом — ближайшая к точке. Граждан и партизан (prisoner) — сперва в
-   * общую, остальных — сперва в одиночные; нет места — в любую.
+   * Камера со свободным местом — ближайшая к точке. Повстанцев (армия, подполье) — в тюрьму Альянса
+   * (мест нет — в КПЗ); граждан — сперва в общую камеру КПЗ, остальных — сперва в одиночные; нет места —
+   * в любую камеру КПЗ. В тюрьму сажают только повстанцев.
    */
   freeCell(x: number, y: number, prisoner: Character | null = null): Cell | null {
     const wantCommon = prisoner ? belongsInCommon(prisoner) : false;
-    // Партизаны и спецагент — в клетки у Администратора (мест нет — в обычную камеру); остальных в клетки не сажают.
-    const wantCage = prisoner ? isUnderground(prisoner) : false;
+    const wantPrison = prisoner ? belongsInPrison(prisoner) : false;
+    const prisonFree = wantPrison && this.cells.some((o) => o.prison && this.freeSlot(o) >= 0);
     let best: Cell | null = null;
     let bestD = Infinity;
     for (const c of this.cells) {
       if (this.freeSlot(c) < 0) continue;
-      if (c.cage && !wantCage) continue;
-      if (wantCage && !c.cage && this.cells.some((o) => o.cage && this.freeSlot(o) >= 0)) continue;
+      if (c.prison !== prisonFree) continue;
       const d = Math.hypot(c.frontX - x, c.frontY - y) + (c.common === wantCommon ? 0 : 1e6);
       if (d < bestD) {
         bestD = d;
@@ -444,6 +476,8 @@ export class LawSystem {
   /** Снять с персонажа любые процедуры (гибель, смена роли): освободить камеру, вернуть мозг. */
   release(c: Character): void {
     this.vacate(c);
+    this.evidence.delete(c);
+    this.releaseSpot.delete(c);
     c.law.cell = -1;
     if (c.law.savedBrain || c.brain instanceof PrisonerBrain) this.restoreBrain(c);
     this.clear(c);
@@ -465,7 +499,7 @@ export class LawSystem {
     p.wantX = p.wantY = 0;
   }
 
-  /** Точка в какой-нибудь камере или клетке (с запасом r px) — туда никого не ставят при заселении. */
+  /** Точка в какой-нибудь камере КПЗ или тюрьмы (с запасом r px) — туда никого не ставят при заселении. */
   inAnyCell(x: number, y: number, r = 0): boolean {
     const ts = this.map.tileSize;
     return this.cells.some((c) => x > c.bounds.x0 * ts - r && y > c.bounds.y0 * ts - r && x < (c.bounds.x1 + 1) * ts + r && y < (c.bounds.y1 + 1) * ts + r);
@@ -521,12 +555,18 @@ export class LawSystem {
             slot.occupant = c;
             slot.reserved = null;
             law.phase = 'jailed';
-            const T = cell.cage ? LAW.cageTime : LAW.jailTime;
-            law.jailUntil = this.time + (c.isPlayer ? T.player : T.npc);
-            law.wanted = false;
-            law.hasCid = true;
             law.handler = null;
-            this.log(`${who(c, true)} помещён в ${cell.cage ? 'клетку в кабинете Администратора — на допрос' : cell.common ? 'общую камеру' : 'КПЗ'} на ${Math.round(law.jailUntil - this.time)} с`, 'law');
+            if (cell.prison) {
+              // Тюрьма: бессрочно (игроку — срок LAW.prison.playerTime), оружие — в комнату изъятого.
+              law.jailUntil = c.isPlayer ? this.time + LAW.prison.playerTime : Infinity;
+              this.confiscate(c);
+              this.log(`${who(c, true)} помещён в тюрьму Альянса${c.isPlayer ? ` на ${LAW.prison.playerTime} с` : ' — бессрочно'}`, 'law');
+            } else {
+              law.jailUntil = this.time + (c.isPlayer ? LAW.jailTime.player : LAW.jailTime.npc);
+              law.wanted = false;
+              law.hasCid = true;
+              this.log(`${who(c, true)} помещён в ${cell.common ? 'общую камеру' : 'КПЗ'} на ${Math.round(law.jailUntil - this.time)} с`, 'law');
+            }
           } else if (this.time - law.since > 25) {
             // Застрял на входе — всё равно считаем посаженным.
             law.since = this.time;
@@ -547,6 +587,11 @@ export class LawSystem {
             law.phase = 'releasing';
             law.since = this.time;
             law.cell = -1;
+            if (cell?.prison) {
+              // Отсидевший в тюрьме (только игрок): изъятое оружие не вернут, остальное — да.
+              this.returnEvidence(c, false);
+              if (this.prisonGate) this.releaseSpot.set(c, this.prisonGate);
+            }
             this.log(`${who(c, true)} отбыл срок и отпущен`, 'law');
             if (c.isPlayer) {
               this.restoreBrain(c);
@@ -557,6 +602,7 @@ export class LawSystem {
         case 'releasing':
           // PrisonerBrain выводит к воротам Нексуса и сообщает done.
           if ((c.brain as PrisonerBrain | null)?.done || this.time - law.since > 30) {
+            this.releaseSpot.delete(c);
             this.restoreBrain(c);
             this.clear(c);
             this.onReleased?.(c);
@@ -585,7 +631,7 @@ export class LawSystem {
         if (s.reserved && s.reserved.law.phase === 'entering') moving = true;
       }
       if (!seated || moving) continue;
-      if (!cell.common) {
+      if (!cell.common && !cell.prison) {
         this.doors.setLocked(cell.door, true);
         continue;
       }
@@ -605,8 +651,9 @@ export class LawSystem {
   }
 
   /**
-   * Спецагент выбил дверь камеры (или открыл клетку): все, кто сидит, выходят — и в розыск;
-   * дверь не запирается LAW.brokenDoor с. Возвращает, сколько сбежало.
+   * Взломали дверь камеры: все, кто сидит, выходят — и в розыск; дверь не запирается LAW.brokenDoor с.
+   * Из тюрьмы освобождённые сразу свободны: забирают своё из комнаты изъятого (onFreed решает, куда им
+   * дальше). Возвращает, сколько сбежало.
    */
   breakCell(cell: Cell): number {
     let n = 0;
@@ -616,6 +663,16 @@ export class LawSystem {
       s.reserved = null;
       if (!c || !c.alive) continue;
       n++;
+      if (cell.prison) {
+        c.law.cell = -1;
+        c.law.wanted = true;
+        this.returnEvidence(c, true);
+        if (c.law.savedBrain || c.brain instanceof PrisonerBrain) this.restoreBrain(c);
+        this.clear(c);
+        c.law.wanted = true;
+        this.onFreed?.(c);
+        continue;
+      }
       c.law.phase = 'releasing';
       c.law.since = this.time;
       c.law.cell = -1;
@@ -634,11 +691,46 @@ export class LawSystem {
     return n;
   }
 
-  /** Кто сидит в клетках у Администратора. */
-  caged(): Character[] {
+  /** Освобождённого своими из тюрьмы — куда ему дальше (задаёт InsurgencySystem). */
+  onFreed: ((c: Character) => void) | null = null;
+
+  /** Кто сидит в тюрьме Альянса. */
+  imprisoned(): Character[] {
     const out: Character[] = [];
-    for (const cell of this.cells) if (cell.cage) for (const s of cell.slots) if (s.occupant) out.push(s.occupant);
+    for (const cell of this.cells) if (cell.prison) for (const s of cell.slots) if (s.occupant) out.push(s.occupant);
     return out;
+  }
+
+  /** Камеры тюрьмы. */
+  get prisonCells(): Cell[] {
+    return this.cells.filter((c) => c.prison);
+  }
+
+  /** Есть ли тюрьма на карте. */
+  get hasPrison(): boolean {
+    return this.cells.some((c) => c.prison);
+  }
+
+  /** Стволы, патроны и гранаты — в комнату изъятого. */
+  private confiscate(c: Character): void {
+    const taken = this.evidence.get(c) ?? [];
+    for (let i = c.inventory.slots.length - 1; i >= 0; i--) {
+      const st = c.inventory.slots[i];
+      if (!confiscable(st.id)) continue;
+      taken.push({ id: st.id, qty: st.qty });
+      c.inventory.slots.splice(i, 1);
+    }
+    if (c.weapon) c.mags[c.weapon] = c.mag;
+    c.weapon = null;
+    if (taken.length) this.evidence.set(c, taken);
+  }
+
+  /** Вернуть изъятое (weapons — и стволы с патронами; иначе они остаются в тюрьме). */
+  returnEvidence(c: Character, weapons: boolean): void {
+    const taken = this.evidence.get(c);
+    if (!taken) return;
+    this.evidence.delete(c);
+    for (const st of taken) if (weapons || !confiscable(st.id)) c.inventory.add(st.id, st.qty);
   }
 
   /** Ячейка НавГрида для точки перед камерой. */

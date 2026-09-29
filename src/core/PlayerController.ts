@@ -14,6 +14,7 @@ import { poiWorld, cpKit } from '../systems/Population';
 import { WEAPONS, KITS, ITEMS } from '../config/items';
 import { UNDERGROUND, INSURGENCY, PARTISANS } from '../config/underground';
 import type { Cell } from '../systems/LawSystem';
+import { PRISON } from '../config/prison';
 import { ECONOMY } from '../config/economy';
 import { COMBAT, HITS, MINE } from '../config/combat';
 import { DOWNED } from '../config/tactics';
@@ -497,17 +498,26 @@ export class PlayerController {
       return this.say('Вы примкнули к сопротивлению! Оружие выдали — держите КПП.', 'world');
     }
     const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
-    // Спецагент: форма с убитого ГО (в OTA не переодеться), взлом камеры или клетки.
+    // Любой повстанец в тюрьме Альянса: выбить дверь камеры, где сидят свои.
+    if (p.faction === 'rebel' && p.law.phase === 'none') {
+      const jail = ctx.law.cells.find((c) => c.prison && ctx.law.occupants(c).length > 0 && d({ x: c.frontX, y: c.frontY }) < REACH + 8);
+      if (jail) {
+        const T = PRISON.assault.breakTime;
+        this.task = { kind: 'break', x: p.x, y: p.y, left: T, total: T, cell: jail };
+        return this.say('Выбиваете дверь камеры тюрьмы…', 'world');
+      }
+    }
+    // Спецагент: форма с убитого ГО (в OTA не переодеться), взлом камеры КПЗ.
     if (p.faction === 'rebel' && p.profession === 'spec_agent') {
       const A = PARTISANS.agent;
       if (corpse && corpse.faction === 'cp' && !corpse.stripped) {
         this.task = { kind: 'dress', x: corpse.x, y: corpse.y, left: A.dress, total: A.dress, corpse };
         return this.say(`Снимаете форму с тела: ${corpse.name}…`, 'world');
       }
-      const cell = ctx.law.cells.find((c) => ctx.law.occupants(c).length > 0 && (d({ x: c.frontX, y: c.frontY }) < REACH + 8 || d(c) < REACH + 8));
+      const cell = ctx.law.cells.find((c) => !c.prison && ctx.law.occupants(c).length > 0 && (d({ x: c.frontX, y: c.frontY }) < REACH + 8 || d(c) < REACH + 8));
       if (cell) {
         this.task = { kind: 'break', x: p.x, y: p.y, left: A.breakTime, total: A.breakTime, cell };
-        return this.say(cell.cage ? 'Вскрываете клетку…' : 'Выбиваете дверь камеры…', 'world');
+        return this.say('Выбиваете дверь камеры…', 'world');
       }
     }
     // Партизан: передать ствол бандиту — пусть ГО получит своё чужими руками.

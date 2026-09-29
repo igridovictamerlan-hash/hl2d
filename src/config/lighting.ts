@@ -106,6 +106,11 @@ export const LIGHTING = {
     rebel_base: { color: [255, 170, 90], radius: 150, power: 0.9, night: false, flicker: 0.12 },
     rebel_cache: { color: [255, 180, 100], radius: 80, power: 0.7, night: false, flicker: 0.1 },
     trader: { color: [255, 190, 110], radius: 90, power: 0.8, night: false, flicker: 0.1 },
+    // Тюрьма Альянса: двор и коридор — холодные прожекторы у постов, караулка и допросная — лампы.
+    prison_post: { color: [210, 228, 255], radius: 120, power: 0.85, night: true, bloom: true },
+    prison_office: { color: [255, 205, 140], radius: 80, power: 0.8, night: true, bloom: true },
+    prison_guardroom: { color: [255, 200, 130], radius: 70, power: 0.8, night: true, bloom: true },
+    prison_evidence: { color: [215, 230, 255], radius: 60, power: 0.6, night: true },
     // Склад Альянса: зал и контора — холодный белый, площадка — прожекторы у постов, мастерская и
     // караулка — тёплые лампы, маяк площадки — красный (мигает — ArsenalRenderer).
     arsenal_hall: { color: [215, 230, 255], radius: 120, power: 0.75, night: true },

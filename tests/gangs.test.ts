@@ -1,3 +1,4 @@
+import { randomAnchorAround } from '../src/ai/destinations';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { spawnPopulation, settleAll } from '../src/systems/Population';
@@ -115,9 +116,21 @@ describe('банды', () => {
     const g = G.gangs[0];
     // Патрульный — в районе банды.
     const an = g.anchors[Math.floor(g.anchors.length / 2)];
-    spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, { x: sim.nav.worldX(an), y: sim.nav.worldY(an) });
+    const cp = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, { x: sim.nav.worldX(an), y: sim.nav.worldY(an) })!;
     const op = G.startOp(g, 'hit')!;
     expect(op.kind).toBe('hit');
+    // Проверку CID команда только что прошла (иначе плановая проверка по дороге — бегство и арест).
+    for (const c of op.team) {
+      c.law.lastCheck = sim.law.now;
+      c.law.wanted = false;
+      c.law.hasCid = true;
+    }
+    // Патрульный — рядом с командой (по дороге через район их может остановить другой патруль).
+    const near = randomAnchorAround(op.team[0], sim.ctx, 8, 12, new Set());
+    if (near >= 0) {
+      cp.x = cp.prevX = sim.nav.worldX(near);
+      cp.y = cp.prevY = sim.nav.worldY(near);
+    }
     let attacked = false;
     for (let t = 0; t < 120 * 60 && !attacked; t++) {
       sim.step();
@@ -190,7 +203,8 @@ describe('по одному — только на районе, в городе 
       for (const g of G.gangs) if (g.op && !teams.includes(g.op.team.length * 1000 + g.id)) teams.push(g.op.team.length * 1000 + g.id);
       if (t % 30) continue;
       for (const c of sim.entities.list) {
-        if (c.gang < 0 || c.isPlayer || !c.alive || sim.map.levelAt(c.x, c.y) !== 'city') continue;
+        // Тяжелораненый лежит (стычка) — он не «гуляет один».
+        if (c.gang < 0 || c.isPlayer || !c.fit || sim.map.levelAt(c.x, c.y) !== 'city') continue;
         // Задержанных ведёт ГО, отпущенный из КПЗ идёт на район сам — это не прогулка.
         if (c.brain?.constructor.name === 'PrisonerBrain') jailed.add(c.id);
         if (jailed.has(c.id)) continue;

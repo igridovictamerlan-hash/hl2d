@@ -9,6 +9,7 @@ import { Mover } from '../Mover';
 import { complyWithCp } from '../comply';
 import { Gunner } from '../Gunner';
 import { HatchTravel } from '../HatchTravel';
+import { PrisonAssault } from '../PrisonAssault';
 import { faceMovement, faceTowards } from '../facing';
 import { randomAnchorInZone } from '../destinations';
 import { canSeeCircle } from '../../world/visibility';
@@ -19,7 +20,7 @@ import { COMBAT } from '../../config/combat';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
 import { poiWorld } from '../../systems/Population';
 
-export type AgentMission = 'assassinate' | 'jailbreak' | 'riot' | 'requisition';
+export type AgentMission = 'assassinate' | 'jailbreak' | 'riot' | 'requisition' | 'prison';
 export type AgentMode = 'base' | 'dress' | 'mission' | 'return';
 
 /**
@@ -55,6 +56,8 @@ export class AgentBrain implements Brain {
   private idle = 0;
   /** Ставит растяжку у выбитой двери (прикрыть побег) — потом домой. */
   private planting = false;
+  /** Штурм тюрьмы вместе с подпольем (миссия prison). */
+  private assault: PrisonAssault | null = null;
   /** Итоги (для тестов и отладки). */
   stats = { dressed: 0, assassinations: 0, jailbreaks: 0, riots: 0, requisitions: 0 };
 
@@ -74,7 +77,7 @@ export class AgentBrain implements Brain {
     const A = PARTISANS.agent;
     const W = A.missions;
     let m = mission;
-    // Свой в клетке — вытащить.
+    // Свой в КПЗ — вытащить.
     if (!m && ctx.insurgency.jailbreakReady && ctx.insurgency.comradeCaged() && ctx.rng.chance(PARTISANS.rescueChance)) m = 'jailbreak';
     if (!m) {
       const r = ctx.rng.next();
@@ -93,7 +96,8 @@ export class AgentBrain implements Brain {
       this.target = this.pickTarget(ctx);
       if (!this.target) return false;
     } else if (m === 'jailbreak') {
-      this.cell = ctx.law.cells.find((c) => c.cage && c.slots.some((s) => s.occupant)) ?? ctx.law.cells.find((c) => c.slots.some((s) => s.occupant)) ?? null;
+      // Только КПЗ Нексуса: тюрьму берут штурмом всем подпольем (InsurgencySystem.startPrisonAssault).
+      this.cell = ctx.insurgency.occupiedCell();
       if (!this.cell) return false;
       if (!this.backup) ctx.insurgency.markJailbreak();
     }
@@ -109,6 +113,20 @@ export class AgentBrain implements Brain {
       }
     }
     return true;
+  }
+
+  /** Штурм тюрьмы с подпольем (InsurgencySystem.startPrisonAssault): к месту сбора — дальше PrisonAssault. */
+  joinPrison(self: Character, ctx: AiContext, spot: Vec2): void {
+    this.mission = 'prison';
+    this.mode = 'mission';
+    this.target = null;
+    this.cell = null;
+    this.backup = false;
+    this.partner = null;
+    this.assault = new PrisonAssault(spot);
+    this.missionUntil = ctx.combat.now + PARTISANS.agent.missionMax;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    this.travel.start(self, ctx, this.mover, spot);
   }
 
   /** Прикрыть ведущего спецагента на его миссии: переодеться (если надо) и держаться рядом. */
@@ -220,12 +238,16 @@ export class AgentBrain implements Brain {
     const now = ctx.combat.now;
     // Скрытен: стреляет только на покушении или если ранили.
     const hurt = now - self.lastHurt < INSURGENCY.returnFireFor;
-    this.gunner.holdFire = !(hurt || (this.mode === 'mission' && this.mission === 'assassinate' && this.fightUntil > 0));
+    const prison = this.mode === 'mission' && this.mission === 'prison';
+    this.gunner.holdFire = prison
+      ? PrisonAssault.holdFire(ctx.insurgency.groupOf(self), hurt)
+      : !(hurt || (this.mode === 'mission' && this.mission === 'assassinate' && this.fightUntil > 0));
     const fighting = this.gunner.update(self, ctx, dt);
     // Под личиной ствол в кармане, пока не стреляет (огонь запрещён — тоже, даже если цель на виду).
     if (self.disguised && self.weapon && (!this.gunner.target || this.gunner.holdFire)) ctx.combat.equip(self, null);
     this.repath -= dt;
-    if (self.health < self.maxHealth * COMBAT.woundedFraction && this.mode !== 'base' && this.mode !== 'return') this.goHome(self, ctx);
+    const wounded = prison ? PrisonAssault.tooHurt(self, ctx.insurgency.groupOf(self)) : self.health < self.maxHealth * COMBAT.woundedFraction;
+    if (wounded && this.mode !== 'base' && this.mode !== 'return') this.goHome(self, ctx);
 
     switch (this.mode) {
       case 'base': {
@@ -351,6 +373,13 @@ export class AgentBrain implements Brain {
       this.updateBackup(self, ctx, dt, fighting);
       return;
     }
+    if (this.mission === 'prison') {
+      if (!this.assault || !this.assault.step(self, ctx, ctx.insurgency.groupOf(self), this.travel, this.mover, this.gunner, dt, fighting)) {
+        this.assault = null;
+        this.goHome(self, ctx);
+      }
+      return;
+    }
     if (this.mission === 'assassinate') {
       const t = this.target;
       if (!t || !t.alive) {
@@ -441,3 +470,4 @@ export class AgentBrain implements Brain {
     } else if (st === 'failed') this.goHome(self, ctx);
   }
 }
+

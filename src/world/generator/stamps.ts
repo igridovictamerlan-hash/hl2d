@@ -75,6 +75,25 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   X: T.BUNKER,
   Q: T.BUNKER,
   E: T.BUNKER,
+  // Тюрьма Альянса: камеры, коридор, караулка, допросная, изъятое — пол; двор и его посты — бетон;
+  // стол инспектора и стеллажи изъятого — мебель-укрытие.
+  '6': T.INTERIOR,
+  '7': T.INTERIOR,
+  '0': T.INTERIOR,
+  '9': T.INTERIOR,
+  '&': T.INTERIOR,
+  '8': T.BUNKER,
+  '+': T.BUNKER,
+  '%': T.BARRIER,
+  '=': T.BARRIER,
+};
+
+/** Точки интереса тюрьмы по символам шаблона (PRISON_TEMPLATE). */
+const PRISON_POIS: Record<string, Poi['type']> = {
+  '7': 'prison_post',
+  '+': 'prison_post',
+  '%': 'prison_desk',
+  '=': 'prison_shelf',
 };
 
 /** Точки интереса склада по символам шаблона (ARSENAL_TEMPLATE). */
@@ -108,7 +127,8 @@ export interface StampResult {
   commons: Rect[];
   /**
    * Помещения по символам: штаб ГСР — l отдых, n столовая, e кабинет, a приёмная, p цех; склад —
-   * s зал, j гранатный отсек, N мастерская, f выдача, e контора, 1 бытовка, z караулка, Y крыльцо.
+   * s зал, j гранатный отсек, N мастерская, f выдача, e контора, 1 бытовка, z караулка, Y крыльцо;
+   * тюрьма — 6 камеры, 0 караулка, 9 допросная, & изъятое, 8 двор.
    */
   areas: Record<string, Rect[]>;
 }
@@ -147,7 +167,7 @@ export function stampTemplate(
       if (ch === 'u') pois.push({ type: 'cwu_store', x: x0 + x, y: y0 + y });
       if (ch === 'H') pois.push({ type: 'cwu_head_desk', x: x0 + x, y: y0 + y });
       if (ch === 'J') pois.push({ type: 'cwu_hire', x: x0 + x, y: y0 + y });
-      const ap = ARSENAL_POIS[ch];
+      const ap = ARSENAL_POIS[ch] ?? PRISON_POIS[ch];
       if (ap) pois.push({ type: ap, x: x0 + x, y: y0 + y });
     }
   }
@@ -183,7 +203,7 @@ export function stampTemplate(
   const rooms = regions('r');
   const commons = regions('m');
   const areas: Record<string, Rect[]> = {};
-  for (const mark of 'lneapsfzNYj1') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
+  for (const mark of 'lneapsfzNYj1609&8') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];

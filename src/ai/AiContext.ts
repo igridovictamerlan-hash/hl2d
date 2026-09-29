@@ -1,6 +1,7 @@
 import type { SecuritySystem } from '../systems/Security';
 import type { CwuHqSystem } from '../systems/CwuHq';
 import type { ArsenalSystem } from '../systems/Arsenal';
+import type { PrisonSystem } from '../systems/Prison';
 import type { StreetShops } from '../systems/StreetShops';
 import type { FamilySystem } from '../systems/Families';
 import type { Housing } from '../systems/Housing';
@@ -70,6 +71,8 @@ export interface AiContext {
   cwuHq: CwuHqSystem;
   /** Склад Альянса: запасы, поставки кораблём, выдача ГО, работа ГСР, диверсии. */
   arsenal: ArsenalSystem;
+  /** Тюрьма Альянса: посты охраны, начальник, выручка своих армией. */
+  prison: PrisonSystem;
   /** Улица старого города: лавки, кафе и ларьки проспекта, общая столовая. */
   shops: StreetShops;
   /** Жильё: свой дом у каждого жителя, явки подполья с тайниками. */

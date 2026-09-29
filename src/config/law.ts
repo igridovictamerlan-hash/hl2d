@@ -48,11 +48,14 @@ export const LAW = {
   patrolDistance: [15, 55] as const,
 
   jailTime: { player: 40, npc: 35 },
-  /** Пойманный партизан — в клетке у Администратора (допрос CMD.EPU): сидит дольше. */
-  cageTime: { player: 90, npc: 240 },
-  /** Место допрашивающего — перед клеткой на столько px (вниз), выбитая дверь не запирается brokenDoor с. */
-  cageFront: 36,
+  /** Выбитая дверь камеры не запирается brokenDoor с. */
   brokenDoor: 60,
+  /**
+   * Тюрьма Альянса (повстанцы: армия и подполье): в камере до perCell мест через spacing px; NPC сидит
+   * бессрочно — пока не освободят свои, игрок — playerTime с (оружие не вернут). Ворота — gateOut тайлов
+   * за стеной двора.
+   */
+  prison: { cell: { max: 4, spacing: 30 }, playerTime: 180, gateOut: 3 },
   /** Общая камера КПЗ (граждане, ГСР, партизаны): мест не больше max, между местами spacing px. */
   commonCell: { max: 10, spacing: 34 },
 

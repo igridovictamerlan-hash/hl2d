@@ -22,8 +22,13 @@ export interface MapViewHost {
   /** Банды: районы цветом, общаги; барыга — чёрный рынок. */
   readonly gangs?: GangSystem;
   readonly fence?: Fence;
+  /** Тюрьма Альянса: маркер у ворот (мигает, пока армия идёт выручать своих). */
+  readonly prison?: PrisonSystem | null;
+  readonly law?: LawSystem;
 }
 
+import type { PrisonSystem } from '../systems/Prison';
+import type { LawSystem } from '../systems/LawSystem';
 const C = MINIMAP.colors;
 import { GANGS } from '../config/gangs';
 
@@ -87,6 +92,7 @@ export class MapView {
       [C.shop, 'магазин ГСР'],
       [C.cwuHq, 'штаб ГСР'],
       [C.arsenal, 'склад Альянса'],
+      [C.prison, 'тюрьма Альянса'],
       [C.hatch, 'люк'],
       [C.nodeBroken, 'узел Альянса выведен из строя'],
       [C.alarm, 'тревога'],
@@ -489,6 +495,9 @@ export class MapView {
       for (const p of poi('canteen_serve')) dot(p.x, p.y, 3, C.ration);
       for (const p of poi('cwu_hire')) dot(p.x, p.y, 3, C.cwuHq);
       for (const p of poi('arsenal_desk')) dot(p.x, p.y, 3, C.arsenal);
+      // Тюрьма — у ворот; идёт штурм армии — мигает.
+      const gate = host.law?.prisonGate;
+      if (gate) dot(gate.x, gate.y, 3.5, host.prison?.rescue && pulse > 0.5 ? C.alarm : C.prison);
       // Общаги банд — цветом банды; хата барыги — тем, кто с улицы или из подполья.
       for (const g of host.gangs?.gangs ?? []) dot(g.hq.x, g.hq.y, 3, g.def.color);
       const fence = host.fence?.counter;

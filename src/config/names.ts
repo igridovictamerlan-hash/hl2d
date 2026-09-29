@@ -57,6 +57,8 @@ export const ZONE_NAMES = {
   cwuHq: 'Штаб ГСР',
   arsenal: 'Склад Альянса',
   arsenalRoad: 'Складской проезд',
+  prison: 'Тюрьма Альянса',
+  prisonRoad: 'Тюремный проезд',
   sewer: 'Канализация',
   rebelBase: 'Схрон партизан',
   wasteland: 'Тропа через пустошь',

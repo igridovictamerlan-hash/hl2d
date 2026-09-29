@@ -1,4 +1,5 @@
 import { ARSENAL } from '../config/arsenal';
+import { PRISON } from '../config/prison';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { FactionId } from '../config/factions';
@@ -51,7 +52,7 @@ function freeSpot(ctx: AiContext, around: { x: number; y: number }, rMin: number
     if (a < 0 || avoid.has(ctx.nav.zone[a])) continue;
     const x = ctx.nav.worldX(a);
     const y = ctx.nav.worldY(a);
-    // Не в камере КПЗ и не в клетке у Администратора (клетки без двери — рядом с кабинетом).
+    // Не в камере КПЗ и не в камере тюрьмы.
     if (ctx.law.inAnyCell(x, y, 12)) continue;
     if (ctx.entities.list.some((c) => dist(c.x, c.y, x, y) < minGap)) continue;
     return { x, y };
@@ -85,7 +86,7 @@ export function armyKit(profession: ProfessionId): string {
  */
 export function spawnPopulation(ctx: AiContext, citizens: number): void {
   const P = AI.population;
-  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal']);
+  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   // Силовой блок — постоянный состав: не нашлось места у точки — появляется там же, где при возрождении.
@@ -155,7 +156,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const rank = CP_UNIT[unit];
     return { kind, faction: 'cp', profession: null, division: cpUnit(rank).group, rank, kit: cpUnit(rank).kit, ...extra };
   };
-  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'arsenal']);
+  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'arsenal', 'prison']);
   const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
   // RCT.PCU на постах: у ворот Нексуса (лицом наружу) и в людных местах — площадь и улицы.
   const inside = zoneIds(ctx, ['nexus', 'cells']);
@@ -221,6 +222,16 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
       const post = ars.crewSpots[k % ars.crewSpots.length];
       put(cpSpec('convoy', C.unit, { post, facing: ctx.rng.range(0, Math.PI * 2) }), post);
     }
+  }
+  // Тюрьма Альянса: охрана SU.GUARD на постах (двор и коридор), начальник — третий инспектор SU.INSP.
+  const pr = ctx.prison;
+  if (pr?.present) {
+    for (const p of pr.posts.slice(0, PRISON.guards)) {
+      const post = { x: p.x, y: p.y };
+      put(cpSpec('jailer', PRISON.guardUnit, { post, facing: p.facing }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);
+    }
+    const desk = pr.desk ?? pr.center;
+    if (desk) put(cpSpec('warden', PRISON.wardenUnit), freeSpot(ctx, desk, 0, 2, none, 16) ?? desk);
   }
   // Гарнизоны КПП: спецназ SU.03 на всех постах обоих дворов лицом к пустоши, RCT.PCU в проходной,
   // медик SU.02 в бункере.
@@ -332,7 +343,7 @@ export function roleSpawn(ctx: AiContext, faction: FactionId, profession: Profes
     spot = freeSpot(ctx, poiWorld(ctx, 'rebel_camp')!, 0, 6, none, 30);
   } else if (faction === 'rebel') {
     // Подальше от Нексуса, в жилых кварталах.
-    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp', 'arsenal']);
+    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp', 'arsenal', 'prison']);
     const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
     for (let k = 0; k < 20 && !spot; k++) {
       const s = freeSpot(ctx, { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 }, 20, 110, avoid);

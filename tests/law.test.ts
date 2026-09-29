@@ -1,4 +1,5 @@
 import { ROSTER } from '../src/config/roster';
+import { PRISON } from '../src/config/prison';
 import { ARSENAL } from '../src/config/arsenal';
 import { AI } from '../src/config/ai';
 import { describe, expect, test } from 'vitest';
@@ -150,11 +151,14 @@ describe('живой город со всеми фракциями', () => {
     expect(gangsters).toBeGreaterThanOrEqual(10);
     expect(count('citizen')).toBe(21 + gangsters);
     // Силовой блок города (ROSTER.cp) + на каждом из двух КПП 5 спецназовцев SU.03 (2 во внешней
-    // точке, 3 во внутренней), 2 RCT.PCU в проходной и медик SU.02; склад — кладовщик, охрана и экипаж конвоя.
+    // точке, 3 во внутренней), 2 RCT.PCU в проходной и медик SU.02; склад — кладовщик, охрана и экипаж конвоя;
+    // тюрьма — охрана и начальник.
     const C = ROSTER.cp;
     const city = C.nexusPosts + C.publicPosts + C.squads * (1 + C.squadFollowers) + C.investigators + C.technicians + C.officers + C.inspectors + C.guards + C.epu;
     const depot = sim.arsenal.present ? 1 + ARSENAL.guards + ARSENAL.convoy.crew : 0;
-    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot);
+    // Тюрьма Альянса — охрана SU.GUARD и начальник (третий SU.INSP).
+    const prison = sim.ctx.prison.present ? PRISON.guards + 1 : 0;
+    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison);
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['pcu', 'su', 'cmd']) expect(divisions.has(d as never)).toBe(true);
     // Армия в лагере + HYDRA + подпольщики и спецагент в схроне.
