@@ -4,6 +4,7 @@ import { spawnPopulation, settleAll } from '../src/systems/Population';
 import { spawnRole } from '../src/systems/Roster';
 import { UndergroundBrain } from '../src/ai/brains/UndergroundBrain';
 import { GangOpBrain } from '../src/ai/brains/GangOpBrain';
+import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { GANGS } from '../src/config/gangs';
 import { CP_UNIT } from '../src/config/factions';
 import { lineOfSight } from '../src/world/visibility';
@@ -78,6 +79,8 @@ describe('банды', () => {
 
   test('дела: дань с лавки — в общак, ствол у барыги — в общак', { timeout: 120_000 }, () => {
     const sim = setup();
+    // Без ГО: проверка CID по дороге (ведомый побежал — арестован, дело сорвано) — дело случая.
+    for (const c of sim.entities.list.filter((o) => o.faction === 'cp')) sim.entities.remove(c);
     const G = sim.ctx.gangs;
     G.paused = true;
     const g = G.gangs[0];
@@ -171,14 +174,48 @@ describe('барыга — вся связь подполья с улицей', 
   });
 });
 
+describe('по одному — только на районе, в городе — парами', () => {
+  test('3 минуты: вне района рядом всегда свой; выходы в город — вдвоём, дела — не меньше двоих', { timeout: 300_000 }, () => {
+    const sim = setup(50);
+    const G = sim.ctx.gangs;
+    const jailed = new Set<number>();
+    let samples = 0;
+    let solo = 0;
+    let trips = 0;
+    const teams: number[] = [];
+    for (let t = 0; t < 180 * 60; t++) {
+      sim.step();
+      for (const g of G.gangs) if (g.op && !teams.includes(g.op.team.length * 1000 + g.id)) teams.push(g.op.team.length * 1000 + g.id);
+      if (t % 30) continue;
+      for (const c of sim.entities.list) {
+        if (c.gang < 0 || c.isPlayer || !c.alive || sim.map.levelAt(c.x, c.y) !== 'city') continue;
+        // Задержанных ведёт ГО, отпущенный из КПЗ идёт на район сам — это не прогулка.
+        if (c.brain?.constructor.name === 'PrisonerBrain') jailed.add(c.id);
+        if (jailed.has(c.id)) continue;
+        samples++;
+        if (c.brain instanceof CitizenBrain && c.brain.escort.length) trips++;
+        const g = G.of(c)!;
+        if (G.inTurf(g, c.x, c.y)) continue;
+        const mate = sim.entities.list.some((o) => o !== c && o.alive && o.gang === c.gang && Math.hypot(o.x - c.x, o.y - c.y) < 160);
+        if (!mate) solo++;
+      }
+    }
+    console.log(`пары банд: замеров ${samples}, один вне района ${solo}, ведут напарника ${trips}, дела (состав) ${teams.map((k) => Math.floor(k / 1000)).join(',')}`);
+    expect(trips).toBeGreaterThan(0);
+    expect(solo / samples).toBeLessThan(0.05);
+    // Дела — не меньше двоих.
+    expect(teams.every((k) => Math.floor(k / 1000) >= GANGS.pairs.min)).toBe(true);
+  });
+});
+
 describe('город с бандами', () => {
-  test('5 минут: банды собирают дань, стычки на районах, дела идут', { timeout: 400_000 }, () => {
+  test('5 минут: банды ходят на дела (дань, налёты, удары), стычки на районах', { timeout: 400_000 }, () => {
     const sim = setup(50);
     const G = sim.ctx.gangs;
     for (let t = 0; t < 300 * 60; t++) sim.step();
     const s = G.gangs.map((g) => `${g.def.name}: ${JSON.stringify(g.stats)} общак ${g.bank}`);
     console.log(`банды: дел ${G.stats.ops}, стычек ${G.stats.feuds}; ${s.join(' | ')}`);
     expect(G.stats.ops).toBeGreaterThanOrEqual(3);
-    expect(G.gangs.reduce((n, g) => n + g.stats.racket, 0)).toBeGreaterThan(0);
+    expect(G.gangs.reduce((n, g) => n + g.stats.racket + g.stats.raids + g.stats.hits + g.stats.buys + g.stats.convoys, 0)).toBeGreaterThan(0);
   });
 });

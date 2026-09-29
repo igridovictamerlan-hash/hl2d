@@ -1089,7 +1089,7 @@ export class WarSystem {
     const { rng } = this.ctx;
     this.defectIn = rng.range(D.every[0], D.every[1]);
     const pool = this.ctx.entities.list.filter(
-      (c) => c.alive && !c.isPlayer && c.faction === 'citizen' && c.brain instanceof CitizenBrain && c.law.phase === 'none' &&
+      (c) => c.alive && !c.isPlayer && c.faction === 'citizen' && c.gang < 0 && c.brain instanceof CitizenBrain && c.law.phase === 'none' &&
         c.loyalty < D.maxLoyalty && this.ctx.map.levelAt(c.x, c.y) === 'city' && !this.defectors.has(c),
     );
     if (!pool.length) return;

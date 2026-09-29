@@ -103,7 +103,7 @@ describe('командование сопротивления', () => {
     expect(cmd.stats.retargets).toBeGreaterThanOrEqual(1);
     const target = sim.war.fronts[cmd.target];
     const atTarget = cmd.army.filter((c) => (c.brain as RebelBrain).front === target.index && sim.war.frontAt(c.x, c.y) === target);
-    const other = cmd.army.filter((c) => (c.brain as RebelBrain).front !== target.index);
+    const other = cmd.army.filter((c) => c.brain instanceof RebelBrain && c.brain.front !== target.index);
     console.log(`у КПП главы: ${atTarget.length}, отвлекают: ${other.length}`);
     expect(atTarget.length).toBeGreaterThanOrEqual(8);
     // Отвлекающая группа — COMMAND.diversion бойцов (кто-то из них мог уже погибнуть в бою).

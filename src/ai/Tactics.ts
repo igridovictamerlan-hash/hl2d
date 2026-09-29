@@ -220,8 +220,11 @@ export function columnSpot(leader: Character, k: number, self: Character, out: V
   return out;
 }
 
-/** Идти k-м в колонне за ведущим: темп — как у него, отстал — догоняет. true — ещё идёт. */
-export function followColumn(self: Character, ctx: AiContext, mover: Mover, leader: Character, k: number, dt: number, st: { repath: number }): boolean {
+/**
+ * Идти k-м в колонне за ведущим: темп — как у него, отстал — догоняет (не быстрее maxSpeed). true —
+ * ещё идёт.
+ */
+export function followColumn(self: Character, ctx: AiContext, mover: Mover, leader: Character, k: number, dt: number, st: { repath: number }, maxSpeed: number = CHARACTER.runSpeed * 0.9): boolean {
   const p = columnSpot(leader, k, self);
   const d = Math.hypot(p.x - self.x, p.y - self.y);
   st.repath -= dt;
@@ -230,7 +233,7 @@ export function followColumn(self: Character, ctx: AiContext, mover: Mover, lead
     return false;
   }
   const lead = Math.hypot(leader.vx, leader.vy);
-  mover.speed = Math.max(45, Math.min(CHARACTER.runSpeed * 0.9, lead * 1.05 + d * 0.9));
+  mover.speed = Math.max(45, Math.min(maxSpeed, lead * 1.05 + d * 0.9));
   if (st.repath <= 0 || mover.status === 'idle' || mover.status === 'arrived' || mover.status === 'failed') {
     st.repath = 0.45;
     const a = ctx.nav.nearestWalkable(p.x, p.y, 2);

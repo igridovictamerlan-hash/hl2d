@@ -10,6 +10,7 @@ import { WEAPONS, type WeaponId } from '../config/items';
 import { lineOfSight } from '../world/visibility';
 import { spawnRole } from './Roster';
 import { GangOpBrain } from '../ai/brains/GangOpBrain';
+import { CitizenBrain } from '../ai/brains/CitizenBrain';
 
 export type GangOpKind = 'racket' | 'raid' | 'hit' | 'convoy' | 'buy';
 
@@ -42,6 +43,10 @@ export interface Gang {
   turf: Set<number>;
   quarter: string;
   anchors: number[];
+  /** Тайлы района с кромкой GANGS.pairs.edge (правило «по одному — только на районе»). */
+  mask: Uint8Array;
+  /** Зоны не района — в A* одиночке дороже (путь по своему району, а не через чужие кварталы). */
+  away: Set<number>;
   center: Vec2;
   bank: number;
   stash: Inventory;
@@ -117,7 +122,10 @@ export class GangSystem {
       if (c.q >= 0) turf.add(c.q);
       const own = map.zoneGrid[(c.d.y + (c.d.h! >> 1)) * map.width + c.d.x + (c.d.w! >> 1)];
       turf.add(own);
-      const anchors = [...turf].flatMap((z) => nav.anchorsByZone.get(z) ?? []);
+      // Точки района — только связная с общагой часть (зона квартала бывает разорвана чужими).
+      const mask = turfMask(map, turf, GANGS.pairs.edge);
+      const anchors = turfComponent(nav, mask, hq, turf);
+      const away = new Set(map.zones.map((z) => z.id).filter((id) => !turf.has(id)));
       let sx = 0;
       let sy = 0;
       for (const an of anchors) {
@@ -135,6 +143,8 @@ export class GangSystem {
         turf,
         quarter: c.q >= 0 ? map.zones[c.q].name : '',
         anchors,
+        mask,
+        away,
         center: anchors.length ? { x: sx / anchors.length, y: sy / anchors.length } : c.c,
         bank: GANGS.bank,
         stash,
@@ -166,6 +176,33 @@ export class GangSystem {
   /** Банда, чей район — эта зона (для баннера и карты), или null. */
   turfOf(zoneId: number): Gang | null {
     return this.gangs.find((g) => g.turf.has(zoneId)) ?? null;
+  }
+
+  /** На районе ли точка (зоны района или у самой общаги — её крыльцо выходит на улицу). */
+  inTurf(g: Gang, x: number, y: number): boolean {
+    if (Math.hypot(x - g.hq.x, y - g.hq.y) < GANGS.pairs.hqRadius) return true;
+    const m = this.ctx.map;
+    const tx = Math.floor(x / m.tileSize);
+    const ty = Math.floor(y / m.tileSize);
+    return tx >= 0 && ty >= 0 && tx < m.width && ty < m.height && g.mask[ty * m.width + tx] === 1;
+  }
+
+  /** На районе ли якорь сетки. */
+  anchorInTurf(g: Gang, a: number): boolean {
+    return a >= 0 && (g.turf.has(this.ctx.nav.zone[a]) || this.inTurf(g, this.ctx.nav.worldX(a), this.ctx.nav.worldY(a)));
+  }
+
+  /** Ближняя из нескольких случайных точек района — вернуться на район. */
+  turfReturn(g: Gang, x: number, y: number): number {
+    let best = -1;
+    let bestD = Infinity;
+    for (let k = 0; k < 6; k++) {
+      const a = this.turfAnchor(g);
+      if (a < 0) continue;
+      const d = Math.hypot(this.ctx.nav.worldX(a) - x, this.ctx.nav.worldY(a) - y);
+      if (d < bestD) [best, bestD] = [a, d];
+    }
+    return best;
   }
 
   /** Случайная точка своего района (прогулки бойцов). */
@@ -341,7 +378,9 @@ export class GangSystem {
     const { ctx } = this;
     const O = GANGS.ops;
     const free = this.free(g).sort((a, b) => Math.hypot(a.x - g.hq.x, a.y - g.hq.y) - Math.hypot(b.x - g.hq.x, b.y - g.hq.y));
-    if (!free.length) return null;
+    // Все дела — в городе, а по городу ходят не меньше pairs.min.
+    const MIN = GANGS.pairs.min;
+    if (free.length < MIN) return null;
     const war = ctx.war.fronts.some((f) => f.capture) || !!ctx.war.nexus?.wave;
     const convoy = ctx.arsenal?.present ? ctx.arsenal.convoys.find((v) => v.phase === 'march' && Math.hypot(v.lead.x - g.hq.x, v.lead.y - g.hq.y) < O.convoy.seek) ?? null : null;
     const shops = ctx.shops?.shops.filter((s) => s.vendorSpot && Math.hypot(s.front.x - g.hq.x, s.front.y - g.hq.y) < O.racket.seek) ?? [];
@@ -352,7 +391,7 @@ export class GangSystem {
       const W = O.weights;
       const opts: [GangOpKind, number][] = [
         ['racket', shops.length ? W.racket : 0],
-        ['raid', rivals.length && free.length >= 2 ? W.raid : 0],
+        ['raid', rivals.length ? W.raid : 0],
         ['hit', W.hit],
         ['convoy', convoy && free.length >= 3 ? W.convoy * 3 : 0],
         ['buy', ctx.fence?.present && g.bank >= O.buy.minBank ? W.buy : 0],
@@ -366,14 +405,14 @@ export class GangSystem {
       }
     }
     if (!type) return null;
-    const pickN = (range: readonly [number, number]) => free.slice(0, Math.min(free.length, ctx.rng.int(range[0], range[1])));
+    const pickN = (range: readonly [number, number]) => free.slice(0, Math.min(free.length, Math.max(MIN, ctx.rng.int(range[0], range[1]))));
     const op: GangOp = { kind: type, gang: g, team: [], target: null, shop: null, convoy: null, rival: null, until: this.time + 60, paid, done: false };
     switch (type) {
       case 'racket': {
         if (!shops.length) return null;
         op.shop = ctx.rng.pick(shops);
         op.target = op.shop.front;
-        op.team = free.slice(0, Math.min(2, free.length));
+        op.team = free.slice(0, MIN);
         op.until = this.time + 90;
         break;
       }
@@ -401,11 +440,27 @@ export class GangSystem {
       case 'buy':
         if (!ctx.fence?.counter) return null;
         op.target = ctx.fence.counter;
-        op.team = free.slice(0, 1);
+        op.team = free.slice(0, MIN);
         op.until = this.time + O.buy.time;
         break;
     }
-    if (!op.team.length) return null;
+    if (op.team.length < MIN) return null;
+    // Кто идёт в паре — на дело вместе с напарником (никого не бросают одного в городе).
+    for (const c of [...op.team]) {
+      const b = c.brain;
+      if (!(b instanceof CitizenBrain)) continue;
+      const lead = b.crewLead ?? c;
+      const lb = lead.brain instanceof CitizenBrain ? lead.brain : null;
+      for (const o of [lead, ...(lb?.escort ?? [])]) if (!op.team.includes(o) && free.includes(o)) op.team.push(o);
+    }
+    for (const c of op.team) {
+      // Место в очереди за рационом — не держать, пока на деле.
+      ctx.economy.leaveQueue(c);
+      const b = c.brain;
+      if (!(b instanceof CitizenBrain)) continue;
+      b.leaveCrew();
+      b.dropCrew();
+    }
     g.op = op;
     this.stats.ops++;
     if (type === 'raid') g.stats.raids++;
@@ -422,7 +477,20 @@ export class GangSystem {
     if (!op) return;
     for (const c of op.team) if (c.brain instanceof GangOpBrain) c.brain.finish(c, this.ctx);
     g.op = null;
+    this.homeTogether(g, op.team);
     g.nextOp = this.time + this.ctx.rng.range(GANGS.ops.every[0], GANGS.ops.every[1]);
+  }
+
+  /**
+   * После дела — назад на район вместе: первый вне района ведёт, остальные вне района — колонной за
+   * ним (по одному по городу не ходят).
+   */
+  private homeTogether(g: Gang, team: Character[]): void {
+    const out = team.filter((c) => c.alive && c.fit && !c.isPlayer && c.law.phase === 'none' && c.brain instanceof CitizenBrain && !this.inTurf(g, c.x, c.y));
+    if (out.length < 2) return;
+    const lead = out[0].brain as CitizenBrain;
+    for (const c of out.slice(1)) lead.adopt(c);
+    lead.headHome();
   }
 
   update(dt: number): void {
@@ -457,3 +525,68 @@ export class GangSystem {
 }
 
 const near: Character[] = [];
+
+/**
+ * Якоря района, связные с общагой по тайлам района (с кромкой); из них — в зонах района (если таких
+ * мало — все связные).
+ */
+function turfComponent(nav: AiContext['nav'], mask: Uint8Array, hq: Vec2, turf: Set<number>): number[] {
+  const mw = nav.map.width;
+  const inMask = (i: number) => mask[(nav.ay(i) + 1) * mw + nav.ax(i) + 1] === 1;
+  const start = nav.nearestWalkable(hq.x, hq.y, 3);
+  if (start < 0) return [...turf].flatMap((z) => nav.anchorsByZone.get(z) ?? []);
+  const seen = new Uint8Array(nav.w * nav.h);
+  const out: number[] = [];
+  const q = [start];
+  seen[start] = 1;
+  while (q.length) {
+    const i = q.pop()!;
+    out.push(i);
+    const ax = nav.ax(i);
+    const ay = nav.ay(i);
+    for (const [dx, dy] of DIRS) {
+      const x = ax + dx;
+      const y = ay + dy;
+      if (!nav.isWalkable(x, y)) continue;
+      const j = y * nav.w + x;
+      if (seen[j] || !inMask(j)) continue;
+      seen[j] = 1;
+      q.push(j);
+    }
+  }
+  out.sort((a, b) => a - b);
+  const own = out.filter((i) => turf.has(nav.zone[i]));
+  return own.length >= 50 ? own : out;
+}
+
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
+/** Тайлы зон района, расширенные на edge тайлов (квадратное окно, по строкам и столбцам). */
+function turfMask(map: AiContext['map'], turf: Set<number>, edge: number): Uint8Array {
+  const { width: w, height: h } = map;
+  const base = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) if (turf.has(map.zoneGrid[i])) base[i] = 1;
+  const row = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      for (let k = Math.max(0, x - edge); k <= Math.min(w - 1, x + edge); k++) {
+        if (base[y * w + k]) {
+          row[y * w + x] = 1;
+          break;
+        }
+      }
+    }
+  }
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      for (let k = Math.max(0, y - edge); k <= Math.min(h - 1, y + edge); k++) {
+        if (row[k * w + x]) {
+          out[y * w + x] = 1;
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}

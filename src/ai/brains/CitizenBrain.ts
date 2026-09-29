@@ -34,6 +34,8 @@ import { CWU_HQ } from '../../config/cwuHq';
 import { PARTISANS } from '../../config/underground';
 import { GANGS } from '../../config/gangs';
 import { Gunner } from '../Gunner';
+import { followColumn, watchSector } from '../Tactics';
+import type { Gang } from '../../systems/Gangs';
 
 /** Работа по профессии (ГСР, вортигонт, отброс общества). */
 type Job =
@@ -82,7 +84,7 @@ const near: Character[] = [];
 const near2: Character[] = [];
 
 /** Состояния, в которых мозг сам решает, куда смотреть (не «по ходу движения»). */
-const SELF_FACING = new Set(['stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice', 'canteen', 'shopping']);
+const SELF_FACING = new Set(['crew', 'stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice', 'canteen', 'shopping']);
 
 /**
  * Житель города (гражданин, ГСР, повстанец): стоит → идёт → стоит. Иногда нарушает:
@@ -142,6 +144,17 @@ export class CitizenBrain implements Brain {
   gunner: Gunner | null = null;
   private inFight = false;
   private fightRepath = 0;
+  /**
+   * Банда: по городу — не меньше GANGS.pairs.min. Ведущий — escort (кто идёт за ним колонной), ведомый —
+   * crewLead (за кем идёт, состояние 'crew'). crewLegs — сколько ещё точек города обойти; waitGoal —
+   * куда шёл, пока ждёт отставших (crewWait — сколько уже ждал за выход).
+   */
+  escort: Character[] = [];
+  crewLead: Character | null = null;
+  crewLegs = 0;
+  private crewWait = 0;
+  private waitGoal = -1;
+  readonly column = { repath: 0 };
 
   constructor(
     public self: Character,
@@ -154,7 +167,7 @@ export class CitizenBrain implements Brain {
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
-    this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT, CANTEEN, SHOPPING], 'idle');
+    this.fsm = new StateMachine<CitizenBrain>(this, [CREW, IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT, CANTEEN, SHOPPING], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
     this.nextHome = ctx.law.now + ctx.rng.range(HOUSING.visit.first[0], HOUSING.visit.first[1]);
@@ -170,7 +183,20 @@ export class CitizenBrain implements Brain {
     const phase = self.law.phase;
     // Банда: стычка с чужими (или с ГО, раз напал) — бой поверх любого занятия.
     if (self.gang >= 0 && phase === 'none' && this.gangFight(dt)) return;
+    // Ведёт своих по городу: отстали — ждёт (решения не принимаются, пока стоит).
+    if ((this.escort.length || (self.gang >= 0 && phase === 'none')) && this.crewTick(dt)) {
+      this.mover.update(self, ctx, dt);
+      return;
+    }
     const cur = this.fsm.current;
+    if ((phase === 'ordered' || phase === 'checking') && cur === 'crew') {
+      // Ведомого проверяет ГО — стоит, но из пары не уходит (ведущий ждёт).
+      this.mover.stop();
+      this.mover.update(self, ctx, dt);
+      const h = self.law.handler;
+      if (h) faceTowards(self, h.x, h.y, dt);
+      return;
+    }
     if (phase === 'ordered' || phase === 'checking') {
       if (cur !== 'stopped') this.fsm.change('stopped');
     } else if (phase === 'fleeing') {
@@ -210,7 +236,7 @@ export class CitizenBrain implements Brain {
    */
   startRiot(self: Character, center: Vec2, until: number): boolean {
     const cur = this.fsm.current;
-    if (this.job || self.law.phase !== 'none' || cur === 'panic' || cur === 'shelter' || cur === 'queue') return false;
+    if (this.job || self.law.phase !== 'none' || cur === 'panic' || cur === 'shelter' || cur === 'queue' || self.gang >= 0) return false;
     if (self.loyalty >= PARTISANS.riot.maxLoyalty) return false;
     this.riotAt = center;
     this.riotUntil = until;
@@ -232,7 +258,8 @@ export class CitizenBrain implements Brain {
         this.inFight = false;
         ctx.combat.equip(self, null);
         this.idleLeft = ctx.rng.range(1, 3);
-        this.fsm.change('idle');
+        // Ведомый после боя — снова за своим.
+        if (this.fsm.current !== 'crew') this.fsm.change('idle');
       }
       return false;
     }
@@ -264,7 +291,7 @@ export class CitizenBrain implements Brain {
   private checkBroadcast(): void {
     const st = this.ctx.street;
     const cur = this.fsm.current;
-    if (!st?.broadcasting || this.heardBroadcast === st.broadcast || (cur !== 'idle' && cur !== 'walk') || !this.street) return;
+    if (!st?.broadcasting || this.heardBroadcast === st.broadcast || (cur !== 'idle' && cur !== 'walk') || !this.street || this.self.gang >= 0) return;
     this.heardBroadcast = st.broadcast;
     const B = STREET.broadcast;
     const p = st.plaza!;
@@ -275,7 +302,7 @@ export class CitizenBrain implements Brain {
   /** Свободен ли житель для разговора. */
   private chattable(o: Character): boolean {
     const b = o.brain;
-    if (o === this.self || !o.alive || o.isPlayer || !(b instanceof CitizenBrain) || !b.street) return false;
+    if (o === this.self || !o.alive || o.isPlayer || !(b instanceof CitizenBrain) || !b.street || o.gang >= 0) return false;
     if (b.fsm.current !== 'idle' && b.fsm.current !== 'walk') return false;
     return o.law.phase === 'none' && this.ctx.law.now - b.lastChat > STREET.chat.cooldown && b.glanceUntil <= this.ctx.law.now;
   }
@@ -410,10 +437,12 @@ export class CitizenBrain implements Brain {
   goalAwayFrom(x: number, y: number): number {
     let best = -1;
     let bestD = -1;
+    // Боец банды один — уходит по своему району, если есть куда.
+    const g = this.soloGang();
     for (let k = 0; k < 8; k++) {
       const a = randomAnchorAround(this.self, this.ctx, 12, 40, this.avoid);
       if (a < 0) continue;
-      const d = Math.hypot(this.ctx.nav.worldX(a) - x, this.ctx.nav.worldY(a) - y);
+      const d = Math.hypot(this.ctx.nav.worldX(a) - x, this.ctx.nav.worldY(a) - y) + (g && this.ctx.gangs.anchorInTurf(g, a) ? 1e5 : 0);
       if (d > bestD) {
         bestD = d;
         best = a;
@@ -437,13 +466,13 @@ export class CitizenBrain implements Brain {
     if (self.faction === 'vort') return 'walk';
     if (eco.open && eco.cycle !== this.consideredCycle && !eco.hasBeenServed(self) && self.faction !== 'rebel') {
       this.consideredCycle = eco.cycle;
-      if (ctx.rng.chance(ECONOMY.rations.npcJoinChance)) return 'queue';
+      if (ctx.rng.chance(ECONOMY.rations.npcJoinChance) && this.pairedFor(eco.window)) return 'queue';
     }
     // Горожанин с едой проголодался — поесть за столом в общей столовой (не при красном коде; у ГСР
     // своя столовая в штабе).
     const hustler = self.profession === 'thief' || self.profession === 'bandit' || self.gang >= 0;
     if (self.faction === 'citizen' && !hustler && ctx.war.code !== 'red' && ctx.shops?.wantsMeal(self) && ctx.rng.chance(ctx.shops.foodOf(self) ? ARBAT.meal.chance : ARBAT.meal.soupChance)) return 'canteen';
-    if (eco.shopCounter && self.money >= 6 && self.hunger < 75 && ctx.rng.chance(ECONOMY.shop.npcVisitChance)) return 'shop';
+    if (eco.shopCounter && self.money >= 6 && self.hunger < 75 && ctx.rng.chance(ECONOMY.shop.npcVisitChance) && this.pairedFor(eco.shopCounter)) return 'shop';
     return this.streetActivity() ?? 'walk';
   }
 
@@ -610,13 +639,13 @@ export class CitizenBrain implements Brain {
               best = k;
             }
           }
-          if (best && !this.cpInSight(260) && ctx.rng.chance(CRIME.loot.chance)) return { kind: 'loot', corpse: best, left: CRIME.loot.time, until: ctx.law.now + CRIME.npc.giveUp };
+          if (best && !this.cpInSight(260) && ctx.rng.chance(CRIME.loot.chance) && this.pairedFor(best)) return { kind: 'loot', corpse: best, left: CRIME.loot.time, until: ctx.law.now + CRIME.npc.giveUp };
         }
         // Нож в спину одинокому патрульному.
         // (Случайность — только если жертва есть: иначе не сдвигать общий поток rng.)
         if (self.inventory.has('knife') && ctx.war.code === 'green') {
           const v = this.loneCp();
-          if (v && ctx.rng.chance(CRIME.shank.chance)) return { kind: 'shank', victim: v, until: ctx.law.now + CRIME.shank.giveUp, repath: 0 };
+          if (v && ctx.rng.chance(CRIME.shank.chance) && this.pairedFor(v)) return { kind: 'shank', victim: v, until: ctx.law.now + CRIME.shank.giveUp, repath: 0 };
         }
         // Гоп-стоп: жертва в подворотне, ГО рядом не видно.
         if (!ctx.rng.chance(CRIME.rob.npcChance) || this.cpInSight(260)) return null;
@@ -630,7 +659,7 @@ export class CitizenBrain implements Brain {
             victim = o;
           }
         }
-        return victim ? { kind: 'rob', victim, left: CRIME.rob.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0, threatened: false } : null;
+        return victim && this.pairedFor(victim) ? { kind: 'rob', victim, left: CRIME.rob.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0, threatened: false } : null;
       }
       case 'outcast': {
         const pile = labor.trash.filter((p) => !p.searched).sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y))[0];
@@ -689,10 +718,13 @@ export class CitizenBrain implements Brain {
   }
 
   pickGoal(): number {
-    const { ctx, profile } = this;
+    const { ctx } = this;
     const f = this.self.faction;
     this.mover.speed = this.walkSpeed;
     this.mover.avoidZones = this.avoid;
+    // Боец банды: один — только по своему району, в город — с напарником.
+    const gang = ctx.gangs?.of(this.self);
+    if (gang) return this.gangGoal(gang);
     // Нарушения: в запретную зону или бегом.
     if (ctx.rng.chance(LAW.npc.trespassChance[f] ?? 0)) {
       const g = randomAnchorInZone(ctx, 'restricted');
@@ -702,12 +734,12 @@ export class CitizenBrain implements Brain {
       }
     }
     if (ctx.rng.chance(LAW.npc.runChance[f] ?? 0)) this.mover.speed = CHARACTER.runSpeed * 0.9;
-    // Боец банды держится своего района.
-    const gang = ctx.gangs?.of(this.self);
-    if (gang && ctx.rng.chance(GANGS.turfChance)) {
-      const a = ctx.gangs.turfAnchor(gang);
-      if (a >= 0) return a;
-    }
+    return this.cityGoal();
+  }
+
+  /** Прогулка по городу: любимое место или точка вокруг. */
+  private cityGoal(): number {
+    const { ctx, profile } = this;
     if (ctx.rng.chance(profile.favouriteChance)) {
       const g = randomAnchorInZone(ctx, ctx.rng.pick(profile.favourite));
       if (g >= 0 && !this.avoid.has(ctx.nav.zone[g])) return g;
@@ -715,7 +747,241 @@ export class CitizenBrain implements Brain {
     const C = AI.citizen;
     return randomAnchorAround(this.self, ctx, C.wanderDistance[0], C.wanderDistance[1], this.avoid);
   }
+  // ——— Банда: по одному — только на районе, в город — вместе ———
+
+  /** Идёт ли в паре (ведёт или ведомый). */
+  get inCrew(): boolean {
+    return this.escort.length > 0 || !!this.crewLead;
+  }
+
+  /** Банда бойца, если он сейчас один (не ведёт и не ведомый). */
+  private soloGang(): Gang | null {
+    return this.inCrew ? null : this.ctx.gangs?.of(this.self) ?? null;
+  }
+
+  private onTurf(g: Gang): boolean {
+    return this.ctx.gangs.inTurf(g, this.self.x, this.self.y);
+  }
+
+  /**
+   * Цель прогулки бойца банды: ведёт своих по городу — ещё точка города или назад на район; один вне
+   * района — назад на район; на районе — чаще по району, иначе в город, если найдётся напарник.
+   */
+  private gangGoal(g: Gang): number {
+    const { ctx } = this;
+    const G = ctx.gangs;
+    if (this.escort.length) {
+      if (this.crewLegs > 0) {
+        this.crewLegs--;
+        const a = this.cityGoal();
+        if (a >= 0) return a;
+      }
+      if (!this.onTurf(g) && ctx.rng.chance(0.5)) this.self.say(ctx.rng.pick(GANGS.lines.home), ctx.law.now, 2);
+      return G.turfReturn(g, this.self.x, this.self.y);
+    }
+    // Один — путь по своему району (чужие кварталы и улицы в A* дороже).
+    this.mover.avoidZones = g.away;
+    if (!this.onTurf(g)) return G.turfReturn(g, this.self.x, this.self.y);
+    if (!ctx.rng.chance(GANGS.turfChance)) {
+      const a = this.cityGoal();
+      if (a >= 0 && !G.anchorInTurf(g, a) && this.recruit()) {
+        this.mover.avoidZones = this.avoid;
+        const L = GANGS.pairs.legs;
+        this.crewLegs = ctx.rng.int(L[0], L[1]) - 1;
+        return a;
+      }
+    }
+    return G.turfAnchor(g);
+  }
+
+  /**
+   * Можно ли идти к точке p: не боец банды, точка на районе, уже ведёт своих — да; иначе нужен
+   * напарник (recruit).
+   */
+  private pairedFor(p: Vec2): boolean {
+    const g = this.ctx.gangs?.of(this.self);
+    if (!g || this.ctx.gangs.inTurf(g, p.x, p.y) || this.escort.length) return true;
+    return this.recruit();
+  }
+
+  /** Позвать с собой ближайшего свободного бойца своей банды на районе. */
+  private recruit(): boolean {
+    const { self, ctx } = this;
+    const g = ctx.gangs?.of(self);
+    if (!g || this.crewLead || !this.onTurf(g)) return false;
+    let best: Character | null = null;
+    let bestD: number = GANGS.pairs.seek;
+    for (const o of ctx.entities.list) {
+      if (o === self || o.gang !== self.gang || o.isPlayer || !o.alive || !o.fit || o.profession === 'gang_boss' || o.law.phase !== 'none') continue;
+      const b = o.brain;
+      if (!(b instanceof CitizenBrain) || b.inCrew || b.inFight || (b.fsm.current !== 'idle' && b.fsm.current !== 'walk')) continue;
+      if (!ctx.gangs.inTurf(g, o.x, o.y)) continue;
+      const d = Math.hypot(o.x - self.x, o.y - self.y);
+      if (d < bestD) [best, bestD] = [o, d];
+    }
+    if (!best) return false;
+    this.crewWait = 0;
+    this.adopt(best);
+    self.say(ctx.rng.pick(GANGS.lines.crew), ctx.law.now, 2.2);
+    return true;
+  }
+
+  /** Взять бойца ведомым: идёт за мной колонной (физика друг друга не толкает). */
+  adopt(o: Character): void {
+    const b = o.brain;
+    if (!(b instanceof CitizenBrain) || o === this.self) return;
+    if (b.crewLead) b.leaveCrew();
+    b.dropCrew();
+    this.escort.push(o);
+    b.crewLead = this.self;
+    o.squadLead = this.self;
+    b.fsm.change('crew');
+  }
+
+  /** Ведомый уходит из колонны. */
+  leaveCrew(): void {
+    const l = this.crewLead;
+    if (!l) return;
+    this.crewLead = null;
+    if (this.self.squadLead === l) this.self.squadLead = null;
+    const lb = l.brain;
+    if (lb instanceof CitizenBrain) lb.escort = lb.escort.filter((o) => o !== this.self);
+  }
+
+  /** Ведущий отпускает своих (выход окончен). */
+  dropCrew(): void {
+    const list = this.escort;
+    this.escort = [];
+    this.waitGoal = -1;
+    for (const o of list) {
+      const b = o.brain;
+      if (!(b instanceof CitizenBrain) || b.crewLead !== this.self) continue;
+      b.crewLead = null;
+      if (o.squadLead === this.self) o.squadLead = null;
+      if (b.fsm.current === 'crew') {
+        b.idleLeft = this.ctx.rng.range(1, 4);
+        b.fsm.change('idle');
+      }
+    }
+  }
+
+  /** Ведёт своих назад на район (после дела банды). */
+  headHome(): void {
+    this.crewLegs = 0;
+    this.crewWait = 0;
+    this.mover.stop();
+    this.fsm.change('walk');
+  }
+
+  /**
+   * Каждый тик у бойца банды: ведомые ещё с ним? Вернулся на район и дальше не собирается — отпускает.
+   * Остался один вне района — бросает дело и назад. Отстали ведомые — ждёт (true — стоит, ждёт).
+   */
+  private crewTick(dt: number): boolean {
+    const { self, ctx } = this;
+    const g = ctx.gangs?.of(self);
+    if (this.escort.length) {
+      const keep = this.escort.filter((o) => o.alive && o.fit && o.brain instanceof CitizenBrain && o.brain.crewLead === self && o.brain.fsm.current === 'crew');
+      if (keep.length !== this.escort.length) {
+        const gone = this.escort.filter((o) => !keep.includes(o));
+        this.escort = keep;
+        for (const o of gone) {
+          if (o.brain instanceof CitizenBrain && o.brain.crewLead === self) o.brain.crewLead = null;
+          if (o.squadLead === self) o.squadLead = null;
+        }
+      }
+    }
+    if (!g) return false;
+    if (!this.escort.length) {
+      this.waitGoal = -1;
+      if (!this.crewLead && self.law.phase === 'none' && !this.onTurf(g)) this.aloneOutside(g);
+      return false;
+    }
+    const cur = this.fsm.current;
+    const goal = this.mover.goal >= 0 ? this.mover.goal : this.glanceGoal >= 0 ? this.glanceGoal : this.waitGoal;
+    const out = cur === 'work' || cur === 'queue' || cur === 'shop' || (goal >= 0 && !ctx.gangs.anchorInTurf(g, goal));
+    if (!out && this.onTurf(g)) {
+      this.dropCrew();
+      return false;
+    }
+    const P = GANGS.pairs;
+    // Ведомого проверяет ГО — ждать его.
+    const held = this.escort.find((o) => o.law.phase === 'ordered' || o.law.phase === 'checking');
+    if (held && this.waitGoal < 0 && this.mover.goal >= 0) {
+      this.waitGoal = this.mover.goal;
+      this.mover.stop();
+    }
+    let nearest = Infinity;
+    let who: Character | null = null;
+    for (const o of this.escort) {
+      const d = Math.hypot(o.x - self.x, o.y - self.y);
+      if (d < nearest) [nearest, who] = [d, o];
+    }
+    if (this.waitGoal >= 0) {
+      this.crewWait += dt;
+      if (!held && (nearest <= P.resume || this.crewWait > P.waitMax)) {
+        this.mover.goTo(self, ctx, this.waitGoal);
+        this.waitGoal = -1;
+        return false;
+      }
+      if (who) faceTowards(self, who.x, who.y, dt);
+      return true;
+    }
+    if (nearest > P.wait && this.crewWait < P.waitMax && this.mover.goal >= 0 && this.mover.status === 'moving') {
+      this.waitGoal = this.mover.goal;
+      this.mover.stop();
+      return true;
+    }
+    return false;
+  }
+
+  /** Один вне района (напарник выбыл, отпустили из КПЗ): дело бросить, назад на район. */
+  private aloneOutside(g: Gang): void {
+    const { ctx } = this;
+    const cur = this.fsm.current;
+    const job = this.job;
+    if (cur === 'work' && job && (job.kind === 'rob' || job.kind === 'loot' || job.kind === 'shank' || job.kind === 'pickpocket')) {
+      if (job.kind === 'shank' && job.victim.lastAttacker === this.self) return;
+      job.until = 0;
+    } else if (cur === 'queue' || cur === 'shop') {
+      this.idleLeft = 0.3;
+      this.fsm.change('idle');
+    } else if (cur === 'idle') this.idleLeft = Math.min(this.idleLeft, 0.3); else if (cur === 'walk' && this.glanceUntil <= ctx.law.now) {
+      const goal = this.mover.goal;
+      if (goal < 0 || !ctx.gangs.anchorInTurf(g, goal)) {
+        const a = ctx.gangs.turfReturn(g, this.self.x, this.self.y);
+        this.mover.avoidZones = g.away;
+        if (a >= 0) this.mover.goTo(this.self, ctx, a);
+      }
+    }
+  }
 }
+
+/** Ведомый бойца банды: колонной за ведущим, стоит — смотрит в свой сектор. */
+const CREW: State<CitizenBrain> = {
+  name: 'crew',
+  enter(b) {
+    b.column.repath = 0;
+    b.mover.avoidZones = b.avoid;
+    b.mover.stop();
+  },
+  update(b, dt) {
+    const l = b.crewLead;
+    const lb = l?.brain instanceof CitizenBrain ? l.brain : null;
+    if (!l || !lb || !l.alive || !l.fit || !lb.escort.includes(b.self)) {
+      b.leaveCrew();
+      b.idleLeft = b.ctx.rng.range(0.5, 1.5);
+      return 'idle';
+    }
+    const k = lb.escort.indexOf(b.self) + 1;
+    if (followColumn(b.self, b.ctx, b.mover, l, k, dt, b.column, LAW.runSpeed * GANGS.pairs.walkMax)) faceMovement(b.self, b.ctx, dt);
+    else watchSector(b.self, l, k, k === lb.escort.length, dt);
+  },
+  exit(b) {
+    b.leaveCrew();
+    b.mover.speed = b.walkSpeed;
+  },
+};
 
 const IDLE: State<CitizenBrain> = {
   name: 'idle',

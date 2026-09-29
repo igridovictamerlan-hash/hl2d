@@ -9,6 +9,8 @@ import { CHARACTER } from '../../config/entities';
 import { COMBAT } from '../../config/combat';
 import { GANGS } from '../../config/gangs';
 import { canSeeCircle } from '../../world/visibility';
+import { LAW } from '../../config/law';
+import { followColumn, watchSector } from '../Tactics';
 
 /**
  * Боец банды на деле (GangSystem.startOp) — мозг на время дела, потом прежний (finish):
@@ -17,7 +19,9 @@ import { canSeeCircle } from '../../world/visibility';
  *  hit — к патрульному ГО у района, ближе engage — ствол в руки (враг Альянса, розыск), огонь;
  *  convoy — наперерез колонне склада, ближе engage и на виду — огонь; брошенные ящики — в общак;
  *  buy — к барыге, купить ствол в общак.
- * Стреляет по врагам (Gunner): бойцам чужой банды в стычке и, раз напал, — по ГО.
+ * Стреляет по врагам (Gunner): бойцам чужой банды в стычке и, раз напал, — по ГО. По городу — вместе
+ * (GANGS.pairs): остальные идут колонной за ведущим (первый живой из команды), ведущий ждёт отставших;
+ * ведущий остался один — дело бросает.
  */
 export class GangOpBrain implements Brain {
   readonly mover = new Mover(CHARACTER.walkSpeed * 1.05);
@@ -25,6 +29,9 @@ export class GangOpBrain implements Brain {
   private repath = 0;
   private stay = 0;
   prey: Character | null = null;
+  private readonly column = { repath: 0 };
+  private waiting = false;
+  private waited = 0;
 
   constructor(self: Character, ctx: AiContext, readonly op: GangOp, private readonly saved: Brain | null) {
     this.gunner = new Gunner(ctx.rng);
@@ -66,6 +73,60 @@ export class GangOpBrain implements Brain {
     return best;
   }
 
+  /** Дело кончено для всей команды: GangSystem завершит его и уведёт всех на район вместе. */
+  private over(): void {
+    this.op.until = -Infinity;
+    this.mover.stop();
+  }
+
+  /** Бойцы команды, ещё идущие на это дело. */
+  private crew(): Character[] {
+    // Кого проверяет ГО — всё ещё в команде (остальные ждут).
+    const ph = (c: Character) => c.law.phase === 'none' || c.law.phase === 'ordered' || c.law.phase === 'checking';
+    return this.op.team.filter((c) => c.alive && c.fit && ph(c) && c.brain instanceof GangOpBrain && c.brain.op === this.op);
+  }
+
+  /**
+   * Вместе по городу: ведомый — колонной за ведущим (true — ход сделан); ведущий — ждёт, если рядом
+   * никого (true — стоит). Ведущий один — дело брошено.
+   */
+  private together(self: Character, ctx: AiContext, dt: number): boolean {
+    const crew = this.crew();
+    const lead = crew[0];
+    if (!lead) return false;
+    const P = GANGS.pairs;
+    if (lead !== self) {
+      const k = crew.indexOf(self);
+      if (lead.law.phase !== 'none') {
+        this.mover.stop();
+        faceTowards(self, lead.x, lead.y, dt);
+        return true;
+      }
+      if (followColumn(self, ctx, this.mover, lead, k, dt, this.column, LAW.runSpeed * P.walkMax)) faceMovement(self, ctx, dt);
+      else watchSector(self, lead, k, k === crew.length - 1, dt);
+      return true;
+    }
+    if (crew.length < P.min) {
+      this.finish(self, ctx);
+      return true;
+    }
+    let nearest = Infinity;
+    let who: Character | null = null;
+    for (const o of crew) {
+      if (o === self) continue;
+      const d = Math.hypot(o.x - self.x, o.y - self.y);
+      if (d < nearest) [nearest, who] = [d, o];
+    }
+    if (this.waiting) {
+      this.waited += dt;
+      if (nearest <= P.resume || this.waited > P.waitMax) this.waiting = false;
+    } else if (nearest > P.wait && this.waited < P.waitMax) this.waiting = true;
+    if (!this.waiting) return false;
+    this.mover.stop();
+    if (who) faceTowards(self, who.x, who.y, dt);
+    return true;
+  }
+
   update(self: Character, ctx: AiContext, dt: number): void {
     const op = this.op;
     const now = ctx.combat.now;
@@ -78,13 +139,17 @@ export class GangOpBrain implements Brain {
     const fighting = this.gunner.update(self, ctx, dt);
     if (fighting && this.gunner.target) {
       this.mover.stop();
+    } else if (!(op.kind === 'convoy' && ctx.gangs.lootToStash(op.gang, self)) && this.together(self, ctx, dt)) {
+      if (self.brain !== this) return;
+      this.mover.update(self, ctx, dt);
+      return;
     } else {
       switch (op.kind) {
         case 'racket':
         case 'buy': {
           const to = op.target;
           if (!to || op.done) {
-            this.finish(self, ctx);
+            this.over();
             return;
           }
           if (Math.hypot(to.x - self.x, to.y - self.y) < 20) {
@@ -92,20 +157,20 @@ export class GangOpBrain implements Brain {
             if (op.shop) faceTowards(self, op.shop.look.x, op.shop.look.y, dt);
             this.stay += dt;
             const need = op.kind === 'racket' ? GANGS.ops.racket.stay : 1.5;
-            if (this.stay >= need && op.team[0] === self) {
+            if (this.stay >= need && this.crew()[0] === self) {
               if (op.kind === 'racket') ctx.gangs.collectRacket(op, self);
               else ctx.gangs.buyAtFence(op, self);
             }
           } else if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
             this.repath = 2;
-            this.goTo(self, ctx, op.team[0] === self ? to : { x: to.x + 20, y: to.y + 14 });
+            this.goTo(self, ctx, to);
           }
           break;
         }
         case 'raid': {
           const to = op.target;
           if (!to) {
-            this.finish(self, ctx);
+            this.over();
             return;
           }
           const st = this.mover.status;
@@ -122,7 +187,7 @@ export class GangOpBrain implements Brain {
           if (!this.prey?.alive || this.repath <= 0) {
             this.prey = this.pickPrey(self, ctx);
             if (!this.prey) {
-              this.finish(self, ctx);
+              this.over();
               return;
             }
           }
@@ -149,7 +214,7 @@ export class GangOpBrain implements Brain {
             break;
           }
           if (!live) {
-            this.finish(self, ctx);
+            this.over();
             return;
           }
           const lead = v!.lead;

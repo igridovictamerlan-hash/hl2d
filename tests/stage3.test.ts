@@ -45,7 +45,8 @@ function pairInSight(sim: Sim, d: number): [number, number] {
 describe('экономика', () => {
   test('раздача рационов: очередь, ГСР выдаёт, граждане получают паёк и токены', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
-    spawnPopulation(sim.ctx, 20);
+    // Горожан побольше: бандиты в очередь на площадь ходят только парами — из 20 их заметная доля.
+    spawnPopulation(sim.ctx, 30);
     // Проверяем экономику: без боёв на КПП и операций сопротивления (стрельба разгоняет очередь).
     sim.war.command.paused = true;
     sim.insurgency.paused = true;

@@ -255,7 +255,7 @@ describe('улицы, общежития, особняки, семьи', () => {
 
   test('уличная движуха: карты в общежитии, перекуры, доски объявлений, родня навещает друг друга', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
-    spawnPopulation(sim.ctx, 45);
+    spawnPopulation(sim.ctx, 50);
     sim.war.command.paused = true;
     const st = sim.ctx.street;
     expect(st.tables.length).toBeGreaterThan(0);

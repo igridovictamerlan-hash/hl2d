@@ -224,7 +224,15 @@ export class EconomySystem {
     let c = this.queue[0];
     if (Math.hypot(c.x - slot.x, c.y - slot.y) > 30) {
       const near = this.queue.find((o) => Math.hypot(o.x - slot.x, o.y - slot.y) <= 30);
-      if (!near) return null;
+      if (!near) {
+        // У окна никого: вперёд — первый, кто уже стоит на своём месте в очереди (подойдёт к окну).
+        const waiting = this.queue.find((o, i) => i > 0 && Math.hypot(o.x - this.queueSlot(i).x, o.y - this.queueSlot(i).y) <= 30);
+        if (waiting) {
+          this.queue.splice(this.queue.indexOf(waiting), 1);
+          this.queue.unshift(waiting);
+        }
+        return null;
+      }
       this.queue.splice(this.queue.indexOf(near), 1);
       this.queue.unshift(near);
       c = near;
