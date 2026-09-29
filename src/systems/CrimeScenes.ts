@@ -25,7 +25,9 @@ export interface CordonLine {
 /** Место преступления: тело в городе, проходы к нему перекрыты лентой или барьерами. */
 export interface CrimeScene {
   kind: SceneKind;
+  /** Первое тело; все тела зоны — bodies (близкие происшествия сливаются в одну зону). */
   corpse: Corpse;
+  bodies: Corpse[];
   x: number;
   y: number;
   /** Радиус оцепления, px (граница — по клеткам, `inside`). */
@@ -36,7 +38,7 @@ export interface CrimeScene {
   /** Клетки у края оцепления изнутри (здесь встаёт охрана). */
   edge: Vec2[];
   lines: CordonLine[];
-  /** Мирных не пускают внутрь: широкая улица или площадь (есть обход); в переулке проходят под лентой. */
+  /** Мирных не пускают внутрь: только если лежит убитый ГО с оружием (иначе проходят — меньше толкучки). */
   block: boolean;
   since: number;
   /** Тело осмотрено следователем / медиком. Оба — оцепление снимут через holdAfter с. */
@@ -59,26 +61,35 @@ export interface CrimeScene {
  */
 export class CrimeScenes {
   readonly list: CrimeScene[] = [];
-  readonly stats = { opened: 0, investigated: 0, examined: 0, civil: 0, cwuMedics: 0 };
+  readonly stats = { opened: 0, investigated: 0, examined: 0, civil: 0, cwuMedics: 0, merged: 0 };
   private time = 0;
 
   constructor(private readonly ctx: AiContext) {}
 
-  /** Оцепление вокруг тела (если его ещё нет). */
+  /**
+   * Оцепление вокруг тела. Рядом (ближе CRIME.scene.merge px к телу любой зоны) уже есть оцепление —
+   * тело добавляется в него (одна общая зона, а не ленты друг на друге); новое тело связало две зоны —
+   * они сливаются.
+   */
   open(corpse: Corpse, kind: SceneKind = 'cp'): CrimeScene | null {
     if (this.ctx.war.code === 'red') return null;
-    if (this.list.some((s) => !s.closed && (s.corpse === corpse || this.inScene(s, corpse.x, corpse.y)))) return null;
     const S = CRIME.scene;
-    const r = kind === 'cp' ? S.radius : S.civilRadius;
+    const open = this.list.filter((s) => !s.closed);
+    if (open.some((s) => s.bodies.includes(corpse))) return null;
+    const near = open.filter((s) => this.inScene(s, corpse.x, corpse.y) || s.bodies.some((k) => Math.hypot(k.x - corpse.x, k.y - corpse.y) < S.merge));
+    if (near.length) {
+      const s = near[0];
+      for (const o of near.slice(1)) this.absorb(s, o);
+      this.addBody(s, corpse, kind);
+      return s;
+    }
     const s: CrimeScene = {
-      kind, corpse, x: corpse.x, y: corpse.y, r,
+      kind, corpse, bodies: [corpse], x: corpse.x, y: corpse.y, r: kind === 'cp' ? S.radius : S.civilRadius,
       cells: new Set(), outside: [], edge: [], lines: [], block: false,
       since: this.time, investigatedAt: -1, examinedAt: -1,
       investigator: null, officer: null, medic: null, closed: false,
     };
-    this.cordon(s);
-    const kind0 = this.ctx.map.zoneAtWorld(s.x, s.y)?.kind;
-    s.block = s.lines.some((l) => l.barrier) || kind0 === 'avenue' || kind0 === 'plaza';
+    this.reshape(s);
     this.list.push(s);
     this.stats.opened++;
     if (kind === 'civil') this.stats.civil++;
@@ -87,6 +98,60 @@ export class CrimeScenes {
     const who = kind === 'cp' ? 'следователь SU, медик и офицер' : 'следователь SU и медик';
     this.ctx.law.log(`Надзор: ${kind === 'cp' ? 'место преступления' : 'найдено тело гражданина'} — ${zone}. Проход перекрыт; на осмотр — ${who}.`, 'radio');
     return s;
+  }
+
+  /** Ещё одно тело в зоне: граница заново, осмотр — и его; убит ГО — зона «ГО» (с офицером). */
+  private addBody(s: CrimeScene, corpse: Corpse, kind: SceneKind): void {
+    s.bodies.push(corpse);
+    this.stats.merged++;
+    if (kind === 'cp' && s.kind !== 'cp') {
+      s.kind = 'cp';
+      s.r = Math.max(s.r, CRIME.scene.radius);
+    }
+    if (!corpse.scanned) s.investigatedAt = -1;
+    if (!corpse.covered) s.examinedAt = -1;
+    this.reshape(s);
+    if (!this.onScene(s.investigator, s)) this.sendInvestigator(s);
+    if (!this.onScene(s.medic, s)) this.sendMedic(s);
+    if (s.kind === 'cp' && !this.onScene(s.officer, s)) this.sendOfficer(s);
+    this.ctx.law.log(`Надзор: рядом ещё одно тело — ${this.ctx.map.zoneAtWorld(corpse.x, corpse.y)?.name ?? 'город'}. Оцепление расширено.`, 'radio');
+  }
+
+  /** Слить зону o в s: тела и отметки, люди o свободны. */
+  private absorb(s: CrimeScene, o: CrimeScene): void {
+    for (const k of o.bodies) if (!s.bodies.includes(k)) s.bodies.push(k);
+    if (o.kind === 'cp') s.kind = 'cp';
+    s.r = Math.max(s.r, o.r);
+    s.since = Math.min(s.since, o.since);
+    o.closed = true;
+    this.release(o);
+  }
+
+  /** Центр, радиус, граница и «пускать ли» — по всем телам зоны. */
+  private reshape(s: CrimeScene): void {
+    const n = s.bodies.length;
+    s.x = s.bodies.reduce((a, k) => a + k.x, 0) / n;
+    s.y = s.bodies.reduce((a, k) => a + k.y, 0) / n;
+    s.cells.clear();
+    s.outside.length = 0;
+    s.edge.length = 0;
+    s.lines.length = 0;
+    this.cordon(s);
+    this.updateBlock(s);
+  }
+
+  /** Не пускают, только пока в зоне лежит убитый ГО с оружием (есть что стащить). */
+  private updateBlock(s: CrimeScene): void {
+    s.block = s.bodies.some((k) => k.faction === 'cp' && CrimeScenes.armed(k) && this.ctx.combat.corpses.includes(k));
+  }
+
+  /** Следующее тело зоны, которое ещё не осмотрел следователь ('scan') / не упаковал медик ('cover'). */
+  nextBody(s: CrimeScene, what: 'scan' | 'cover'): Corpse | null {
+    for (const k of s.bodies) {
+      if (!this.ctx.combat.corpses.includes(k)) continue;
+      if (what === 'scan' ? !k.scanned : !k.covered) return k;
+    }
+    return null;
   }
 
   /**
@@ -100,11 +165,14 @@ export class CrimeScenes {
     const ts = map.tileSize;
     const W = map.width;
     const open = (tx: number, ty: number): boolean => !map.isSolid(tx, ty) && map.tileAt(tx, ty) !== T.DOOR;
-    const inR = (tx: number, ty: number): boolean => Math.hypot((tx + 0.5) * ts - s.x, (ty + 0.5) * ts - s.y) <= s.r;
-    const t0x = Math.floor(s.x / ts);
-    const t0y = Math.floor(s.y / ts);
-    const stack = [t0y * W + t0x];
-    s.cells.add(stack[0]);
+    const inR = (tx: number, ty: number): boolean => s.bodies.some((k) => Math.hypot((tx + 0.5) * ts - k.x, (ty + 0.5) * ts - k.y) <= s.r);
+    const stack: number[] = [];
+    for (const k of s.bodies) {
+      const i = Math.floor(k.y / ts) * W + Math.floor(k.x / ts);
+      if (s.cells.has(i)) continue;
+      s.cells.add(i);
+      stack.push(i);
+    }
     while (stack.length) {
       const i = stack.pop()!;
       const tx = i % W;
@@ -276,12 +344,14 @@ export class CrimeScenes {
   private dispatch(s: CrimeScene): void {
     this.sendInvestigator(s);
     this.sendMedic(s);
-    if (s.kind !== 'cp') return;
+    if (s.kind === 'cp') this.sendOfficer(s);
+  }
+
+  private sendOfficer(s: CrimeScene): void {
     const ofc = this.nearest(s, (c) => c.rank === CP_UNIT.ofc || c.rank === CP_UNIT.insp);
-    if (ofc) {
-      s.officer = ofc;
-      (ofc.brain as CpBrain).assignScene(s, 'guard');
-    }
+    if (!ofc) return;
+    s.officer = ofc;
+    (ofc.brain as CpBrain).assignScene(s, 'guard');
   }
 
   private sendInvestigator(s: CrimeScene): void {
@@ -341,12 +411,12 @@ export class CrimeScenes {
     this.stats.investigated++;
   }
 
-  /** Медик осмотрел тело и накрыл его простынёй. */
-  examined(s: CrimeScene): void {
-    if (s.examinedAt >= 0) return;
+  /** Медик осмотрел тело k и упаковал его в мешок; все тела зоны готовы — осмотр закончен. */
+  examined(s: CrimeScene, k: Corpse = s.corpse): void {
+    this.cover(k);
+    if (s.examinedAt >= 0 || this.nextBody(s, 'cover')) return;
     s.examinedAt = this.time;
     this.stats.examined++;
-    this.cover(s.corpse);
   }
 
   /** Накрыть тело белой простынёй: лежит, пока его не заберёт крематор. */
@@ -359,12 +429,12 @@ export class CrimeScenes {
   /** Тело под оцеплением — обыскать его может только сотрудник Альянса. */
   sealed(corpse: Corpse, who: Character | null = null): boolean {
     if (who && FACTIONS[who.faction].authority) return false;
-    return !!corpse.covered || this.list.some((s) => !s.closed && s.corpse === corpse);
+    return !!corpse.covered || this.list.some((s) => !s.closed && s.bodies.includes(corpse));
   }
 
   /** Тело под оцеплением (крематору ждать, пока его не снимут). */
   awaiting(corpse: Corpse): boolean {
-    return this.list.some((s) => !s.closed && s.corpse === corpse);
+    return this.list.some((s) => !s.closed && s.bodies.includes(corpse));
   }
 
   /** Точка внутри какого-нибудь оцепления. */
@@ -385,12 +455,17 @@ export class CrimeScenes {
 
   private close(s: CrimeScene): void {
     s.closed = true;
+    this.release(s);
+    this.ctx.law.log(`Надзор: оцепление снято — ${this.ctx.map.zoneAtWorld(s.x, s.y)?.name ?? 'город'}.`, 'radio');
+  }
+
+  /** Отпустить людей зоны к их службе. */
+  private release(s: CrimeScene): void {
     for (const c of [s.investigator, s.officer, s.medic]) {
       const b = c?.brain;
       if (b instanceof CpBrain) b.releaseScene(s);
       else if (b instanceof ExamineBrain && b.scene === s) b.finish(c!);
     }
-    this.ctx.law.log(`Надзор: оцепление снято — ${this.ctx.map.zoneAtWorld(s.x, s.y)?.name ?? 'город'}.`, 'radio');
   }
 
   /** Сделана ли работа: следователь осмотрел, медик осмотрел (или медика нет и не будет). */
@@ -406,15 +481,17 @@ export class CrimeScenes {
     const { combat, entities } = this.ctx;
     for (const s of this.list) {
       if (s.closed) continue;
-      const gone = !combat.corpses.includes(s.corpse);
-      // Пока стоит оцепление, тело не исчезает само.
-      if (!gone) s.corpse.until = Math.max(s.corpse.until, combat.now + 5);
+      const left = s.bodies.filter((k) => combat.corpses.includes(k));
+      const gone = left.length === 0;
+      // Пока стоит оцепление, тела не исчезают сами.
+      for (const k of left) k.until = Math.max(k.until, combat.now + 5);
       if (gone || this.done(s) || this.time - s.since >= S.maxTime) {
-        // Медик не дошёл — тело всё равно накрывают перед уходом.
-        if (!gone && s.investigatedAt >= 0) this.cover(s.corpse);
+        // Медик не дошёл — тела всё равно упаковывают перед уходом.
+        if (s.investigatedAt >= 0) for (const k of left) this.cover(k);
         this.close(s);
         continue;
       }
+      this.updateBlock(s);
       // Погиб или занят другим — прислать замену.
       if (s.investigatedAt < 0 && !this.onScene(s.investigator, s)) {
         s.investigator = null;
@@ -424,8 +501,8 @@ export class CrimeScenes {
         s.medic = null;
         this.sendMedic(s);
       }
-      // Широкая улица (барьеры, есть обход) — мирных за ограждение не пускают: выталкивает к ближайшему
-      // месту снаружи. В переулке под ленту подныривают и проходят (обойти негде).
+      // Лежит убитый ГО с оружием — мирных за ограждение не пускают (выталкивает к ближайшему месту
+      // снаружи); иначе проходят под лентой и между козлами — меньше толкучки.
       if (!s.block || !s.outside.length) continue;
       for (const c of entities.near(s.x, s.y, s.r + c0, near)) {
         // Лента держит мирных (горожане, ГСР, вортигонты); вооружённых повстанцев она не остановит.

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { spawnPopulation, poiWorld, armySpec, armyKit } from '../src/systems/Population';
 import type { Character } from '../src/entities/Character';
+import type { Corpse } from '../src/systems/CombatSystem';
 import { spawnRole } from '../src/systems/Roster';
 import { randomAnchorAround } from '../src/ai/destinations';
 import { RebelBrain } from '../src/ai/brains/RebelBrain';
@@ -361,11 +362,11 @@ describe('место преступления', () => {
         expect(near).toBe(true);
       }
     }
-    // В переулке мирные проходят под лентой, на широкой улице — нет.
+    // Тело гражданского: мирные проходят и под лентой, и между козлами (не пускают только к убитому ГО с оружием).
     expect(a.block).toBe(false);
     const w = sim.war.scenes.open(body(wide!), 'civil')!;
     expect(w.lines.some((l) => l.barrier)).toBe(true);
-    expect(w.block).toBe(true);
+    expect(w.block).toBe(false);
   });
 
   test('SU.02 заняты — на второе происшествие идёт медик ГСР, осматривает и возвращается к работе', { timeout: 120_000 }, () => {
@@ -393,6 +394,33 @@ describe('место преступления', () => {
     expect(s2.corpse.covered).toBe(true);
     run(sim, 1);
     expect(m.brain).toBeInstanceOf(CitizenBrain);
+  });
+
+  test('близкие происшествия — одна общая зона: оба тела осмотрены и упакованы', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 20);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    sim.ctx.insurgency.paused = true;
+    (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
+    const plaza = poiWorld(sim.ctx, 'plaza_center')!;
+    const at = spotNear(sim, plaza, 0, 3);
+    const mk = (p: { x: number; y: number }): Corpse => {
+      const k: Corpse = { x: p.x, y: p.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      sim.combat.corpses.push(k);
+      return k;
+    };
+    const k1 = mk(at);
+    const k2 = mk(spotNear(sim, at, 3, 5));
+    const s1 = sim.war.scenes.open(k1, 'civil')!;
+    const s2 = sim.war.scenes.open(k2, 'civil')!;
+    expect(s2).toBe(s1);
+    expect(sim.war.scenes.list.filter((s) => !s.closed).length).toBe(1);
+    expect(s1.bodies).toEqual([k1, k2]);
+    expect(s1.block).toBe(false);
+    run(sim, 150, () => !!k1.covered && !!k2.covered && !!k1.scanned && !!k2.scanned);
+    expect(k1.scanned && k2.scanned).toBe(true);
+    expect(k1.covered && k2.covered).toBe(true);
   });
 
   test('красный код — оцеплений нет', () => {

@@ -34,11 +34,11 @@ export class ExamineBrain implements Brain {
   update(self: Character, ctx: AiContext, dt: number): void {
     const s = this.scene;
     const S = CRIME.scene;
-    if (s.closed || s.examinedAt >= 0 || !ctx.combat.corpses.includes(s.corpse) || self.law.phase !== 'none') {
+    const c = ctx.war.scenes.nextBody(s, 'cover');
+    if (s.closed || !c || self.law.phase !== 'none') {
       this.finish(self);
       return;
     }
-    const c = s.corpse;
     if (Math.hypot(c.x - self.x, c.y - self.y) > S.examReach) {
       this.repath -= dt;
       const st = this.mover.status;
@@ -61,9 +61,12 @@ export class ExamineBrain implements Brain {
     self.notepadUntil = ctx.combat.now + 0.3;
     if (ctx.rng.chance(dt * 0.25)) self.say(ctx.rng.pick(S.lines.examine), ctx.law.now, 2.5);
     if ((this.left -= dt) <= 0) {
-      ctx.war.scenes.examined(s);
+      // Следующее тело зоны — заново; все упакованы — назад к работе.
+      ctx.war.scenes.examined(s, c);
       self.say(ctx.rng.pick(S.lines.cover), ctx.law.now, 2.5);
-      this.finish(self);
+      self.notepadUntil = 0;
+      this.left = S.examTime;
+      this.arrived = false;
     }
   }
 }

@@ -39,6 +39,8 @@ export const CRIME = {
   scene: {
     radius: 72,
     civilRadius: 64,
+    /** Тело ближе merge px к телу открытой зоны — в ту же зону (одна общая, без лент друг на друге). */
+    merge: 150,
     minGap: 1,
     step: 20,
     tapeMax: 104,

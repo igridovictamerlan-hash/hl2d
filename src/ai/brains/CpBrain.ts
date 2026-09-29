@@ -1197,7 +1197,13 @@ const SCENE: State<CpBrain> = {
     }
     const { self, ctx } = b;
     if (b.sceneRole === 'investigate') {
-      const c = s.corpse;
+      // Тела зоны по очереди: осмотр каждого (убийца — в розыск); все осмотрены — дело сделано.
+      const c = ctx.war.scenes.nextBody(s, 'scan');
+      if (!c) {
+        ctx.war.scenes.investigated(s);
+        b.scene = null;
+        return b.idleState;
+      }
       if (dist(self.x, self.y, c.x, c.y) > CP_UNITS.obs.reach - 8) {
         b.goToPoint(c, dt, 2);
         return;
@@ -1206,17 +1212,20 @@ const SCENE: State<CpBrain> = {
       faceTowards(self, c.x, c.y, dt);
       if (b.scanLeft === CP_UNITS.obs.scanTime) self.say(ctx.rng.pick(CRIME.scene.lines.investigate), ctx.law.now, 2.5);
       if ((b.scanLeft -= dt) <= 0) {
-        if (!c.scanned) ctx.crime.investigate(c, self);
-        ctx.war.scenes.investigated(s);
-        b.scene = null;
-        return b.idleState;
+        ctx.crime.investigate(c, self);
+        b.scanLeft = CP_UNITS.obs.scanTime;
       }
       return;
     }
     if (b.sceneRole === 'examine') {
-      // Медик: к телу, на корточки, блокнот — записывает; потом накрывает простынёй.
-      const c = s.corpse;
+      // Медик: тела зоны по очереди — на корточки, планшет, записывает; потом в мешок.
       const S = CRIME.scene;
+      const c = ctx.war.scenes.nextBody(s, 'cover');
+      if (!c) {
+        self.notepadUntil = 0;
+        b.scene = null;
+        return b.idleState;
+      }
       if (dist(self.x, self.y, c.x, c.y) > S.examReach) {
         b.goToPoint(c, dt, 2);
         return;
@@ -1231,10 +1240,9 @@ const SCENE: State<CpBrain> = {
       if (ctx.rng.chance(dt * 0.25)) self.say(ctx.rng.pick(S.lines.examine), ctx.law.now, 2.5);
       if ((b.scanLeft -= dt) <= 0) {
         self.notepadUntil = 0;
-        ctx.war.scenes.examined(s);
+        ctx.war.scenes.examined(s, c);
         self.say(ctx.rng.pick(S.lines.cover), ctx.law.now, 2.5);
-        b.scene = null;
-        return b.idleState;
+        b.dutyArrived = false;
       }
       return;
     }
