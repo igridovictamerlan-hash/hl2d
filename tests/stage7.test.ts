@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { AStar } from '../src/ai/AStar';
 import { createCharacter } from '../src/entities/factory';
+import type { Character } from '../src/entities/Character';
 import { spawnPopulation, poiWorld, armySpec } from '../src/systems/Population';
 import { spawnRole } from '../src/systems/Roster';
 import { RebelBrain } from '../src/ai/brains/RebelBrain';
@@ -370,11 +371,11 @@ describe('штурм звеньями и терминал кодов', () => {
 });
 
 describe('штурм Нексуса', () => {
-  test('все точки D у повстанцев — волна из внутреннего двора доходит до Нексуса и начинает захват', { timeout: 600_000 }, () => {
+  test('все точки D у повстанцев — волна из внутреннего двора доходит до Нексуса', { timeout: 600_000 }, () => {
     // Исход штурма зависит от того, сколько армии успело к КПП и как лёг бой (ранения смертельны,
-    // кровотечение), — смотрим шесть сидов: до Нексуса доходят в половине, захват начинается не везде.
+    // кровотечение), — смотрим шесть сидов: до Нексуса доходят в половине. Захват в мобилизованном
+    // Нексусе (там весь силовой блок) — редкость; сам захват — в тесте ниже.
     let ok = 0;
-    let started = 0;
     for (const seed of [12345, 777, 4242, 99, 2024, 31337]) {
       const sim = makeSim(seed);
       spawnPopulation(sim.ctx, 45);
@@ -386,6 +387,12 @@ describe('штурм Нексуса', () => {
         f.owner = 'rebels';
         f.capture = null;
       }
+      // Точки взяты — гарнизоны дворов (часовые и медики) перебиты, как при настоящем капте;
+      // иначе при красном коде они живыми уходят на оборону Нексуса.
+      for (const c of sim.entities.list) {
+        const k = c.role?.kind;
+        if (c.alive && (k === 'guard' || k === 'medic')) sim.combat.damage(c, 99999, null, null, true);
+      }
       let wave = false;
       let inside = 0;
       let progress = 0;
@@ -395,15 +402,34 @@ describe('штурм Нексуса', () => {
         progress = Math.max(progress, sim.war.nexus.progress);
         return sim.war.stats.nexusFalls > 0;
       });
-      console.log(`сид ${seed}, штурм Нексуса: ${JSON.stringify(sim.war.stats)}, в Нексусе максимум ${inside}, захват ${progress.toFixed(0)} с`);
+      console.log(`сид ${seed}, штурм Нексуса: ${JSON.stringify(sim.war.stats)}, в Нексусе максимум ${inside}, захват ${progress.toFixed(0)} с, защитников ${sim.war.nexus.defenders}`);
       expect(wave).toBe(true);
-      // Прорвавшиеся не топчутся у проходной — доходят до Нексуса; захват — где их не меньше защитников.
+      // Красный код — мобилизация: ГО с постов обороняют Нексус.
+      expect(sim.war.code).toBe('red');
+      expect(sim.entities.list.some((c) => c.alive && (c.brain as { rally?: unknown }).rally)).toBe(true);
+      // Прорвавшиеся не топчутся у проходной — доходят до Нексуса.
       if (inside >= WAR.nexus.minAttackers) ok++;
-      if (progress > 0) started++;
     }
-    // При красном коде никто не возрождается (и повстанцы тоже) — захват начинается не в каждом сиде.
     expect(ok).toBeGreaterThanOrEqual(3);
-    expect(started).toBeGreaterThanOrEqual(2);
+  });
+
+  test('штурмующих в Нексусе не меньше защитников — захват копится, выбили — убывает', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    const men: Character[] = [];
+    for (let k = 0; k < WAR.nexus.minAttackers; k++) {
+      const a = randomAnchorInZone(sim.ctx, 'nexus');
+      const r = spawnRole(sim.ctx, armySpec('rebel_soldier', 'rebel_raider', 0), { x: sim.nav.worldX(a), y: sim.nav.worldY(a) })!;
+      (r.brain as RebelBrain).storm();
+      men.push(r);
+    }
+    run(sim, 3);
+    expect(sim.war.nexus.rebels).toBeGreaterThanOrEqual(WAR.nexus.minAttackers);
+    const p = sim.war.nexus.progress;
+    expect(p).toBeGreaterThan(0);
+    for (const r of men) sim.combat.damage(r, 99999, null, null, true);
+    run(sim, 1);
+    expect(sim.war.nexus.progress).toBeLessThan(p);
   });
 
   test('Нексус взят и Администратор мёртв — победа восстания, армия в лагерь, отбой, новая карта', () => {

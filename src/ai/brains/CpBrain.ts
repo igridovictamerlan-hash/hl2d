@@ -86,6 +86,9 @@ export class CpBrain implements Brain {
   readonly guardFacing: number;
   /** Рейд на логово сопротивления: точка у лагеря вместо своего поста (InsurgencySystem.raid). */
   raidPost: Vec2 | null = null;
+  /** Мобилизация красного кода (WarSystem.updateMobilize): место обороны Нексуса — поверх поста и службы. */
+  rally: Vec2 | null = null;
+  rallyFacing = 0;
   readonly front: number;
   readonly medicStation: Vec2 | null;
   target: Character | null = null;
@@ -265,6 +268,7 @@ export class CpBrain implements Brain {
 
   /** Куда возвращаться после разбирательства. */
   get idleState(): string {
+    if (this.rally) return 'guard';
     if (this.medicStation) return 'medic';
     if (this.formation) return 'formation';
     // Экипаж конвоя в деле — назад к конвою (после боя, отхода).
@@ -445,7 +449,7 @@ export class CpBrain implements Brain {
     // боепитания в проходной.
     if (ctx.arsenal?.present && ctx.law.now >= this.resupplyCheck && !this.formation && !this.scene) {
       const A = ctx.arsenal;
-      if (this.front >= 0 && this.guardPost && !this.medicStation && cur === 'guard') {
+      if (this.front >= 0 && this.guardPost && !this.medicStation && !this.rally && cur === 'guard') {
         this.resupplyCheck = ctx.law.now + ARSENAL.kpp.checkEvery;
         const calm = !this.gunner.target && ctx.combat.now - self.lastFired > ARSENAL.kpp.calm;
         if (calm && A.needsPoint(self, this.front)) this.fsm.change('resupply');
@@ -733,7 +737,7 @@ function resupplySpot(b: CpBrain): Vec2 | null {
 /** Пост далеко (подкрепление из Цитадели) — к нему бегом. */
 /** Где стоять часовому: на рейде — у лагеря, иначе — на своём посту. */
 function postOf(b: CpBrain): Vec2 {
-  return b.raidPost ?? b.guardPost!;
+  return b.rally ?? b.raidPost ?? b.guardPost!;
 }
 
 function guardSpeed(b: CpBrain): number {
@@ -752,11 +756,11 @@ const GUARD: State<CpBrain> = {
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
   },
   update(b, dt) {
-    if (b.duty === 'sentry' && !b.raidPost) return sentry(b, dt);
+    if (b.duty === 'sentry' && !b.raidPost && !b.rally) return sentry(b, dt);
     const p = postOf(b);
     if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, p.x, p.y) < 12) {
       b.mover.stop();
-      turnTowards(b.self, b.guardFacing, dt, 3);
+      turnTowards(b.self, b.rally ? b.rallyFacing : b.guardFacing, dt, 3);
     } else {
       b.mover.speed = guardSpeed(b);
       if (b.mover.status === 'failed' || b.mover.status === 'idle') {

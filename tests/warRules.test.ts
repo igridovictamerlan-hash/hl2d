@@ -154,6 +154,62 @@ describe('КПП', () => {
   });
 });
 
+describe('мобилизация красного кода', () => {
+  test('ГО с постов — в Нексус, у склада остаётся пара часовых; отбой — назад', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 10);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    const admin = sim.entities.list.find((c) => c.faction === 'admin')!;
+    const cp = (pred: (b: CpBrain) => boolean) => sim.entities.list.filter((c) => c.alive && c.brain instanceof CpBrain && pred(c.brain));
+    const kpp = cp((b) => b.front >= 0);
+    const sentries = cp((b) => b.duty === 'sentry');
+    expect(kpp.length).toBeGreaterThan(4);
+    expect(sentries.length).toBeGreaterThan(WAR.mobilize.depotKeep);
+    expect(sim.war.setCode('red', admin)).toBeNull();
+    run(sim, 2);
+    // Все с КПП мобилизованы, у склада — ровно depotKeep часовых на своих постах.
+    expect(kpp.every((c) => (c.brain as CpBrain).rally)).toBe(true);
+    const kept = sentries.filter((c) => !(c.brain as CpBrain).rally);
+    expect(kept.length).toBe(WAR.mobilize.depotKeep);
+    for (const c of kpp) expect(sim.map.zoneAtWorld((c.brain as CpBrain).rally!.x, (c.brain as CpBrain).rally!.y)?.kind).toBe('nexus');
+    run(sim, 90);
+    const inNexus = kpp.filter((c) => c.alive && sim.map.zoneAtWorld(c.x, c.y)?.kind === 'nexus');
+    expect(inNexus.length).toBeGreaterThanOrEqual(Math.ceil(kpp.filter((c) => c.alive).length * 0.8));
+    expect(kpp.some((c) => c.alive && sim.map.zoneAtWorld(c.x, c.y)?.kind === 'checkpoint')).toBe(false);
+    // Отбой — назад по постам.
+    expect(sim.war.setCode('green', admin)).toBeNull();
+    run(sim, 2);
+    expect(kpp.some((c) => (c.brain as CpBrain).rally)).toBe(false);
+  });
+
+  test('повстанцы, державшие КПП, при красном коде уходят на штурм', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    const men: Character[] = [];
+    for (const f of sim.war.fronts) {
+      f.held = f.points.length;
+      f.owner = 'rebels';
+      for (let k = 0; k < 4; k++) {
+        const post = f.points[1].posts[k % f.points[1].posts.length];
+        const r = spawnRole(sim.ctx, armySpec('rebel_soldier', armyKit('rebel_soldier'), REBEL_UNIT.soldier), post)!;
+        (r.brain as RebelBrain).setFront(f.index);
+        (r.brain as RebelBrain).orderHold(post);
+        f.squad.push(r);
+        men.push(r);
+      }
+    }
+    run(sim, 1);
+    // До красного кода на каждом КПП держат посты holdKeep.
+    const holding = () => men.filter((r) => (r.brain as RebelBrain).mode === 'hold').length;
+    expect(holding()).toBe(WAR.holdKeep * sim.war.fronts.length);
+    (sim.war as unknown as { declareRed(where: string): void }).declareRed('тест');
+    run(sim, 1);
+    expect(holding()).toBe(WAR.mobilize.rebelKeep * sim.war.fronts.length);
+  });
+});
+
 describe('место преступления', () => {
   test('тело ГО нашли — оцепление, следователь SU.01 и офицер, за ленту не пускают, тело не обыскать', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);

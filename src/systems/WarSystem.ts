@@ -8,7 +8,7 @@ import { ALARM } from '../config/underground';
 import { FACTIONS, cpUnit } from '../config/factions';
 import { T } from '../world/tiles';
 import { ZONE_NAMES } from '../config/names';
-import { equipKit } from './Population';
+import { equipKit, poiWorld } from './Population';
 import { RebelBrain } from '../ai/brains/RebelBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
@@ -146,6 +146,10 @@ export class WarSystem {
   curfewSince = 0;
   /** Все точки D у повстанцев — они выходят в город. */
   cityPush = false;
+  /** Мобилизованные красным кодом ГО (CpBrain.rally) и места обороны Нексуса. */
+  private mobilized = new Set<Character>();
+  private rallySpots: Vec2[] | null = null;
+  private mobilizeTimer = 0;
   /** Подкрепления ГО из Цитадели на КПП (тесты отключают, чтобы они не шли через город). */
   reinforcements = true;
   /** Граждане, бегущие к прорванному КПП, чтобы примкнуть к повстанцам. */
@@ -1024,6 +1028,87 @@ export class WarSystem {
   }
 
   /**
+   * Мобилизация красного кода: ГО с постов, медики КПП, кладовщик, экипаж конвоя и охрана склада
+   * (кроме WAR.mobilize.depotKeep часовых) — на оборону Нексуса (CpBrain.rally); OTA с постов — в
+   * Цитадель. Код снят — все назад на свои посты и службы.
+   */
+  private updateMobilize(): void {
+    const M = WAR.mobilize;
+    const red = this.code === 'red';
+    if (!red) {
+      if (!this.mobilized.size) return;
+      for (const c of this.mobilized) {
+        const b = c.brain;
+        if (!(b instanceof CpBrain) || !b.rally) continue;
+        b.rally = null;
+        if (c.alive && b.fsm.current === 'guard') b.fsm.change(b.idleState);
+      }
+      this.mobilized.clear();
+      this.rallySpots = null;
+      return;
+    }
+    for (const o of this.ota) {
+      const b = o.brain;
+      if (o.alive && b instanceof OtaBrain && b.mode === 'post' && b.front >= 0) b.goHome();
+    }
+    const spots = (this.rallySpots ??= this.nexusSpots());
+    if (!spots.length) return;
+    const gate = poiWorld(this.ctx, 'nexus_gate') ?? spots[0];
+    const taken = new Set<Vec2>();
+    for (const c of this.mobilized) {
+      const b = c.brain;
+      if (c.alive && b instanceof CpBrain && b.rally) taken.add(b.rally);
+    }
+    let depot = 0;
+    for (const c of this.ctx.entities.list) {
+      const b = c.brain;
+      if (!c.alive || c.isPlayer || !(b instanceof CpBrain) || b.rally || c.law.phase !== 'none') continue;
+      const kind = c.role?.kind;
+      const posted = !!b.guardPost || !!b.medicStation || b.duty === 'convoy' || b.duty === 'qm';
+      if (!posted || kind === 'epu' || kind === 'bodyguard' || kind === 'inspector' || kind === 'officer') continue;
+      // Пара часовых остаётся стеречь склад.
+      if (b.duty === 'sentry' && depot < M.depotKeep) {
+        depot++;
+        continue;
+      }
+      // Уже в Нексусе (посты у ворот и в Цитадели) — и так обороняют.
+      if (this.ctx.map.zoneAtWorld(b.guardPost?.x ?? -1, b.guardPost?.y ?? -1)?.kind === 'nexus') continue;
+      // Ближайшее к воротам свободное место.
+      let spot: Vec2 | null = null;
+      for (const s of spots) if (!taken.has(s)) {
+        spot = s;
+        break;
+      }
+      spot ??= spots[this.mobilized.size % spots.length];
+      taken.add(spot);
+      b.rally = spot;
+      b.rallyFacing = Math.atan2(gate.y - spot.y, gate.x - spot.x);
+      this.mobilized.add(c);
+      if (b.fsm.current !== 'fight' && b.fsm.current !== 'retreat') b.fsm.change('guard');
+    }
+  }
+
+  /** Места обороны Нексуса: якоря его зоны не дальше reach px от ворот, через spacing px, ближе к воротам — раньше. */
+  private nexusSpots(): Vec2[] {
+    const M = WAR.mobilize;
+    const { map, nav } = this.ctx;
+    const gate = poiWorld(this.ctx, 'nexus_gate');
+    const cand: { p: Vec2; d: number }[] = [];
+    for (const a of nav.walkable) {
+      const x = nav.worldX(a);
+      const y = nav.worldY(a);
+      if (map.zoneAtWorld(x, y)?.kind !== 'nexus') continue;
+      const d = gate ? Math.hypot(x - gate.x, y - gate.y) : 0;
+      if (d > M.reach) continue;
+      cand.push({ p: { x, y }, d });
+    }
+    cand.sort((u, v) => u.d - v.d);
+    const out: Vec2[] = [];
+    for (const c of cand) if (out.every((o) => Math.hypot(o.x - c.p.x, o.y - c.p.y) >= M.spacing)) out.push(c.p);
+    return out;
+  }
+
+  /**
    * Все точки D (оба тамбура) у повстанцев — сопротивление выходит в город: все, кроме
    * WAR.holdKeep бойцов на каждом КПП, идут на прорыв (прорвавшиеся → красный код).
    */
@@ -1041,8 +1126,10 @@ export class WarSystem {
       this.ctx.law.log(`Надзор: все точки ${names} в руках повстанцев — сопротивление выходит в город!`, 'radio');
       this.ctx.bus.emit('announce', { text: 'Все точки D у повстанцев · выход в город' });
     }
+    // Красный код — мобилизация: на КПП остаётся rebelKeep, остальные — на Нексус.
+    const holdKeep = this.code === 'red' ? WAR.mobilize.rebelKeep : WAR.holdKeep;
     for (const f of this.fronts) {
-      let keep = WAR.holdKeep;
+      let keep = holdKeep;
       for (const r of f.squad) {
         const b = rebelBrain(r);
         if (!b || b.mode === 'assault' || b.mode === 'retreat') continue;
@@ -1168,6 +1255,11 @@ export class WarSystem {
     if (this.otaTimer <= 0) {
       this.otaTimer = WAR.ota.every;
       this.deployOta(counts);
+    }
+    this.mobilizeTimer -= dt;
+    if (this.mobilizeTimer <= 0) {
+      this.mobilizeTimer = WAR.mobilize.every;
+      this.updateMobilize();
     }
     this.corpseScan -= dt;
     if (this.corpseScan <= 0) {
