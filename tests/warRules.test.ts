@@ -7,6 +7,7 @@ import { randomAnchorAround } from '../src/ai/destinations';
 import { RebelBrain } from '../src/ai/brains/RebelBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { CpBrain } from '../src/ai/brains/CpBrain';
+import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { CP_UNIT, REBEL_UNIT, rebelUnitOf } from '../src/config/factions';
 import { WAR } from '../src/config/war';
 import { ROSTER } from '../src/config/roster';
@@ -360,8 +361,38 @@ describe('место преступления', () => {
         expect(near).toBe(true);
       }
     }
+    // В переулке мирные проходят под лентой, на широкой улице — нет.
+    expect(a.block).toBe(false);
     const w = sim.war.scenes.open(body(wide!), 'civil')!;
     expect(w.lines.some((l) => l.barrier)).toBe(true);
+    expect(w.block).toBe(true);
+  });
+
+  test('SU.02 заняты — на второе происшествие идёт медик ГСР, осматривает и возвращается к работе', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 30);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    sim.ctx.insurgency.paused = true;
+    (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
+    const medic = sim.entities.list.find((c) => c.alive && c.profession === 'cwu_medic')!;
+    expect(medic).toBeTruthy();
+    const plaza = poiWorld(sim.ctx, 'plaza_center')!;
+    const body = (p: { x: number; y: number }) => {
+      const k = { x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      sim.combat.corpses.push(k);
+      return k;
+    };
+    const s1 = sim.war.scenes.open(body(spotNear(sim, plaza, 0, 3)), 'civil')!;
+    expect(s1.medic?.rank).toBe(CP_UNIT.su2);
+    const s2 = sim.war.scenes.open(body(spotNear(sim, medic, 4, 8)), 'civil')!;
+    expect(s2).toBeTruthy();
+    expect(s2.medic?.profession).toBe('cwu_medic');
+    const m = s2.medic!;
+    run(sim, 120, () => !!s2.corpse.covered);
+    expect(s2.corpse.covered).toBe(true);
+    run(sim, 1);
+    expect(m.brain).toBeInstanceOf(CitizenBrain);
   });
 
   test('красный код — оцеплений нет', () => {

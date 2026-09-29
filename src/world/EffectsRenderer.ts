@@ -370,36 +370,83 @@ export class EffectsRenderer {
     }
   }
 
-  /** Белая простыня поверх тела: складки, тень по краю, проступившее пятно крови. */
+  /**
+   * Тело в чёрном мешке (вид сверху): капсула с бликом, молния с бегунком по центру, ручки по бокам,
+   * бирка, мазки и капли крови на мешке. Сторона головы и пятна — по внешности (seed).
+   */
   private drawSheet(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, seed: number): void {
-    const C = RENDER.effects.sheet;
+    const C = RENDER.effects.bag;
     const w = C.w * s;
     const h = C.h * s;
+    const dir = seed % 2 ? 1 : -1;
+    const x0 = x - w / 2;
+    const y0 = y - h / 2;
+    // Тень и лужа, натёкшая из-под мешка.
+    ctx.fillStyle = C.pool;
+    ctx.beginPath();
+    ctx.ellipse(x + dir * w * 0.12, y + h * 0.45, w * 0.36, h * 0.42, 0.2 * dir, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = C.shadow;
     ctx.beginPath();
-    ctx.ellipse(x + 1.5 * s, y + 2 * s, w / 2 + 1 * s, h / 2 + 1 * s, 0, 0, Math.PI * 2);
+    ctx.roundRect(x0 + 1.5 * s, y0 + 2 * s, w, h, h / 2);
     ctx.fill();
-    ctx.fillStyle = C.cloth;
+    // Мешок: чуть шире у плеч.
+    ctx.fillStyle = C.body;
     ctx.beginPath();
-    ctx.ellipse(x, y, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.roundRect(x0, y0, w, h, h / 2);
     ctx.fill();
-    // Голова и ноги под тканью — бугорки, складки — тонкие тени.
-    ctx.fillStyle = C.fold;
-    const side = seed % 2 ? 1 : -1;
+    ctx.lineWidth = Math.max(1, 0.9 * s);
+    ctx.strokeStyle = C.outline;
+    ctx.stroke();
+    ctx.fillStyle = C.shine;
     ctx.beginPath();
-    ctx.ellipse(x + side * w * 0.36, y, h * 0.34, h * 0.3, 0, 0, Math.PI * 2);
+    ctx.roundRect(x0 + h * 0.35, y0 + h * 0.14, w - h * 0.7, h * 0.22, h * 0.11);
     ctx.fill();
-    ctx.fillRect(x - w * 0.25, y - 0.4 * s, w * 0.4, 0.8 * s);
-    ctx.fillRect(x - w * 0.1, y + h * 0.2, w * 0.3, 0.7 * s);
-    ctx.fillStyle = C.stain;
+    // Бугорки головы и ступней.
+    ctx.fillStyle = C.bump;
     ctx.beginPath();
-    ctx.ellipse(x - side * w * 0.05 + ((seed >> 3) % 5 - 2) * s, y - h * 0.08, 3 * s, 2 * s, 0.5, 0, Math.PI * 2);
+    ctx.ellipse(x + dir * w * 0.36, y, h * 0.3, h * 0.3, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(x - dir * w * 0.38, y - h * 0.18, h * 0.14, h * 0.13, 0, 0, Math.PI * 2);
+    ctx.ellipse(x - dir * w * 0.38, y + h * 0.18, h * 0.14, h * 0.13, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Ручки по бокам.
+    ctx.fillStyle = C.handle;
+    for (const k of [-0.28, 0, 0.28]) {
+      ctx.fillRect(x + k * w - 1.2 * s, y0 - 0.9 * s, 2.4 * s, 1.4 * s);
+      ctx.fillRect(x + k * w - 1.2 * s, y0 + h - 0.5 * s, 2.4 * s, 1.4 * s);
+    }
+    // Молния: лента, зубцы, бегунок у головы.
+    ctx.fillStyle = C.zipTape;
+    ctx.fillRect(x0 + h * 0.4, y - 0.7 * s, w - h * 0.8, 1.4 * s);
+    ctx.fillStyle = C.zip;
+    for (let d = x0 + h * 0.4; d < x0 + w - h * 0.4; d += 1.6 * s) ctx.fillRect(d, y - 0.35 * s, 0.8 * s, 0.7 * s);
+    ctx.fillStyle = C.pull;
+    ctx.fillRect(x + dir * (w / 2 - h * 0.45) - 1 * s, y - 1.2 * s, 2 * s, 2.4 * s);
+    // Бирка на ногах.
+    ctx.fillStyle = C.tag;
+    ctx.fillRect(x - dir * (w / 2 - 1 * s) - 1.8 * s, y + h * 0.28, 3.6 * s, 2.6 * s);
+    ctx.fillStyle = C.tagInk;
+    ctx.fillRect(x - dir * (w / 2 - 1 * s) - 1.2 * s, y + h * 0.28 + 0.8 * s, 2.4 * s, 0.4 * s);
+    ctx.fillRect(x - dir * (w / 2 - 1 * s) - 1.2 * s, y + h * 0.28 + 1.6 * s, 1.6 * s, 0.4 * s);
+    // Кровь на мешке: мазок и капли.
+    const r = (seed >> 2) % 7;
+    ctx.fillStyle = C.blood;
+    ctx.beginPath();
+    ctx.ellipse(x + (r - 3) * s, y + h * 0.18, 3.6 * s, 1.8 * s, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + (r - 1) * s + 4 * s, y - h * 0.22, 0.9 * s, 0, Math.PI * 2);
+    ctx.arc(x - (r + 2) * s, y + h * 0.36, 0.7 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = C.bloodShine;
+    ctx.fillRect(x + (r - 4) * s, y + h * 0.12, 1.4 * s, 0.5 * s);
   }
 
   /**
-   * Места преступления: лента поперёк узких проходов от стены до стены (жёлтая с чёрными полосами,
-   * у стен — крепления), на широких улицах — переносные барьеры (бело-красная доска на двух опорах).
+   * Места преступления: в переулке — жёлтая лента в чёрную полоску, провисает между двумя
+   * дорожными конусами у стен (тень ленты на земле); на широких улицах — ряд козел (drawBarriers).
    */
   drawScenes(ctx: CanvasRenderingContext2D, v: View, scenes: readonly CrimeScene[]): void {
     const s = v.scale;
@@ -418,9 +465,36 @@ export class EffectsRenderer {
           this.drawBarriers(ctx, v, pts);
           continue;
         }
+        const a = pts[0];
+        const b = pts[pts.length - 1];
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        // Конусы чуть отступают от стен внутрь прохода.
+        const ux = (b.x - a.x) / len;
+        const uy = (b.y - a.y) / len;
+        const ax = (a.x + ux * C.coneInset - v.left) * s;
+        const ay = (a.y + uy * C.coneInset - v.top) * s;
+        const bx = (b.x - ux * C.coneInset - v.left) * s;
+        const by = (b.y - uy * C.coneInset - v.top) * s;
+        const top = C.coneTape * s;
+        const sag = Math.min(len * C.sag, C.sagMax) * s;
+        const mx = (ax + bx) / 2;
+        const my = (ay + by) / 2;
+        // Тень ленты на земле.
         ctx.beginPath();
-        ctx.moveTo((pts[0].x - v.left) * s, (pts[0].y - v.top) * s);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo((pts[i].x - v.left) * s, (pts[i].y - v.top) * s);
+        ctx.moveTo(ax, ay);
+        ctx.quadraticCurveTo(mx, my + sag * 0.6 + 2 * s, bx, by);
+        ctx.lineWidth = C.width * s;
+        ctx.strokeStyle = C.tapeShadow;
+        ctx.stroke();
+        // Конус у одного конца — до ленты, у другого — тоже (лента поверх верхушек).
+        this.drawCone(ctx, ax, ay, s);
+        this.drawCone(ctx, bx, by, s);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay - top);
+        ctx.quadraticCurveTo(mx, my - top + sag * 2, bx, by - top);
+        ctx.lineWidth = (C.width + 0.8) * s;
+        ctx.strokeStyle = C.outline;
+        ctx.stroke();
         ctx.lineWidth = C.width * s;
         ctx.strokeStyle = C.tape;
         ctx.stroke();
@@ -428,19 +502,67 @@ export class EffectsRenderer {
         ctx.strokeStyle = C.stripe;
         ctx.stroke();
         ctx.setLineDash([]);
-        // Крепления ленты у стен.
-        ctx.fillStyle = C.anchor;
-        const h = C.anchorSize * s;
-        for (const p of [pts[0], pts[pts.length - 1]]) ctx.fillRect((p.x - v.left) * s - h / 2, (p.y - v.top) * s - h / 2, h, h);
       }
     }
   }
 
-  /** Ряд переносных барьеров вдоль ломаной: доска в полоску на двух опорах, через C.barrierGap px. */
+  /** Дорожный конус в изометрии: тень, квадратное основание, конус со светлой и тёмной стороной, белые полосы. */
+  private drawCone(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+    const C = RENDER.effects.scene;
+    const h = C.coneH * s;
+    const w = C.coneW * s;
+    ctx.fillStyle = C.coneShadow;
+    ctx.beginPath();
+    ctx.ellipse(x + 2 * s, y + 0.8 * s, w * 0.75, w * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Основание — ромб-плитка.
+    ctx.beginPath();
+    ctx.moveTo(x - w * 0.62, y);
+    ctx.lineTo(x, y - w * 0.3);
+    ctx.lineTo(x + w * 0.62, y);
+    ctx.lineTo(x, y + w * 0.3);
+    ctx.closePath();
+    ctx.fillStyle = C.coneBase;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, 0.7 * s);
+    ctx.strokeStyle = C.outline;
+    ctx.stroke();
+    // Тело конуса.
+    const bw = w * 0.36;
+    const tw = w * 0.08;
+    ctx.beginPath();
+    ctx.moveTo(x - bw, y - 0.4 * s);
+    ctx.lineTo(x - tw, y - h);
+    ctx.lineTo(x + tw, y - h);
+    ctx.lineTo(x + bw, y - 0.4 * s);
+    ctx.closePath();
+    ctx.fillStyle = C.cone;
+    ctx.fill();
+    ctx.stroke();
+    // Тёмная сторона.
+    ctx.beginPath();
+    ctx.moveTo(x + bw * 0.15, y - 0.4 * s);
+    ctx.lineTo(x + tw * 0.2, y - h);
+    ctx.lineTo(x + tw, y - h);
+    ctx.lineTo(x + bw, y - 0.4 * s);
+    ctx.closePath();
+    ctx.fillStyle = C.coneDark;
+    ctx.fill();
+    // Светоотражающие полосы.
+    ctx.fillStyle = C.coneStripe;
+    for (const f of [0.38, 0.68]) {
+      const yy = y - h * f;
+      const half = bw + (tw - bw) * f;
+      ctx.fillRect(x - half, yy - 0.7 * s, half * 2, 1.4 * s);
+    }
+  }
+
+  /** Ряд козел вдоль ломаной: бело-красная доска с косыми полосами на двух опорах, через C.barrierGap px. */
   private drawBarriers(ctx: CanvasRenderingContext2D, v: View, pts: readonly Vec2[]): void {
     const s = v.scale;
     const C = RENDER.effects.scene;
     const half = C.barrierLen / 2;
+    const bw = C.barrierWidth / 2;
     let carry = C.barrierGap / 2;
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1];
@@ -449,38 +571,59 @@ export class EffectsRenderer {
       if (len < 1e-3) continue;
       const ux = (b.x - a.x) / len;
       const uy = (b.y - a.y) / len;
+      const nx = -uy;
+      const ny = ux;
       for (let d = carry; d <= len; d += C.barrierGap) {
-        const mx = a.x + ux * d;
-        const my = a.y + uy * d;
-        const x0 = (mx - ux * half - v.left) * s;
-        const y0 = (my - uy * half - v.top) * s;
-        const x1 = (mx + ux * half - v.left) * s;
-        const y1 = (my + uy * half - v.top) * s;
-        // Тень и опоры.
+        const mx = (a.x + ux * d - v.left) * s;
+        const my = (a.y + uy * d - v.top) * s;
+        const P = (along: number, across: number): [number, number] => [mx + (ux * along + nx * across) * s, my + (uy * along + ny * across) * s];
+        const quad = (p: [number, number][], fill: string, stroke = false): void => {
+          ctx.beginPath();
+          ctx.moveTo(p[0][0], p[0][1]);
+          for (let q = 1; q < p.length; q++) ctx.lineTo(p[q][0], p[q][1]);
+          ctx.closePath();
+          ctx.fillStyle = fill;
+          ctx.fill();
+          if (stroke) {
+            ctx.lineWidth = Math.max(1, 0.8 * s);
+            ctx.strokeStyle = C.outline;
+            ctx.stroke();
+          }
+        };
+        // Тень.
         ctx.fillStyle = C.barrierShadow;
-        ctx.fillRect(x0 - 1.5 * s, y0 + 1 * s, 3 * s, 3 * s);
-        ctx.fillRect(x1 - 1.5 * s, y1 + 1 * s, 3 * s, 3 * s);
-        ctx.fillStyle = C.barrierLeg;
-        ctx.fillRect(x0 - 1.2 * s, y0 - 1.2 * s, 2.4 * s, 2.4 * s);
-        ctx.fillRect(x1 - 1.2 * s, y1 - 1.2 * s, 2.4 * s, 2.4 * s);
-        // Доска: белая, красные полосы.
+        const [shx, shy] = P(0, 0);
         ctx.beginPath();
-        ctx.moveTo(x0, y0);
-        ctx.lineTo(x1, y1);
-        ctx.lineWidth = C.barrierWidth * s;
-        ctx.strokeStyle = C.barrierWhite;
+        ctx.ellipse(shx + 1.5 * s, shy + 2.5 * s, (half + 1) * s, 3 * s, Math.atan2(uy, ux), 0, Math.PI * 2);
+        ctx.fill();
+        // Опоры — поперёк доски.
+        for (const k of [-half + 2.5, half - 2.5]) quad([P(k - 1.4, -3.4), P(k + 1.4, -3.4), P(k + 1.4, 3.4), P(k - 1.4, 3.4)], C.barrierLeg, true);
+        // Доска и косые красные полосы.
+        quad([P(-half, -bw), P(half, -bw), P(half, bw), P(-half, bw)], C.barrierWhite, true);
+        for (let t = -half; t < half - 1; t += C.barrierStripe * 2) {
+          const t1 = Math.min(t + C.barrierStripe, half);
+          quad([P(t, -bw), P(Math.min(t1, half), -bw), P(Math.max(t1 - 1.6, -half), bw), P(Math.max(t - 1.6, -half), bw)], C.barrierRed);
+        }
+        ctx.lineWidth = Math.max(1, 0.8 * s);
+        ctx.strokeStyle = C.outline;
+        const c0 = P(-half, -bw);
+        const c1 = P(half, bw);
+        ctx.beginPath();
+        const c2 = P(half, -bw);
+        const c3 = P(-half, bw);
+        ctx.moveTo(c0[0], c0[1]);
+        ctx.lineTo(c2[0], c2[1]);
+        ctx.lineTo(c1[0], c1[1]);
+        ctx.lineTo(c3[0], c3[1]);
+        ctx.closePath();
         ctx.stroke();
-        ctx.setLineDash([C.barrierStripe * s, C.barrierStripe * s]);
-        ctx.strokeStyle = C.barrierRed;
-        ctx.stroke();
-        ctx.setLineDash([]);
       }
       carry = C.barrierGap - ((len - carry) % C.barrierGap);
       if (carry > C.barrierGap) carry -= C.barrierGap;
     }
   }
 
-  /** Блокнот в руках у медика на месте преступления (пишет — карандаш ходит). */
+  /** Планшет с зажимом в руках у медика на месте происшествия (пишет — строки прибавляются). */
   drawNotepads(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], now: number, lawNow: number): void {
     const s = v.scale;
     const C = RENDER.effects.notepad;
@@ -492,15 +635,21 @@ export class EffectsRenderer {
       if (x < -20 || y < -20 || x > v.width + 20 || y > v.height + 20) continue;
       const w = C.w * s;
       const h = C.h * s;
-      ctx.fillStyle = C.back;
-      ctx.fillRect(x - w / 2 - 0.6 * s, y - h / 2 - 0.6 * s, w + 1.2 * s, h + 1.2 * s);
+      ctx.fillStyle = C.board;
+      ctx.beginPath();
+      ctx.roundRect(x - w / 2, y - h / 2, w, h, 0.8 * s);
+      ctx.fill();
+      ctx.lineWidth = Math.max(1, 0.6 * s);
+      ctx.strokeStyle = C.outline;
+      ctx.stroke();
       ctx.fillStyle = C.paper;
-      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.fillRect(x - w / 2 + 0.7 * s, y - h / 2 + 1.5 * s, w - 1.4 * s, h - 2.2 * s);
+      ctx.fillStyle = C.clip;
+      ctx.fillRect(x - w * 0.25, y - h / 2 - 0.5 * s, w * 0.5, 1.6 * s);
+      ctx.strokeRect(x - w * 0.25, y - h / 2 - 0.5 * s, w * 0.5, 1.6 * s);
       ctx.fillStyle = C.ink;
-      for (let r = 0; r < 3; r++) ctx.fillRect(x - w / 2 + 0.8 * s, y - h / 2 + (1.3 + r * 1.5) * s, w - 1.6 * s, 0.45 * s);
-      const t = (lawNow * 3 + c.id) % 1;
-      ctx.fillStyle = C.pencil;
-      ctx.fillRect(x - w / 2 + t * w, y + h / 2 - 1.6 * s, 0.8 * s, 2.4 * s);
+      const rows = 1 + Math.floor(((lawNow * 0.6 + c.id) % 1) * 4);
+      for (let r = 0; r < rows; r++) ctx.fillRect(x - w / 2 + 1.2 * s, y - h / 2 + (2.6 + r * 1.4) * s, w - 2.4 * s - (r % 2) * 1.2 * s, 0.45 * s);
     }
   }
 

@@ -7,6 +7,8 @@ import { FACTIONS, CP_UNIT } from '../config/factions';
 import { WEAPONS } from '../config/items';
 import { T } from '../world/tiles';
 import { CpBrain } from '../ai/brains/CpBrain';
+import { CitizenBrain } from '../ai/brains/CitizenBrain';
+import { ExamineBrain } from '../ai/brains/ExamineBrain';
 
 /** Вид места преступления: убит сотрудник ГО или гражданский. */
 export type SceneKind = 'cp' | 'civil';
@@ -34,6 +36,8 @@ export interface CrimeScene {
   /** Клетки у края оцепления изнутри (здесь встаёт охрана). */
   edge: Vec2[];
   lines: CordonLine[];
+  /** Мирных не пускают внутрь: широкая улица или площадь (есть обход); в переулке проходят под лентой. */
+  block: boolean;
   since: number;
   /** Тело осмотрено следователем / медиком. Оба — оцепление снимут через holdAfter с. */
   investigatedAt: number;
@@ -55,7 +59,7 @@ export interface CrimeScene {
  */
 export class CrimeScenes {
   readonly list: CrimeScene[] = [];
-  readonly stats = { opened: 0, investigated: 0, examined: 0, civil: 0 };
+  readonly stats = { opened: 0, investigated: 0, examined: 0, civil: 0, cwuMedics: 0 };
   private time = 0;
 
   constructor(private readonly ctx: AiContext) {}
@@ -68,11 +72,13 @@ export class CrimeScenes {
     const r = kind === 'cp' ? S.radius : S.civilRadius;
     const s: CrimeScene = {
       kind, corpse, x: corpse.x, y: corpse.y, r,
-      cells: new Set(), outside: [], edge: [], lines: [],
+      cells: new Set(), outside: [], edge: [], lines: [], block: false,
       since: this.time, investigatedAt: -1, examinedAt: -1,
       investigator: null, officer: null, medic: null, closed: false,
     };
     this.cordon(s);
+    const kind0 = this.ctx.map.zoneAtWorld(s.x, s.y)?.kind;
+    s.block = s.lines.some((l) => l.barrier) || kind0 === 'avenue' || kind0 === 'plaza';
     this.list.push(s);
     this.stats.opened++;
     if (kind === 'civil') this.stats.civil++;
@@ -285,11 +291,47 @@ export class CrimeScenes {
     (inv.brain as CpBrain).assignScene(s, 'investigate');
   }
 
+  /**
+   * Медик: SU.02, пока на местах происшествий их меньше CRIME.scene.suMedicMax (и свободный есть), иначе
+   * медик ГСР (свой мозг — ExamineBrain, потом назад к работе).
+   */
   private sendMedic(s: CrimeScene): void {
-    const med = this.nearest(s, (c) => c.rank === CP_UNIT.su2);
-    if (!med) return;
-    s.medic = med;
-    (med.brain as CpBrain).assignScene(s, 'examine');
+    const busy = this.list.filter((o) => !o.closed && o.medic?.alive && o.medic.faction === 'cp').length;
+    const su = busy < CRIME.scene.suMedicMax ? this.nearest(s, (c) => c.rank === CP_UNIT.su2) : null;
+    if (su) {
+      s.medic = su;
+      (su.brain as CpBrain).assignScene(s, 'examine');
+      return;
+    }
+    let best: Character | null = null;
+    let bestD: number = CRIME.scene.seek;
+    for (const c of this.ctx.entities.list) {
+      // Стоящего в очереди за пайком не срывают.
+      if (!c.alive || c.isPlayer || c.profession !== 'cwu_medic' || !(c.brain instanceof CitizenBrain) || c.law.phase !== 'none' || this.ctx.economy.queue.includes(c)) continue;
+      if (this.ctx.map.levelAt(c.x, c.y) !== 'city') continue;
+      const d = Math.hypot(c.x - s.x, c.y - s.y);
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    if (best) {
+      s.medic = best;
+      best.brain = new ExamineBrain(s, best.brain);
+      this.stats.cwuMedics++;
+    } else {
+      // Медика ГСР нет — всё же SU.02, если есть.
+      const any = this.nearest(s, (c) => c.rank === CP_UNIT.su2);
+      if (!any) return;
+      s.medic = any;
+      (any.brain as CpBrain).assignScene(s, 'examine');
+    }
+  }
+
+  /** Занят ли c этим местом происшествия (по своему мозгу). */
+  private onScene(c: Character | null, s: CrimeScene): boolean {
+    const b = c?.brain;
+    return !!c?.alive && ((b instanceof CpBrain && b.scene === s) || (b instanceof ExamineBrain && b.scene === s));
   }
 
   /** Следователь осмотрел тело. */
@@ -343,7 +385,11 @@ export class CrimeScenes {
 
   private close(s: CrimeScene): void {
     s.closed = true;
-    for (const c of [s.investigator, s.officer, s.medic]) (c?.brain as CpBrain | null)?.releaseScene(s);
+    for (const c of [s.investigator, s.officer, s.medic]) {
+      const b = c?.brain;
+      if (b instanceof CpBrain) b.releaseScene(s);
+      else if (b instanceof ExamineBrain && b.scene === s) b.finish(c!);
+    }
     this.ctx.law.log(`Надзор: оцепление снято — ${this.ctx.map.zoneAtWorld(s.x, s.y)?.name ?? 'город'}.`, 'radio');
   }
 
@@ -370,19 +416,20 @@ export class CrimeScenes {
         continue;
       }
       // Погиб или занят другим — прислать замену.
-      if (s.investigatedAt < 0 && (!s.investigator?.alive || (s.investigator.brain as CpBrain | null)?.scene !== s)) {
+      if (s.investigatedAt < 0 && !this.onScene(s.investigator, s)) {
         s.investigator = null;
         this.sendInvestigator(s);
       }
-      if (s.examinedAt < 0 && s.medic && (!s.medic.alive || (s.medic.brain as CpBrain | null)?.scene !== s)) {
+      if (s.examinedAt < 0 && s.medic && !this.onScene(s.medic, s)) {
         s.medic = null;
         this.sendMedic(s);
       }
-      // За ленту — только Альянс: мирных выталкивает к ближайшему месту за лентой.
-      if (!s.outside.length) continue;
+      // Широкая улица (барьеры, есть обход) — мирных за ограждение не пускают: выталкивает к ближайшему
+      // месту снаружи. В переулке под ленту подныривают и проходят (обойти негде).
+      if (!s.block || !s.outside.length) continue;
       for (const c of entities.near(s.x, s.y, s.r + c0, near)) {
         // Лента держит мирных (горожане, ГСР, вортигонты); вооружённых повстанцев она не остановит.
-        if (!c.alive || !CORDONED.has(c.faction) || c.law.phase !== 'none' || !this.inScene(s, c.x, c.y)) continue;
+        if (!c.alive || c === s.medic || !CORDONED.has(c.faction) || c.law.phase !== 'none' || !this.inScene(s, c.x, c.y)) continue;
         let best = s.outside[0];
         let bd = Infinity;
         for (const p of s.outside) {

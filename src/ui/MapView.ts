@@ -78,6 +78,7 @@ export class MapView {
       [C.hatch, 'люк'],
       [C.nodeBroken, 'узел Альянса выведен из строя'],
       [C.alarm, 'тревога'],
+      [C.scene, 'место происшествия (оцепление)'],
       [C.base, 'лагерь / схрон'],
       [C.market, 'барыга (чёрный рынок)'],
       [GANGS.defs[0].color, 'районы и общаги банд'],
@@ -374,6 +375,17 @@ export class MapView {
         if (f.capture) dot(f.innerGate.x, f.innerGate.y, 5 + pulse * 3, color, true);
       }
       if (war.alarm && war.code !== 'green') dot(war.alarm.x, war.alarm.y, 4 + pulse * 4, C.alarm, true);
+      // Места происшествий: жёлтый квадрат в чёрной рамке, мигающее кольцо.
+      for (const sc of war.scenes.list) {
+        if (sc.closed) continue;
+        const [sx, sy] = to(sc.x, sc.y);
+        const r = 2.6 * size;
+        ctx.fillStyle = C.sceneEdge;
+        ctx.fillRect(sx - r - 1, sy - r - 1, r * 2 + 2, r * 2 + 2);
+        ctx.fillStyle = C.scene;
+        ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+        dot(sc.x, sc.y, 4 + pulse * 2.5, C.scene, true);
+      }
     } else {
       const r = this.levelRect('sewer');
       const known = (x: number, y: number) =>

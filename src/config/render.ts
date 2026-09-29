@@ -169,18 +169,26 @@ export const RENDER = {
     /** Растяжка: граната (осколочная / зажигательная), проволока, мигающий огонёк взведённой. */
     mine: { frag: '#4a5238', fire: '#7a2a1c', rim: '#15171a', wire: 'rgba(210,210,200,0.7)', wireLen: 18, light: '#ff3b2e', r: 4.2 },
     /**
-     * Оцепление места преступления: лента (цвет, полосы, толщина, шаг полос, крепления у стен) и
-     * переносные барьеры (длина доски, шаг, толщина, полосы, опоры, тень).
+     * Оцепление места преступления: лента (цвет, полосы, толщина, шаг полос, контур, тень), провисание
+     * (sag — доля длины, не больше sagMax px), конусы на концах в изометрии (coneW × coneH px, отступ от
+     * стены coneInset, лента на высоте coneTape) и козлы для широких улиц (длина доски, шаг, толщина,
+     * ширина полос, опоры, тень).
      */
     scene: {
-      tape: '#f2d23a', stripe: '#1c1c1c', width: 1.8, dash: 5, anchor: '#3a3a3a', anchorSize: 2.6,
-      barrierLen: 20, barrierGap: 22, barrierWidth: 3.2, barrierStripe: 3.4, barrierWhite: '#f1efe8', barrierRed: '#d23a2a',
-      barrierLeg: '#2c2c2e', barrierShadow: 'rgba(0,0,0,0.35)',
+      tape: '#f2cf2a', stripe: '#161616', width: 1.8, dash: 2.2, outline: '#1c1712', tapeShadow: 'rgba(0,0,0,0.28)',
+      sag: 0.1, sagMax: 6,
+      coneW: 8, coneH: 9, coneInset: 5, coneTape: 7.5, cone: '#ff7a1a', coneDark: '#c9540f', coneStripe: '#f4f4f4', coneBase: '#8a3a0a', coneShadow: 'rgba(0,0,0,0.3)',
+      barrierLen: 20, barrierGap: 23, barrierWidth: 3.6, barrierStripe: 2.6, barrierWhite: '#f1efe8', barrierRed: '#d23a2a',
+      barrierLeg: '#3a3a3c', barrierShadow: 'rgba(0,0,0,0.3)',
     },
-    /** Простыня на теле (px мира): ткань, складки, тень, пятно крови. */
-    sheet: { w: 34, h: 15, cloth: '#eeeae0', fold: 'rgba(150,145,135,0.55)', shadow: 'rgba(0,0,0,0.3)', stain: 'rgba(150,20,20,0.75)' },
-    /** Блокнот медика (px мира). */
-    notepad: { w: 5, h: 6.5, paper: '#f6f2e6', back: '#5a4630', ink: 'rgba(40,50,90,0.8)', pencil: '#d8a23a' },
+    /** Мешок для тела (px мира): капсула, блик, молния, ручки, бирка, кровь, лужа, тень. */
+    bag: {
+      w: 34, h: 14, body: '#1d1f22', outline: '#0c0d0e', shine: 'rgba(255,255,255,0.09)', bump: 'rgba(255,255,255,0.05)',
+      handle: '#3a3d42', zipTape: '#2c2f33', zip: '#8c8f94', pull: '#b8bdc2', tag: '#e8e2c8', tagInk: '#555048',
+      blood: 'rgba(120,10,10,0.85)', bloodShine: 'rgba(255,120,120,0.35)', pool: 'rgba(90,6,6,0.75)', shadow: 'rgba(0,0,0,0.35)',
+    },
+    /** Планшет медика (px мира): доска, бумага, зажим, строки. */
+    notepad: { w: 6, h: 8, board: '#8a6238', paper: '#f6f2e6', clip: '#b8bdc2', ink: 'rgba(40,50,90,0.8)', outline: '#1c1712' },
     cage: { frame: '#2c2f33', bar: '#5b6068', floor: 'rgba(20,22,26,0.35)', size: 34, step: 5 },
     smoke: { ember: ['#ff9a3a', '#c9542a'] as readonly string[], puff: 'rgba(200,200,200,0.5)' },
     /** Скамейка: доски, спинка у стены, ножки. */

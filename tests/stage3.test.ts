@@ -50,6 +50,9 @@ describe('экономика', () => {
     // Проверяем экономику: без боёв на КПП и операций сопротивления (стрельба разгоняет очередь).
     sim.war.command.paused = true;
     sim.insurgency.paused = true;
+    // И без стычек банд у площади: перестрелка разгоняет очередь, и итог зависит от случая.
+    sim.ctx.gangs.paused = true;
+    (sim.ctx.gangs as unknown as { scan: number }).scan = Infinity;
     const before = new Map(sim.entities.list.map((c) => [c, c.money]));
     run(sim, ECONOMY.rations.firstDelay + ECONOMY.rations.duration - 1);
     const served = sim.entities.list.filter((c) => sim.economy.hasBeenServed(c));

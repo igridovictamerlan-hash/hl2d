@@ -51,6 +51,9 @@ export const MINIMAP = {
     node: '#6ec2ff',
     nodeBroken: '#ff6a3a',
     alarm: 'rgba(240,180,40,0.9)',
+    /** Место происшествия (оцепление): жёлтый квадрат с чёрной рамкой. */
+    scene: '#f2cf2a',
+    sceneEdge: '#161616',
     base: '#ff9a4a',
     market: '#d9a441',
     frame: 'rgba(255,211,107,0.35)',
