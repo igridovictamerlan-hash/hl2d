@@ -120,14 +120,14 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
   assignRegions(lat, {
     restricted: layout.restricted,
     restrictedInner,
-    voids: [layout.nexus, ...layout.checkpoints.map((c) => c.rect)],
+    voids: [layout.nexus, ...(layout.cwuHq ? [layout.cwuHq.rect] : []), ...layout.checkpoints.map((c) => c.rect)],
     industrial: layout.industrial,
   });
   // Улицы-артерии от проспекта и места под общежития и особняки (до лабиринта: он их обходит).
   // Проспект — вместе с рядами домов по сторонам.
   const R = facadeReach();
   const hb = layout.hAvenue.band;
-  const streetBlocked = [layout.restricted, layout.industrial, layout.plaza, layout.nexus, { x: hb.x, y: hb.y - R, w: hb.w, h: hb.h + 2 * R }, ...layout.checkpoints.map((c) => c.rect)];
+  const streetBlocked = [layout.restricted, layout.industrial, layout.plaza, layout.nexus, ...(layout.cwuHq ? [layout.cwuHq.rect] : []),{ x: hb.x, y: hb.y - R, w: hb.w, h: hb.h + 2 * R }, ...layout.checkpoints.map((c) => c.rect)];
   if (layout.vAvenue) {
     const vb = layout.vAvenue.band;
     streetBlocked.push({ x: vb.x - R, y: vb.y, w: vb.w + 2 * R, h: vb.h });
@@ -283,11 +283,13 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     streets.villas.forEach((p, k) => stampBuilding(faceTemplate(VILLA_TEMPLATE, p.face), p.rect, z, 'villa', k));
   }
 
-  // Штаб ГСР у главного проспекта: цех фасовки, отдых, столовая, кабинет главы, приёмная найма.
-  if (streets.hq) {
-    const p = streets.hq;
+  // Штаб ГСР на главном проспекте: цех фасовки, отдых, столовая, кабинет главы, приёмная найма.
+  if (layout.cwuHq) {
+    const p = layout.cwuHq;
     const z = addZone('cwu_hq', ZONE_NAMES.cwuHq, null);
     const res = stampTemplate(g, faceTemplate(CWU_HQ_TEMPLATE, p.face), p.rect.x, p.rect.y, () => z, pois);
+    // Фасад — прямо на асфальт (проспект изгибается — площадка до края).
+    fillForecourt(g, layout.hAvenue, p.rect, zHAv);
     for (const exit of res.exits) if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
     const area = (mark: string, type: Poi['type']) => {
       for (const r of res.areas[mark] ?? []) pois.push({ type, x: r.x, y: r.y, w: r.w, h: r.h });

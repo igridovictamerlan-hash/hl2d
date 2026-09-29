@@ -114,7 +114,7 @@ export const GENERATOR = {
     counterRow: 2,
     cafes: 2,
     artery: { width: [5, 9] as const, depth: [6, 8] as const },
-    decor: { every: [12, 16] as const, clear: 1, endClear: 24, kioskShare: 0.5 },
+    decor: { every: [9, 13] as const, clear: 1, endClear: 24, kioskShare: 0.5 },
   },
 
   plaza: { size: [16, 18] as const },
@@ -137,10 +137,10 @@ export const GENERATOR = {
   dorms: { count: [5, 6] as const, gap: 2, tries: 200 },
   villas: { count: [5, 7] as const, gap: 2, tries: 200 },
   /**
-   * Штаб ГСР — у ствола улицы ближе всех к главному проспекту: из tries случайных мест вдоль улиц
-   * берётся ближайшее к проспекту (не дальше maxDist px от его узлов).
+   * Штаб ГСР — фасадом прямо на главный проспект (входом на асфальт), не ближе cpClear тайлов к КПП;
+   * из мест вдоль проспекта берётся самое далёкое от Нексуса и площади (и от КПП × cpWeight).
    */
-  cwuHq: { gap: 2, tries: 400, maxDist: 20 * 16 },
+  cwuHq: { cpClear: 12, cpWeight: 1.2 },
   /**
    * Склад Альянса (ARSENAL_TEMPLATE): на окраине — из tries мест вдоль улиц, идущих от проспекта
    * (не отдельных улиц, к которым ведут переулки), берётся самое далёкое от проспекта; вход — на улицу.

@@ -1995,9 +1995,10 @@ export class ArsenalSystem {
     if (act === 'steal') {
       const kind = this.steal(by);
       ok = !!kind;
-      if (kind === 'ammo') ctx.economy.refillAmmo(by, ARSENAL.steal.mags);
-      else if (kind === 'grenades') by.inventory.add('grenade', ARSENAL.steal.grenades);
-      else if (kind === 'weapons') by.inventory.add('mp7', 1);
+      // Краденое — на явку подполья (тайник в комнате в городе).
+      if (kind === 'ammo') ctx.insurgency.haul(by, 'ammo', ARSENAL.steal.mags);
+      else if (kind === 'grenades') ctx.insurgency.haul(by, 'grenades', ARSENAL.steal.grenades);
+      else if (kind === 'weapons') ctx.insurgency.haul(by, 'weapons', 1);
     } else if (act === 'taint') ok = this.taint(by);
     else if (act === 'bomb') ok = this.plantBomb(by);
     else ok = this.breakBeacon();

@@ -10,6 +10,7 @@ import { KITS, ITEMS, type WeaponId } from '../config/items';
 import { cpUnit, CP_UNIT, rebelUnitOf, type CpUnitId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import { ROSTER } from '../config/roster';
+import { HOUSING } from '../config/housing';
 import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
 
 /** Выдать набор предметов роли; первое оружие из набора — в руки, магазин заряжен. */
@@ -123,7 +124,19 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   // Глава ГСР — за столом в кабинете штаба.
   const hqDesk = ctx.cwuHq?.desk;
   if (hqDesk) put({ kind: 'cwu', faction: 'cwu', profession: 'cwu_head', division: null, rank: 0, kit: 'cwu_head' }, freeSpot(ctx, hqDesk, 0, 2, new Set(), 16) ?? hqDesk);
-  // Жители — семьями: фамилия, цвет повязки, дом (общежитие или особняк). Рабочие ГСР — на работе.
+  // Лавки и кафе проспекта — продавец ГСР за каждым прилавком; в общей столовой — повар у котла.
+  const shops = ctx.shops;
+  if (shops) {
+    for (const s of shops.staffed) {
+      const c = put({ kind: 'cwu', faction: 'cwu', profession: 'vendor', division: null, rank: 0, kit: PROFESSIONS.vendor.kit ?? 'cwu' }, s.vendorSpot);
+      if (c) s.vendor = c;
+    }
+    if (shops.cookSpot) {
+      const c = put({ kind: 'cwu', faction: 'cwu', profession: 'canteen_cook', division: null, rank: 0, kit: PROFESSIONS.canteen_cook.kit ?? 'cwu' }, shops.cookSpot);
+      if (c) shops.cook = c;
+    }
+  }
+  // Жители — семьями: фамилия, цвет повязки, дом (Арбат, общежитие или особняк). Рабочие ГСР — на работе.
   ctx.families?.assign(residents);
   for (let k = 0; k < P.vorts; k++) {
     put({ kind: 'vort', faction: 'vort', profession: 'vort_slave', division: null, rank: 0, kit: 'vort' }, freeSpot(ctx, anywhere, 10, 110, civAvoid));
@@ -246,8 +259,56 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   // Схрон партизан в канализации: партизаны и торговец чёрного рынка.
   ctx.insurgency?.populate();
+  // Свой дом — каждому жителю (семьи уже заселены), явка — каждому подпольщику.
+  settleAll(ctx);
   // Штаб ГСР: сколько граждан было (город не пустеет от найма — CWU_HQ.hire.minCitizenShare).
   if (ctx.cwuHq) ctx.cwuHq.citizensAtStart = ctx.entities.list.filter((c) => c.faction === 'citizen').length;
+}
+
+/** Место работы жителя (дом ищется поближе к нему) или null. */
+export function workplaceOf(ctx: AiContext, c: Character): { x: number; y: number } | null {
+  switch (c.profession) {
+    case 'vendor':
+      return ctx.shops?.shops.find((s) => s.vendor === c)?.front ?? null;
+    case 'canteen_cook':
+      return ctx.shops?.cookSpot ?? null;
+    case 'loader':
+    case 'armorer':
+      return ctx.arsenal?.waitSpot ?? null;
+    case 'packer':
+    case 'courier':
+    case 'cwu_head':
+      return ctx.labor?.factory ?? ctx.cwuHq?.desk ?? null;
+    case 'cook':
+      return ctx.economy.window;
+    default:
+      return null;
+  }
+}
+
+/** Жители (граждане, ГСР, вортигонты) и подпольщики — кто живёт в городе. */
+export function needsHome(c: Character): boolean {
+  if (c.isPlayer) return false;
+  if (c.faction === 'citizen' || c.faction === 'cwu' || c.faction === 'vort') return true;
+  return c.role?.kind === 'partisan' || c.role?.kind === 'agent';
+}
+
+/**
+ * Заселить всех без дома (Housing.house: у места работы, подполье — явки) и часть горожан сразу
+ * поставить у себя дома (HOUSING.startHome) — выходят на улицу из своих дверей.
+ */
+export function settleAll(ctx: AiContext): void {
+  const H = ctx.housing;
+  if (!H) return;
+  for (const c of ctx.entities.list) if (needsHome(c) && c.home < 0) H.house(c, workplaceOf(ctx, c));
+  for (const c of ctx.entities.list) {
+    if (c.isPlayer || c.faction !== 'citizen' || c.profession !== 'citizen' || c.home < 0 || !ctx.rng.chance(HOUSING.startHome)) continue;
+    const d = H.of(c)!;
+    const p = ctx.rng.pick(d.spots);
+    if (ctx.entities.list.some((o) => o !== c && Math.hypot(o.x - p.x, o.y - p.y) < 20)) continue;
+    c.x = c.prevX = p.x;
+    c.y = c.prevY = p.y;
+  }
 }
 
 /** Где появляется игрок в выбранной роли. */

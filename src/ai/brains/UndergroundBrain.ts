@@ -18,7 +18,7 @@ import { COMBAT, GRENADE, MINE } from '../../config/combat';
 import { CHARACTER } from '../../config/entities';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
 
-export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'return' | 'outing';
+export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'stash' | 'return' | 'outing';
 
 const coverNear: Character[] = [];
 
@@ -42,6 +42,7 @@ const DEPOT_DONE: Record<DepotAct, string> = {
  *  ambush — группой в засаду на пути конвоя ГО: ждут под личиной, колонна близко — наперерез и огонь,
  *    брошенные ящики — забрать, потом к люку;
  *  cover — второй в группе: прикрытие у камер (взлом) или дозор у узла (саботаж: видит ГО — «шухер»);
+ *  stash — с добычей на свою явку в городе: спрятать в тайник (Housing), потом к люку;
  *  return — к ближайшему люку и вниз, в убежище (раненый — сразу сюда).
  */
 export class UndergroundBrain implements Brain {
@@ -180,7 +181,29 @@ export class UndergroundBrain implements Brain {
     return false;
   }
 
+  /**
+   * Дело сделано — домой. С добычей (ящик со склада, с конвоя) и не ранен — сперва на свою явку в
+   * городе: спрятать в тайник (Housing), потом к люку.
+   */
   private goHome(self: Character, ctx: AiContext): void {
+    const city = ctx.map.levelAt(self.x, self.y) === 'city';
+    const d = ctx.housing?.of(self);
+    if (this.mode !== 'stash' && d && city && ctx.insurgency.carryingLoot(self) && self.health >= self.maxHealth * COMBAT.woundedFraction) {
+      this.mode = 'stash';
+      this.work = 0;
+      this.planting = false;
+      this.node = null;
+      this.prey = null;
+      this.cell = null;
+      this.spot = ctx.housing.spot(d, false);
+      this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+      this.travel.start(self, ctx, this.mover, this.spot);
+      return;
+    }
+    this.goBase(self, ctx);
+  }
+
+  private goBase(self: Character, ctx: AiContext): void {
     // Не перезапускать путь каждый тик, если он не находится.
     if (this.mode === 'return' && ctx.combat.now - this.homeAt < 2) return;
     this.homeAt = ctx.combat.now;
@@ -200,7 +223,7 @@ export class UndergroundBrain implements Brain {
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
     // Скрытные дела (ствол бандиту, взлом, растяжка) — огня не открывает, пока не ранят.
     const group = this.mode === 'base' ? null : ctx.insurgency.groupOf(self);
-    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot' || this.mode === 'cover') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
+    if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot' || this.mode === 'cover' || this.mode === 'stash') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     // Засада: до сигнала — под личиной, огня не открывают (разве что ранили).
     else if (this.mode === 'ambush') this.gunner.holdFire = !group?.attack && ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     else if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
@@ -346,6 +369,28 @@ export class UndergroundBrain implements Brain {
             this.goHome(self, ctx);
           }
         } else if (st === 'failed') this.goHome(self, ctx);
+        break;
+      }
+      case 'stash': {
+        // На явку: под личиной, быстрым шагом; в комнате — добычу в тайник, потом к люку.
+        const to = this.spot;
+        if (!to) {
+          this.goBase(self, ctx);
+          break;
+        }
+        if (fighting && this.gunner.target) {
+          this.mover.stop();
+          break;
+        }
+        const st = this.travel.update(self, ctx, this.mover, dt);
+        if (st === 'arrived' || Math.hypot(to.x - self.x, to.y - self.y) < 18) {
+          this.travel.stop(this.mover);
+          this.work += dt;
+          if (this.work >= PARTISANS.stashTime) {
+            ctx.insurgency.stashLoot(self);
+            this.goBase(self, ctx);
+          }
+        } else if (st === 'failed') this.goBase(self, ctx);
         break;
       }
       case 'ambush':

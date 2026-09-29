@@ -21,6 +21,8 @@ export type ProfessionId =
   | 'cwu_head'
   | 'loader'
   | 'armorer'
+  | 'vendor'
+  | 'canteen_cook'
   // Сопротивление.
   | 'rebel_recruit'
   | 'rebel_soldier'
@@ -111,6 +113,16 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
     id: 'armorer', faction: 'cwu', name: 'Оружейник ГСР', kit: 'cwu', selectable: true,
     desc: 'Чинит и чистит стволы Альянса за верстаком склада; находит брак в патронах.',
     perks: ['E у верстака склада — работать (оплата за ствол)', 'Находит порченые патроны раньше, чем их выдадут'],
+  },
+  vendor: {
+    id: 'vendor', faction: 'cwu', name: 'Продавец ГСР', kit: 'cwu', selectable: false,
+    desc: 'Стоит за прилавком лавки или кафе на проспекте; товар привозят курьеры из штаба ГСР.',
+    perks: ['Без продавца лавка закрыта', 'Живёт неподалёку от своей лавки'],
+  },
+  canteen_cook: {
+    id: 'canteen_cook', faction: 'cwu', name: 'Повар столовой ГСР', kit: 'cwu_cook', selectable: false,
+    desc: 'Варит суп в общей столовой проспекта и наливает голодным горожанам без пайка.',
+    perks: ['Суп — из коробок штаба ГСР', 'Без повара — только свой паёк'],
   },
   rebel_recruit: {
     id: 'rebel_recruit', faction: 'rebel', name: 'Новобранец', kit: 'rebel_recruit', selectable: true,

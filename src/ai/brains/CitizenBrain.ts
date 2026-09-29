@@ -16,7 +16,8 @@ import { LAW } from '../../config/law';
 import { FACTIONS } from '../../config/factions';
 import { ECONOMY } from '../../config/economy';
 import { ARBAT } from '../../config/arbat';
-import type { CanteenSeat, StreetShop } from '../../systems/StreetShops';
+import type { CanteenSeat, StreetShop, SupplyTarget } from '../../systems/StreetShops';
+import { HOUSING } from '../../config/housing';
 import { ITEMS, WEAPONS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
 import type { TrashPile } from '../../systems/LaborSystem';
@@ -43,6 +44,11 @@ type Job =
   | { kind: 'office'; until: number }
   | { kind: 'hire'; until: number }
   | { kind: 'deliver'; carry: boolean }
+  /** Курьер: коробка из штаба ГСР в лавку, ларёк или столовую. */
+  | { kind: 'supply'; target: SupplyTarget; carry: boolean }
+  /** Продавец за прилавком своей лавки, повар столовой у котла. */
+  | { kind: 'vend'; shop: StreetShop; until: number; nextLine: number }
+  | { kind: 'cookpot'; until: number; nextLine: number }
   | { kind: 'clean'; pile: TrashPile }
   | { kind: 'scavenge'; pile: TrashPile; left: number }
   | { kind: 'heal'; patient: Character; repath: number }
@@ -123,6 +129,13 @@ export class CitizenBrain implements Brain {
   /** Бунт (спецагент поднял): вокруг какой точки и до какого времени. */
   riotAt: Vec2 | null = null;
   riotUntil = 0;
+  /** Продавец и повар столовой: перерыв после смены до… */
+  offUntil = 0;
+  /** Когда пора заглянуть домой; дома — спит ли. */
+  nextHome = 0;
+  sleeping = false;
+  /** Столовая: сперва за супом к раздаче. */
+  soupFirst = false;
 
   constructor(
     public self: Character,
@@ -138,6 +151,7 @@ export class CitizenBrain implements Brain {
     this.fsm = new StateMachine<CitizenBrain>(this, [IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT, CANTEEN, SHOPPING], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
+    this.nextHome = ctx.law.now + ctx.rng.range(HOUSING.visit.first[0], HOUSING.visit.first[1]);
   }
 
   get stateName(): string {
@@ -374,6 +388,9 @@ export class CitizenBrain implements Brain {
       this.job = job;
       return 'work';
     }
+    // Пора заглянуть домой (свой дом — у каждого жителя).
+    const home = ctx.housing?.of(self);
+    if (home && ctx.law.now >= this.nextHome && Math.hypot(home.at.x - self.x, home.at.y - self.y) < HOUSING.visit.seek) return 'home';
     if (self.faction === 'vort') return 'walk';
     if (eco.open && eco.cycle !== this.consideredCycle && !eco.hasBeenServed(self) && self.faction !== 'rebel') {
       this.consideredCycle = eco.cycle;
@@ -382,7 +399,7 @@ export class CitizenBrain implements Brain {
     // Горожанин с едой проголодался — поесть за столом в общей столовой (не при красном коде; у ГСР
     // своя столовая в штабе).
     const hustler = self.profession === 'thief' || self.profession === 'bandit';
-    if (self.faction === 'citizen' && !hustler && ctx.war.code !== 'red' && ctx.shops?.wantsMeal(self) && ctx.rng.chance(ARBAT.meal.chance)) return 'canteen';
+    if (self.faction === 'citizen' && !hustler && ctx.war.code !== 'red' && ctx.shops?.wantsMeal(self) && ctx.rng.chance(ctx.shops.foodOf(self) ? ARBAT.meal.chance : ARBAT.meal.soupChance)) return 'canteen';
     if (eco.shopCounter && self.money >= 6 && self.hunger < 75 && ctx.rng.chance(ECONOMY.shop.npcVisitChance)) return 'shop';
     return this.streetActivity() ?? 'walk';
   }
@@ -413,7 +430,8 @@ export class CitizenBrain implements Brain {
         return { kind: 'apply', until: ctx.law.now + H.hire.waitMax };
       }
       // Склад на окраине — его рабочие отдыхают там же, в штаб не ходят.
-      const depot = self.profession === 'loader' || self.profession === 'armorer';
+      // Склад и лавки — свои перерывы: у продавца и повара столовой — дом и столовая после смены.
+      const depot = self.profession === 'loader' || self.profession === 'armorer' || self.profession === 'vendor' || self.profession === 'canteen_cook';
       if (self.faction === 'cwu' && self.profession !== 'cwu_head' && !depot && !self.carrying && hq.restSpots.length && ctx.rng.chance(H.rest.chance)) {
         return { kind: 'rest', spot: ctx.rng.pick(hq.restSpots), until: ctx.law.now + ctx.rng.range(H.rest.time[0], H.rest.time[1]), lines: H.lines.rest };
       }
@@ -431,7 +449,8 @@ export class CitizenBrain implements Brain {
       }
       case 'cook': {
         if (eco.open && (!eco.dispenser || eco.dispenser === self) && eco.claimDispenser(self)) return { kind: 'dispense' };
-        if (eco.shopCounter && ctx.rng.chance(0.5)) {
+        // Магазин ГСР на проспекте — со своим продавцом: повар только на раздаче.
+        if (eco.shopCounter && !ctx.shops?.staffed.length && ctx.rng.chance(0.5)) {
           const busy = ctx.entities.near(eco.shopCounter.x, eco.shopCounter.y, 40).some((o) => o.profession === 'cook' && o !== self);
           if (!busy) return { kind: 'clerk', until: ctx.law.now + ctx.rng.range(40, 80) };
         }
@@ -463,9 +482,34 @@ export class CitizenBrain implements Brain {
         if (task) return { kind: 'armory', task, stage: 'pick', until: ctx.law.now + ARSENAL.work.giveUp, t: 0 };
         return A.restSpots.length ? { kind: 'rest', spot: ctx.rng.pick(A.restSpots), until: ctx.law.now + ctx.rng.range(10, 20), lines: ARSENAL.lines.rest } : null;
       }
-      case 'courier':
+      case 'courier': {
+        // Будка раздачи почти пуста — туда; иначе лавки, ларьки и столовая проспекта, где товара меньше
+        // всего; им ничего не нужно — снова будка, пока есть место.
+        const boothRoom = eco.rationStock + LABOR.factory.boxRations <= LABOR.booth.maxStock;
+        const boothUrgent = eco.rationStock < LABOR.booth.maxStock * LABOR.booth.urgent;
+        const haveBox = self.carrying || (!!labor.factoryStore && labor.boxes > 0);
+        if (boothUrgent && haveBox) return { kind: 'deliver', carry: self.carrying };
+        const t = ctx.war.code !== 'red' && haveBox ? ctx.shops?.supplyNeed() : null;
+        if (t) {
+          ctx.shops.claimSupply(self, t);
+          return { kind: 'supply', target: t, carry: self.carrying };
+        }
         if (self.carrying) return { kind: 'deliver', carry: true };
-        return labor.factoryStore && labor.deliveryNeeded ? { kind: 'deliver', carry: false } : null;
+        return boothRoom && labor.factoryStore && labor.deliveryNeeded ? { kind: 'deliver', carry: false } : null;
+      }
+      case 'vendor': {
+        // Смена за прилавком своей лавки, потом перерыв (дом, столовая, прогулка).
+        if (ctx.war.curfew || ctx.law.now < this.offUntil) return null;
+        const s = ctx.shops?.workplace(self);
+        if (!s?.vendorSpot) return null;
+        const S = ARBAT.staff;
+        return { kind: 'vend', shop: s, until: ctx.law.now + ctx.rng.range(S.shift[0], S.shift[1]), nextLine: ctx.law.now + ctx.rng.range(S.lineEvery[0], S.lineEvery[1]) };
+      }
+      case 'canteen_cook': {
+        if (ctx.war.curfew || ctx.law.now < this.offUntil || !ctx.shops?.claimKitchen(self)) return null;
+        const S = ARBAT.staff;
+        return { kind: 'cookpot', until: ctx.law.now + ctx.rng.range(S.shift[0], S.shift[1]), nextLine: ctx.law.now + ctx.rng.range(S.lineEvery[0], S.lineEvery[1]) };
+      }
       case 'janitor': {
         // Поломки важнее мусора.
         const spots = eco.brokenSpots().filter((r) => !r.worker && r.kind === 'fuse');
@@ -750,6 +794,15 @@ const SHOP: State<CitizenBrain> = {
     const st = b.mover.status;
     if (st === 'failed' || st === 'idle') return 'idle';
     if (st !== 'arrived') return;
+    // Магазин ГСР на проспекте — лавка с продавцом и товаром из штаба.
+    const street = b.ctx.shops?.shopAt(b.self, 40);
+    if (street) {
+      const why = b.ctx.shops.refusal(street);
+      if (why) b.self.say(b.ctx.rng.pick(why === 'closed' ? ARBAT.lines.closed : ARBAT.lines.empty), b.ctx.law.now, 2);
+      else b.ctx.shops.npcBuy(b.self, street, b.ctx.rng);
+      b.idleLeft = b.ctx.rng.range(2, 5);
+      return 'idle';
+    }
     const affordable = ECONOMY.shop.stock.filter((id: ItemId) => ITEMS[id].kind === 'food' && (ITEMS[id].price ?? 1e9) <= b.self.money);
     if (affordable.length) {
       const id = b.ctx.rng.pick(affordable);
@@ -782,6 +835,15 @@ const WORK: State<CitizenBrain> = {
     } else if (job.kind === 'deliver') {
       const to = job.carry ? labor.boothDrop : labor.factoryStore;
       if (to) b.goToPoint(to);
+    } else if (job.kind === 'supply') {
+      if (job.carry) b.mover.speed = b.walkSpeed * LABOR.booth.carrySpeedMul;
+      const to = job.carry ? b.ctx.shops.dropOf(job.target) : labor.factoryStore;
+      if (to) b.goToPoint(to);
+    } else if (job.kind === 'vend') {
+      if (job.shop.vendorSpot) b.goToPoint(job.shop.vendorSpot);
+    } else if (job.kind === 'cookpot') {
+      const s = b.ctx.shops.cookSpot;
+      if (s) b.goToPoint(s);
     } else if (job.kind === 'clean' || job.kind === 'scavenge') b.goToPoint(job.pile);
     else if (job.kind === 'heal') b.goToPoint(job.patient);
     else if (job.kind === 'loot') b.goToPoint(job.corpse);
@@ -819,6 +881,12 @@ const WORK: State<CitizenBrain> = {
       if (job?.kind === 'paper') labor.releaseDesk(b.self);
       if (job?.kind === 'haul' && !job.done) b.ctx.arsenal.abandon(b.self, job.task);
       if (job?.kind === 'armory' && !job.done) b.ctx.arsenal.abandonArmorer(b.self, job.task);
+      if (job?.kind === 'supply') b.ctx.shops.releaseSupply(b.self);
+      // Смена за прилавком или у котла окончена — перерыв.
+      if (job?.kind === 'vend' || job?.kind === 'cookpot') {
+        const S = ARBAT.staff;
+        b.offUntil = b.ctx.law.now + b.ctx.rng.range(S.shift[0], S.shift[1]) * 0.3;
+      }
       b.mover.avoidZones = b.avoid;
       b.mover.speed = b.walkSpeed;
       b.job = null;
@@ -958,6 +1026,51 @@ const WORK: State<CitizenBrain> = {
             return done();
           }
         } else if (st === 'idle' || st === 'arrived') b.goToPoint(to);
+        return;
+      }
+      case 'supply': {
+        // Коробка из штаба ГСР: склад цеха → лавка (ларёк, столовая), где товара меньше всего.
+        const shops = b.ctx.shops;
+        const to = job.carry ? shops.dropOf(job.target) : labor.factoryStore;
+        if (!to) return done();
+        if (Math.hypot(to.x - b.self.x, to.y - b.self.y) < 26) {
+          b.mover.stop();
+          if (!job.carry) {
+            if (!labor.takeBox(b.self)) return done();
+            job.carry = true;
+            b.mover.speed = b.walkSpeed * LABOR.booth.carrySpeedMul;
+            const drop = shops.dropOf(job.target);
+            if (drop) b.goToPoint(drop);
+          } else {
+            shops.deliver(b.self, job.target);
+            if (b.ctx.rng.chance(0.4)) b.self.say(b.ctx.rng.pick(ARBAT.lines.deliver), b.ctx.law.now, 2);
+            return done();
+          }
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(to);
+        return;
+      }
+      case 'vend':
+      case 'cookpot': {
+        // Продавец за прилавком (лицом к покупателю), повар — у котла лицом к раздаче.
+        const shops = b.ctx.shops;
+        const now = b.ctx.law.now;
+        const spot = job.kind === 'vend' ? job.shop.vendorSpot : shops.cookSpot;
+        const look = job.kind === 'vend' ? job.shop.front : shops.serveSpot;
+        if (!spot || now > job.until || b.ctx.war.curfew) return done();
+        if (job.kind === 'vend' && job.shop.vendor !== b.self) return done();
+        if (Math.hypot(spot.x - b.self.x, spot.y - b.self.y) < ARBAT.staff.reach * 0.6) {
+          b.mover.stop();
+          if (look) faceTowards(b.self, look.x, look.y, dt);
+          if (b.fsm.time % 10 < dt) b.ctx.economy.markWorked(b.self);
+          if (now >= job.nextLine) {
+            const S = ARBAT.staff;
+            job.nextLine = now + b.ctx.rng.range(S.lineEvery[0], S.lineEvery[1]);
+            const L = ARBAT.lines;
+            const lines = job.kind === 'cookpot' ? L.cook : job.shop.stock.length && job.shop.goods <= 0 ? L.vendorEmpty : L.vendor;
+            const busy = look && b.ctx.entities.near(look.x, look.y, 60).some((o) => o !== b.self && o.alive);
+            if (busy || b.ctx.rng.chance(0.3)) b.self.say(b.ctx.rng.pick(lines), now, 2.4);
+          }
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(spot);
         return;
       }
       case 'haul': {
@@ -1205,25 +1318,35 @@ const WORK: State<CitizenBrain> = {
     // Склад: груз на землю (подберут и донесут), брони ячеек и места в конвое снимаются.
     if (job?.kind === 'haul' && !job.done) b.ctx.arsenal.abandon(b.self, job.task);
     if (job?.kind === 'armory' && !job.done) b.ctx.arsenal.abandonArmorer(b.self, job.task);
+    if (job?.kind === 'supply') b.ctx.shops.releaseSupply(b.self);
     b.job = null;
     b.mover.speed = b.walkSpeed;
   },
 };
 
-/** Комендантский час: уйти в ближайший подъезд/двор и сидеть там до отбоя. */
+/** Комендантский час: домой (или в ближайший подъезд/двор) и сидеть там до отбоя. */
+const shelterGoal = (b: CitizenBrain): number => {
+  const d = b.ctx.housing?.of(b.self);
+  if (d && b.mover.status !== 'failed') {
+    const p = b.ctx.rng.pick(d.spots);
+    const a = b.ctx.nav.nearestWalkable(p.x, p.y, 1);
+    if (a >= 0) return a;
+  }
+  return b.ctx.war.nearestShelter(b.self.x, b.self.y, b.self);
+};
 const SHELTER: State<CitizenBrain> = {
   name: 'shelter',
   enter(b) {
     b.mover.speed = CHARACTER.walkSpeed * 1.05;
     b.mover.avoidZones = b.avoid;
-    const a = b.ctx.war.nearestShelter(b.self.x, b.self.y, b.self);
+    const a = shelterGoal(b);
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
   },
   update(b) {
     const st = b.mover.status;
     if (st === 'arrived') b.mover.stop();
     else if (st === 'failed' || (st === 'idle' && b.ctx.war.outdoors(b.self))) {
-      const a = b.ctx.war.nearestShelter(b.self.x, b.self.y, b.self);
+      const a = st === 'failed' ? b.ctx.war.nearestShelter(b.self.x, b.self.y, b.self) : shelterGoal(b);
       if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
     }
   },
@@ -1460,31 +1583,53 @@ const BENCH: State<CitizenBrain> = {
   },
 };
 
-/** Зайти домой — в подъезд или квартиру жилого квартала — и побыть там. */
+/**
+ * Домой — в свою комнату (Housing: дом на проспекте, в общежитии, особняк, дом квартала): побыть,
+ * иногда поспать на кровати, потом снова на улицу. Бездомный — в ближайший подъезд.
+ */
 const HOME: State<CitizenBrain> = {
   name: 'home',
   enter(b) {
+    const { ctx, self } = b;
     b.stayUntil = 0;
-    // Семья — к себе домой (комната общежития, особняк), иначе — в ближайший дом.
-    const fam = b.ctx.families.of(b.self);
-    const own = !!fam && fam.homeAnchor >= 0 && b.ctx.rng.chance(0.8);
-    const a = own ? fam!.homeAnchor : b.ctx.street.homeNear(b.self);
-    if (own) b.ctx.street.stats.homes++;
-    if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    b.sleeping = false;
+    b.nextHome = ctx.law.now + ctx.rng.range(HOUSING.visit.every[0], HOUSING.visit.every[1]);
+    const d = ctx.housing?.of(self);
+    if (d) {
+      b.sleeping = !!d.bed && ctx.rng.chance(HOUSING.sleepChance);
+      ctx.street.stats.homes++;
+      ctx.housing.stats.visits++;
+      if (!b.goToPoint(ctx.housing.spot(d, b.sleeping))) b.idleLeft = 0.5;
+      return;
+    }
+    const a = ctx.street.homeNear(self);
+    if (a >= 0) b.mover.goTo(self, ctx, a);
     else b.idleLeft = 0.5;
   },
   update(b) {
+    const { ctx, self } = b;
     const st = b.mover.status;
-    const now = b.ctx.law.now;
+    const now = ctx.law.now;
     if (!b.stayUntil) {
       if (st === 'failed' || st === 'idle') return 'idle';
-      if (st === 'arrived') b.stayUntil = now + b.ctx.rng.range(STREET.home.time[0], STREET.home.time[1]);
+      if (st === 'arrived') {
+        const H = HOUSING;
+        const [lo, hi] = b.sleeping ? H.sleep : H.stay;
+        b.stayUntil = now + ctx.rng.range(lo, hi);
+        if (b.sleeping) ctx.housing.stats.sleeps++;
+        if (ctx.rng.chance(0.3)) self.say(ctx.rng.pick(b.sleeping ? H.lines.sleep : H.lines.home), now, 2);
+      }
       return;
     }
+    if (b.sleeping && ctx.rng.chance(0.04 / 60)) self.say(ctx.rng.pick(HOUSING.lines.sleep), now, 1.5);
     if (now >= b.stayUntil) {
+      if (ctx.rng.chance(0.2)) self.say(ctx.rng.pick(HOUSING.lines.leave), now, 2);
       b.idleLeft = 0.5;
       return 'walk';
     }
+  },
+  exit(b) {
+    b.sleeping = false;
   },
 };
 
@@ -1539,10 +1684,13 @@ const CARDS: State<CitizenBrain> = {
 const CANTEEN: State<CitizenBrain> = {
   name: 'canteen',
   enter(b) {
+    const shops = b.ctx.shops;
     b.stayUntil = 0;
     b.meetUntil = b.ctx.law.now + 120;
-    b.seat = b.ctx.shops.takeSeat(b.self, b.ctx.rng);
-    if (!b.seat || !b.goToPoint(b.seat)) b.idleLeft = 0.5;
+    // Без пайка — сперва к раздаче за супом.
+    b.soupFirst = !shops.foodOf(b.self) && !b.self.soupBowl && shops.soupReady && !!shops.serveSpot;
+    b.seat = shops.takeSeat(b.self, b.ctx.rng);
+    if (!b.seat || !b.goToPoint(b.soupFirst ? shops.serveSpot! : b.seat)) b.idleLeft = 0.5;
   },
   update(b, dt) {
     const M = ARBAT.meal;
@@ -1551,6 +1699,22 @@ const CANTEEN: State<CitizenBrain> = {
     const seat = b.seat;
     if (!seat) return 'idle';
     const st = b.mover.status;
+    if (b.soupFirst) {
+      const sv = ctx.shops.serveSpot!;
+      if (st === 'failed' || now > b.meetUntil) return 'idle';
+      if (st === 'arrived' || Math.hypot(sv.x - self.x, sv.y - self.y) < 14) {
+        b.mover.stop();
+        // Суп кончился или повар ушёл — есть нечего.
+        if (!ctx.shops.takeSoup(self)) {
+          self.say(ctx.rng.pick(ARBAT.lines.empty), now, 2);
+          return 'idle';
+        }
+        if (ctx.rng.chance(0.4)) self.say(ctx.rng.pick(ARBAT.lines.soup), now, 2);
+        b.soupFirst = false;
+        b.goToPoint(seat);
+      } else if (st === 'idle') b.goToPoint(sv);
+      return;
+    }
     if (!b.stayUntil) {
       if (st === 'failed' || now > b.meetUntil) return 'idle';
       if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
@@ -1578,6 +1742,9 @@ const CANTEEN: State<CitizenBrain> = {
     b.ctx.shops.releaseSeat(b.self);
     b.seat = null;
     b.stayUntil = 0;
+    b.soupFirst = false;
+    // Не доел (ГО, стрельба) — миска остаётся на столе.
+    b.self.soupBowl = false;
   },
 };
 
@@ -1610,6 +1777,15 @@ const SHOPPING: State<CitizenBrain> = {
     faceTowards(self, s.look.x, s.look.y, dt);
     if (now >= b.stayUntil) {
       const L = ARBAT.lines;
+      // Закрыто (продавца нет) или полки пусты (коробку из штаба ГСР не донесли).
+      const why = ctx.shops.refusal(s);
+      if (why) {
+        if (why === 'closed') ctx.shops.stats.closed++;
+        else ctx.shops.stats.empty++;
+        self.say(ctx.rng.pick(why === 'closed' ? L.closed : L.empty), now, 2);
+        b.idleLeft = ctx.rng.range(1, 3);
+        return 'idle';
+      }
       const bought = s.stock.length && self.money >= V.minMoney ? ctx.shops.npcBuy(self, s, ctx.rng) : null;
       const line = bought ? L.buy : s.stock.length && self.money < V.minMoney ? L.broke : L.browse;
       if (ctx.rng.chance(0.5)) self.say(ctx.rng.pick(line), now, 2);

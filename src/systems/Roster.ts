@@ -43,6 +43,8 @@ export interface RoleSpec {
   loyalty?: number;
   /** Семья жителя (возрождается в ней же). */
   family?: number;
+  /** Свой дом (Housing) — возрождается там же. */
+  home?: number;
   /** Часовой / RCT проходной / медик КПП: фронт, пост и взгляд, место медика. */
   front?: number;
   post?: Vec2;
@@ -74,6 +76,9 @@ function inZone(ctx: AiContext, kind: Parameters<typeof randomAnchorInZone>[1]):
 
 /** Где появляется роль после гибели: ГО и OTA — Цитадель, армия — лагерь, партизаны — схрон… */
 export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
+  // Жители — у себя дома (подполье — в схроне, явка только для добычи).
+  const home = spec.home !== undefined && (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort') ? ctx.housing?.dwellings[spec.home] : undefined;
+  if (home) return ctx.rng.pick(home.spots);
   switch (spec.kind) {
     case 'patrol':
     case 'guard':
@@ -129,6 +134,7 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   c.division = spec.division;
   if (spec.loyalty !== undefined) c.loyalty = spec.loyalty;
   if (spec.family !== undefined) c.family = spec.family;
+  if (spec.home !== undefined) c.home = spec.home;
   c.facing = spec.facing ?? ctx.rng.range(0, Math.PI * 2);
   c.hunger = ctx.rng.range(40, 100);
   equipKit(c, spec.kit, ctx);

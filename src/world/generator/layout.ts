@@ -1,7 +1,7 @@
 import type { Rng } from '../../core/rng';
 import { clamp, rectsOverlap, type Rect, type Vec2 } from '../../core/math';
 import { GENERATOR } from '../../config/generator';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CHECKPOINT_AXIS_ROW } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CHECKPOINT_AXIS_ROW, CWU_HQ_TEMPLATE } from './templates';
 
 /**
  * Макро-план города: магистрали, линии решётки, прямоугольники районов и штампов.
@@ -51,6 +51,8 @@ export interface CityLayout {
   plazaSide: 'N' | 'S';
   nexus: Rect;
   nexusRot: 0 | 180;
+  /** Штаб ГСР: фасадом (face — куда вход) на главный проспект, вдали от Нексуса, площади и КПП. */
+  cwuHq: { rect: Rect; face: 'N' | 'S' } | null;
   /** Пограничные КПП на концах главного проспекта; mirror — город с запада (восточный конец). */
   checkpoints: { rect: Rect; mirror: boolean }[];
   quarterSeeds: Vec2[];
@@ -346,6 +348,40 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
     throw new Error('layout: площадь не помещается');
   }
 
+  // Штаб ГСР — фасадом на главный проспект, вдали от Нексуса, площади и КПП (там бой).
+  const H_ = GENERATOR.cwuHq;
+  const hw = CWU_HQ_TEMPLATE[0].length;
+  const hh = CWU_HQ_TEMPLATE.length;
+  const hqBlocked: Rect[] = [...blocked, pick.rect, industrial];
+  if (vAvenue) {
+    const R = avenueReach() + facadeReach();
+    hqBlocked.push({ x: vAvenue.band.x - R, y: vAvenue.band.y, w: vAvenue.band.w + 2 * R, h: vAvenue.band.h });
+  }
+  const cpEdges = checkpoints.map((c) => (c.mirror ? c.rect.x : c.rect.x + c.rect.w));
+  const gap = (a: Rect, b: Rect) => Math.hypot(Math.max(b.x - a.x - a.w, a.x - b.x - b.w, 0), Math.max(b.y - a.y - a.h, a.y - b.y - b.h, 0));
+  let cwuHq: { rect: Rect; face: 'N' | 'S' } | null = null;
+  let hqScore = -Infinity;
+  for (let x = Math.min(...cpEdges) + H_.cpClear; x + hw <= Math.max(...cpEdges) - H_.cpClear; x += 2) {
+    for (const side of ['N', 'S'] as const) {
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (let cx = x; cx < x + hw; cx++) {
+        const sg = avenueSegAt(hAvenue, cx);
+        top = Math.min(top, sg.offset);
+        bottom = Math.max(bottom, sg.offset + sg.width);
+      }
+      const rect = { x, y: side === 'N' ? top - hh : bottom, w: hw, h: hh };
+      if (!inMap(rect) || hqBlocked.some((b) => rectsOverlap(rect, b, 3))) continue;
+      // Расстояния — между краями (Нексус велик: по центрам штаб вставал бы вплотную к нему).
+      const dCp = Math.min(...cpEdges.map((e) => Math.max(e - rect.x - rect.w, rect.x - e, 0)));
+      const score = Math.min(gap(rect, pick.rect), gap(rect, plaza), dCp * H_.cpWeight) + rng.next();
+      if (score > hqScore) {
+        hqScore = score;
+        cwuHq = { rect, face: side === 'N' ? 'S' : 'N' };
+      }
+    }
+  }
+
   // Семена жилых кварталов (для названий районов).
   const quarterSeeds: Vec2[] = [];
   for (let tries = 0; quarterSeeds.length < G.residential.quarters && tries < 500; tries++) {
@@ -371,6 +407,7 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
     plazaSide,
     nexus: pick.rect,
     nexusRot: pick.rot,
+    cwuHq,
     checkpoints,
     quarterSeeds,
   };

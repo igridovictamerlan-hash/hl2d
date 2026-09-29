@@ -4,7 +4,7 @@ import type { Vec2 } from '../core/math';
 import type { Corpse } from './CombatSystem';
 import { isUnderground, type Cell } from './LawSystem';
 import { INSURGENCY, PARTISANS } from '../config/underground';
-import { AMMO_ITEM, WEAPONS } from '../config/items';
+import { AMMO_ITEM, WEAPONS, type ItemId } from '../config/items';
 import { poiWorld } from './Population';
 import { spawnRole } from './Roster';
 import { ROSTER } from '../config/roster';
@@ -99,7 +99,9 @@ export class InsurgencySystem {
   outings = 0;
   /** Без вылазок и операций (тесты и отладка). */
   paused = false;
-  stats = { armed: 0, interrogations: 0, broke: 0, raids: 0, riots: 0, jailbreaks: 0, groups: 0, ambushes: 0, looted: 0, alarms: 0 };
+  stats = { armed: 0, interrogations: 0, broke: 0, raids: 0, riots: 0, jailbreaks: 0, groups: 0, ambushes: 0, looted: 0, alarms: 0, stashed: 0, fromStash: 0 };
+  /** Добыча, которую подпольщик несёт на явку. */
+  private hauls = new Map<Character, { id: ItemId; qty: number }[]>();
   /** Кому и когда отдали ствол (не вооружать одного и того же подряд). */
   private armedAt = new Map<Character, number>();
   /** Допрос: сколько секунд и когда следующая реплика; раскололся ли. */
@@ -193,13 +195,69 @@ export class InsurgencySystem {
     this.say(`засада — огонь по конвою ГО (${g.convoy?.point.name ?? 'склад'})!`);
   }
 
-  /** Забрать ящик, брошенный конвоем: патроны к своим стволам или гранаты. */
+  // ——— Добыча и явки ———
+
+  /**
+   * Добыча (ящик со склада или с конвоя): в руки, и помечено — это нести на явку (Housing: тайник в
+   * своей комнате в городе), а не оставлять себе. ammo — патроны к MP7 на mags магазинов.
+   */
+  haul(by: Character, kind: 'ammo' | 'grenades' | 'weapons', n: number): void {
+    const W = WEAPONS.mp7;
+    const [id, qty]: [ItemId, number] = kind === 'ammo' ? [AMMO_ITEM[W.ammo!], W.magazine * n] : kind === 'grenades' ? ['grenade', n] : ['mp7', n];
+    const got = by.inventory.add(id, qty);
+    if (got <= 0) return;
+    const list = this.hauls.get(by) ?? [];
+    const s = list.find((q) => q.id === id);
+    if (s) s.qty += got;
+    else list.push({ id, qty: got });
+    this.hauls.set(by, list);
+  }
+
+  /** Несёт ли c добычу на явку. */
+  carryingLoot(c: Character): boolean {
+    return (this.hauls.get(c)?.length ?? 0) > 0 && !!this.ctx.housing?.stashOf(c);
+  }
+
+  /** Сложить добычу в тайник своей явки. Возвращает, сколько предметов спрятано. */
+  stashLoot(c: Character): number {
+    const st = this.ctx.housing?.stashOf(c);
+    const list = this.hauls.get(c);
+    this.hauls.delete(c);
+    if (!st || !list) return 0;
+    let n = 0;
+    for (const q of list) {
+      const k = Math.min(q.qty, c.inventory.count(q.id));
+      if (k <= 0) continue;
+      const put = st.add(q.id, k);
+      if (put > 0) c.inventory.remove(q.id, put);
+      n += put;
+    }
+    this.ctx.housing.stats.stashed += n;
+    this.stats.stashed += n;
+    if (n) this.say(`добыча спрятана на явке (${n} шт.) — пригодится.`);
+    return n;
+  }
+
+  /** Взять из тайника своей явки (или любой явки подполья) предмет; true — взят. */
+  fromStash(c: Character, id: ItemId, qty = 1): boolean {
+    const H = this.ctx.housing;
+    if (!H) return false;
+    const own = H.stashOf(c);
+    const st = own?.has(id, qty) ? own : H.dwellings.find((d) => d.stash?.has(id, qty))?.stash ?? null;
+    if (!st) return false;
+    st.remove(id, qty);
+    H.stats.taken += qty;
+    return true;
+  }
+
+  /** Забрать ящик, брошенный конвоем: патроны или гранаты — на явку. */
   lootCrate(by: Character, r = 34): boolean {
     const kind = this.ctx.arsenal?.lootConvoy(by, r);
     if (!kind) return false;
     const A = PARTISANS.ambush;
-    if (kind === 'ammo') this.ctx.economy.refillAmmo(by, A.mags);
-    else if (kind === 'grenades') by.inventory.add('grenade', A.grenades);
+    if (kind === 'ammo') this.haul(by, 'ammo', A.mags);
+    else if (kind === 'grenades') this.haul(by, 'grenades', A.grenades);
+    else this.haul(by, 'weapons', 1);
     this.stats.looted++;
     by.say(this.ctx.rng.pick(PARTISANS.lines.loot), this.ctx.law.now, 2);
     this.say(`ящик с конвоя ГО у нас (${kind === 'ammo' ? 'патроны' : kind === 'grenades' ? 'гранаты' : 'стволы'}).`);
@@ -286,8 +344,12 @@ export class InsurgencySystem {
     const { ctx } = this;
     if (!b.alive || b.law.phase !== 'none') return false;
     const A = PARTISANS.arm;
-    b.inventory.add(A.weapon, 1);
-    const ammo = WEAPONS[A.weapon].ammo;
+    // Ствол — краденый MP7 Альянса с явки, если там есть; иначе трофейный из схрона.
+    const stolen = this.fromStash(from, 'mp7');
+    const gun = stolen ? 'mp7' : A.weapon;
+    if (stolen) this.stats.fromStash++;
+    b.inventory.add(gun, 1);
+    const ammo = WEAPONS[gun].ammo;
     if (ammo) b.inventory.add(AMMO_ITEM[ammo], A.ammo);
     this.armedAt.set(b, this.time);
     this.stats.armed++;

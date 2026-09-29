@@ -6,6 +6,7 @@ import { CpBrain } from '../src/ai/brains/CpBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { spawnPopulation, equipKit } from '../src/systems/Population';
 import { lineOfSight } from '../src/world/visibility';
+import { T } from '../src/world/tiles';
 import { ECONOMY } from '../src/config/economy';
 import { WAR } from '../src/config/war';
 
@@ -31,7 +32,11 @@ function pairInSight(sim: Sim, d: number): [number, number] {
       const by = nav.ay(a) + dy * n;
       if (!nav.isWalkable(bx, by)) continue;
       const b = by * nav.w + bx;
-      if (lineOfSight(map, nav.worldX(a), nav.worldY(a), nav.worldX(b), nav.worldY(b))) return [a, b];
+      // Без дверей на линии: закрывшаяся дверь перекрыла бы обзор.
+      const ax = nav.worldX(a), ay = nav.worldY(a), bwx = nav.worldX(b), bwy = nav.worldY(b);
+      let door = false;
+      for (let t = 0; t <= 1; t += 0.05) for (const [ox, oy] of [[0, 0], [-12, -12], [12, 12], [-12, 12], [12, -12]]) if (map.tileAt(Math.floor((ax + (bwx - ax) * t + ox) / nav.ts), Math.floor((ay + (bwy - ay) * t + oy) / nav.ts)) === T.DOOR) door = true;
+      if (!door && lineOfSight(map, ax, ay, bwx, bwy)) return [a, b];
     }
   }
   throw new Error('нет пары точек');

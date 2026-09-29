@@ -75,6 +75,9 @@ function peekFrom(ctx: AiContext, x: number, y: number, threat: Vec2, reach: num
     const step = Math.hypot(wx - x, wy - y);
     if (step < 12 || step > D * 1.6) continue;
     if (!lineOfSight(ctx.map, x, y, wx, wy) || !lineOfSight(ctx.map, wx, wy, threat.x, threat.y)) continue;
+    // Выглядывающий встаёт с допуском (не доходя до якоря) — угроза должна быть видна и чуть ближе к углу.
+    const k = TACTICS.peekSlack / step;
+    if (!lineOfSight(ctx.map, wx + (x - wx) * k, wy + (y - wy) * k, threat.x, threat.y)) continue;
     if (Math.hypot(threat.x - wx, threat.y - wy) > reach) continue;
     return pa;
   }

@@ -86,6 +86,10 @@ export class Character {
   burnBy: Character | null = null;
   /** Несёт коробку рационов (курьер) или ящик склада (грузчик). */
   carrying = false;
+  /** Миска супа из общей столовой (съест за столом). */
+  soupBowl = false;
+  /** Свой дом (Housing.dwellings), -1 — нет. */
+  home = -1;
   /** Патроны из порченого ящика склада (диверсия партизан): осечки до чистого пополнения. */
   badAmmo = false;
   name: string;

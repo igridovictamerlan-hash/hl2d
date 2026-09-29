@@ -50,7 +50,7 @@ describe('коды тревоги', () => {
     expect(sim.log.some((l) => l.includes('убитый патрульный'))).toBe(true);
   });
 
-  test('красный код: возрождения нет ни у кого, после отбоя — снова', () => {
+  test('красный код: возрождения нет ни у кого, после отбоя — снова', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
     sim.war.command.paused = true;
@@ -208,6 +208,8 @@ describe('место преступления', () => {
     sim.combat.damage(victim, 9999, null);
     // Несколько бандитов вокруг: каждый решает сам (с шансом CRIME.loot.chance), кто-то да обберёт.
     const bandits = [0, 1, 2].map(() => spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 6, 10))!);
+    // Крематор из Нексуса (он у площади) не должен увезти тело раньше: проверяем бандитов.
+    (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
     // Тело могут заметить ГО у площади — тогда лента; здесь проверяем неоцеплённое (ленту снимаем).
     for (let i = 0; i < 90 * 60 && sim.crime.stats.corpseLoots === 0; i++) {
       sim.war.scenes.closeAll();

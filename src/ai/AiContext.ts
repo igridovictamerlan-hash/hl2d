@@ -3,6 +3,7 @@ import type { CwuHqSystem } from '../systems/CwuHq';
 import type { ArsenalSystem } from '../systems/Arsenal';
 import type { StreetShops } from '../systems/StreetShops';
 import type { FamilySystem } from '../systems/Families';
+import type { Housing } from '../systems/Housing';
 import type { GameMap } from '../world/GameMap';
 import type { NavGrid } from '../world/NavGrid';
 import type { PathService } from './PathService';
@@ -69,4 +70,6 @@ export interface AiContext {
   arsenal: ArsenalSystem;
   /** Улица старого города: лавки, кафе и ларьки проспекта, общая столовая. */
   shops: StreetShops;
+  /** Жильё: свой дом у каждого жителя, явки подполья с тайниками. */
+  housing: Housing;
 }

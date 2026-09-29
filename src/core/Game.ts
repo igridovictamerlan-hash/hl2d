@@ -32,7 +32,7 @@ import { updateNpcs } from '../ai/NpcController';
 import { ZoneSystem } from '../systems/ZoneSystem';
 import { DoorSystem } from '../systems/DoorSystem';
 import { LawSystem } from '../systems/LawSystem';
-import { spawnPopulation, roleSpawn, poiWorld, equipKit, cpKit } from '../systems/Population';
+import { spawnPopulation, roleSpawn, poiWorld, equipKit, cpKit, workplaceOf } from '../systems/Population';
 import { EconomySystem } from '../systems/EconomySystem';
 import { CombatSystem } from '../systems/CombatSystem';
 import { WarSystem, type AlertCode } from '../systems/WarSystem';
@@ -48,6 +48,7 @@ import { SecuritySystem } from '../systems/Security';
 import { CwuHqSystem } from '../systems/CwuHq';
 import { ArsenalSystem } from '../systems/Arsenal';
 import { StreetShops } from '../systems/StreetShops';
+import { Housing } from '../systems/Housing';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
@@ -92,6 +93,10 @@ export class Game {
   doors!: DoorSystem;
   law!: LawSystem;
   economy!: EconomySystem;
+  /** Жильё (для карты: свой дом игрока). */
+  get housing(): Housing {
+    return this.ai.housing;
+  }
   combat!: CombatSystem;
   war!: WarSystem;
   insurgency!: InsurgencySystem;
@@ -260,6 +265,7 @@ export class Game {
       cwuHq: null as unknown as CwuHqSystem,
       arsenal: null as unknown as ArsenalSystem,
       shops: null as unknown as StreetShops,
+      housing: null as unknown as Housing,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -277,6 +283,7 @@ export class Game {
     this.ai.cwuHq = new CwuHqSystem(this.ai);
     this.ai.arsenal = new ArsenalSystem(this.ai);
     this.ai.shops = new StreetShops(this.ai);
+    this.ai.housing = new Housing(this.ai);
     this.entityRenderer.families = this.ai.families;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
@@ -378,6 +385,13 @@ export class Game {
     p.y = p.prevY = spot.y;
     p.vx = p.vy = p.wantX = p.wantY = 0;
     this.camera.snapTo(p.x, p.y);
+    // Свой дом (жителю) или явка с тайником (подпольщику) — кружок на карте (M).
+    const H = this.ai.housing;
+    if (H) {
+      H.evict(p);
+      const d = faction === 'citizen' || faction === 'cwu' || faction === 'vort' || underground ? H.house(p, workplaceOf(this.ai, p)) : null;
+      if (d && announce) this.bus.emit('log', { text: underground ? 'Ваша явка в городе отмечена на карте (M): E в комнате — спрятать добычу или взять из тайника.' : 'Ваш дом отмечен на карте (M) кружком.', kind: 'system' });
+    }
     if (announce) {
       const r = rankOf(faction, rank);
       const div = p.division ? ` · ${CP_DIVISIONS[p.division].name}` : '';
@@ -572,6 +586,9 @@ export class Game {
   }
 
   buyItem(id: ItemId): string | null {
+    // Лавка проспекта: продавец на месте, товар есть — единица запаса уходит.
+    const street = this.ui.shop.kind === 'street' ? this.ui.shop.street : null;
+    if (street) return this.ai.shops.buy(this.player, street, id);
     return this.economy.buy(this.player, id);
   }
 

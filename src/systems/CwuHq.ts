@@ -76,7 +76,8 @@ export class CwuHqSystem {
       if (!c.alive) continue;
       if (c.faction === 'citizen') citizens++;
       if (c.faction !== 'cwu' || !c.profession) continue;
-      workers++;
+      // Продавцы лавок и повар столовой — по месту на проспекте, не в штате цеха.
+      if (c.profession !== 'vendor' && c.profession !== 'canteen_cook') workers++;
       count[c.profession] = (count[c.profession] ?? 0) + 1;
     }
     if (workers >= H.maxWorkers || citizens <= this.citizensAtStart * H.minCitizenShare) return null;

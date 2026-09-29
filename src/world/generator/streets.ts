@@ -4,7 +4,7 @@ import { GENERATOR } from '../../config/generator';
 import { T } from '../tiles';
 import type { GenGrid } from './GenGrid';
 import type { Lattice, LEdge } from './lattice';
-import { ARSENAL_TEMPLATE, CWU_HQ_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE } from './templates';
+import { ARSENAL_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE } from './templates';
 
 /** Улица-артерия: рёбра и узлы решётки, по которым она идёт. */
 export interface Artery {
@@ -26,8 +26,6 @@ export interface StreetPlan {
   arteries: Artery[];
   dorms: Placement[];
   villas: Placement[];
-  /** Штаб ГСР (у главного проспекта) или null, если места не нашлось. */
-  hq: Placement | null;
   /** Склад Альянса (на окраине, у улицы от проспекта) или null. */
   arsenal: Placement | null;
 }
@@ -204,20 +202,6 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   };
   const avenueNodes = lat.nodes.filter((n) => n.onAvenue && n.j === hLine);
   const toAvenue = (r: Rect) => Math.min(...avenueNodes.map((n) => Math.hypot(n.x - (r.x + r.w / 2), n.y - (r.y + r.h / 2))));
-  // Штаб ГСР — как можно ближе к главному проспекту (вдоль ствола улицы от него).
-  const HQ = GENERATOR.cwuHq;
-  let hq: Placement | null = null;
-  let hqD = HQ.maxDist + Math.max(CWU_HQ_TEMPLATE.length, CWU_HQ_TEMPLATE[0].length) * 8;
-  for (let t = 0; t < HQ.tries && streetEdges.length && avenueNodes.length; t++) {
-    const p = candidate(CWU_HQ_TEMPLATE, HQ.gap, streetEdges);
-    if (!p) continue;
-    const d = toAvenue(p.rect);
-    if (d < hqD) {
-      hq = p;
-      hqD = d;
-    }
-  }
-  if (hq) taken.push(hq.rect);
   const D = GENERATOR.dorms;
   const V = GENERATOR.villas;
   const dorms = place(DORM_TEMPLATE, rng.int(D.count[0], D.count[1]), D.gap, D.tries);
@@ -255,13 +239,13 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
 
   // Здания — пустоты решётки: лабиринт туда не заходит.
   const w = GENERATOR.alley.mainWidth;
-  for (const p of [...dorms, ...villas, ...(hq ? [hq] : []), ...(arsenal ? [arsenal] : [])]) {
+  for (const p of [...dorms, ...villas, ...(arsenal ? [arsenal] : [])]) {
     for (const nd of lat.nodes) if (rectsOverlap({ x: nd.x, y: nd.y, w, h: w }, p.rect, 2)) nd.region = 'void';
     lat.edges.forEach((e, id) => {
       if (!inArtery[id] && rectsOverlap(lat.edgeBounds(e), p.rect, 1)) e.valid = false;
     });
   }
-  return { arteries, dorms, villas, hq, arsenal };
+  return { arteries, dorms, villas, arsenal };
 }
 
 /** Асфальт артерий поверх вырезанных переулков. Возвращает прямоугольники каждой артерии. */

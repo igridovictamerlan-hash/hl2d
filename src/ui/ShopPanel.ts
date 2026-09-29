@@ -105,7 +105,8 @@ export class ShopPanel {
 
   update(p: Character, counter: { x: number; y: number } | null): void {
     if (!this.isOpen) return;
-    this.money.textContent = `Токены: ${p.money}`;
+    const s = this.kind === 'street' ? this.street : null;
+    this.money.textContent = s && s.stock.length ? `Токены: ${p.money} · на полках ${s.goods}/${s.cap}` : `Токены: ${p.money}`;
     if (!counter || Math.hypot(counter.x - p.x, counter.y - p.y) > 80) {
       this.close();
       return;

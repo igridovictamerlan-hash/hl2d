@@ -27,6 +27,7 @@ import { SecuritySystem } from '../src/systems/Security';
 import { CwuHqSystem } from '../src/systems/CwuHq';
 import { ArsenalSystem } from '../src/systems/Arsenal';
 import { StreetShops } from '../src/systems/StreetShops';
+import { Housing } from '../src/systems/Housing';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
@@ -72,6 +73,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     cwuHq: null as unknown as CwuHqSystem,
     arsenal: null as unknown as ArsenalSystem,
     shops: null as unknown as StreetShops,
+    housing: null as unknown as Housing,
   };
   const war = new WarSystem(ctx);
   ctx.war = war;
@@ -97,6 +99,7 @@ export function makeSim(seedOrMap: number | GameMap) {
   const arsenal = new ArsenalSystem(ctx);
   ctx.arsenal = arsenal;
   ctx.shops = new StreetShops(ctx);
+  ctx.housing = new Housing(ctx);
   economy.onEmpty = () => labor.noticeEmpty();
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;

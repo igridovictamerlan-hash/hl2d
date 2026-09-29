@@ -3,6 +3,7 @@ import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
 import type { WarSystem } from '../systems/WarSystem';
 import type { EconomySystem } from '../systems/EconomySystem';
+import type { Housing } from '../systems/Housing';
 import type { InsurgencySystem } from '../systems/InsurgencySystem';
 import { MINIMAP } from '../config/minimap';
 import { FACTIONS } from '../config/factions';
@@ -14,6 +15,8 @@ export interface MapViewHost {
   readonly war: WarSystem;
   readonly economy: EconomySystem;
   readonly insurgency: InsurgencySystem;
+  /** Жильё: свой дом игрока (или явка подпольщика) — кружок на карте. */
+  readonly housing?: Housing;
 }
 
 const C = MINIMAP.colors;
@@ -316,6 +319,8 @@ export class MapView {
       for (const p of poi('canteen_serve')) dot(p.x, p.y, 3, C.ration);
       for (const p of poi('cwu_hire')) dot(p.x, p.y, 3, C.cwuHq);
       for (const p of poi('arsenal_desk')) dot(p.x, p.y, 3, C.arsenal);
+      const home = host.housing?.of(player);
+      if (home) dot(home.at.x, home.at.y, 3.5, home.stash ? C.base : C.home, true);
       for (const n of economy.nodes) if (n.broken) dot(n.x, n.y, 2.5, C.nodeBroken);
       for (const h of map.hatches) if (player.profession === 'partisan' || player.profession === 'spec_agent' || this.hatches.has(h.id)) dot(h.city.x, h.city.y, 2, C.hatch, true);
       // Лагерь сопротивления в пустоши — своим.

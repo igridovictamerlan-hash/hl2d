@@ -42,6 +42,8 @@ export const MINIMAP = {
     ration: '#ffd36b',
     shop: '#9fd7a0',
     cwuHq: '#e0c060',
+    /** Свой дом игрока. */
+    home: '#f2e6c9',
     arsenal: '#8fb88a',
     hatch: '#b8b0a0',
     node: '#6ec2ff',

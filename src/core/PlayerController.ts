@@ -25,6 +25,7 @@ import { CWU_HQ } from '../config/cwuHq';
 import { CRIME } from '../config/crime';
 import { CP_UNITS } from '../config/cpUnits';
 import { ARSENAL } from '../config/arsenal';
+import { ARBAT } from '../config/arbat';
 import { isQuartermaster, type DepotAct, type Slot } from '../systems/Arsenal';
 import { coverAuthority } from '../entities/cover';
 
@@ -361,19 +362,50 @@ export class PlayerController {
       if (!ctx.war.canSetCode(p)) return this.say('Терминал Администрации: доступ только Администратору и старшим офицерам ГО (с OFC).');
       return this.hooks.openCodePanel();
     }
-    if (d(eco.shopCounter) < REACH + 8) return this.hooks.openShop('cwu');
+    // Курьер ГСР с коробкой — сдать товар в лавку, ларёк или столовую проспекта.
+    if (p.faction === 'cwu' && p.carrying && ctx.shops) {
+      const t = ctx.shops.dropAt(p, REACH + 8);
+      if (t) {
+        ctx.shops.deliver(p, t);
+        return this.say(`Коробка из штаба ГСР сдана${'shop' in t ? ` в «${t.shop.name}»: товара ${t.shop.goods}/${t.shop.cap}` : ` в столовую: супа ${ctx.shops.soup}/${ctx.shops.soupCap}`}. +${ARBAT.supply.pay} токенов`);
+      }
+    }
     if (d(ctx.insurgency.market) < REACH + 8) return this.hooks.openShop('black');
-    // Лавки, кафе и ларьки проспекта; стол общей столовой — поесть.
-    const street = ctx.shops?.shopAt(p, REACH);
+    // Лавки (и магазин ГСР), кафе и ларьки проспекта; раздача и стол общей столовой — суп и обед.
+    const street = ctx.shops?.shopAt(p, REACH + 8);
     if (street) {
       if (!street.stock.length) return this.say(`${street.name}: сегодня только поглазеть — товара нет.`);
+      const why = ctx.shops.refusal(street);
+      if (why === 'closed') return this.say(`${street.name}: закрыто — продавца нет за прилавком.`);
+      if (why === 'empty') return this.say(`${street.name}: полки пусты — ждут коробку из штаба ГСР.`);
       return this.hooks.openShop('street', street);
+    }
+    if (d(eco.shopCounter) < REACH + 8) return this.hooks.openShop('cwu');
+    const serve = ctx.shops?.serveSpot;
+    if (serve && d(serve) < REACH && !p.soupBowl) {
+      if (!ctx.shops.takeSoup(p)) return this.say(ctx.shops.kitchenOpen ? 'Общая столовая: суп кончился — ждут коробку из штаба ГСР.' : 'Общая столовая: повара у котла нет.');
+      return this.say('Повар налил миску супа. Садитесь за стол (E у свободного места).');
     }
     const seat = ctx.shops?.seats.find((s) => !s.taken && Math.hypot(s.x - p.x, s.y - p.y) < REACH * 0.6);
     if (seat) {
-      if (!ctx.shops.foodOf(p)) return this.say('Общая столовая: сюда приходят со своим пайком — а у вас нечего есть.');
+      if (!p.soupBowl && !ctx.shops.foodOf(p)) return this.say('Общая столовая: нечего есть — возьмите суп у раздачи или приходите с пайком.');
       ctx.shops.eat(p);
       return this.say(`Пообедали за столом общей столовой. Сытость: ${Math.round(p.hunger)}.`);
+    }
+    // Своя явка (подпольщик): E в комнате — спрятать добычу в тайник, нечего прятать — взять оттуда.
+    const home = ctx.housing?.of(p);
+    if (home?.stash && ctx.housing.inside(home, p)) {
+      const n = ctx.insurgency.stashLoot(p);
+      if (n) return this.say(`Добыча спрятана в тайник явки: ${n} шт.`);
+      const got: string[] = [];
+      for (const s of [...home.stash.slots]) {
+        const k = p.inventory.add(s.id, s.qty);
+        if (k > 0) {
+          home.stash.remove(s.id, k);
+          got.push(`${ITEMS[s.id].name}${k > 1 ? ` ×${k}` : ''}`);
+        }
+      }
+      return this.say(got.length ? `Из тайника явки: ${got.join(', ')}.` : 'Тайник явки пуст — несите сюда краденое со склада и с конвоев.');
     }
     // Люк: спуститься / подняться.
     const hatch = ctx.underground.hatchNear(p.x, p.y);

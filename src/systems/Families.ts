@@ -2,6 +2,7 @@ import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { Poi } from '../world/GameMap';
 import { FAMILIES } from '../config/families';
+import { HOUSING } from '../config/housing';
 import { FEMALE_FIRST, LAST_NAMES, genderedLastName } from '../config/names';
 
 export interface Family {
@@ -45,13 +46,9 @@ export class FamilySystem {
 
   assign(people: Character[]): void {
     const { ctx } = this;
-    const { rng, map, nav } = ctx;
+    const { rng, nav } = ctx;
     const F = FAMILIES;
-    const ts = map.tileSize;
-    const homes = map.poisOf('home');
-    const dormRooms = rng.shuffle(homes.filter((h) => h.kind === 'dorm'));
-    const villaRooms = rng.shuffle(homes.filter((h) => h.kind === 'villa'));
-    const houses = rng.shuffle(homes.filter((h) => !h.kind));
+    const H = ctx.housing;
     const surnames = rng.shuffle([...LAST_NAMES]);
     // Лоялисты — первыми: из них богатые семьи в особняках.
     const pool = rng.shuffle(people.filter((c) => c.alive && !c.isPlayer));
@@ -64,8 +61,12 @@ export class FamilySystem {
       k += n;
       left -= n;
       const id = this.families.length;
-      const rich = members[0].loyalty >= F.richLoyalty && villaRooms.length > 0;
-      const home = rich ? villaRooms.shift()! : dormRooms.shift() ?? houses.shift() ?? null;
+      // Дом семьи (Housing): богатые — особняк, остальные — половина на Арбат, половина в общежития.
+      const rich = members[0].loyalty >= F.richLoyalty && !!H?.free('villa');
+      const P = HOUSING.prefs;
+      const dwelling = H ? H.pick(rich ? ['villa'] : rng.chance(HOUSING.familyArbat) ? P.family : P.familyDorm) : null;
+      if (dwelling) H.settle(members, dwelling);
+      const home = dwelling ? { type: 'home' as const, ...dwelling.room, kind: dwelling.kind === 'villa' || dwelling.kind === 'dorm' ? dwelling.kind : undefined } : null;
       const surname = surnames[id % surnames.length];
       const fam: Family = {
         id,
@@ -74,7 +75,7 @@ export class FamilySystem {
         seed: rng.int(1, 0x7fffffff),
         rich,
         home,
-        homeAnchor: home ? nav.nearestWalkable((home.x + (home.w ?? 1) / 2) * ts, (home.y + (home.h ?? 1) / 2) * ts, 3) : -1,
+        homeAnchor: dwelling ? nav.nearestWalkable(dwelling.at.x, dwelling.at.y, 1) : -1,
       };
       this.families.push(fam);
       for (const c of members) {
