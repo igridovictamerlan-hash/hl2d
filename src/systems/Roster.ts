@@ -26,7 +26,9 @@ export type RoleKind =
   /** Склад Альянса: кладовщик SU.QM у стола выдачи и охрана SU.GUARD на постах. */
   | 'qm' | 'depot'
   /** Экипаж конвоя склада (ГО): носит ящики на пункты боепитания КПП и Нексуса. */
-  | 'convoy';
+  | 'convoy'
+  /** Боец или авторитет банды (живут в общаге банды). */
+  | 'gang';
 
 /**
  * Роль персонажа в постоянном составе (как игрок на сервере): кто он, с каким набором, и — у
@@ -45,6 +47,8 @@ export interface RoleSpec {
   family?: number;
   /** Свой дом (Housing) — возрождается там же. */
   home?: number;
+  /** Банда (Gangs). */
+  gang?: number;
   /** Часовой / RCT проходной / медик КПП: фронт, пост и взгляд, место медика. */
   front?: number;
   post?: Vec2;
@@ -77,7 +81,7 @@ function inZone(ctx: AiContext, kind: Parameters<typeof randomAnchorInZone>[1]):
 /** Где появляется роль после гибели: ГО и OTA — Цитадель, армия — лагерь, партизаны — схрон… */
 export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
   // Жители — у себя дома (подполье — в схроне, явка только для добычи).
-  const home = spec.home !== undefined && (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort') ? ctx.housing?.dwellings[spec.home] : undefined;
+  const home = spec.home !== undefined && (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'gang') ? ctx.housing?.dwellings[spec.home] : undefined;
   if (home) return ctx.rng.pick(home.spots);
   switch (spec.kind) {
     case 'patrol':
@@ -112,7 +116,7 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'agent':
       return inZone(ctx, 'rebel_base');
     case 'trader': {
-      const t = poiWorld(ctx, 'trader');
+      const t = ctx.fence?.spot ?? poiWorld(ctx, 'trader');
       return t ? spotNear(ctx, t, 0) : null;
     }
     case 'cwu': {
@@ -135,11 +139,12 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   if (spec.loyalty !== undefined) c.loyalty = spec.loyalty;
   if (spec.family !== undefined) c.family = spec.family;
   if (spec.home !== undefined) c.home = spec.home;
+  if (spec.gang !== undefined) c.gang = spec.gang;
   c.facing = spec.facing ?? ctx.rng.range(0, Math.PI * 2);
   c.hunger = ctx.rng.range(40, 100);
   equipKit(c, spec.kit, ctx);
   // Жители оружие на виду не носят (бандит достаёт ствол только для грабежа).
-  if (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'trader') ctx.combat.equip(c, null);
+  if (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'trader' || spec.kind === 'gang') ctx.combat.equip(c, null);
   // ГО — здоровье по юниту (RCT.PCU 75 … CMD.EPU 200), остальные — по профессии.
   const hp = roleHp(spec.faction, spec.rank, spec.profession);
   if (hp) c.maxHealth = c.health = hp;
@@ -203,6 +208,7 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
       const counter = ctx.insurgency.market;
       c.brain = new PostBrain({ x: c.x, y: c.y }, counter ? Math.atan2(counter.y - c.y, counter.x - c.x) : 0);
       ctx.insurgency.trader = c;
+      if (ctx.fence) ctx.fence.trader = c;
       break;
     }
     case 'admin': {

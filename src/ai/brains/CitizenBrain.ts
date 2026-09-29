@@ -32,6 +32,8 @@ import { FAMILIES } from '../../config/families';
 import { lineOfSight } from '../../world/visibility';
 import { CWU_HQ } from '../../config/cwuHq';
 import { PARTISANS } from '../../config/underground';
+import { GANGS } from '../../config/gangs';
+import { Gunner } from '../Gunner';
 
 /** Работа по профессии (ГСР, вортигонт, отброс общества). */
 type Job =
@@ -136,6 +138,10 @@ export class CitizenBrain implements Brain {
   sleeping = false;
   /** Столовая: сперва за супом к раздаче. */
   soupFirst = false;
+  /** Боец банды: стрелок (стычки) и идёт ли бой. */
+  gunner: Gunner | null = null;
+  private inFight = false;
+  private fightRepath = 0;
 
   constructor(
     public self: Character,
@@ -162,6 +168,8 @@ export class CitizenBrain implements Brain {
     this.self = self;
     this.ctx = ctx;
     const phase = self.law.phase;
+    // Банда: стычка с чужими (или с ГО, раз напал) — бой поверх любого занятия.
+    if (self.gang >= 0 && phase === 'none' && this.gangFight(dt)) return;
     const cur = this.fsm.current;
     if (phase === 'ordered' || phase === 'checking') {
       if (cur !== 'stopped') this.fsm.change('stopped');
@@ -208,6 +216,41 @@ export class CitizenBrain implements Brain {
     this.riotUntil = until;
     self.law.riotUntil = until;
     this.fsm.change('riot');
+    return true;
+  }
+
+  /**
+   * Боец банды: Gunner ищет врагов (бойцы чужой банды в стычке, ГО — если сам напал). Бой — стоять и
+   * стрелять (далеко — подойти); кончился — ствол в карман, снова своими делами. true — сейчас в бою.
+   */
+  private gangFight(dt: number): boolean {
+    const { self, ctx } = this;
+    const g = (this.gunner ??= new Gunner(ctx.rng));
+    const fighting = g.update(self, ctx, dt) && !!g.target;
+    if (!fighting) {
+      if (this.inFight) {
+        this.inFight = false;
+        ctx.combat.equip(self, null);
+        this.idleLeft = ctx.rng.range(1, 3);
+        this.fsm.change('idle');
+      }
+      return false;
+    }
+    if (!this.inFight) {
+      this.inFight = true;
+      this.mover.stop();
+    }
+    const t = g.target!;
+    const w = ctx.combat.weaponOf(self);
+    const d = Math.hypot(t.x - self.x, t.y - self.y);
+    this.fightRepath -= dt;
+    if (w && d > w.effectiveRange * 0.9 && this.fightRepath <= 0) {
+      this.fightRepath = 1.2;
+      const a = ctx.nav.nearestWalkable(t.x, t.y, 3);
+      if (a >= 0) this.mover.goTo(self, ctx, a);
+    } else if (!w || d <= w.effectiveRange * 0.9) this.mover.stop();
+    this.mover.update(self, ctx, dt);
+    if (!g.look(self, ctx, dt)) faceMovement(self, ctx, dt);
     return true;
   }
 
@@ -290,7 +333,7 @@ export class CitizenBrain implements Brain {
   private streetActivity(): string | null {
     const { ctx } = this;
     // Воры и бандиты «работают» на улице: им не до бесед и бочек.
-    const hustler = this.self.profession === 'thief' || this.self.profession === 'bandit';
+    const hustler = this.self.profession === 'thief' || this.self.profession === 'bandit' || this.self.gang >= 0;
     if (!this.street || hustler || ctx.war.code === 'red' || !ctx.street || !ctx.rng.chance(STREET.activityChance)) return null;
     const W = STREET.weights;
     const st = ctx.street;
@@ -398,7 +441,7 @@ export class CitizenBrain implements Brain {
     }
     // Горожанин с едой проголодался — поесть за столом в общей столовой (не при красном коде; у ГСР
     // своя столовая в штабе).
-    const hustler = self.profession === 'thief' || self.profession === 'bandit';
+    const hustler = self.profession === 'thief' || self.profession === 'bandit' || self.gang >= 0;
     if (self.faction === 'citizen' && !hustler && ctx.war.code !== 'red' && ctx.shops?.wantsMeal(self) && ctx.rng.chance(ctx.shops.foodOf(self) ? ARBAT.meal.chance : ARBAT.meal.soupChance)) return 'canteen';
     if (eco.shopCounter && self.money >= 6 && self.hunger < 75 && ctx.rng.chance(ECONOMY.shop.npcVisitChance)) return 'shop';
     return this.streetActivity() ?? 'walk';
@@ -437,6 +480,12 @@ export class CitizenBrain implements Brain {
       }
     }
     switch (self.profession) {
+      case 'gang_boss': {
+        // Авторитет — в общаге у общака; иногда прогулка по району (null — уличная жизнь по району).
+        const g = ctx.gangs?.of(self);
+        if (!g || ctx.rng.chance(0.25)) return null;
+        return { kind: 'rest', spot: g.hq, until: ctx.law.now + ctx.rng.range(40, 80), lines: GANGS.lines.boss };
+      }
       case 'cwu_head': {
         // Глава ГСР: к стойке, если ждут соискатели; иначе кабинет или обход штаба.
         if (!hq?.present) return null;
@@ -653,6 +702,12 @@ export class CitizenBrain implements Brain {
       }
     }
     if (ctx.rng.chance(LAW.npc.runChance[f] ?? 0)) this.mover.speed = CHARACTER.runSpeed * 0.9;
+    // Боец банды держится своего района.
+    const gang = ctx.gangs?.of(this.self);
+    if (gang && ctx.rng.chance(GANGS.turfChance)) {
+      const a = ctx.gangs.turfAnchor(gang);
+      if (a >= 0) return a;
+    }
     if (ctx.rng.chance(profile.favouriteChance)) {
       const g = randomAnchorInZone(ctx, ctx.rng.pick(profile.favourite));
       if (g >= 0 && !this.avoid.has(ctx.nav.zone[g])) return g;

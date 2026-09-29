@@ -8,7 +8,7 @@ import { RebelBrain } from '../src/ai/brains/RebelBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { ROSTER, COMMAND } from '../src/config/roster';
 import { ELECTION } from '../src/config/election';
-import { AI } from '../src/config/ai';
+import { GANGS } from '../src/config/gangs';
 import { randomAnchorAround, randomAnchorInZone } from '../src/ai/destinations';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { WAR } from '../src/config/war';
@@ -205,7 +205,8 @@ describe('бандиты', () => {
     expect(bandit!.weapon).toBeNull();
     run(sim, 240, () => sim.crime.stats.robberies > 0);
     expect(sim.crime.stats.robberies).toBeGreaterThan(0);
-    expect(AI.population.banditShare).toBeGreaterThan(0);
+    // Бандиты теперь — в бандах (config/gangs.ts): авторитет и 4–5 бойцов у каждой.
+    expect(GANGS.members[0]).toBeGreaterThanOrEqual(4);
   });
 });
 

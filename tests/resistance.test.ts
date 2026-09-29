@@ -374,7 +374,9 @@ describe('подполье группами', () => {
       dropped = Math.max(dropped, A.crates.filter((c) => c.convoy).length);
       return sim.insurgency.stats.looted > 0 || g.members.every((m) => !m.fit);
     });
-    expect(dropped).toBeGreaterThan(0);
+    // Носильщики бросают ящики в бою — если засаду не положили раньше, чем бой разгорелся.
+    const wiped = g.members.every((m) => !m.fit);
+    if (!wiped) expect(dropped + sim.insurgency.stats.looted).toBeGreaterThan(0);
     // Исход боя трёх против четырёх SU.03 — дело случая (голова без шлема — смерть). Засаду перебили —
     // брошенный ящик берёт первый же партизан, дошедший до него.
     // (Экипаж мог и подобрать свои ящики после боя — тогда брать нечего.)

@@ -53,6 +53,7 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   equipItem(id: WeaponId | null): void;
   buyItem(id: ItemId): string | null;
   buyBlack(k: number): string | null;
+  blackInStock(k: number): boolean;
   shopPrice(id: ItemId): number | undefined;
   sellItem(id: ItemId): string | null;
   /** Сообщение или команда чата от игрока. */
@@ -92,6 +93,7 @@ export class UI {
   constructor(root: HTMLElement, bus: EventBus, private readonly host: UIHost) {
     this.hud = new Hud(root);
     this.banner = new ZoneBanner(root, bus);
+    this.banner.turf = (id) => host.gangs?.turfOf(id)?.def.name ?? null;
     this.dev = new DevPanel(root, host);
     this.log = new EventLog(root, bus);
     this.check = new CheckPanel(root, bus, (t, c) => host.resolveCheck(t, c));
@@ -107,7 +109,7 @@ export class UI {
     this.pauseEl.innerHTML = '<div>ПАУЗА</div><small>P — продолжить · игра сохраняется автоматически</small>';
     root.appendChild(this.pauseEl);
     this.chat = new ChatBox(root, (t) => host.say(t), () => host.focusGame());
-    this.shop = new ShopPanel(root, { price: (id) => host.shopPrice(id), buy: (id) => host.buyItem(id), buyBlack: (k) => host.buyBlack(k), sell: (id) => host.sellItem(id) });
+    this.shop = new ShopPanel(root, { price: (id) => host.shopPrice(id), buy: (id) => host.buyItem(id), buyBlack: (k) => host.buyBlack(k), blackInStock: (k) => host.blackInStock(k), sell: (id) => host.sellItem(id) });
     this.alert = new AlertBar(root, bus);
     this.death = new DeathScreen(root);
     new HelpBar(root);

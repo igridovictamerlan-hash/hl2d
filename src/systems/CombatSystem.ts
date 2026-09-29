@@ -265,11 +265,16 @@ export class CombatSystem {
     return this.time;
   }
 
+  /** Стычка банд (задаёт GangSystem): враги ли бойцы a и b разных банд. */
+  gangHostile: ((a: Character, b: Character) => boolean) | null = null;
+
   /** Враги ли a и b: Альянс против повстанцев и тех, кто на него напал. */
   isHostile(a: Character, b: Character): boolean {
     if (!a.alive || !b.alive || a === b) return false;
     const A = FACTIONS[a.faction].authority;
     const B = FACTIONS[b.faction].authority;
+    // Бойцы разных банд в стычке (GangSystem) — враги друг другу.
+    if (!A && !B && a.gang >= 0 && b.gang >= 0) return this.gangHostile?.(a, b) ?? false;
     if (A === B) return false;
     const other = A ? b : a;
     // Партизан в маскировке — «гражданин», пока не выдал себя.

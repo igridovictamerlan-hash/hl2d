@@ -145,8 +145,10 @@ describe('живой город со всеми фракциями', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     const count = (f: string) => sim.entities.list.filter((c) => c.faction === f).length;
-    // 20 граждан + торговец чёрного рынка в канализации.
-    expect(count('citizen')).toBe(21);
+    // 20 граждан + барыга + бойцы и авторитеты банд.
+    const gangsters = sim.entities.list.filter((c) => c.gang >= 0).length;
+    expect(gangsters).toBeGreaterThanOrEqual(10);
+    expect(count('citizen')).toBe(21 + gangsters);
     // Силовой блок города (ROSTER.cp) + на каждом из двух КПП 5 спецназовцев SU.03 (2 во внешней
     // точке, 3 во внутренней), 2 RCT.PCU в проходной и медик SU.02; склад — кладовщик, охрана и экипаж конвоя.
     const C = ROSTER.cp;

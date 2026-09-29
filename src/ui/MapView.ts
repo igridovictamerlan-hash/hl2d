@@ -4,6 +4,8 @@ import type { EntityManager } from '../entities/EntityManager';
 import type { WarSystem } from '../systems/WarSystem';
 import type { EconomySystem } from '../systems/EconomySystem';
 import type { Housing } from '../systems/Housing';
+import type { GangSystem } from '../systems/Gangs';
+import type { Fence } from '../systems/Fence';
 import type { InsurgencySystem } from '../systems/InsurgencySystem';
 import { MINIMAP } from '../config/minimap';
 import { FACTIONS } from '../config/factions';
@@ -17,9 +19,13 @@ export interface MapViewHost {
   readonly insurgency: InsurgencySystem;
   /** Жильё: свой дом игрока (или явка подпольщика) — кружок на карте. */
   readonly housing?: Housing;
+  /** Банды: районы цветом, общаги; барыга — чёрный рынок. */
+  readonly gangs?: GangSystem;
+  readonly fence?: Fence;
 }
 
 const C = MINIMAP.colors;
+import { GANGS } from '../config/gangs';
 
 /**
  * Мини-карта (правый верхний угол) и большая карта уровня (M). Город известен целиком,
@@ -40,6 +46,8 @@ export class MapView {
   explored: Uint8Array = new Uint8Array(0);
   /** Найденные люки (id). */
   readonly hatches = new Set<number>();
+  /** Для какой карты уже подкрашены районы банд. */
+  private turfsFor: GameMap | null = null;
   private zoneLabels: { name: string; x: number; y: number }[] = [];
   private time = 0;
 
@@ -71,7 +79,8 @@ export class MapView {
       [C.nodeBroken, 'узел Альянса выведен из строя'],
       [C.alarm, 'тревога'],
       [C.base, 'лагерь / схрон'],
-      [C.market, 'чёрный рынок'],
+      [C.market, 'барыга (чёрный рынок)'],
+      [GANGS.defs[0].color, 'районы и общаги банд'],
     ]
       .map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`)
       .join('');
@@ -103,6 +112,7 @@ export class MapView {
 
   private buildBase(map: GameMap): void {
     this.base.clear();
+    this.turfsFor = null;
     this.sewerFull = null;
     this.sewerImg = null;
     const levels: Level[] = map.underground ? ['city', 'sewer'] : ['city'];
@@ -156,6 +166,34 @@ export class MapView {
     }
   }
 
+  /** Районы банд — подкраска их кварталов цветом банды, в подписи — название банды. */
+  private paintTurfs(gangs: GangSystem): void {
+    const map = this.map!;
+    this.turfsFor = map;
+    const cv = this.base.get('city');
+    if (!cv || !gangs.gangs.length) return;
+    const r = this.levelRect('city');
+    const ctx = cv.getContext('2d')!;
+    const img = ctx.getImageData(0, 0, r.w, r.h);
+    const A = MINIMAP.turfAlpha;
+    for (const g of gangs.gangs) {
+      const c = g.def.color;
+      const [tr, tg, tb] = [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+      for (let y = 0; y < r.h; y++) {
+        for (let x = 0; x < r.w; x++) {
+          if (!g.turf.has(map.zoneGrid[(r.y + y) * map.width + r.x + x])) continue;
+          const i = (y * r.w + x) * 4;
+          img.data[i] += (tr - img.data[i]) * A;
+          img.data[i + 1] += (tg - img.data[i + 1]) * A;
+          img.data[i + 2] += (tb - img.data[i + 2]) * A;
+        }
+      }
+      const z = [...g.turf].map((id) => map.zones[id]?.name);
+      for (const l of this.zoneLabels) if (z.includes(l.name) && !l.name.includes('·')) l.name = `${l.name} · ${g.def.name}`;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
   /** Перенести исследованные тайлы канализации из полной схемы в видимую. */
   private paintExplored(r: Rect, x0: number, y0: number, w: number, h: number): void {
     const map = this.map!;
@@ -182,6 +220,7 @@ export class MapView {
     this.time += dt;
     const { map, player } = host;
     if (map !== this.map) this.reset(map);
+    if (host.gangs && this.turfsFor !== map) this.paintTurfs(host.gangs);
     const wasRebel = this.knowsSewer();
     this.player = player;
     if (wasRebel !== this.knowsSewer() && map.underground) this.redrawSewer();
@@ -319,6 +358,10 @@ export class MapView {
       for (const p of poi('canteen_serve')) dot(p.x, p.y, 3, C.ration);
       for (const p of poi('cwu_hire')) dot(p.x, p.y, 3, C.cwuHq);
       for (const p of poi('arsenal_desk')) dot(p.x, p.y, 3, C.arsenal);
+      // Общаги банд — цветом банды; хата барыги — тем, кто с улицы или из подполья.
+      for (const g of host.gangs?.gangs ?? []) dot(g.hq.x, g.hq.y, 3, g.def.color);
+      const fence = host.fence?.counter;
+      if (fence && (player.faction === 'rebel' || player.gang >= 0 || player.profession === 'thief' || player.profession === 'bandit')) dot(fence.x, fence.y, 3, C.market);
       const home = host.housing?.of(player);
       if (home) dot(home.at.x, home.at.y, 3.5, home.stash ? C.base : C.home, true);
       for (const n of economy.nodes) if (n.broken) dot(n.x, n.y, 2.5, C.nodeBroken);

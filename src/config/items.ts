@@ -327,6 +327,8 @@ export const KITS: Record<string, [ItemId, number][]> = {
   spec_agent: [['usp', 1], ['ammo_pistol', 48], ['knife', 1], ['lockpick', 2], ['medkit', 1], ['bandage', 1], ['grenade', 1]],
   /** Бандит: нож (в спину — два удара на патрульного) и самодельный пистолет. */
   bandit: [['knife', 1], ['rebel_pistol', 1], ['ammo_pistol', 20], ['water', 1]],
+  /** Авторитет банды: трофейный MP7, пистолет, нож. */
+  gang_boss: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['knife', 1], ['bandage', 2]],
   fugitive: [['bandage', 1]],
 };
 

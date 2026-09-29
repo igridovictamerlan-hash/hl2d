@@ -11,6 +11,8 @@ export interface ShopHandlers {
   price(id: ItemId): number | undefined;
   buy(id: ItemId): string | null;
   buyBlack(k: number): string | null;
+  /** Есть ли у барыги позиция чёрного рынка (стволы и гранаты — только принесённые). */
+  blackInStock(k: number): boolean;
   sell(id: ItemId): string | null;
 }
 
@@ -88,11 +90,12 @@ export class ShopPanel {
         })
         .join('');
     } else {
-      this.title.textContent = 'ЧЁРНЫЙ РЫНОК';
+      this.title.textContent = 'БАРЫГА · ЧЁРНЫЙ РЫНОК';
       this.list.innerHTML = ECONOMY.blackMarket.stock
         .map((s, k) => {
           const d = ITEMS[s.id];
-          return `<div class="inv-row"><div><b>${d.name}${s.qty > 1 ? ` ×${s.qty}` : ''}</b><div class="inv-desc">${d.desc}</div></div><button data-black="${k}">${s.price} ток.</button></div>`;
+          const has = this.h.blackInStock(k);
+          return `<div class="inv-row"><div><b>${d.name}${s.qty > 1 ? ` ×${s.qty}` : ''}</b><div class="inv-desc">${has ? d.desc : 'Нет в наличии — принесут, будет.'}</div></div><button data-black="${k}"${has ? '' : ' disabled'}>${s.price} ток.</button></div>`;
         })
         .join('');
     }

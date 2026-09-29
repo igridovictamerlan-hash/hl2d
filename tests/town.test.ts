@@ -167,7 +167,8 @@ describe('Нексус: общая камера, лоялисты, проспе�
         expect(sim.nav.isWalkable(Math.floor(s.x / 16) - 1, Math.floor(s.y / 16) - 1)).toBe(true);
       }
     }
-    spawnPopulation(ctx, 40);
+    // Воры и бандиты на скамейки не садятся — обывателей побольше.
+    spawnPopulation(ctx, 50);
     sim.war.command.paused = true;
     let seated = 0;
     run(sim, 240, () => {

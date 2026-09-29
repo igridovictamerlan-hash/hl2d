@@ -4,6 +4,7 @@ import type { Vec2 } from '../core/math';
 import type { Corpse } from './CombatSystem';
 import { isUnderground, type Cell } from './LawSystem';
 import { INSURGENCY, PARTISANS } from '../config/underground';
+import { FENCE } from '../config/gangs';
 import { AMMO_ITEM, WEAPONS, type ItemId } from '../config/items';
 import { poiWorld } from './Population';
 import { spawnRole } from './Roster';
@@ -20,7 +21,7 @@ import type { Convoy } from './Arsenal';
 
 /** Текущая операция подпольщиков в городе. */
 export interface Operation {
-  kind: 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'depot' | 'ambush';
+  kind: 'sabotage' | 'arm' | 'fence' | 'jailbreak' | 'mine' | 'depot' | 'ambush';
   team: Character[];
   where: string;
   /** Группа (ячейка), если на дело вышли вдвоём-втроём. */
@@ -72,7 +73,8 @@ export interface Raid {
 export class InsurgencySystem {
   readonly base: Vec2 | null;
   readonly cache: Vec2 | null;
-  readonly market: Vec2 | null;
+  /** Прилавок в канализации (старый чёрный рынок; теперь торгует барыга в своей хате). */
+  readonly sewerMarket: Vec2 | null;
   readonly garrison: Character[] = [];
   /** Спецагенты (ROSTER.agents). */
   readonly agents: Character[] = [];
@@ -99,7 +101,9 @@ export class InsurgencySystem {
   outings = 0;
   /** Без вылазок и операций (тесты и отладка). */
   paused = false;
-  stats = { armed: 0, interrogations: 0, broke: 0, raids: 0, riots: 0, jailbreaks: 0, groups: 0, ambushes: 0, looted: 0, alarms: 0, stashed: 0, fromStash: 0 };
+  stats = { armed: 0, interrogations: 0, broke: 0, raids: 0, riots: 0, jailbreaks: 0, groups: 0, ambushes: 0, looted: 0, alarms: 0, stashed: 0, fromStash: 0, fenced: 0 };
+  /** Деньги подполья (выручка у барыги) — на заказы бандам. */
+  funds = 0;
   /** Добыча, которую подпольщик несёт на явку. */
   private hauls = new Map<Character, { id: ItemId; qty: number }[]>();
   /** Кому и когда отдали ствол (не вооружать одного и того же подряд). */
@@ -110,12 +114,17 @@ export class InsurgencySystem {
   constructor(private readonly ctx: AiContext) {
     this.base = poiWorld(ctx, 'rebel_base');
     this.cache = poiWorld(ctx, 'rebel_cache');
-    this.market = poiWorld(ctx, 'black_market');
+    this.sewerMarket = poiWorld(ctx, 'black_market');
     this.nextOp = ctx.rng.range(INSURGENCY.firstOp[0], INSURGENCY.firstOp[1]);
   }
 
   get now(): number {
     return this.time;
+  }
+
+  /** Где торгует чёрный рынок: у барыги в хате (иначе — старый прилавок в канализации). */
+  get market(): Vec2 | null {
+    return this.ctx.fence?.counter ?? this.sewerMarket;
   }
 
   /** Подпольщик (из постоянного состава) — в гарнизон схрона, в личине горожанина или ГСР. */
@@ -238,6 +247,43 @@ export class InsurgencySystem {
     return n;
   }
 
+  /**
+   * Забрать с явки всё краденое для барыги (стволы, гранаты, патроны); вместе с добычей в руках.
+   * Возвращает список (из тайника и инвентаря уже убрано).
+   */
+  bagForFence(c: Character): { id: ItemId; qty: number }[] {
+    const bag: { id: ItemId; qty: number }[] = [];
+    const st = this.ctx.housing?.stashOf(c);
+    if (st) for (const s of st.takeAll()) bag.push({ id: s.id, qty: s.qty });
+    const list = this.hauls.get(c);
+    this.hauls.delete(c);
+    for (const q of list ?? []) {
+      const k = Math.min(q.qty, c.inventory.count(q.id));
+      if (k > 0 && c.inventory.remove(q.id, k)) bag.push({ id: q.id, qty: k });
+    }
+    return bag;
+  }
+
+  /** Сделка у барыги: товар ему, выручка — подполью; с шансом — заказ банде удара по ГО. */
+  dealWithFence(c: Character, bag: { id: ItemId; qty: number }[]): number {
+    const { ctx } = this;
+    const F = ctx.fence;
+    if (!F) return 0;
+    c.say(ctx.rng.pick(FENCE.lines.bring), ctx.law.now, 2.2);
+    const pay = F.takeIn(bag);
+    this.funds += pay;
+    const D = FENCE.deal;
+    if (this.funds >= D.order && ctx.rng.chance(D.orderChance)) {
+      this.funds -= D.order;
+      F.placeOrder();
+      if (F.trader) F.trader.say(ctx.rng.pick(FENCE.lines.order), ctx.law.now + 1, 2.5);
+      this.say('барыга передаст заказ банде — удар по ГО.');
+    } else if (F.trader) F.trader.say(ctx.rng.pick(FENCE.lines.deal), ctx.law.now + 1, 2.5);
+    this.stats.fenced += bag.reduce((n, q) => n + q.qty, 0);
+    if (bag.length) this.say(`барыге сдано краденое (${bag.map((q) => q.qty).reduce((a, b) => a + b, 0)} шт.), выручка ${pay} ток.`);
+    return pay;
+  }
+
   /** Взять из тайника своей явки (или любой явки подполья) предмет; true — взят. */
   fromStash(c: Character, id: ItemId, qty = 1): boolean {
     const H = this.ctx.housing;
@@ -304,12 +350,19 @@ export class InsurgencySystem {
     for (let k = 0; k < ROSTER.agents; k++) {
       spawnRole(ctx, { kind: 'agent', faction: 'rebel', profession: 'spec_agent', division: null, rank: REBEL_UNIT.agent, kit: 'spec_agent' });
     }
-    const spot = poiWorld(ctx, 'trader');
+    // Барыга — в своей хате у запретной зоны (нет её — у прилавка в канализации).
+    const spot = ctx.fence?.spot ?? poiWorld(ctx, 'trader');
     if (spot && this.market) {
       const t = spawnRole(ctx, { kind: 'trader', faction: 'citizen', profession: null, division: null, rank: 0, kit: 'citizen' }, spot);
       if (t) {
         t.name = `Барыга ${t.name.split(' ')[0]}`;
         if (t.role) t.role.name = t.name;
+        // Живёт там же, где торгует.
+        const home = ctx.fence?.home;
+        if (home) {
+          t.home = home.id;
+          if (t.role) t.role.home = home.id;
+        }
       }
     }
   }
@@ -382,7 +435,7 @@ export class InsurgencySystem {
       const O = PARTISANS.ops;
       const depot = ctx.arsenal?.present ? O.depot : 0;
       const ambush = convoy && free.length >= PARTISANS.ambush.size[0] ? O.ambush : 0;
-      const opts: [Operation['kind'], number][] = [['arm', O.arm], ['sabotage', O.sabotage], ['jailbreak', cell ? O.jailbreak : 0], ['mine', mineSpot ? O.mine : 0], ['depot', depot], ['ambush', ambush]];
+      const opts: [Operation['kind'], number][] = [['arm', O.arm], ['fence', ctx.fence?.present ? O.fence : 0], ['sabotage', O.sabotage], ['jailbreak', cell ? O.jailbreak : 0], ['mine', mineSpot ? O.mine : 0], ['depot', depot], ['ambush', ambush]];
       let r = ctx.rng.next() * opts.reduce((n, [, w]) => n + w, 0);
       type = 'sabotage';
       for (const [k, w] of opts) {
@@ -437,6 +490,13 @@ export class InsurgencySystem {
       this.op = { kind: 'sabotage', team, where, group: g };
       this.ops.push(this.op);
       this.say(`${team.length > 1 ? `группа (${team.length}) вышла` : 'подпольщик вышел'} на саботаж узла Альянса — ${where}.`);
+    } else if (type === 'fence') {
+      // Вся связь с улицей — через барыгу: краденое с явки ему, а он передаст заказ банде.
+      if (!ctx.fence?.present) return null;
+      brain.startFence(c, ctx);
+      this.op = { kind: 'fence', team: [c], where: 'хата барыги' };
+      this.ops.push(this.op);
+      this.say('подпольщик несёт краденое барыге.');
     } else {
       const bandits = ctx.entities.list.filter((b) => this.armable(b));
       if (!bandits.length) return null;
@@ -495,8 +555,8 @@ export class InsurgencySystem {
     if (type === 'tunnels') {
       to = h.sewer;
       what = 'обход';
-    } else if (type === 'market' && this.market) {
-      to = this.market;
+    } else if (type === 'market' && this.sewerMarket) {
+      to = this.sewerMarket;
       what = 'рынок';
     } else {
       // Разведка: точка в городе недалеко от люка.

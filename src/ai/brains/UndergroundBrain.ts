@@ -17,8 +17,10 @@ import { randomAnchorInZone } from '../destinations';
 import { COMBAT, GRENADE, MINE } from '../../config/combat';
 import { CHARACTER } from '../../config/entities';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
+import { FENCE } from '../../config/gangs';
+import type { ItemId } from '../../config/items';
 
-export type OpMode = 'base' | 'sabotage' | 'arm' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'stash' | 'return' | 'outing';
+export type OpMode = 'base' | 'sabotage' | 'arm' | 'fence' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'stash' | 'return' | 'outing';
 
 const coverNear: Character[] = [];
 
@@ -43,6 +45,7 @@ const DEPOT_DONE: Record<DepotAct, string> = {
  *    брошенные ящики — забрать, потом к люку;
  *  cover — второй в группе: прикрытие у камер (взлом) или дозор у узла (саботаж: видит ГО — «шухер»);
  *  stash — с добычей на свою явку в городе: спрятать в тайник (Housing), потом к люку;
+ *  fence — через люк на явку забрать краденое, отнести барыге (выручка подполью, заказ банде), назад;
  *  return — к ближайшему люку и вниз, в убежище (раненый — сразу сюда).
  */
 export class UndergroundBrain implements Brain {
@@ -70,6 +73,8 @@ export class UndergroundBrain implements Brain {
   private fromOuting = false;
   outingWhat = '';
   private homeAt = -1e9;
+  /** К барыге: забранное с явки (null — ещё не забрал). */
+  private bag: { id: ItemId; qty: number }[] | null = null;
 
   constructor(self: Character, ctx: AiContext) {
     this.gunner = new Gunner(ctx.rng);
@@ -153,6 +158,19 @@ export class UndergroundBrain implements Brain {
     this.work = 0;
     this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
     this.travel.start(self, ctx, this.mover, spot);
+  }
+
+  /** К барыге: сперва на явку за краденым (если тайник не пуст), потом в хату барыги. */
+  startFence(self: Character, ctx: AiContext): void {
+    this.mode = 'fence';
+    this.work = 0;
+    this.bag = null;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    const home = ctx.housing?.of(self);
+    const toStash = !!home?.stash?.slots.length;
+    this.spot = toStash ? ctx.housing.spot(home!, false) : ctx.fence.counter;
+    if (!toStash) this.bag = ctx.insurgency.bagForFence(self);
+    if (this.spot) this.travel.start(self, ctx, this.mover, this.spot);
   }
 
   /** Прикрытие или дозор в группе: встать у места дела и смотреть по сторонам. */
@@ -369,6 +387,35 @@ export class UndergroundBrain implements Brain {
             this.goHome(self, ctx);
           }
         } else if (st === 'failed') this.goHome(self, ctx);
+        break;
+      }
+      case 'fence': {
+        const to = this.spot;
+        if (!to || !ctx.fence?.counter) {
+          this.goBase(self, ctx);
+          break;
+        }
+        if (fighting && this.gunner.target) {
+          this.mover.stop();
+          break;
+        }
+        const st = this.travel.update(self, ctx, this.mover, dt);
+        if (st === 'arrived' || (ctx.map.levelAt(self.x, self.y) === 'city' && Math.hypot(to.x - self.x, to.y - self.y) < 20)) {
+          this.travel.stop(this.mover);
+          if (!this.bag) {
+            // На явке: забрал краденое — к барыге.
+            this.bag = ctx.insurgency.bagForFence(self);
+            this.spot = ctx.fence.counter;
+            this.travel.start(self, ctx, this.mover, this.spot);
+            break;
+          }
+          this.work += dt;
+          if (this.work >= FENCE.deal.time) {
+            ctx.insurgency.dealWithFence(self, this.bag);
+            this.bag = [];
+            this.goBase(self, ctx);
+          }
+        } else if (st === 'failed') this.goBase(self, ctx);
         break;
       }
       case 'stash': {

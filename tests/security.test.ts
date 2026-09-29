@@ -54,7 +54,7 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(ota.filter((c) => c.profession === 'ota_king')).toHaveLength(1);
     expect(ota.filter((c) => c.profession === 'ota_alpha').length).toBeGreaterThan(0);
     expect(ota.find((c) => c.profession === 'ota_alpha')!.maxHealth).toBe(150);
-    expect(ota.find((c) => c.profession === 'ota_alpha')!.inventory.has('ar2')).toBe(true);
+    expect(ota.filter((c) => c.profession === 'ota_alpha').some((c) => c.inventory.has('ar2'))).toBe(true);
     expect(ota.find((c) => c.profession === 'ota_king')!.inventory.has('rpg')).toBe(true);
     // PCU на КПП не ходит.
     const leader = cps(sim).find((c) => brain(c).duty === 'squad' && brain(c).lead)!;

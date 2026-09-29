@@ -49,6 +49,8 @@ import { CwuHqSystem } from '../systems/CwuHq';
 import { ArsenalSystem } from '../systems/Arsenal';
 import { StreetShops } from '../systems/StreetShops';
 import { Housing } from '../systems/Housing';
+import { Fence } from '../systems/Fence';
+import { GangSystem } from '../systems/Gangs';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
@@ -96,6 +98,15 @@ export class Game {
   /** Жильё (для карты: свой дом игрока). */
   get housing(): Housing {
     return this.ai.housing;
+  }
+
+  /** Банды и барыга (для карты). */
+  get gangs(): GangSystem {
+    return this.ai.gangs;
+  }
+
+  get fence(): Fence {
+    return this.ai.fence;
   }
   combat!: CombatSystem;
   war!: WarSystem;
@@ -266,6 +277,8 @@ export class Game {
       arsenal: null as unknown as ArsenalSystem,
       shops: null as unknown as StreetShops,
       housing: null as unknown as Housing,
+      fence: null as unknown as Fence,
+      gangs: null as unknown as GangSystem,
     };
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
@@ -284,7 +297,10 @@ export class Game {
     this.ai.arsenal = new ArsenalSystem(this.ai);
     this.ai.shops = new StreetShops(this.ai);
     this.ai.housing = new Housing(this.ai);
+    this.ai.fence = new Fence(this.ai);
+    this.ai.gangs = new GangSystem(this.ai);
     this.entityRenderer.families = this.ai.families;
+    this.entityRenderer.gangs = this.ai.gangs;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
     this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
@@ -389,7 +405,11 @@ export class Game {
     const H = this.ai.housing;
     if (H) {
       H.evict(p);
-      const d = faction === 'citizen' || faction === 'cwu' || faction === 'vort' || underground ? H.house(p, workplaceOf(this.ai, p)) : null;
+      // Бандит — в банду, где людей меньше (комната её общаги); остальные жители — свой дом.
+      this.ai.gangs?.leave(p);
+      const gang = p.profession === 'bandit' ? this.ai.gangs?.join(p) ?? null : null;
+      if (gang && announce) this.bus.emit('log', { text: `Вы в банде «${gang.def.name}»: район — ${gang.quarter || 'у общаги'}, общак в общаге (E). Чужих на районе не терпят.`, kind: 'system' });
+      const d = gang ? H.of(p) : faction === 'citizen' || faction === 'cwu' || faction === 'vort' || underground ? H.house(p, workplaceOf(this.ai, p)) : null;
       if (d && announce) this.bus.emit('log', { text: underground ? 'Ваша явка в городе отмечена на карте (M): E в комнате — спрятать добычу или взять из тайника.' : 'Ваш дом отмечен на карте (M) кружком.', kind: 'system' });
     }
     if (announce) {
@@ -574,11 +594,16 @@ export class Game {
   }
 
   buyBlack(k: number): string | null {
-    return this.economy.buyBlack(this.player, k);
+    // Чёрный рынок — барыга в своей хате (стволы и гранаты — что принесли).
+    return this.ai.fence?.present ? this.ai.fence.buy(this.player, k) : this.economy.buyBlack(this.player, k);
+  }
+
+  blackInStock(k: number): boolean {
+    return this.ai.fence?.present ? this.ai.fence.inStock(k) : true;
   }
 
   sellItem(id: ItemId): string | null {
-    return this.economy.sellBlack(this.player, id);
+    return this.ai.fence?.present ? this.ai.fence.sell(this.player, id) : this.economy.sellBlack(this.player, id);
   }
 
   get blackMarketCounter(): { x: number; y: number } | null {
@@ -786,6 +811,7 @@ export class Game {
     this.ai.security.update(dt);
     this.ai.cwuHq.update(dt);
     this.ai.shops.update();
+    this.ai.gangs.update(dt);
     this.ai.arsenal.update(dt);
     // Красный код (штурм Нексуса) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();

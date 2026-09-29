@@ -14,13 +14,14 @@ export const AI = {
     // Продавцы лавок и повар столовой — по числу мест на карте (Population, ARBAT.staff).
     cwuProfessions: ['cook', 'cook', 'packer', 'packer', 'courier', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic', 'loader', 'loader', 'loader', 'armorer'] as const,
     /** Доля воров и отбросов среди граждан. */
-    thiefShare: 0.1,
+    thiefShare: 0.16,
     outcastShare: 0.1,
     /** Лоялисты среди граждан (лояльность loyalistLoyalty) — ходят на бумажную работу в канцелярию. */
     loyalistShare: 0.15,
     loyalistLoyalty: [45, 95] as const,
     /** Бандиты (гоп-стоп в подворотнях) и беглецы (без CID, в розыске). */
-    banditShare: 0.06,
+    /** Бандиты-одиночки (без банды; банды — config/gangs.ts). */
+    banditShare: 0,
     fugitiveShare: 0.05,
     /** Вортигонты-рабы, убирающие улицы. */
     vorts: 5,

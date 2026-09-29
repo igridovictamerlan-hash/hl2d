@@ -115,6 +115,8 @@ describe('сопротивление в городе', () => {
     expect(sim.insurgency.trader).not.toBeNull();
     const op = sim.insurgency.startOperation('sabotage')!;
     expect(op).not.toBeNull();
+    // Проверяем эту операцию: новых не начинать (иначе группа уходит на следующее дело).
+    sim.insurgency.paused = true;
     const node = (op.team[0].brain as UndergroundBrain).node!;
     const t = run(sim, 150, () => node.broken);
     console.log(`узел саботирован через ${t.toFixed(0)} с (${op.where})`);

@@ -131,6 +131,8 @@ export class Character {
   loyalty = 0;
   /** Семья (номер в FamilySystem) или -1. */
   family = -1;
+  /** Банда (Gangs) или -1. */
+  gang = -1;
   /** Кого охраняет (охрана и подопечный друг друга не толкают — physics). */
   guarding: Character | null = null;
   /** Ведомый патрульной группы ГО — его ведущий (друг другу не помеха). */

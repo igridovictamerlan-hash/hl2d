@@ -21,6 +21,9 @@ export interface Dwelling {
   households: number;
   /** Явка подполья: тайник с добычей (оружие, патроны, гранаты). */
   stash: Inventory | null;
+  /** Здание (общежитие — его номер, иначе -1) и занято особым делом (общага банды, хата барыги). */
+  building: number;
+  reserved: boolean;
 }
 
 /**
@@ -77,6 +80,8 @@ export class Housing {
         bed: bed ? near(bed.x + bed.w / 2, bed.y + bed.h / 2) : null,
         households: 0,
         stash: null,
+        building: p.kind === 'dorm' ? p.id ?? -1 : -1,
+        reserved: false,
       });
     }
   }
@@ -93,7 +98,7 @@ export class Housing {
 
   /** Сколько свободных жилищ вида kind. */
   free(kind: DwellingKind): number {
-    return this.dwellings.filter((d) => d.kind === kind && !d.households).length;
+    return this.dwellings.filter((d) => d.kind === kind && !d.households && !d.reserved).length;
   }
 
   /**
@@ -103,7 +108,7 @@ export class Housing {
   pick(prefs: readonly DwellingKind[], near: Vec2 | null = null, accept?: (d: Dwelling) => boolean): Dwelling | null {
     const { rng } = this.ctx;
     for (const kind of prefs) {
-      const list = this.dwellings.filter((d) => d.kind === kind && !d.households && (!accept || accept(d)));
+      const list = this.dwellings.filter((d) => d.kind === kind && !d.households && !d.reserved && (!accept || accept(d)));
       if (!list.length) continue;
       if (!near) return rng.pick(list);
       return list.reduce((a, b) => (Math.hypot(b.at.x - near.x, b.at.y - near.y) < Math.hypot(a.at.x - near.x, a.at.y - near.y) ? b : a));

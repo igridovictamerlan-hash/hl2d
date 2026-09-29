@@ -26,6 +26,7 @@ import { CRIME } from '../config/crime';
 import { CP_UNITS } from '../config/cpUnits';
 import { ARSENAL } from '../config/arsenal';
 import { ARBAT } from '../config/arbat';
+import { GANGS } from '../config/gangs';
 import { isQuartermaster, type DepotAct, type Slot } from '../systems/Arsenal';
 import { coverAuthority } from '../entities/cover';
 
@@ -370,7 +371,23 @@ export class PlayerController {
         return this.say(`Коробка из штаба ГСР сдана${'shop' in t ? ` в «${t.shop.name}»: товара ${t.shop.goods}/${t.shop.cap}` : ` в столовую: супа ${ctx.shops.soup}/${ctx.shops.soupCap}`}. +${ARBAT.supply.pay} токенов`);
       }
     }
-    if (d(ctx.insurgency.market) < REACH + 8) return this.hooks.openShop('black');
+    if (d(ctx.insurgency.market) < REACH + 8) {
+      if (ctx.fence?.present && !ctx.fence.open) return this.say('Хата барыги: хозяина нет — зайдите позже.');
+      return this.hooks.openShop('black');
+    }
+    // Бандит у общака своей банды: взять ствол получше (что есть в общаке).
+    const gang = ctx.gangs?.of(p);
+    if (gang && d(gang.hq) < REACH + 10) {
+      const gun = GANGS.arms.find((id) => gang.stash.has(id) && !p.inventory.has(id));
+      if (gun) {
+        gang.stash.remove(gun, 1);
+        p.inventory.add(gun, 1);
+        eco.refillAmmo(p, 2);
+        return this.say(`Из общака «${gang.def.name}»: ${ITEMS[gun].name} и пара магазинов.`);
+      }
+      const items = gang.stash.slots.map((s) => `${ITEMS[s.id].name}${s.qty > 1 ? ` ×${s.qty}` : ''}`).join(', ');
+      return this.say(`Общак «${gang.def.name}»: ${gang.bank} ток.${items ? ` · ${items}` : ''}. Лучше вашего ствола нет.`);
+    }
     // Лавки (и магазин ГСР), кафе и ларьки проспекта; раздача и стол общей столовой — суп и обед.
     const street = ctx.shops?.shopAt(p, REACH + 8);
     if (street) {
@@ -497,6 +514,8 @@ export class PlayerController {
     if (this.kppPoint(p, ctx)) return;
     // Ящик, брошенный конвоем ГО (засада): повстанцу или бандиту — забрать себе.
     if ((p.faction === 'rebel' || p.profession === 'bandit') && ctx.arsenal?.present && ctx.arsenal.looseOutside.some((c) => d(c) < REACH + 6)) {
+      const g = ctx.gangs?.of(p);
+      if (g && ctx.gangs.lootToStash(g, p, REACH + 6)) return this.say(`Ящик с конвоя — в общак «${g.def.name}».`, 'world');
       if (ctx.insurgency.lootCrate(p, REACH + 6)) return this.say('Ящик с конвоя — ваш: патроны или гранаты в подсумок.', 'world');
     }
     // Штаб ГСР: гражданин у стойки найма — устроиться (глава оформляет туда, где не хватает рук).

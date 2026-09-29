@@ -259,6 +259,8 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   // Схрон партизан в канализации: партизаны и торговец чёрного рынка.
   ctx.insurgency?.populate();
+  // Банды: авторитет у общака и бойцы по комнатам своей общаги.
+  ctx.gangs?.populate();
   // Свой дом — каждому жителю (семьи уже заселены), явка — каждому подпольщику.
   settleAll(ctx);
   // Штаб ГСР: сколько граждан было (город не пустеет от найма — CWU_HQ.hire.minCitizenShare).

@@ -63,6 +63,8 @@ export const ROSTER = {
    */
   respawn: {
     citizen: 35,
+    /** Бойцы и авторитет банды — в своей общаге. */
+    gang: 60,
     cwu: 35,
     vort: 40,
     patrol: 60,

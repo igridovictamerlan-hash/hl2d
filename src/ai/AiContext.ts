@@ -4,6 +4,8 @@ import type { ArsenalSystem } from '../systems/Arsenal';
 import type { StreetShops } from '../systems/StreetShops';
 import type { FamilySystem } from '../systems/Families';
 import type { Housing } from '../systems/Housing';
+import type { Fence } from '../systems/Fence';
+import type { GangSystem } from '../systems/Gangs';
 import type { GameMap } from '../world/GameMap';
 import type { NavGrid } from '../world/NavGrid';
 import type { PathService } from './PathService';
@@ -72,4 +74,8 @@ export interface AiContext {
   shops: StreetShops;
   /** Жильё: свой дом у каждого жителя, явки подполья с тайниками. */
   housing: Housing;
+  /** Барыга — чёрный рынок в хате у запретной зоны. */
+  fence: Fence;
+  /** Банды: общаги, районы, общак, стычки, дела. */
+  gangs: GangSystem;
 }

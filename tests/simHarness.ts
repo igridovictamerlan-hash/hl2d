@@ -28,6 +28,8 @@ import { CwuHqSystem } from '../src/systems/CwuHq';
 import { ArsenalSystem } from '../src/systems/Arsenal';
 import { StreetShops } from '../src/systems/StreetShops';
 import { Housing } from '../src/systems/Housing';
+import { Fence } from '../src/systems/Fence';
+import { GangSystem } from '../src/systems/Gangs';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
@@ -74,6 +76,8 @@ export function makeSim(seedOrMap: number | GameMap) {
     arsenal: null as unknown as ArsenalSystem,
     shops: null as unknown as StreetShops,
     housing: null as unknown as Housing,
+      fence: null as unknown as Fence,
+      gangs: null as unknown as GangSystem,
   };
   const war = new WarSystem(ctx);
   ctx.war = war;
@@ -100,6 +104,8 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.arsenal = arsenal;
   ctx.shops = new StreetShops(ctx);
   ctx.housing = new Housing(ctx);
+  ctx.fence = new Fence(ctx);
+  ctx.gangs = new GangSystem(ctx);
   economy.onEmpty = () => labor.noticeEmpty();
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;
@@ -121,6 +127,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     security.update(dt);
     cwuHq.update(dt);
     ctx.shops.update();
+    ctx.gangs.update(dt);
     arsenal.update(dt);
   };
   return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal };

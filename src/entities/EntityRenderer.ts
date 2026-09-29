@@ -3,6 +3,7 @@ import type { View } from '../core/Camera';
 import { FACTIONS, colorsOf, rankOf } from '../config/factions';
 import { LOYALTY } from '../config/loyalty';
 import { familyTitle, type FamilySystem } from '../systems/Families';
+import type { GangSystem } from '../systems/Gangs';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
@@ -48,6 +49,8 @@ export function roleLabel(c: Character): string {
 export class EntityRenderer {
   /** Семьи горожан (повязка, общая внешность, подпись); задаёт Game. */
   families: FamilySystem | null = null;
+  /** Банды: повязка цвета банды и её название в подписи. */
+  gangs: GangSystem | null = null;
 
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
     const s = v.scale;
@@ -75,7 +78,8 @@ export class EntityRenderer {
       const rank = c.disguised ? c.cover?.rank ?? 0 : c.rank;
       const loyalist = isLoyalistUniform(c);
       const fam = !c.disguised ? this.families?.of(c) ?? null : null;
-      const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: fam?.color };
+      const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
+      const look = { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color };
       const reloading = c.reloadUntil > now;
       // Тяжело ранен — лежит.
       if (c.downed) {
@@ -239,9 +243,10 @@ export class EntityRenderer {
       ctx.fillText(shown, x, ny);
       ctx.font = scaleFont(E.roleFont, dpr);
       const fam = !c.disguised ? this.families?.of(c) ?? null : null;
-      const role = c.downed ? `тяжело ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : fam ? `${roleLabel(c)} · ${familyTitle(fam.surname)}` : roleLabel(c);
+      const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
+      const role = c.downed ? `тяжело ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : gang ? `${roleLabel(c)} · ${gang.def.name}` : fam ? `${roleLabel(c)} · ${familyTitle(fam.surname)}` : roleLabel(c);
       ctx.strokeText(role, x, ny + 10 * dpr);
-      ctx.fillStyle = c.downed ? RENDER.entity.downed.label : isLoyalistUniform(c) ? LOYALTY.uniform.label : r ? r.color : f.label;
+      ctx.fillStyle = c.downed ? RENDER.entity.downed.label : gang ? gang.def.color : isLoyalistUniform(c) ? LOYALTY.uniform.label : r ? r.color : f.label;
       ctx.fillText(role, x, ny + 10 * dpr);
       const top = cy + (PAWN.head.y - PAWN.head.r) * s * PAWN.scale;
       if (c.speech && c.speech.until > now) this.bubble(ctx, c.speech.text, x, top - 6 * dpr, dpr);
