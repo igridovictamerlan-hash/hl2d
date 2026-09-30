@@ -86,6 +86,26 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   '+': T.BUNKER,
   '%': T.BARRIER,
   '=': T.BARRIER,
+  // Тюрьма 2.0: шлюз, оружейная (стойки, стеллажи боекомплекта, запертая дверь), допросная, караулка
+  // (койки, стол, шкафчики), приёмная (стойка, место задержанного, скамья), площадка (маяки, мачты,
+  // места сброса).
+  '<': T.INTERIOR,
+  '(': T.INTERIOR,
+  '[': T.BARRIER,
+  ']': T.BARRIER,
+  '/': T.DOOR,
+  '$': T.INTERIOR,
+  '~': T.BARRIER,
+  '^': T.BARRIER,
+  '*': T.BARRIER,
+  '|': T.BARRIER,
+  '@': T.INTERIOR,
+  '{': T.BARRIER,
+  '}': T.INTERIOR,
+  ';': T.BARRIER,
+  '?': T.BUNKER,
+  '!': T.BARRIER,
+  '>': T.BUNKER,
 };
 
 /** Точки интереса тюрьмы по символам шаблона (PRISON_TEMPLATE). */
@@ -94,6 +114,19 @@ const PRISON_POIS: Record<string, Poi['type']> = {
   '+': 'prison_post',
   '%': 'prison_desk',
   '=': 'prison_shelf',
+  '[': 'prison_rack',
+  ']': 'prison_ammo',
+  '/': 'prison_armory_door',
+  '~': 'prison_itable',
+  '^': 'prison_cot',
+  '*': 'prison_table',
+  '|': 'prison_locker',
+  '{': 'prison_counter',
+  '}': 'prison_intake',
+  ';': 'prison_bench',
+  '?': 'prison_beacon',
+  '!': 'prison_mast',
+  '>': 'prison_drop',
 };
 
 /** Точки интереса склада по символам шаблона (ARSENAL_TEMPLATE). */
@@ -128,7 +161,7 @@ export interface StampResult {
   /**
    * Помещения по символам: штаб ГСР — l отдых, n столовая, e кабинет, a приёмная, p цех; склад —
    * s зал, j гранатный отсек, N мастерская, f выдача, e контора, 1 бытовка, z караулка, Y крыльцо;
-   * тюрьма — 6 камеры, 0 караулка, 9 допросная, & изъятое, 8 двор.
+   * тюрьма — 6 камеры, 0 караулка, 9 кабинет, & изъятое, 8 двор, < шлюз, ( оружейная, $ допросная, @ приёмная.
    */
   areas: Record<string, Rect[]>;
 }
@@ -203,7 +236,7 @@ export function stampTemplate(
   const rooms = regions('r');
   const commons = regions('m');
   const areas: Record<string, Rect[]> = {};
-  for (const mark of 'lneapsfzNYj1609&8') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
+  for (const mark of 'lneapsfzNYj1609&8<($@') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];

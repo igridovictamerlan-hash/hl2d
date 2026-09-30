@@ -111,6 +111,14 @@ export const LIGHTING = {
     prison_office: { color: [255, 205, 140], radius: 80, power: 0.8, night: true, bloom: true },
     prison_guardroom: { color: [255, 200, 130], radius: 70, power: 0.8, night: true, bloom: true },
     prison_evidence: { color: [215, 230, 255], radius: 60, power: 0.6, night: true },
+    // Тюрьма 2.0: приёмная, шлюз и оружейная — холодный белый, допросная — резкая лампа над столом,
+    // мачты площадки — прожекторы, посадочные маяки — красные (мигают — PrisonRenderer).
+    prison_reception: { color: [215, 230, 255], radius: 110, power: 0.8, night: true, bloom: true },
+    prison_sally: { color: [210, 226, 255], radius: 60, power: 0.6, night: true },
+    prison_armory: { color: [220, 232, 255], radius: 70, power: 0.7, night: true },
+    prison_itable: { color: [255, 225, 160], radius: 50, power: 1, night: true, bloom: true },
+    prison_mast: { color: [225, 235, 255], radius: 130, power: 0.9, night: true, bloom: true },
+    prison_beacon: { color: [255, 70, 50], radius: 40, power: 0.5, night: true },
     // Склад Альянса: зал и контора — холодный белый, площадка — прожекторы у постов, мастерская и
     // караулка — тёплые лампы, маяк площадки — красный (мигает — ArsenalRenderer).
     arsenal_hall: { color: [215, 230, 255], radius: 120, power: 0.75, night: true },

@@ -100,6 +100,10 @@ export class CpBrain implements Brain {
   /** Кого лечит медик. */
   patient: Character | null = null;
   cell: Cell | null = null;
+  /** Конвой в тюрьму: сперва приёмка у стойки (go), потом камера (done); сколько уже оформляют. */
+  intakeStage: 'go' | 'done' = 'done';
+  intakeT = 0;
+  intakeWait = 0;
   postLeft = 0;
   postFacing = 0;
   lostTime = 0;
@@ -475,6 +479,11 @@ export class CpBrain implements Brain {
         this.resupplyCheck = ctx.law.now + ARSENAL.kpp.checkEvery;
         const calm = !this.gunner.target && ctx.combat.now - self.lastFired > ARSENAL.kpp.calm;
         if (calm && A.needsPoint(self, this.front)) this.fsm.change('resupply');
+      } else if (this.duty === 'jailer' && ctx.prison?.present && cur === 'guard' && !this.rally && !this.raidPost) {
+        // Охрана тюрьмы — за патронами в свою оружейную.
+        this.resupplyCheck = ctx.law.now + PRISON.armory.checkEvery;
+        const calm = !this.gunner.target && ctx.combat.now - self.lastFired > PRISON.armory.calm;
+        if (calm && ctx.prison.needsStock(self)) this.fsm.change('resupply');
       } else if (!this.guardPost && !this.medicStation && (cur === 'patrol' || cur === 'post' || cur === 'patrol-again' || cur === 'follow' || cur === 'duty')) {
         this.resupplyCheck = ctx.law.now + ARSENAL.issue.checkEvery;
         const free = cur === 'patrol' || cur === 'post' || cur === 'patrol-again';
@@ -746,6 +755,11 @@ function pickSupply(b: CpBrain): void {
     b.resupplyAt = b.resupplyPoint;
     return;
   }
+  if (b.duty === 'jailer' && b.ctx.prison?.present) {
+    b.resupplyPoint = b.ctx.prison.stock;
+    b.resupplyAt = b.ctx.prison.armorySpot;
+    return;
+  }
   const s = A.shiftCalled(b.self) ? null : A.supplyFor(b.self);
   b.resupplyPoint = s?.point ?? null;
   b.resupplyAt = s?.spot ?? A.window;
@@ -971,7 +985,13 @@ const ESCORT: State<CpBrain> = {
     }
     b.cell = cell;
     law.reserve(cell, t);
-    const a = law.frontAnchor(cell);
+    // В тюрьму — сперва в приёмную: снимок, отпечатки, обыск.
+    const P = b.ctx.prison;
+    b.intakeStage = cell.prison && P?.needsIntake(t) ? 'go' : 'done';
+    b.intakeT = 0;
+    b.intakeWait = 0;
+    const spot = b.intakeStage === 'go' ? P.intakeSpot : null;
+    const a = spot ? b.ctx.nav.nearestWalkable(spot.x, spot.y, 2) : law.frontAnchor(cell);
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
   },
   update(b, dt) {
@@ -989,6 +1009,7 @@ const ESCORT: State<CpBrain> = {
       if (b.fsm.time > 25) return b.drop();
       return;
     }
+    if (b.intakeStage === 'go' && intakeStep(b, t, cell, dt)) return;
     const st = b.mover.status;
     const atFront = dist(b.self.x, b.self.y, cell.frontX, cell.frontY) < 30;
     if ((st === 'arrived' || atFront) && dist(b.self.x, b.self.y, t.x, t.y) < 90) {
@@ -1010,6 +1031,53 @@ const ESCORT: State<CpBrain> = {
     }
   },
 };
+
+/**
+ * Приёмка в тюрьме: к стойке приёмной, задержанный рядом — PRISON.intake.time с оформления (снимок,
+ * отпечатки, обыск — изъятое в комнату улик), потом к камере. Задержанный отстал — ждать; у приёмной
+ * (ближе near px) не вышло за giveUp с — сразу в камеру. true — шаг занят приёмкой.
+ */
+function intakeStep(b: CpBrain, t: Character, cell: Cell, dt: number): boolean {
+  const P = b.ctx.prison;
+  const I = PRISON.intake;
+  const spot = P.intakeSpot;
+  const toCell = () => {
+    b.intakeStage = 'done';
+    const a = b.ctx.law.frontAnchor(cell);
+    if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+    return false;
+  };
+  if (!spot || !P.needsIntake(t)) return toCell();
+  const d = dist(b.self.x, b.self.y, spot.x, spot.y);
+  // У приёмной застряли (толпа, дверь) — не дольше giveUp с, потом сразу в камеру.
+  if (d < I.near && (b.intakeWait += dt) > I.giveUp) return toCell();
+  const at = d < I.reach;
+  const close = dist(b.self.x, b.self.y, t.x, t.y) < I.follow;
+  if (at && close) {
+    b.mover.stop();
+    const c = P.counter[0];
+    if (c) faceTowards(b.self, c.x, c.y, dt);
+    b.intakeT += dt;
+    if (b.intakeT >= I.time) {
+      P.intake(t, b.self);
+      return toCell();
+    }
+    return true;
+  }
+  // Задержанный отстал — ждём.
+  if (!close && dist(b.self.x, b.self.y, t.x, t.y) > LAW.escortWait) {
+    const st = b.mover.status;
+    if (st === 'moving' || st === 'pending') b.mover.stop();
+    faceTowards(b.self, t.x, t.y, dt);
+    return true;
+  }
+  const st = b.mover.status;
+  if (!at && (st === 'arrived' || st === 'failed' || st === 'idle')) {
+    const a = b.ctx.nav.nearestWalkable(spot.x, spot.y, 2);
+    if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
+  }
+  return true;
+}
 
 /**
  * Бой: из укрытия (ai/Tactics — за углом выглядывает на очередь, за блоком сидит), не отходя

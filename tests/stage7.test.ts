@@ -166,6 +166,8 @@ describe('бандиты', () => {
   test('NPC-бандит грабит прохожего в подворотне', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
+    // Раздача рационов не открывается: очередь на площади уводит из подворотни и бандитов, и прохожих.
+    sim.economy.timer = Infinity;
     let bandit = null as ReturnType<typeof spawnRole>;
     // Самый «жилой» пятачок карты: больше всего жилых якорей вокруг (подворотни, а не проспект).
     const res = sim.nav.walkable.filter((a) => zoneKind(sim, sim.nav.worldX(a), sim.nav.worldY(a)) === 'residential');

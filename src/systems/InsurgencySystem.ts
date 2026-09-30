@@ -131,24 +131,36 @@ export class InsurgencySystem {
   }
 
   /**
-   * Своего вызволили из тюрьмы (оружие забрал из изъятого): подпольщик — в схрон (личины нет, в
-   * розыске — документы сделают там); боец армии при выходе в город — снова в штурм (цель — тюрьма или
-   * Нексус, WarSystem), иначе — тропой в лагерь.
+   * Своего вызволили из тюрьмы: сперва вооружиться — в оружейную тюрьмы за стволом и патронами, своё
+   * изъятое — из комнаты улик (PrisonSystem.startArming); потом afterFreed.
    */
   private freed(c: Character): void {
     const { ctx } = this;
     c.hostile = true;
-    const best = ctx.combat.bestWeapon(c, 200);
-    if (best) ctx.combat.equip(c, best);
+    if (isUnderground(c)) {
+      c.disguised = false;
+      c.cover = null;
+    }
     if (c.isPlayer) {
-      ctx.bus.emit('log', { text: 'Дверь камеры выбита — вы свободны! Оружие — из комнаты изъятого.', kind: 'world' });
+      ctx.bus.emit('log', { text: 'Дверь камеры выбита — вы свободны! Стволы — в оружейной тюрьмы (из шлюза), своё — в комнате изъятого (E).', kind: 'world' });
       return;
     }
     c.say(ctx.rng.pick(PRISON.lines.freed), ctx.law.now, 2.5);
+    if (!ctx.prison?.startArming(c, () => this.afterFreed(c))) this.afterFreed(c);
+  }
+
+  /**
+   * Беглый вооружился (или брать нечего): подпольщик — в схрон (личины нет, в розыске — документы
+   * сделают там); боец армии при выходе в город — снова в штурм (цель — тюрьма или Нексус, WarSystem),
+   * иначе — тропой в лагерь.
+   */
+  private afterFreed(c: Character): void {
+    const { ctx } = this;
+    if (!c.alive || c.law.phase !== 'none') return;
+    const best = ctx.combat.bestWeapon(c, 200);
+    if (best) ctx.combat.equip(c, best);
     const b = c.brain;
     if (b instanceof UndergroundBrain || b instanceof AgentBrain) {
-      c.disguised = false;
-      c.cover = null;
       b.retreat(c, ctx);
       return;
     }
@@ -789,14 +801,17 @@ export class InsurgencySystem {
       if (!FACTIONS[k.faction].authority || k.burning || ctx.war.scenes.sealed(k) || ctx.map.levelAt(k.x, k.y) !== 'city') continue;
       if (!ctx.combat.mines.some((m) => m.corpse === k)) out.push({ x: k.x, y: k.y });
     }
+    // Не в зоны, куда горожанину нельзя (склад, тюрьма, запретная зона…): там задержат у входа.
+    const avoid = new Set<string>(PARTISANS.mineAvoid);
+    const allowed = (x: number, y: number) => ctx.map.levelAt(x, y) === 'city' && !avoid.has(ctx.map.zoneAtWorld(x, y)?.kind ?? '');
     const ring = (p: Vec2 | null) => {
       if (!p) return;
       const a = randomAnchorAround(p, ctx, PARTISANS.mineRing[0], PARTISANS.mineRing[1], new Set());
-      if (a >= 0 && ctx.map.levelAt(ctx.nav.worldX(a), ctx.nav.worldY(a)) === 'city') out.push({ x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) });
+      if (a >= 0 && allowed(ctx.nav.worldX(a), ctx.nav.worldY(a))) out.push({ x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) });
     };
     ring(poiWorld(ctx, 'nexus_gate'));
     for (const f of ctx.war.fronts) ring(f.apron);
-    const cps = ctx.entities.list.filter((o) => o.alive && o.faction === 'cp' && ctx.map.levelAt(o.x, o.y) === 'city' && ctx.map.zoneAtWorld(o.x, o.y)?.kind !== 'nexus');
+    const cps = ctx.entities.list.filter((o) => o.alive && o.faction === 'cp' && allowed(o.x, o.y));
     if (cps.length) ring(ctx.rng.pick(cps));
     if (!out.length) return null;
     // Идти через полгорода под личиной — много проверок: из двух случайных мест — ближнее к люку.

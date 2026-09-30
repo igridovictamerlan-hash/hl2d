@@ -15,6 +15,8 @@ test('сводка метрик по сидам', { timeout: 120_000 }, () => {
     const s = map.stats!;
     const problems = validateMap(map);
     if (s.longestAlleyRun > 25) problems.push(`прямая ${s.longestAlleyRun}`);
+    // Люки в канализацию: ровно два (и в застроенной целиком запретной зоне — прорезаются площадки).
+    if (map.hatches.length !== 2) problems.push(`люков ${map.hatches.length}`);
     if (problems.length) bad.push(`${seed * 7919}: ${problems.join('; ')}`);
     rows.push(
       [

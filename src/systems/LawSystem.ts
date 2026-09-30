@@ -652,8 +652,8 @@ export class LawSystem {
 
   /**
    * Взломали дверь камеры: все, кто сидит, выходят — и в розыск; дверь не запирается LAW.brokenDoor с.
-   * Из тюрьмы освобождённые сразу свободны: забирают своё из комнаты изъятого (onFreed решает, куда им
-   * дальше). Возвращает, сколько сбежало.
+   * Из тюрьмы освобождённые сразу свободны: вооружаются в оружейной и забирают своё из комнаты изъятого
+   * (onFreed решает, куда им дальше). Возвращает, сколько сбежало.
    */
   breakCell(cell: Cell): number {
     let n = 0;
@@ -664,9 +664,9 @@ export class LawSystem {
       if (!c || !c.alive) continue;
       n++;
       if (cell.prison) {
+        // Изъятое остаётся в комнате улик — беглый заберёт сам (или вооружится в оружейной).
         c.law.cell = -1;
         c.law.wanted = true;
-        this.returnEvidence(c, true);
         if (c.law.savedBrain || c.brain instanceof PrisonerBrain) this.restoreBrain(c);
         this.clear(c);
         c.law.wanted = true;
@@ -711,8 +711,8 @@ export class LawSystem {
     return this.cells.some((c) => c.prison);
   }
 
-  /** Стволы, патроны и гранаты — в комнату изъятого. */
-  private confiscate(c: Character): void {
+  /** Стволы, патроны и гранаты — в комнату изъятого (в тюрьме — при оформлении в приёмной). */
+  confiscate(c: Character): void {
     const taken = this.evidence.get(c) ?? [];
     for (let i = c.inventory.slots.length - 1; i >= 0; i--) {
       const st = c.inventory.slots[i];

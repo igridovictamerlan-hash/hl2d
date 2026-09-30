@@ -271,8 +271,10 @@ describe('место преступления', () => {
     const near = () => Math.hypot(o.x - scene.x, o.y - scene.y) < scene.r + 30;
     run(sim, 25, near);
     expect(near()).toBe(true);
-    // Через holdAfter оцепление снимают, офицер возвращается к службе.
-    run(sim, 40, () => scene.closed);
+    // Через holdAfter после обоих осмотров (медику ещё дойти) оцепление снимают — раньше maxTime; офицер
+    // возвращается к службе.
+    run(sim, CRIME.scene.holdAfter + 45, () => scene.closed);
+    expect(sim.war.scenes.stats.examined).toBeGreaterThan(0);
     expect(scene.closed).toBe(true);
     expect((o.brain as CpBrain).scene).toBeNull();
   });

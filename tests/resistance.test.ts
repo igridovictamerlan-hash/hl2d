@@ -315,6 +315,8 @@ describe('подполье: взлом и растяжки', () => {
     spawnPopulation(sim.ctx, 20);
     const op = sim.insurgency.startOperation('mine');
     expect(op?.kind).toBe('mine');
+    // Плановая проверка CID по дороге раскрывает личину с шансом — тест не про неё.
+    for (const c of op!.team) c.law.lastCheck = sim.law.now + 1e6;
     run(sim, 200, () => sim.combat.mineStats.planted > 0);
     expect(sim.combat.mineStats.planted).toBeGreaterThan(0);
     const m = sim.combat.mines[0] ?? null;

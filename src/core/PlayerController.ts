@@ -54,7 +54,7 @@ export class PlayerController {
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
   private packing = false;
-  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'break' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot } | null = null;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'break' | 'armory' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot } | null = null;
   /** Откат бунта у игрока-спецагента (G). */
   private riotCooldown = 0;
   private healCooldown = 0;
@@ -506,6 +506,22 @@ export class PlayerController {
         this.task = { kind: 'break', x: p.x, y: p.y, left: T, total: T, cell: jail };
         return this.say('Выбиваете дверь камеры тюрьмы…', 'world');
       }
+      // Оружейная тюрьмы: заперта — выбить дверь; у стоек — взять ствол, магазины, гранату; изъятое — своё.
+      const P = ctx.prison;
+      if (P?.present) {
+        const A = PRISON.armory;
+        if (P.armoryLocked && P.armoryFront && d(P.armoryFront) < A.reach && !P.inArmory(p.x, p.y)) {
+          this.task = { kind: 'armory', x: p.x, y: p.y, left: A.breakTime, total: A.breakTime };
+          return this.say('Выбиваете дверь оружейной тюрьмы…', 'world');
+        }
+        if (P.armorySpot && P.inArmory(p.x, p.y) && d(P.armorySpot) < A.useReach + 24) {
+          const got = P.takeArms(p);
+          return this.say(got ? `Оружейная тюрьмы: ${got}.` : 'Оружейная пуста — стойки голые.', 'world');
+        }
+        if (P.evidenceSpot && d(P.evidenceSpot) < A.useReach + 24) {
+          return this.say(P.takeEvidence(p) ? 'Комната изъятого: вы забрали своё.' : 'Комната изъятого: вашего здесь нет.', 'world');
+        }
+      }
     }
     // Спецагент: форма с убитого ГО (в OTA не переодеться), взлом камеры КПЗ.
     if (p.faction === 'rebel' && p.profession === 'spec_agent') {
@@ -819,6 +835,11 @@ export class PlayerController {
     if (t.kind === 'break' && t.cell) {
       const n = ctx.insurgency.jailbreak(p, t.cell);
       return this.say(n > 0 ? `Камера вскрыта: сбежали ${n}. Уходите!` : 'В камере уже никого.', 'world');
+    }
+    if (t.kind === 'armory') {
+      if (!ctx.prison.armoryLocked) return this.say('Дверь оружейной уже открыта.');
+      ctx.prison.breakArmory(p);
+      return this.say('Дверь оружейной выбита — стволы на стойках (E).', 'world');
     }
     if (t.kind === 'depot' && t.act) {
       const ok = ctx.arsenal.doSabotage(p, t.act);

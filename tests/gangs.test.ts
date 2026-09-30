@@ -87,6 +87,8 @@ describe('банды', () => {
     const G = sim.ctx.gangs;
     G.paused = true;
     const g = G.gangs[0];
+    // И без чужих банд: стычка по дороге к барыге (ранили — дело сорвано) — тоже дело случая.
+    for (const o of G.gangs) if (o !== g) for (const c of G.members(o)) sim.entities.remove(c);
     const bank = g.bank;
     const op = G.startOp(g, 'racket')!;
     expect(op).not.toBeNull();
@@ -234,6 +236,8 @@ describe('товар барыге', () => {
     settleAll(sim.ctx);
     sim.insurgency.paused = true;
     sim.ctx.gangs.paused = true;
+    // Одна банда: стычка банд, пока подполье носит краденое, ранит будущих продавцов — дело случая.
+    for (const o of sim.ctx.gangs.gangs.slice(1)) for (const c of sim.ctx.gangs.members(o)) sim.entities.remove(c);
     const I = sim.insurgency;
     const F = sim.ctx.fence;
     const ALLIANCE = ['mp7', 'usp', 'm4a4'] as const;

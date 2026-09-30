@@ -263,6 +263,12 @@ function carveHatchYards(city: GameMap, cx0: number, cy0: number, cx1: number, c
     for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) if (SOLID[tiles[(y + dy) * w + x + dx]]) return false;
     return true;
   };
+  // Якорь хода: каждый его тайл либо внутри стен зоны (прорежем), либо уже проходим (ворота, проход) —
+  // иначе из застроенной зоны не шагнуть на ворота в кольце стен (якорь наполовину в кольце).
+  const passable = (x: number, y: number) => {
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) if (!inside(x + dx, y + dy) && SOLID[tiles[(y + dy) * w + x + dx]]) return false;
+    return true;
+  };
   for (const t of targets) {
     // Поиск в ширину от площадки к ближайшему проходимому якорю зоны (или прохода к ней).
     const key = (x: number, y: number) => y * w + x;
@@ -281,10 +287,8 @@ function carveHatchYards(city: GameMap, cx0: number, cy0: number, cx1: number, c
       for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
         const nk = key(nx, ny);
         if (prev.has(nk)) continue;
-        // Ход — внутри стен зоны; выйти можно только на уже проходимый якорь (проход к воротам).
-        if (!inside(nx, ny) || !inside(nx + 1, ny + 1)) {
-          if (!walk(nx, ny)) continue;
-        }
+        // Ход — внутри стен зоны; выйти можно только на уже проходимое (проход к воротам).
+        if (!passable(nx, ny)) continue;
         prev.set(nk, k);
         q.push(nk);
       }

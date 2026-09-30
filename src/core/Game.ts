@@ -57,6 +57,7 @@ import { Housing } from '../systems/Housing';
 import { Fence } from '../systems/Fence';
 import { GangSystem } from '../systems/Gangs';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
+import { PrisonRenderer } from '../world/PrisonRenderer';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
 import { StreetLifeSystem } from '../systems/StreetLife';
@@ -139,6 +140,7 @@ export class Game {
   private readonly lighting = new Lighting();
   private readonly ambience = new Ambience();
   private readonly arsenalView = new ArsenalRenderer();
+  private readonly prisonView = new PrisonRenderer();
   private readonly aim = new AimRenderer();
   /** Частицы боя, тряска экрана, маркер попадания (только отрисовка). */
   private readonly particles = new Particles();
@@ -921,6 +923,7 @@ export class Game {
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
     this.arsenalView.drawGround(ctx, v, this.ai.arsenal, this.map.tileSize, this.law.now);
+    this.prisonView.drawGround(ctx, v, this.ai.prison, this.law.cells, this.map, this.law.evidence.size, this.law.now);
     drawFurnitureList(ctx, v, this.furnishings);
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);
@@ -940,6 +943,7 @@ export class Game {
     this.lighting.draw(ctx, v, this.time, this.player, this.combat, this.entities.list, sewer);
     this.lighting.drawBloom(ctx, v, this.time, sewer);
     if (!sewer) this.arsenalView.drawGlow(ctx, v, this.ai.arsenal, this.law.now);
+    if (!sewer) this.prisonView.drawGlow(ctx, v, this.ai.prison, this.law.now);
     if (!sewer) this.ambience.drawMotes(ctx, v, this.lighting.litLamps(), this.lighting.day(this.time).lamps, this.time);
     this.particles.draw(ctx, v);
     this.effects.drawShots(ctx, v, this.combat);

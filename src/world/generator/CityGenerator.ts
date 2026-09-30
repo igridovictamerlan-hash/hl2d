@@ -5,7 +5,7 @@ import { WORLD } from '../../config/world';
 import { QUARTER_NAMES, ZONE_NAMES } from '../../config/names';
 import { T } from '../tiles';
 import { GameMap, type Poi, type Zone, type ZoneKind } from '../GameMap';
-import { ensureConnectivity } from '../connectivity';
+import { ensureConnectivity, buildAnchorWalk, labelComponents } from '../connectivity';
 import { buildingRatio, longestAlleyRun, type MapStats } from '../mapStats';
 import { GenGrid } from './GenGrid';
 import { planLayout, avenueOffsetAt, avenueRects, facadeReach } from './layout';
@@ -81,11 +81,36 @@ export function validateMap(map: GameMap): string[] {
     ['arsenal', 1], ['arsenal_desk', 1], ['arsenal_window', 2], ['arsenal_ledger', 1], ['arsenal_drop', 8], ['arsenal_beacon', 1],
     ['arsenal_post', 4], ['arsenal_bench', 1], ['arsenal_pad', 1], ['arsenal_hall', 1], ['arsenal_issue', 4], ['arsenal_repair', 1],
     ['arsenal_breakroom', 1], ['arsenal_issue_room', 1], ['arsenal_ammo', 40], ['arsenal_grenades', 12], ['arsenal_rack', 20],
-    ['prison', 1], ['prison_cell', 8], ['prison_post', 6], ['prison_desk', 1], ['prison_office', 1], ['prison_guardroom', 1], ['prison_evidence', 1], ['prison_yard', 1],
+    ['prison', 1], ['prison_cell', 8], ['prison_post', 7], ['prison_desk', 1], ['prison_office', 1], ['prison_guardroom', 1], ['prison_evidence', 1], ['prison_yard', 1],
+    ['prison_armory', 1], ['prison_rack', 6], ['prison_ammo', 4], ['prison_armory_door', 2], ['prison_interrogation', 1], ['prison_reception', 1], ['prison_sally', 1],
+    ['prison_counter', 2], ['prison_intake', 1], ['prison_beacon', 2], ['prison_mast', 4], ['prison_drop', 4],
     ['canteen', 1], ['canteen_table', 2], ['kiosk', 2], ['facade', 40], ['vendor_spot', 4],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
+  if (!restrictedReachable(map)) out.push('ворота запретной зоны отрезаны');
   return out;
+}
+
+/**
+ * Ворота запретной зоны ведут в город: у каждых рядом (в 3 тайлах) есть якорь главной компоненты
+ * связности. Иначе зона отрезана (ворота упёрлись в застройку) — люки подполья в ней бесполезны.
+ */
+function restrictedReachable(map: GameMap): boolean {
+  const gates = map.poisOf('restricted_gate');
+  if (!gates.length) return false;
+  const aw = map.width - 1;
+  const ah = map.height - 1;
+  const { labels, sizes } = labelComponents(buildAnchorWalk(map.tiles as Uint8Array, map.width, map.height), aw, ah);
+  const main = sizes.indexOf(Math.max(...sizes));
+  const r = 3;
+  return gates.every((g) => {
+    for (let y = Math.max(0, g.y - r); y <= Math.min(ah - 1, g.y + r); y++) {
+      for (let x = Math.max(0, g.x - r); x <= Math.min(aw - 1, g.x + r); x++) {
+        if (labels[y * aw + x] === main && map.zoneAtTile(x, y)?.kind !== 'restricted') return true;
+      }
+    }
+    return false;
+  });
 }
 
 /** Символы для зон без своего символа (кварталы — a…h, фиксированные зоны — заглавные). */
@@ -93,7 +118,7 @@ const ZONE_CHAR_POOL = '0123456789ijklmnopqrstuvwxyz!$%&*+-/;<=>?@^_~|';
 
 const shrink = (r: Rect, d: number): Rect => ({ x: r.x + d, y: r.y + d, w: r.w - 2 * d, h: r.h - 2 * d });
 
-export function generateAttempt(seed: number, attempt: number): GameMap {
+function generateAttempt(seed: number, attempt: number): GameMap {
   const t0 = performance.now();
   const G = GENERATOR;
   const W = WORLD.widthTiles;
@@ -329,7 +354,8 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     pois.push({ type: 'arsenal', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
   }
 
-  // Тюрьма Альянса: блок камер, караулка, допросная, изъятое, двор с воротами; подъезд — улицей.
+  // Тюрьма Альянса: блок камер, шлюз с оружейной и допросной, караулка, кабинет, приёмная, изъятое,
+  // двор-площадка с маяками; подъезд — улицей.
   if (streets.prison) {
     const p = streets.prison;
     const z = addZone('prison', ZONE_NAMES.prison, null);
@@ -348,6 +374,10 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     area('9', 'prison_office');
     area('&', 'prison_evidence');
     area('8', 'prison_yard');
+    area('(', 'prison_armory');
+    area('$', 'prison_interrogation');
+    area('@', 'prison_reception');
+    area('<', 'prison_sally');
     pois.push({ type: 'prison', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
   }
 

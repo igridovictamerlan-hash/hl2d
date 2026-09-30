@@ -20,6 +20,9 @@ interface FacadeLook {
 const DECOR_WOOD = 1;
 const DECOR_KIOSK = 2;
 const DECOR_PLANTER = 3;
+/** Мебель тюрьмы (BARRIER): под ней пол, саму мебель рисует PrisonRenderer. */
+const DECOR_FLOOR = 4;
+const PRISON_FURNITURE = ['prison_rack', 'prison_ammo', 'prison_cot', 'prison_table', 'prison_locker', 'prison_counter', 'prison_bench', 'prison_itable', 'prison_desk', 'prison_shelf'] as const;
 
 /**
  * Цвет HSL → '#rrggbb'. Цвета тайлов считаются один раз при загрузке, а разбираются браузером при
@@ -96,6 +99,12 @@ export class MapRenderer {
       }
     }
     this.kiosks = map.poisOf('kiosk');
+    for (const t of PRISON_FURNITURE) {
+      for (const p of map.poisOf(t)) {
+        const i = p.y * w + p.x;
+        if (map.tiles[i] === T.BARRIER) this.decor[i] = DECOR_FLOOR;
+      }
+    }
     for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER]] as const) {
       for (const p of list) for (let y = p.y; y < p.y + p.h!; y++) for (let x = p.x; x < p.x + p.w!; x++) this.decor[y * w + x] = kind;
     }
@@ -220,7 +229,7 @@ export class MapRenderer {
       case T.BARRIER: {
         const d = this.decor[i];
         const F = RENDER.facade;
-        this.color[i] = d === DECOR_WOOD ? F.wood : d === DECOR_KIOSK ? F.kiosk.body : d === DECOR_PLANTER ? F.planter.rim : P.barrier;
+        this.color[i] = d === DECOR_WOOD ? F.wood : d === DECOR_KIOSK ? F.kiosk.body : d === DECOR_PLANTER ? F.planter.rim : d === DECOR_FLOOR ? tone(P.tileFloor) : P.barrier;
         break;
       }
       case T.SEWER: this.color[i] = tone(P.sewer); break;
@@ -689,6 +698,7 @@ export class MapRenderer {
   private decorTile(ctx: CanvasRenderingContext2D, i: number, x0: number, y0: number, cw: number, ch: number, hv: number, line: number, px: (w: number) => number): void {
     const F = RENDER.facade;
     const d = this.decor[i];
+    if (d === DECOR_FLOOR) return;
     if (d === DECOR_WOOD) {
       ctx.fillStyle = F.woodTop;
       ctx.fillRect(x0 + line, y0 + line, cw - line * 2, ch - line * 3);

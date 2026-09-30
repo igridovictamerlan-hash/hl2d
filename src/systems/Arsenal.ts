@@ -56,8 +56,8 @@ export interface Slot {
 }
 
 /**
- * Пункт боепитания: в проходной КПП (front — номер фронта) или в Нексусе (front = -1): комплекты
- * патронов и гранаты. Пополняют конвои ГО со склада.
+ * Пункт боепитания: в проходной КПП (front — номер фронта), в Нексусе (front = -1) или в оружейной
+ * тюрьмы (front = -2, ещё и стволы на стойках): комплекты патронов и гранаты. Пополняют конвои ГО со склада.
  */
 export interface KppPoint {
   front: number;
@@ -71,6 +71,10 @@ export interface KppPoint {
   low: number;
   grenadesCap: number;
   grenadesLow: number;
+  /** Стволы (только оружейная тюрьмы; у остальных cap 0): сколько, потолок, порог. */
+  guns: number;
+  gunsCap: number;
+  gunsLow: number;
   /** Сколько комплектов из порченых ящиков. */
   tainted: number;
   /** Идёт ли туда конвой. */
@@ -86,8 +90,8 @@ export interface Convoy {
   point: KppPoint;
   lead: Character;
   crew: Character[];
-  /** Что должен взять носильщик и из какой ячейки (бронь). */
-  loads: Map<Character, { kind: CrateKind; from: Slot | null }>;
+  /** Что должен взять носильщик и из какой ячейки (бронь): ящик патронов (зал), гранат (отсек), ствол (стойка). */
+  loads: Map<Character, { kind: LoadKind; from: Slot | null }>;
   phase: ConvoyPhase;
   since: number;
   until: number;
@@ -501,7 +505,7 @@ export class ArsenalSystem {
       if (f.gatehouse < 0) continue;
       const k = niche((q) => nav.zone[q] === f.gatehouse, null, Infinity);
       if (k < 0) continue;
-      this.points.push({ front: f.index, name: f.name, x: nav.worldX(k), y: nav.worldY(k), kits: K.start, grenades: K.grenadesStart, cap: K.cap, low: K.low, grenadesCap: K.grenadesCap, grenadesLow: K.grenadesLow, tainted: 0, convoy: null });
+      this.points.push({ front: f.index, name: f.name, x: nav.worldX(k), y: nav.worldY(k), kits: K.start, grenades: K.grenadesStart, cap: K.cap, low: K.low, grenadesCap: K.grenadesCap, grenadesLow: K.grenadesLow, guns: 0, gunsCap: 0, gunsLow: 0, tainted: 0, convoy: null });
     }
     // Нексус: у казармы ГО (нары), в зоне Нексуса, не в камерах.
     const bunks = map.poisOf('bunk');
@@ -513,7 +517,7 @@ export class ArsenalSystem {
         : poiWorld(ctx, 'nexus_yard');
       const N = ARSENAL.nexus;
       const k = niche((q) => nexus.has(nav.zone[q]) && !ctx.law.inAnyCell(nav.worldX(q), nav.worldY(q), 12), at, N.within);
-      if (k >= 0) this.points.push({ front: -1, name: N.name, x: nav.worldX(k), y: nav.worldY(k), kits: N.start, grenades: N.grenadesStart, cap: N.cap, low: N.low, grenadesCap: N.grenadesCap, grenadesLow: N.grenadesLow, tainted: 0, convoy: null });
+      if (k >= 0) this.points.push({ front: -1, name: N.name, x: nav.worldX(k), y: nav.worldY(k), kits: N.start, grenades: N.grenadesStart, cap: N.cap, low: N.low, grenadesCap: N.grenadesCap, grenadesLow: N.grenadesLow, guns: 0, gunsCap: 0, gunsLow: 0, tainted: 0, convoy: null });
     }
   }
 
@@ -604,6 +608,11 @@ export class ArsenalSystem {
 
   pointOf(front: number): KppPoint | null {
     return this.points.find((p) => p.front === front) ?? null;
+  }
+
+  /** Пункт другой системы (оружейная тюрьмы): конвои возят и туда. */
+  addPoint(p: KppPoint): void {
+    if (!this.points.includes(p)) this.points.push(p);
   }
 
   // ————— Такт —————
@@ -874,7 +883,7 @@ export class ArsenalSystem {
 
   /** Пункт боепитания Нексуса. */
   get nexusPoint(): KppPoint | null {
-    return this.points.find((p) => p.front < 0) ?? null;
+    return this.points.find((p) => p.front === -1) ?? null;
   }
 
   /**
@@ -891,36 +900,46 @@ export class ArsenalSystem {
       if (!v.crew.length || lost || this.time > v.until || ctx.war.code === 'red') this.endConvoy(v, lost ? 'КПП прорван' : !v.crew.length ? 'экипаж погиб' : ctx.war.code === 'red' ? 'красный код' : 'не дошли');
     }
     if (this.convoys.length || ctx.war.code === 'red') return;
-    const urgent = this.points.some((p) => this.pointOpen(p) && p.kits < p.low);
+    const A = ARSENAL.perCrate.ammo;
+    // Нужен ли пункту груз: комплекты (есть место под ящик), гранаты ниже порога, стволы ниже потолка.
+    const wantsKits = (p: KppPoint) => p.kits <= p.cap - A;
+    const wantsGuns = (p: KppPoint) => p.gunsCap > 0 && p.guns < p.gunsCap;
+    const fill = (p: KppPoint) => Math.min(p.kits / p.cap, p.gunsCap > 0 ? p.guns / p.gunsCap : 1);
+    const urgent = this.points.some((p) => this.pointOpen(p) && (p.kits < p.low || (p.gunsCap > 0 && p.guns < p.gunsLow)));
     if (!urgent && this.time < this.nextConvoy) return;
     const point = this.points
-      .filter((p) => this.pointOpen(p) && p.kits <= p.cap - ARSENAL.perCrate.ammo)
-      .sort((p, q) => p.kits / p.cap - q.kits / q.cap)[0];
+      .filter((p) => this.pointOpen(p) && (wantsKits(p) || (p.gunsCap > 0 && p.guns < p.gunsLow)))
+      .sort((p, q) => fill(p) - fill(q))[0];
     if (!point) {
       this.nextConvoy = this.time + C.every;
       return;
     }
     const crew = ctx.entities.list.filter((c) => this.crewReady(c)).sort((p, q) => p.id - q.id);
     if (crew.length < C.minCrew) return;
-    // Носильщики — все, кроме ведущего; ящики — из зала (резерв для выдачи остаётся), гранаты — из отсека.
+    // Носильщики — все, кроме ведущего; ящики — из зала (резерв для выдачи остаётся), гранаты — из отсека,
+    // стволы (в оружейную тюрьмы) — со стоек, оставив gunReserve для выдачи.
     const hall = this.slots.filter((s) => s.area === 'hall' && s.crate && !this.held(s)).length;
     const vault = this.slots.filter((s) => s.area === 'vault' && s.crate && !this.held(s)).length;
+    const racks = this.slots.filter((s) => s.area === 'rack' && s.crate && !s.crate.broken && !this.held(s)).length;
     const carriers = crew.slice(1);
     const grenades = point.grenades < point.grenadesLow && vault > 1 && carriers.length > 0 ? 1 : 0;
-    const ammo = Math.max(0, Math.min(carriers.length - grenades, hall - C.reserve, Math.ceil((point.cap - point.kits) / ARSENAL.perCrate.ammo)));
-    if (ammo + grenades <= 0) return;
+    // Стволы — не больше половины носильщиков, если нужны и патроны.
+    const gunSlots = wantsKits(point) ? Math.ceil((carriers.length - grenades) / 2) : carriers.length - grenades;
+    const guns = wantsGuns(point) ? Math.max(0, Math.min(gunSlots, racks - C.gunReserve, point.gunsCap - point.guns)) : 0;
+    const ammo = Math.max(0, Math.min(carriers.length - grenades - guns, hall - C.reserve, Math.ceil((point.cap - point.kits) / A)));
+    if (ammo + grenades + guns <= 0) return;
     const v: Convoy = { point, lead: crew[0], crew: [crew[0]], loads: new Map(), phase: 'load', since: this.time, until: this.time + C.giveUp, delivered: 0 };
-    for (let k = 0; k < ammo + grenades; k++) {
+    for (let k = 0; k < ammo + grenades + guns; k++) {
       const c = carriers[k];
       v.crew.push(c);
-      v.loads.set(c, { kind: k < ammo ? 'ammo' : 'grenades', from: null });
+      v.loads.set(c, { kind: k < ammo ? 'ammo' : k < ammo + grenades ? 'grenades' : 'gun', from: null });
     }
     point.convoy = v;
     this.convoys.push(v);
     this.stats.convoys++;
     this.nextConvoy = this.time + C.every;
     for (const c of v.crew) (c.brain as CpBrain).fsm.change('convoy');
-    ctx.law.log(`Склад Альянса: конвой ГО — на пункт боепитания ${point.name}, ящиков: ${ammo + grenades}.`, 'radio');
+    ctx.law.log(`Склад Альянса: конвой ГО — на пункт боепитания ${point.name}, ящиков: ${ammo + grenades}${guns ? `, стволов: ${guns}` : ''}.`, 'radio');
     v.lead.say(ctx.rng.pick(ARSENAL.lines.convoy), ctx.law.now, 2.5);
   }
 
@@ -949,6 +968,7 @@ export class ArsenalSystem {
       // Брошен в городе: из описи списан — достанется тому, кто подберёт.
       lost++;
       if (cr.kind === 'ammo' || cr.kind === 'grenades') this.ledger[cr.kind] = Math.max(0, this.ledger[cr.kind] - 1);
+      else if (cr.kind === 'gun') this.ledger.weapons = Math.max(0, this.ledger.weapons - 1);
     }
     this.stats.convoyLost += lost;
     if (why) this.ctx.law.log(`Склад Альянса: конвой на ${v.point.name} сорван (${why})${lost ? ` — брошено ящиков: ${lost}` : ''}.`, 'radio');
@@ -996,7 +1016,7 @@ export class ArsenalSystem {
     if (v.phase === 'load' || v.phase === 'form') {
       if (load && !has && v.phase === 'load') {
         if (!load.from || !load.from.crate) {
-          load.from = this.fullSlot(load.kind === 'ammo' ? 'hall' : 'vault', c.x, c.y);
+          load.from = this.fullSlot(load.kind === 'ammo' ? 'hall' : load.kind === 'gun' ? 'rack' : 'vault', c.x, c.y, load.kind === 'gun');
           if (load.from) {
             load.from.reserved = c;
             if (load.from.area === 'vault') this.useVault(c, true);
@@ -1061,7 +1081,7 @@ export class ArsenalSystem {
     }
     const done = v.crew.every((o) => !o.fit || !this.carried.has(o)) && ![...this.crates].some((cr) => cr.convoy === v);
     if (done || this.time - v.since > C.unloadMax) {
-      ctx.law.log(`Склад Альянса: конвой дошёл — пункт боепитания ${v.point.name} пополнен (${v.point.kits} компл., гранат ${v.point.grenades}).`, 'radio');
+      ctx.law.log(`Склад Альянса: конвой дошёл — пункт боепитания ${v.point.name} пополнен (${v.point.kits} компл., гранат ${v.point.grenades}${v.point.gunsCap ? `, стволов ${v.point.guns}` : ''}).`, 'radio');
       this.endConvoy(v, null);
       return null;
     }
@@ -1069,7 +1089,7 @@ export class ArsenalSystem {
   }
 
   /** Ящик этого конвоя на земле рядом с бойцом (свой вид — в первую очередь). */
-  private lostCrate(v: Convoy, c: Character, kind: CrateKind): Crate | null {
+  private lostCrate(v: Convoy, c: Character, kind: LoadKind): Crate | null {
     let best: Crate | null = null;
     let bestD: number = ARSENAL.convoy.pickup;
     for (const cr of this.crates) {
@@ -1093,6 +1113,9 @@ export class ArsenalSystem {
     } else if (crate.kind === 'grenades') {
       p.grenades = Math.min(p.grenadesCap + ARSENAL.perCrate.grenades, p.grenades + crate.left);
       this.ledger.grenades = Math.max(0, this.ledger.grenades - 1);
+    } else if (crate.kind === 'gun' && p.gunsCap > 0) {
+      p.guns = Math.min(p.gunsCap, p.guns + 1);
+      this.ledger.weapons = Math.max(0, this.ledger.weapons - 1);
     }
   }
 

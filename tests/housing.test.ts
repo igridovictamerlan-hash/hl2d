@@ -148,10 +148,13 @@ describe('явки подполья', () => {
     const p = sim.insurgency.garrison.find((c) => c.brain instanceof UndergroundBrain)!;
     const home = H.of(p)!;
     expect(home.stash).not.toBeNull();
-    // Партизан с ящиком со склада — в городе, у склада.
+    // Партизан с ящиком со склада — в городе, за проёмом крыльца склада (внутри его задержала бы охрана).
     const A = sim.arsenal;
-    p.x = p.prevX = A.window!.x;
-    p.y = p.prevY = A.window!.y;
+    const out = sim.nav.nearestWalkable(A.gate!.x + A.gateDir.x * 96, A.gate!.y + A.gateDir.y * 96, 4);
+    p.x = p.prevX = sim.nav.worldX(out);
+    p.y = p.prevY = sim.nav.worldY(out);
+    // Плановая проверка CID по дороге раскрывает личину с шансом — тест не про неё.
+    p.law.lastCheck = sim.law.now + 1e6;
     const ownGuns = p.inventory.count('mp7');
     sim.insurgency.haul(p, 'grenades', 2);
     sim.insurgency.haul(p, 'weapons', 1);
