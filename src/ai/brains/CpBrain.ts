@@ -722,6 +722,11 @@ const RESUPPLY: State<CpBrain> = {
         const why = A.drawAt(b.self, b.resupplyPoint);
         b.self.say(why ?? b.ctx.rng.pick(ARSENAL.lines.point), b.ctx.law.now, 2);
       } else {
+        // Кладовщик отошёл (приёмка борта) — ждать у окна, а не уходить ни с чем.
+        if (A.present && !A.closed && !A.quartermaster) {
+          b.resupplyWait = 0;
+          return;
+        }
         const why = A.issue(b.self);
         if (why) b.self.say(b.ctx.rng.pick(ARSENAL.lines.refused), b.ctx.law.now, 2);
         else {
