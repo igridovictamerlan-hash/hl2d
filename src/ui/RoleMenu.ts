@@ -1,117 +1,121 @@
 import { FACTIONS, cpUnit, cpGroup, type FactionId, type DivisionId } from '../config/factions';
-import { PROFESSIONS, professionsOf, type ProfessionId } from '../config/professions';
+import { PROFESSIONS, DEFAULT_PROFESSION, professionsOf, type ProfessionId } from '../config/professions';
+import { ROLE_MENU, type RoleCardDef } from '../config/menus';
+import { drawPortrait, previewLook, previewWeapon } from './menuArt';
+import type { PawnDir } from '../entities/PawnRenderer';
+
+/** Поворот пешки под мышью: по часовой — лицом, правым боком, спиной, левым боком. */
+const TURN: PawnDir[] = ['S', 'W', 'N', 'E'];
+
+/** Имя персонажа для меню роли: текущее и новое случайное (задаёт Game). */
+export interface RoleNames {
+  current(): string;
+  suggest(): string;
+}
+
+const esc = (s: string): string => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!);
 
 /**
- * Выбор роли: при старте и у терминала найма на площади. Фракция → ранг (повстанцы) или юнит (ГО:
- * PCU, SU, CMD — с описанием) и профессия (граждане, ГСР, повстанцы, вортигонты) — со списком умений.
+ * Выбор роли — «карточки сторон» (лист меню R1): при старте и у терминала найма. Карточка стороны —
+ * живая пешка той же отрисовкой, что в игре (меняется с профессией и юнитом), сложность, чем
+ * заняться, где появляетесь. Выбранная карточка шире: профессии (ГО — юнит с описанием), их умения.
+ * Внизу — имя (у ГО позывной назначается), «другое имя», новая игра и «Играть за …».
+ * Клавиши: 1–5 и ←/→ — сторона, Enter — играть, Esc — закрыть (если роль уже есть).
  */
 export class RoleMenu {
   private readonly el: HTMLElement;
+  private readonly cardsEl: HTMLElement;
   private readonly closeBtn: HTMLButtonElement;
+  private readonly nameInput: HTMLInputElement;
+  private readonly diceBtn: HTMLButtonElement;
+  private readonly playBtn: HTMLButtonElement;
+  private readonly newBtn: HTMLButtonElement;
+  private readonly factions: FactionId[];
+  private selected: FactionId;
+  /** Выбор внутри стороны: юнит ГО и профессия каждой стороны. */
+  private readonly rank: Partial<Record<FactionId, number>> = {};
+  private readonly prof: Partial<Record<FactionId, ProfessionId>> = {};
+  private armed = false;
+  /** Карточка под мышью — её пешка поворачивается. */
+  private turnId: FactionId | null = null;
+  private turn = 0;
+  private turnTimer = 0;
+  private armTimer = 0;
   isOpen = false;
+  /** Меню роли под другим окном (главное меню поверх) — клавиши не трогает. */
+  blocked: () => boolean = () => false;
 
   constructor(
     parent: HTMLElement,
-    private readonly onChoose: (faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null) => void,
+    private readonly onChoose: (faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null, name: string | null) => void,
     private readonly onNewGame: () => void = () => {},
+    private readonly names: RoleNames = { current: () => '', suggest: () => '' },
   ) {
+    this.factions = ROLE_MENU.order.filter((id) => FACTIONS[id]?.selectable);
+    this.selected = ROLE_MENU.initial;
+    for (const id of this.factions) {
+      const list = professionsOf(id, true);
+      const def = DEFAULT_PROFESSION[id];
+      this.prof[id] = list.find((p) => p.id === def)?.id ?? list[0]?.id;
+      if (id === 'cp') this.rank[id] = 0;
+    }
     this.el = document.createElement('div');
     this.el.className = 'role-menu';
     this.el.hidden = true;
-    const cards = (Object.keys(FACTIONS) as FactionId[])
-      .filter((id) => FACTIONS[id].selectable)
-      .map((id) => {
-        const f = FACTIONS[id];
-        // У сопротивления юнит — это профессия (ранг выбирать не нужно).
-        const ranks = f.ranks && id !== 'rebel'
-          ? `<label class="role-rank">${id === 'cp' ? 'Юнит' : 'Ранг'} <select id="rank-${id}">${f.ranks
-              .map((r, i) => `<option value="${i}">${r.name}</option>`)
-              .join('')}</select></label>`
-          : '';
-        const divisions = id === 'cp' ? `<p class="role-div-desc">${cpUnit(0).desc}</p>` : '';
-        const profs = professionsOf(id, true);
-        const professions =
-          profs.length > 1
-            ? `<label class="role-rank">Профессия <select id="prof-${id}">${profs
-                .map((p) => `<option value="${p.id}">${p.name}</option>`)
-                .join('')}</select></label>`
-            : '';
-        const first = profs[0];
-        const perks = first ? `<ul class="role-perks" id="perks-${id}">${perkList(first.id)}</ul>` : '';
-        return `<div class="role-card" data-role="${id}">
-            <div class="role-top"><span class="role-dot" style="background:${f.color};border-color:${f.outline}"></span><b>${f.plural}</b></div>
-            <p>${f.description}</p>
-            ${ranks}
-            ${divisions}
-            ${professions}
-            ${perks}
-            <button data-pick="${id}">Играть за: ${f.role}</button>
-          </div>`;
-      })
-      .join('');
-    this.el.innerHTML = `<div class="role-box panel-like">
-        <div class="role-head"><span>ВЫБОР РОЛИ</span><button class="role-close" title="Закрыть (Esc)">×</button></div>
-        <div class="role-cards">${cards}</div>
-        <div class="role-foot">Сменить роль можно у терминала найма на площади раздачи (клавиша E). Игра сохраняется в браузере автоматически.
-          <button class="role-new" data-new>Новая игра (новый город, стереть сохранение)</button></div>
+    this.el.innerHTML = `<div class="rm-box" role="dialog" aria-label="Выбор роли">
+        <header class="rm-head">
+          <h2 class="rm-title">${ROLE_MENU.title}</h2>
+          <span class="rm-hint">${ROLE_MENU.hint}</span>
+          <button class="rm-close" aria-label="Закрыть (Esc)">×</button>
+        </header>
+        <div class="rm-cards"></div>
+        <footer class="rm-foot">
+          <label class="rm-name">Имя <input maxlength="${ROLE_MENU.nameMax}" spellcheck="false" autocomplete="off"></label>
+          <button class="rm-dice" type="button">Другое имя</button>
+          <button class="rm-new" type="button" data-new>${ROLE_MENU.newGame}</button>
+          <button class="rm-play" type="button" data-play></button>
+        </footer>
       </div>`;
     parent.appendChild(this.el);
-    this.closeBtn = this.el.querySelector('.role-close')!;
+    this.cardsEl = this.el.querySelector('.rm-cards')!;
+    this.closeBtn = this.el.querySelector('.rm-close')!;
+    this.nameInput = this.el.querySelector('.rm-name input')!;
+    this.diceBtn = this.el.querySelector('.rm-dice')!;
+    this.playBtn = this.el.querySelector('[data-play]')!;
+    this.newBtn = this.el.querySelector('[data-new]')!;
     this.closeBtn.addEventListener('click', () => this.close());
-    // Подтверждение вторым нажатием (window.confirm в песочнице не работает).
-    const newBtn = this.el.querySelector<HTMLButtonElement>('[data-new]')!;
-    const newText = newBtn.textContent ?? '';
-    let armed = false;
-    newBtn.addEventListener('click', () => {
-      if (!armed) {
-        armed = true;
-        newBtn.textContent = 'Точно? Нажмите ещё раз — сохранение сотрётся';
-        newBtn.classList.add('armed');
-        window.setTimeout(() => {
-          armed = false;
-          newBtn.textContent = newText;
-          newBtn.classList.remove('armed');
-        }, 4000);
+    this.diceBtn.addEventListener('click', () => {
+      const n = this.names.suggest();
+      if (n) this.nameInput.value = n;
+    });
+    this.playBtn.addEventListener('click', () => this.play());
+    this.newBtn.addEventListener('click', () => this.newGame());
+    this.cardsEl.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      const card = t.closest<HTMLElement>('[data-card]');
+      const chip = t.closest<HTMLElement>('[data-prof]');
+      if (chip && card) {
+        this.prof[card.dataset.card as FactionId] = chip.dataset.prof as ProfessionId;
+        this.render();
         return;
       }
-      armed = false;
-      newBtn.textContent = newText;
-      newBtn.classList.remove('armed');
-      this.close();
-      this.onNewGame();
+      if (t.closest('select')) return;
+      if (card) this.select(card.dataset.card as FactionId);
     });
-    this.el.querySelectorAll<HTMLButtonElement>('button[data-pick]').forEach((b) =>
-      b.addEventListener('click', () => {
-        const id = b.dataset.pick as FactionId;
-        const sel = this.el.querySelector<HTMLSelectElement>(`#rank-${id}`);
-        const prof = this.el.querySelector<HTMLSelectElement>(`#prof-${id}`);
-        const only = professionsOf(id, true);
-        this.close();
-        const rank = sel ? Number(sel.value) : 0;
-        this.onChoose(id, rank, id === 'cp' ? cpGroup(rank) : null, prof ? (prof.value as ProfessionId) : only[0]?.id ?? null);
-      }),
-    );
-    // Смена профессии — её описание и умения.
-    this.el.querySelectorAll<HTMLSelectElement>('select[id^="prof-"]').forEach((sel) =>
-      sel.addEventListener('change', () => {
-        const id = sel.id.replace('prof-', '');
-        this.el.querySelector(`#perks-${id}`)!.innerHTML = perkList(sel.value as ProfessionId);
-      }),
-    );
-    // Смена ранга сразу красит кружок на карточке.
-    this.el.querySelectorAll<HTMLSelectElement>('select[id^="rank-"]').forEach((sel) =>
-      sel.addEventListener('change', () => {
-        const id = sel.id.replace('rank-', '') as FactionId;
-        const r = FACTIONS[id].ranks![Number(sel.value)];
-        const dot = this.el.querySelector<HTMLElement>(`[data-role="${id}"] .role-dot`)!;
-        dot.style.background = r.color;
-        dot.style.borderColor = r.outline;
-        if (id === 'cp') this.el.querySelector('.role-div-desc')!.textContent = cpUnit(Number(sel.value)).desc;
-      }),
-    );
-    window.addEventListener('keydown', (e) => {
-      if (this.isOpen && e.code === 'Escape' && !this.closeBtn.hidden) this.close();
+    this.cardsEl.addEventListener('change', (e) => {
+      const sel = e.target as HTMLSelectElement;
+      if (sel.dataset.rank === undefined) return;
+      this.rank[sel.dataset.rank as FactionId] = Number(sel.value);
+      this.render();
     });
+    // Перехват до управления игрой: цифры и стрелки выбора не должны уходить персонажу.
+    window.addEventListener('keydown', (e) => this.onKey(e), true);
+    this.cardsEl.addEventListener('mouseover', (e) => {
+      const id = (e.target as HTMLElement).closest<HTMLElement>('[data-card]')?.dataset.card as FactionId | undefined;
+      if (id && id !== this.turnId) this.startTurn(id);
+    });
+    this.cardsEl.addEventListener('mouseleave', () => this.stopTurn());
+    window.addEventListener('resize', () => this.isOpen && this.paint());
   }
 
   /** first — стартовый выбор: закрыть без выбора нельзя. */
@@ -119,16 +123,174 @@ export class RoleMenu {
     this.isOpen = true;
     this.el.hidden = false;
     this.closeBtn.hidden = first;
+    this.nameInput.value = this.names.current() || this.names.suggest();
+    this.render();
+    this.playBtn.focus({ preventScroll: true });
   }
 
   close(): void {
     this.isOpen = false;
     this.el.hidden = true;
+    this.stopTurn();
+  }
+
+  private startTurn(id: FactionId): void {
+    this.stopTurn();
+    this.turnId = id;
+    this.turnTimer = window.setInterval(() => {
+      this.turn = (this.turn + 1) % TURN.length;
+      this.paint(id);
+    }, ROLE_MENU.turnMs);
+  }
+
+  private stopTurn(): void {
+    window.clearInterval(this.turnTimer);
+    const id = this.turnId;
+    this.turnId = null;
+    this.turn = 0;
+    if (id && this.isOpen) this.paint(id);
+  }
+
+  private select(id: FactionId): void {
+    if (this.selected === id) return;
+    this.selected = id;
+    this.render();
+  }
+
+  private onKey(e: KeyboardEvent): void {
+    if (!this.isOpen || this.blocked() || e.ctrlKey || e.metaKey || e.altKey) return;
+    const typing = document.activeElement === this.nameInput;
+    if (e.code === 'Escape') {
+      if (!this.closeBtn.hidden) this.close();
+      return;
+    }
+    const active = document.activeElement;
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+      // Enter на своей кнопке (чип, «другое имя») — её клик; иначе — играть.
+      if (!(active instanceof HTMLButtonElement && active !== this.playBtn && this.el.contains(active))) {
+        e.preventDefault();
+        this.play();
+      }
+      e.stopPropagation();
+      return;
+    }
+    if (typing || active instanceof HTMLSelectElement) {
+      e.stopPropagation();
+      return;
+    }
+    const k = this.factions.indexOf(this.selected);
+    const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+    if (e.code === 'ArrowRight' || e.code === 'ArrowLeft') {
+      const d = e.code === 'ArrowRight' ? 1 : -1;
+      this.select(this.factions[(k + d + this.factions.length) % this.factions.length]);
+    } else if (digit && Number(digit[1]) <= this.factions.length) this.select(this.factions[Number(digit[1]) - 1]);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  private play(): void {
+    const id = this.selected;
+    const rank = this.rank[id] ?? 0;
+    const prof = this.prof[id] ?? null;
+    const name = id === 'cp' ? null : this.nameInput.value.trim().slice(0, ROLE_MENU.nameMax) || null;
+    this.close();
+    this.onChoose(id, rank, id === 'cp' ? cpGroup(rank) : null, prof, name);
+  }
+
+  /** Новая игра — подтверждение вторым нажатием (window.confirm в песочнице не работает). */
+  private newGame(): void {
+    window.clearTimeout(this.armTimer);
+    if (!this.armed) {
+      this.armed = true;
+      this.newBtn.textContent = ROLE_MENU.newGameArmed;
+      this.newBtn.classList.add('armed');
+      this.armTimer = window.setTimeout(() => {
+        this.armed = false;
+        this.newBtn.textContent = ROLE_MENU.newGame;
+        this.newBtn.classList.remove('armed');
+      }, ROLE_MENU.armMs);
+      return;
+    }
+    this.armed = false;
+    this.newBtn.textContent = ROLE_MENU.newGame;
+    this.newBtn.classList.remove('armed');
+    this.close();
+    this.onNewGame();
+  }
+
+  private render(): void {
+    const sel = this.selected;
+    this.cardsEl.style.gridTemplateColumns = this.factions.map((id) => (id === sel ? `minmax(0, ${ROLE_MENU.selectedSpan}fr)` : 'minmax(0, 1fr)')).join(' ');
+    this.cardsEl.innerHTML = this.factions.map((id, k) => this.cardHtml(id, k, id === sel)).join('');
+    const cp = sel === 'cp';
+    this.nameInput.disabled = cp;
+    this.diceBtn.disabled = cp;
+    this.nameInput.placeholder = cp ? ROLE_MENU.cpName : '';
+    if (cp) this.nameInput.value = '';
+    else if (!this.nameInput.value) this.nameInput.value = this.names.current() || this.names.suggest();
+    this.playBtn.textContent = `ИГРАТЬ ЗА ${ROLE_MENU.playAs[sel] ?? FACTIONS[sel].role.toUpperCase()}`;
+    this.playBtn.style.setProperty('--rm-accent', this.def(sel).accent);
+    this.paint();
+  }
+
+  private def(id: FactionId): RoleCardDef {
+    return ROLE_MENU.cards[id] ?? { title: FACTIONS[id].plural, difficulty: 1, tagline: FACTIONS[id].description, activities: [], spawn: '', backdrop: '#2a231d', accent: '#c9bba6' };
+  }
+
+  /** Пешки на карточках — в холсты (после разметки); only — одну карточку. */
+  private paint(only?: FactionId): void {
+    const P = ROLE_MENU.portrait;
+    this.cardsEl.querySelectorAll<HTMLCanvasElement>(only ? `canvas[data-portrait="${only}"]` : 'canvas[data-portrait]').forEach((cv) => {
+      const id = cv.dataset.portrait as FactionId;
+      const rank = this.rank[id] ?? 0;
+      const prof = this.prof[id] ?? null;
+      const sel = id === this.selected;
+      const seed = 17 + this.factions.indexOf(id) * 131 + (prof ? prof.length * 7 : 0);
+      drawPortrait(cv, previewLook(id, rank, prof, seed), previewWeapon(id, rank, prof), sel ? P.selectedScale : P.scale, P.ground, id === this.turnId ? TURN[this.turn] : 'S');
+    });
+  }
+
+  private cardHtml(id: FactionId, k: number, sel: boolean): string {
+    const d = this.def(id);
+    const dots = [1, 2, 3].map((n) => `<i class="${n <= d.difficulty ? 'on' : ''}"></i>`).join('');
+    const profs = professionsOf(id, true);
+    const curProf = this.prof[id];
+    let body: string;
+    if (!sel) {
+      const chips = profs.length > 1 ? `<div class="rm-chips">${profs.slice(0, 5).map((p) => `<span>${esc(shortName(p.name))}</span>`).join('')}${profs.length > 5 ? `<span>+${profs.length - 5}</span>` : ''}</div>` : '';
+      body = `<ul class="rm-acts">${d.activities.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>${chips}`;
+    } else {
+      const opts: string[] = [];
+      if (id === 'cp') {
+        const r = this.rank[id] ?? 0;
+        opts.push(`<label class="rm-field">Юнит<select data-rank="cp">${(FACTIONS.cp.ranks ?? []).map((u, i) => `<option value="${i}"${i === r ? ' selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>
+          <p class="rm-unit">${esc(cpUnit(r).desc)}</p>`);
+      }
+      if (profs.length > 1) {
+        opts.push(`<div class="rm-field">Профессия<div class="rm-chips pick">${profs
+          .map((p) => `<button type="button" data-prof="${p.id}" class="${p.id === curProf ? 'on' : ''}" aria-pressed="${p.id === curProf}">${esc(shortName(p.name))}</button>`)
+          .join('')}</div></div>`);
+      }
+      const p = curProf ? PROFESSIONS[curProf] : null;
+      const perks = p ? `<div class="rm-perks"><b>${esc(p.name)}</b><span>${esc(p.desc)}</span><ul>${p.perks.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>` : '';
+      body = opts.join('') + perks;
+    }
+    return `<div class="rm-card${sel ? ' sel' : ''}" data-card="${id}" style="--rm-accent:${d.accent};--rm-back:${d.backdrop}">
+        ${sel ? '<span class="rm-badge">ВЫБРАНО</span>' : ''}
+        <button type="button" class="rm-hit" aria-pressed="${sel}" aria-label="${esc(d.title)}">
+          <span class="rm-portrait"><canvas data-portrait="${id}"></canvas><kbd>${k + 1}</kbd></span>
+          <span class="rm-name-line">${esc(d.title)}</span>
+          <span class="rm-diff">Сложность <span class="dots">${dots}</span></span>
+          <span class="rm-tag">${esc(d.tagline)}</span>
+          <span class="rm-spawn">Появление: ${esc(d.spawn)}</span>
+        </button>
+        <div class="rm-body">${body}</div>
+      </div>`;
   }
 }
 
-/** Описание профессии и её умения — пунктами. */
-function perkList(id: ProfessionId): string {
-  const p = PROFESSIONS[id];
-  return [`<li class="role-prof-desc">${p.desc}</li>`, ...p.perks.map((t) => `<li>${t}</li>`)].join('');
+/** Короткое имя профессии на чипе: без хвоста «ГСР». */
+function shortName(n: string): string {
+  return n.replace(/\s+ГСР$/, '').replace(' склада', '');
 }

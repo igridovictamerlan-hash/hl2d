@@ -8,7 +8,10 @@ import { RENDER } from '../config/render';
 import { SUPPRESS } from '../config/tactics';
 import { VISION } from '../config/vision';
 import { CHARACTER } from '../config/entities';
-import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, rebelUnitOf } from '../config/factions';
+import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, cpUnit, rebelUnitOf } from '../config/factions';
+import { hasLoyalty, loyaltyTier } from '../systems/Loyalty';
+import { displayName } from '../entities/cover';
+import type { IdCardInfo } from '../ui/GameMenu';
 import type { GameMap, Level } from '../world/GameMap';
 import { NavGrid } from '../world/NavGrid';
 import type { Poi } from '../world/GameMap';
@@ -372,7 +375,9 @@ export class Game {
   }
 
   /** Выбор роли из меню. */
-  chooseRole(faction: FactionId, rank: number, division: DivisionId | null = null, profession: ProfessionId | null = null): void {
+  chooseRole(faction: FactionId, rank: number, division: DivisionId | null = null, profession: ProfessionId | null = null, name: string | null = null): void {
+    // Имя из меню роли — для всех, кроме ГО (у ГО позывной назначается).
+    if (name && faction !== 'cp') this.civilName = name.trim();
     const prof = profession && PROFESSIONS[profession]?.faction === faction ? profession : DEFAULT_PROFESSION[faction] ?? null;
     this.role = { faction, rank, division: faction === 'cp' ? cpGroup(rank) : division, profession: prof };
     this.applyRole(faction, rank, this.role.division, true, prof);
@@ -613,6 +618,44 @@ export class Game {
     }
     const when = new Date(save.savedAt).toLocaleString('ru-RU');
     this.bus.emit('log', { text: `Игра продолжена (сохранение от ${when}). Новая игра — у терминала найма или в меню роли.`, kind: 'system' });
+  }
+
+  /** Меню роли: имя, под которым игрок живёт в городе (у ГО — гражданское имя до службы). */
+  currentName(): string {
+    return this.civilName || (this.player && this.player.faction !== 'cp' ? this.player.name : '');
+  }
+
+  suggestName(): string {
+    return randomName(this.rng);
+  }
+
+  /** Удостоверение в меню: как игрока видит проверяющий (под личиной — личина); роли нет — бланк. */
+  idCard(): IdCardInfo | null {
+    const p = this.player;
+    if (!this.role || !p) return null;
+    const cover = p.disguised ? p.cover : null;
+    const faction = cover?.faction ?? p.faction;
+    const rank = cover ? cover.rank : p.rank;
+    const prof = cover ? cover.profession : p.profession;
+    let detail = '';
+    if (faction === 'cp') detail = cpUnit(rank).name;
+    else if (faction === 'rebel') detail = rebelUnitOf(prof)?.def.name ?? '';
+    else if (prof && prof !== DEFAULT_PROFESSION[faction]) detail = PROFESSIONS[prof].name;
+    const tier = hasLoyalty(p) ? loyaltyTier(p) : null;
+    return {
+      name: displayName(p),
+      cid: p.cid,
+      role: FACTIONS[faction].role,
+      detail,
+      loyalty: tier ? { name: tier.name, color: tier.color, points: Math.round(p.loyalty) } : null,
+      money: Math.floor(p.money),
+      look: this.pawnLook(p),
+      weapon: p.weapon,
+      wanted: p.law.wanted,
+      forged: !!cover && p.faction === 'rebel',
+      seed: this.map.seed,
+      clock: this.clock,
+    };
   }
 
   /** Внешность пешки (портрет HUD, пешка в инвентаре) — как на карте. */

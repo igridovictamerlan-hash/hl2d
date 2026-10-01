@@ -48,7 +48,10 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly arena: SquadArena | null;
   /** Строка HUD о городе: поручение, ночной час (пусто — ничего). */
   readonly cityHint: string;
-  chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null): void;
+  chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null, name?: string | null): void;
+  /** Имя персонажа для меню роли: текущее (не ГО) и новое случайное. */
+  currentName(): string;
+  suggestName(): string;
   resolveCheck(target: Character, choice: CheckChoice): void;
   /** Терминал кодов тревоги: игрок выбрал код. */
   setAlertCode(code: AlertCode): void;
@@ -121,7 +124,8 @@ export class UI {
     this.alert = new AlertBar(root, bus);
     this.death = new DeathScreen(root);
     this.help = new HelpBar(root);
-    this.roles = new RoleMenu(root, (f, r, d, p) => host.chooseRole(f, r, d, p), () => host.newGame());
+    this.roles = new RoleMenu(root, (f, r, d, p, n) => host.chooseRole(f, r, d, p, n), () => host.newGame(), { current: () => host.currentName(), suggest: () => host.suggestName() });
+    this.roles.blocked = () => this.menu.isOpen;
     this.dev.toggle(); // панель карты по умолчанию свёрнута — F2
     bus.on('announce', ({ text }) => this.banner.show(text));
     bus.on('map:loaded', ({ source }) => {

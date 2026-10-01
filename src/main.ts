@@ -1,4 +1,6 @@
+import './ui/fonts.css';
 import './ui/styles.css';
+import './ui/menus.css';
 import { Game } from './core/Game';
 import { AI } from './config/ai';
 import { fetchMap } from './world/mapIO';

@@ -236,46 +236,18 @@ kbd {
 .log-chat { color: #e8e4d6; }
 .log-chat.log-emote { color: #c9a9e6; font-style: italic; }
 
-/* Меню ролей */
-.role-menu {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgba(3, 5, 8, 0.72);
-  pointer-events: auto;
-}
-.role-box {
-  width: min(980px, 100%);
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 14px 16px;
-}
-.role-head { display: flex; justify-content: space-between; align-items: center; color: var(--hud); letter-spacing: 0.14em; margin-bottom: 10px; }
 .role-close { font: 20px var(--font); color: var(--text); background: none; border: none; cursor: pointer; }
-.role-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-.role-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--panel-border); border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
-.role-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; flex: 1; }
-.role-top { display: flex; align-items: center; gap: 8px; }
-.role-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid; flex: none; }
-.role-rank { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
-.role-card select, .role-card button, .check-actions button {
+.check-actions button {
   font: inherit;
   color: var(--text);
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--panel-border);
   border-radius: 4px;
   padding: 6px 8px;
+  cursor: pointer;
 }
-.role-card select { flex: 1; }
-.role-card button, .check-actions button { cursor: pointer; }
-.role-card button:hover, .check-actions button:hover { background: rgba(255, 211, 107, 0.16); color: var(--hud); }
-.role-card button:focus-visible, .check-actions button:focus-visible { outline: 2px solid var(--hud); }
-.role-foot { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.check-actions button:hover { background: rgba(255, 211, 107, 0.16); color: var(--hud); }
+.check-actions button:focus-visible { outline: 2px solid var(--hud); }
 
 /* Проверка CID */
 .check-panel {
@@ -363,10 +335,6 @@ kbd {
 .death { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: rgba(40, 0, 0, 0.45); }
 .death-title { font-size: 34px; letter-spacing: 0.2em; color: #ff8a7a; text-shadow: 0 2px 8px #000; }
 .death-timer { margin-top: 8px; color: var(--text); }
-.role-div-desc { font-size: 12px !important; }
-.role-perks { margin: 0; padding-left: 16px; font-size: 12px; color: var(--muted); line-height: 1.35; }
-.role-perks li { margin: 2px 0; }
-.role-perks .role-prof-desc { list-style: none; margin-left: -16px; color: var(--hud); }
 
 /* Чёрный рынок */
 .shop.black .inv-head span { color: #d9a441; }
@@ -395,20 +363,5 @@ kbd {
 
 .pause-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); color: var(--hud); letter-spacing: 0.3em; font-size: 34px; z-index: 7; pointer-events: none; }
 .pause-overlay small { font-size: 12px; letter-spacing: 0.1em; color: var(--muted); margin-top: 8px; }
-.role-new { margin-left: 12px; }
-.role-new.armed { background: #7a2a1a; color: #ffd36b; border-color: #ff6a3a; }
 
 /* Меню игры (главное и пауза) */
-.game-menu { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(3,5,8,0.7); z-index: 9; pointer-events: auto; }
-.game-menu.main { background: radial-gradient(circle at 50% 40%, #0d1218, #030407 75%); }
-.game-menu-box { position: relative; min-width: min(340px, calc(100vw - 32px)); padding: 26px 30px 18px; text-align: center; }
-.gm-title { font-size: 40px; letter-spacing: 0.35em; color: var(--hud); padding-left: 0.35em; }
-.gm-sub { color: var(--muted); font-size: 12px; letter-spacing: 0.18em; margin: 6px 0 20px; text-transform: uppercase; }
-.gm-buttons { display: flex; flex-direction: column; gap: 8px; }
-.game-menu button { font: inherit; font-size: 15px; letter-spacing: 0.06em; padding: 9px 16px; color: var(--text); background: rgba(255,255,255,0.04); border: 1px solid var(--panel-border); border-radius: 5px; cursor: pointer; }
-.game-menu button:hover { border-color: var(--hud); color: var(--hud); }
-.game-menu button.primary { border-color: var(--hud); color: var(--hud); }
-.gm-note { min-height: 18px; margin-top: 10px; font-size: 12px; color: #9fd7a0; }
-.gm-foot { font-size: 11px; color: var(--muted); margin-top: 6px; }
-.gm-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 18px; text-align: left; font-size: 13px; margin-bottom: 14px; }
-.gm-controls kbd { display: inline-block; min-width: 46px; margin-right: 8px; color: var(--hud); }

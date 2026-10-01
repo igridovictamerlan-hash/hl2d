@@ -2,7 +2,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   server: { host: true, port: 5173 },
-  build: { target: 'es2022', sourcemap: true },
+  // Шрифты меню (woff2 до 100 КБ) встраиваются в сборку — игра открывается без интернета.
+  build: { target: 'es2022', sourcemap: true, assetsInlineLimit: 100_000 },
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
