@@ -11,8 +11,8 @@ export const UNDERGROUND = {
 export const INSURGENCY = {
   /** Партизан в схроне — ROSTER.partisans (постоянный состав, config/roster.ts). */
   /** Операции из убежища: первая через…, потом раз в… */
-  firstOp: [10, 20] as const,
-  opEvery: [15, 32] as const,
+  firstOp: [6, 14] as const,
+  opEvery: [12, 24] as const,
   /**
    * Вылазки поодиночке и парами, пока нет операции и в убежище остаётся ≥ minAtBase бойцов:
    * раз в outingEvery с — обход тоннелей до случайного люка, поход на рынок или разведка в город

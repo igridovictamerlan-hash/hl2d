@@ -127,6 +127,8 @@ export class WarSystem {
   private yellowSince = 0;
   /** Тела ВС в городе, которые уже заметили (код жёлтый поднимается один раз на тело). */
   private readonly seenCorpses = new Set<Corpse>();
+  /** Тела, которые оцепят, когда рядом стихнет бой (CrimeScenes.quiet). */
+  private readonly sceneQueue = new Set<Corpse>();
   private corpseScan = 0;
   private otaTimer = 0;
   /** Победа восстания: когда перезапуск карты (событие 'restart'), -1 — не было. */
@@ -705,12 +707,22 @@ export class WarSystem {
         // Убит патрульный — код жёлтый; гражданский — точка тревоги рядом.
         if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true);
         else if (b.killer) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`);
-        // Проходы перекрывают, на осмотр идут следователь и медик (при штурме Управы — не до того).
-        if (this.code !== 'red') this.scenes.open(b, cp ? 'cp' : 'civil');
+        // Проходы перекрывают, на осмотр идут следователь и медик — когда рядом стихнет стрельба
+        // (при штурме Управы — не до того). Гражданского — только убитого (не от голода).
+        if (cp || b.killer) this.sceneQueue.add(b);
         break;
       }
     }
     for (const b of this.seenCorpses) if (!combat.corpses.includes(b)) this.seenCorpses.delete(b);
+    for (const b of this.sceneQueue) {
+      if (this.code === 'red' || !combat.corpses.includes(b) || b.burning) {
+        this.sceneQueue.delete(b);
+        continue;
+      }
+      if (!this.scenes.quiet(b.x, b.y)) continue;
+      this.sceneQueue.delete(b);
+      this.scenes.open(b, b.faction === 'cp' ? 'cp' : 'civil');
+    }
   }
 
   /** Жив ли Комендант. */

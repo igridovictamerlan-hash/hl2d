@@ -82,12 +82,19 @@ describe('постоянный состав', () => {
     const kinds = [soldier.role!.kind, civ.role!.kind];
     sim.combat.damage(soldier, 1000, null);
     sim.combat.damage(civ, 1000, null);
-    run(sim, Math.max(ROSTER.respawn.army, ROSTER.respawn.citizen) + 1);
     // По имени и виду роли: у бойца и горожанина могут совпасть имена.
-    const back = names.map((n, i) => sim.entities.list.find((c) => c.alive && c.name === n && c.role?.kind === kinds[i]));
+    const find = () => names.map((n, i) => sim.entities.list.find((c) => c.alive && c.name === n && c.role?.kind === kinds[i]));
+    // Где боец появился (потом он бродит по лагерю и может выйти на тропу у края).
+    let spawnedIn: string | undefined;
+    run(sim, Math.max(ROSTER.respawn.army, ROSTER.respawn.citizen) + 1, () => {
+      const b = find()[0];
+      if (b && spawnedIn === undefined) spawnedIn = zoneKind(sim, b.x, b.y);
+      return false;
+    });
+    const back = find();
     expect(back[0]).toBeTruthy();
     expect(back[1]).toBeTruthy();
-    expect(zoneKind(sim, back[0]!.x, back[0]!.y)).toBe('rebel_camp');
+    expect(spawnedIn).toBe('rebel_camp');
     expect(back[1]!.brain).toBeInstanceOf(CitizenBrain);
     // Новых персонажей сверх состава не появилось (санитар выходит сам — не в счёт).
     expect(sim.entities.list.filter((c) => c.alive && c.profession !== 'cremator').length).toBeLessThanOrEqual(total);
@@ -472,6 +479,9 @@ describe('прочёсывание по тревоге', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;
+    // Банды и подполье не уводят патрули на свои тревоги — проверяется только расстановка по точкам.
+    sim.ctx.gangs.paused = true;
+    sim.ctx.insurgency.paused = true;
     const p = poiWorld(sim.ctx, 'plaza_center')!;
     sim.war.raiseAlarm(p.x, p.y, 'проверка');
     run(sim, 25);

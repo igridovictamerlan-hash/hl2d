@@ -133,13 +133,21 @@ describe('профессии ТС: цепочка снабжения', () => {
     const sim = makeSim(12345);
     calm(sim);
     spawnPopulation(sim.ctx, 20);
-    run(sim, 150);
+    // Выданных за раздачу (список сбрасывается к следующей) — максимум за всё время.
+    let served = 0;
+    const count = () => {
+      served = Math.max(served, sim.entities.list.filter((c) => sim.economy.hasBeenServed(c)).length);
+      return false;
+    };
+    run(sim, 150, count);
+    // Раздача идёт по таймеру — дать досчитать начатую очередь.
+    run(sim, 60, () => (count(), served > 3));
     const s = sim.labor.stats;
-    console.log(`за 150 с: ${JSON.stringify(s)}, склад будки ${sim.economy.rationStock}, выдано ${sim.entities.list.filter((c) => sim.economy.hasBeenServed(c)).length}`);
+    console.log(`за 150 с: ${JSON.stringify(s)}, склад будки ${sim.economy.rationStock}, выдано ${served}`);
     expect(s.packed).toBeGreaterThan(0);
     expect(s.delivered).toBeGreaterThan(0);
     expect(s.cleaned).toBeGreaterThan(3);
-    expect(sim.entities.list.filter((c) => sim.economy.hasBeenServed(c)).length).toBeGreaterThan(3);
+    expect(served).toBeGreaterThan(3);
   });
 });
 

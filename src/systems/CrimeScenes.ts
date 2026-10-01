@@ -38,7 +38,7 @@ export interface CrimeScene {
   /** Клетки у края оцепления изнутри (здесь встаёт охрана). */
   edge: Vec2[];
   lines: CordonLine[];
-  /** Мирных не пускают внутрь: только если лежит убитый ВС с оружием (иначе проходят — меньше толкучки). */
+  /** Мирных не пускают внутрь (CRIME.scene.blockCivilians и лежит убитый ВС с оружием); иначе проходят. */
   block: boolean;
   since: number;
   /** Тело осмотрено следователем / медиком. Оба — оцепление снимут через holdAfter с. */
@@ -63,8 +63,33 @@ export class CrimeScenes {
   readonly list: CrimeScene[] = [];
   readonly stats = { opened: 0, investigated: 0, examined: 0, civil: 0, cwuMedics: 0, merged: 0 };
   private time = 0;
+  /** Где недавно стреляли (combat.shots живут 2 с — здесь дольше, CRIME.scene.calm). */
+  private readonly hot: { x: number; y: number; t: number }[] = [];
+  private shotT = -1;
 
   constructor(private readonly ctx: AiContext) {}
+
+  /** Рядом с точкой давно не стреляли — можно оцеплять (посреди перестрелки ленту не тянут). */
+  quiet(x: number, y: number): boolean {
+    const S = CRIME.scene;
+    return !this.hot.some((h) => this.time - h.t < S.calm && Math.hypot(h.x - x, h.y - y) < S.calmRadius);
+  }
+
+  /** Запомнить новые выстрелы (с шагом: рядом уже есть пятно — обновить его время). */
+  private trackShots(): void {
+    const S = CRIME.scene;
+    const shots = this.ctx.combat.shots;
+    let last = this.shotT;
+    for (const sh of shots) {
+      if (sh.t <= this.shotT || sh.weapon === 'smoke') continue;
+      last = Math.max(last, sh.t);
+      const h = this.hot.find((o) => Math.hypot(o.x - sh.x, o.y - sh.y) < S.calmRadius / 4);
+      if (h) h.t = this.time;
+      else this.hot.push({ x: sh.x, y: sh.y, t: this.time });
+    }
+    this.shotT = last;
+    for (let i = this.hot.length - 1; i >= 0; i--) if (this.time - this.hot[i].t >= S.calm) this.hot.splice(i, 1);
+  }
 
   /**
    * Оцепление вокруг тела. Рядом (ближе CRIME.scene.merge px к телу любой зоны) уже есть оцепление —
@@ -76,12 +101,29 @@ export class CrimeScenes {
     const S = CRIME.scene;
     const open = this.list.filter((s) => !s.closed);
     if (open.some((s) => s.bodies.includes(corpse))) return null;
+    if (S.skipZones.includes(this.ctx.map.zoneAtWorld(corpse.x, corpse.y)?.kind ?? '')) return null;
     const near = open.filter((s) => this.inScene(s, corpse.x, corpse.y) || s.bodies.some((k) => Math.hypot(k.x - corpse.x, k.y - corpse.y) < S.merge));
     if (near.length) {
       const s = near[0];
       for (const o of near.slice(1)) this.absorb(s, o);
       this.addBody(s, corpse, kind);
       return s;
+    }
+    // Оцеплений и так много — тело в ближайшую зону (не дальше gather px), иначе без ленты.
+    if (open.length >= S.maxOpen) {
+      let best: CrimeScene | null = null;
+      let bd: number = S.gather;
+      for (const s of open) {
+        for (const k of s.bodies) {
+          const d = Math.hypot(k.x - corpse.x, k.y - corpse.y);
+          if (d < bd) {
+            bd = d;
+            best = s;
+          }
+        }
+      }
+      if (best) this.addBody(best, corpse, kind);
+      return best;
     }
     const s: CrimeScene = {
       kind, corpse, bodies: [corpse], x: corpse.x, y: corpse.y, r: kind === 'cp' ? S.radius : S.civilRadius,
@@ -129,9 +171,10 @@ export class CrimeScenes {
 
   /** Центр, радиус, граница и «пускать ли» — по всем телам зоны. */
   private reshape(s: CrimeScene): void {
-    const n = s.bodies.length;
-    s.x = s.bodies.reduce((a, k) => a + k.x, 0) / n;
-    s.y = s.bodies.reduce((a, k) => a + k.y, 0) / n;
+    const core = this.core(s);
+    const n = core.length;
+    s.x = core.reduce((a, k) => a + k.x, 0) / n;
+    s.y = core.reduce((a, k) => a + k.y, 0) / n;
     s.cells.clear();
     s.outside.length = 0;
     s.edge.length = 0;
@@ -140,9 +183,18 @@ export class CrimeScenes {
     this.updateBlock(s);
   }
 
-  /** Не пускают, только пока в зоне лежит убитый ВС с оружием (есть что стащить). */
+  /**
+   * Тела, по которым тянут оцепление: не дальше CRIME.scene.span px от первого тела зоны. Остальные
+   * (бой растянулся по улице) осматривают, но граница не расползается на полквартала.
+   */
+  private core(s: CrimeScene): Corpse[] {
+    const span = CRIME.scene.span;
+    return s.bodies.filter((k) => k === s.corpse || Math.hypot(k.x - s.corpse.x, k.y - s.corpse.y) <= span);
+  }
+
+  /** Не пускают, только если так задано в конфиге и в зоне лежит убитый ВС с оружием (есть что стащить). */
   private updateBlock(s: CrimeScene): void {
-    s.block = s.bodies.some((k) => k.faction === 'cp' && CrimeScenes.armed(k) && this.ctx.combat.corpses.includes(k));
+    s.block = CRIME.scene.blockCivilians && s.bodies.some((k) => k.faction === 'cp' && CrimeScenes.armed(k) && this.ctx.combat.corpses.includes(k));
   }
 
   /** Следующее тело зоны, которое ещё не осмотрел следователь ('scan') / не упаковал медик ('cover'). */
@@ -165,9 +217,10 @@ export class CrimeScenes {
     const ts = map.tileSize;
     const W = map.width;
     const open = (tx: number, ty: number): boolean => !map.isSolid(tx, ty) && map.tileAt(tx, ty) !== T.DOOR;
-    const inR = (tx: number, ty: number): boolean => s.bodies.some((k) => Math.hypot((tx + 0.5) * ts - k.x, (ty + 0.5) * ts - k.y) <= s.r);
+    const core = this.core(s);
+    const inR = (tx: number, ty: number): boolean => core.some((k) => Math.hypot((tx + 0.5) * ts - k.x, (ty + 0.5) * ts - k.y) <= s.r);
     const stack: number[] = [];
-    for (const k of s.bodies) {
+    for (const k of core) {
       const i = Math.floor(k.y / ts) * W + Math.floor(k.x / ts);
       if (s.cells.has(i)) continue;
       s.cells.add(i);
@@ -479,6 +532,7 @@ export class CrimeScenes {
 
   update(dt: number): void {
     this.time += dt;
+    this.trackShots();
     const S = CRIME.scene;
     const { combat, entities } = this.ctx;
     for (const s of this.list) {

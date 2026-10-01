@@ -23,9 +23,12 @@ export const GANGS = {
   ] as readonly GangDef[],
   thirdChance: 0.12,
   /** Бойцов у банды (кроме авторитета). */
-  members: [6, 7] as const,
-  /** Наборы: авторитет и бойцы. */
-  kits: { boss: 'gang_boss', member: 'bandit' },
+  members: [7, 8] as const,
+  /**
+   * Наборы: авторитет и бойцы; из бойцов по кругу — armed (MP7 и граната), shotgun (обрез), member
+   * (пистолет): каждые три бойца — по одному каждого вида.
+   */
+  kits: { boss: 'gang_boss', member: 'bandit', cycle: ['bandit_armed', 'bandit', 'bandit_shotgun'] as const },
   /** Бойцы держатся своего района: с этой долей прогулки — по своему кварталу. */
   turfChance: 0.8,
   /**
@@ -35,11 +38,11 @@ export const GANGS = {
    */
   turf: { robMul: 2.2, warn: 140, warnEvery: 12, nightRob: 0.5 },
   /** Общак при старте (токены) и что в нём лежит. */
-  bank: 120,
-  stash: [['rebel_pistol', 2], ['ammo_pistol', 40]] as [ItemId, number][],
-  stashSize: 20,
+  bank: 260,
+  stash: [['ak74', 1], ['rebel_smg', 2], ['spas12', 1], ['rebel_pistol', 2], ['ammo_545', 90], ['ammo_smg', 135], ['ammo_buckshot', 24], ['ammo_pistol', 60], ['grenade', 3]] as [ItemId, number][],
+  stashSize: 30,
   /** Лучший ствол из общака — бойцу у общага (порядок — что лучше). */
-  arms: ['ak74', 'rebel_smg', 'mp7', 'spas12', 'revolver', 'rebel_pistol'] as readonly WeaponId[],
+  arms: ['ak74', 'm4a4', 'rebel_smg', 'mp7', 'spas12', 'revolver', 'usp', 'rebel_pistol'] as readonly WeaponId[],
   armReach: 90,
   /**
    * Вражда: боец видит бойца другой банды ближе see px — стычка на time с (стреляют друг в друга);
@@ -56,22 +59,22 @@ export const GANGS = {
    *  sell — лишнее из общака (стволы сверх keep, гранаты сверх grenades) — барыге за деньги.
    */
   ops: {
-    every: [40, 70] as const,
-    first: [20, 40] as const,
-    weights: { racket: 3, raid: 2, hit: 1.2, convoy: 2, buy: 1.5, sell: 3 },
+    every: [22, 40] as const,
+    first: [10, 22] as const,
+    weights: { racket: 3, raid: 2.2, hit: 1.8, convoy: 2.4, buy: 2, sell: 2 },
     racket: { take: [8, 16] as const, stay: 5, seek: 1600 },
     raid: { size: [2, 3] as const, time: 70 },
-    hit: { size: [2, 3] as const, engage: 200, seek: 1500, time: 80 },
-    convoy: { size: [3, 4] as const, seek: 2200, engage: 260, time: 90 },
+    hit: { size: [2, 4] as const, engage: 220, seek: 1800, time: 90 },
+    convoy: { size: [3, 4] as const, seek: 2600, engage: 260, time: 100 },
     buy: { minBank: 40, time: 120 },
-    sell: { keep: 2, grenades: 2, time: 120 },
+    sell: { keep: 4, grenades: 3, time: 120 },
   },
   /**
    * Помощь повстанцам: пока у КПП капт или волна на Управу, банда с шансом assistChance за дело
    * бьёт по ВС в городе («шум», пока повстанцы штурмуют). Заказ через барыгу (партизаны платят) —
    * тоже удар по ВС.
    */
-  assistChance: 0.6,
+  assistChance: 0.8,
   /**
    * По одному — только на своём районе; в город — не меньше min бойцов. Район для этого правила —
    * зоны района и всё ближе hqRadius px к общаку (крыльцо общаги выходит на улицу). Выход в город:
@@ -106,8 +109,25 @@ export const FENCE = {
   /** Хата — дом (не на проспекте) ближе всех к воротам запретной зоны, но не в ней. */
   kinds: ['house', 'street'] as const,
   /** Товар при старте и вместимость. */
-  start: [['rebel_pistol', 2], ['rebel_smg', 1], ['grenade', 1]] as [ItemId, number][],
-  size: 40,
+  start: [
+    ['rebel_pistol', 3], ['rebel_smg', 2], ['revolver', 1], ['spas12', 1], ['ak74', 1], ['crossbow', 1],
+    ['grenade', 3], ['smoke_grenade', 2], ['fire_grenade', 1],
+  ] as [ItemId, number][],
+  size: 60,
+  /**
+   * Контрабанда: раз в every с барыге приносят count позиций со стороны (свои каналы, не только
+   * подполье): из goods по весам, если такого у него меньше cap. Стволы Протектората (USP, MP7, M4A4) —
+   * по-прежнему только краденые.
+   */
+  smuggle: {
+    every: [60, 110] as const,
+    count: [2, 3] as const,
+    goods: [
+      ['rebel_pistol', 3], ['rebel_smg', 3], ['revolver', 1.5], ['spas12', 1.5], ['ak74', 1.2], ['crossbow', 0.6], ['ar2', 0.25],
+      ['grenade', 2], ['smoke_grenade', 1], ['fire_grenade', 1],
+    ] as [ItemId, number][],
+    cap: { rebel_pistol: 5, rebel_smg: 4, revolver: 2, spas12: 2, ak74: 3, crossbow: 1, ar2: 1, grenade: 5, smoke_grenade: 3, fire_grenade: 3 } as Partial<Record<ItemId, number>>,
+  },
   /** Скупка: сколько платит за принесённое (доля цены продажи). */
   buyBack: 0.6,
   /** Партизан сдаёт товар: стоит time с; заказ удара по ВС банде — с шансом orderChance, цена order. */

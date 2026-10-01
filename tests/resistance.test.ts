@@ -72,7 +72,7 @@ describe('юниты сопротивления', () => {
     expect(cmd[0].rank).toBe(REBEL_UNIT.commando);
   });
 
-  test('подполье: 3 партизана в личине горожанина или ТС и 2 спецагента', () => {
+  test('подполье: партизаны в личине горожанина или ТС и спецагенты (ROSTER)', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     const g = sim.insurgency.garrison;
@@ -297,6 +297,10 @@ describe('подполье: взлом и растяжки', () => {
     caught.y = caught.prevY = slot.y;
     run(sim, 0.5);
     expect(caught.law.phase).toBe('jailed');
+    // Сидит, пока не вызволят: срок не кончится, пока подпольщик идёт через полгорода.
+    caught.law.jailUntil = Infinity;
+    // Без налётов банд: стрельба в городе поднимает тревогу, проверки чаще — тест про взлом, а не про это.
+    sim.ctx.gangs.paused = true;
     expect(sim.insurgency.occupiedCell()).toBe(cell);
     const op = sim.insurgency.startOperation('jailbreak');
     expect(op?.kind).toBe('jailbreak');

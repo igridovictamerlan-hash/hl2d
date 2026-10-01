@@ -72,7 +72,9 @@ describe('капт КПП', () => {
     // Повстанцев нет — резерв OTA с ГЭС занимает точки и отбивает КПП (сначала D4, потом D3).
     for (const c of sim.entities.list) if (c.faction === 'rebel') c.alive = false;
     for (let k = 0; k < 4; k++) spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_alpha', division: null, rank: 0, kit: 'ota_alpha' });
-    const cpBefore = sim.entities.list.filter((c) => c.alive && (c.faction === 'cp' || c.faction === 'ota')).length;
+    // Бойцы Протектората (санитары — не бойцы: выходят из Управы по одному, LABOR.cremator).
+    const fighters = () => sim.entities.list.filter((c) => c.alive && (c.faction === 'cp' || c.faction === 'ota') && c.profession !== 'cremator').length;
+    const cpBefore = fighters();
     const held: number[] = [];
     // Точку нельзя отбить раньше holdTime; контрудары — раз в retakeEvery.
     const limit = WAR.capture.holdTime + 4 * WAR.capture.retakeEvery;
@@ -84,7 +86,7 @@ describe('капт КПП', () => {
     expect(f.owner).toBe('combine');
     expect(sim.war.stats.counterattacks).toBeGreaterThan(0);
     // Новых бойцов не появилось — отбивал резерв (постоянный состав).
-    expect(sim.entities.list.filter((c) => c.alive && (c.faction === 'cp' || c.faction === 'ota')).length).toBe(cpBefore);
+    expect(fighters()).toBe(cpBefore);
   });
 
   test('по таймеру без перевеса — КПП удержан, следующий капт не раньше cooldown', () => {

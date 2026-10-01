@@ -67,7 +67,8 @@ export const LABOR = {
     seek: 320,
   },
   /** Санитар: скорость, сколько сжигать тело, подкрепление из Управы после гибели через… */
-  cremator: { speed: 58, burnTime: 3.5, respawn: 90, reach: 26 },
+  /** Санитаров count на город; выходят из Управы по одному через stagger с; погибший — замена через respawn с. */
+  cremator: { count: 3, stagger: 10, speed: 58, burnTime: 3.5, respawn: 90, reach: 26 },
   /** Сообщение «рационы кончились» не чаще раза в… */
   emptyNoticeEvery: 20,
 } as const;

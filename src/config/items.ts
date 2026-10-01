@@ -329,7 +329,7 @@ export const KITS: Record<string, [ItemId, number][]> = {
   cwu_medic: [['medkit', 3], ['bandage', 4]],
   rebel_medic: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['medkit', 3], ['bandage', 5], ['smoke_grenade', 2]],
   rebel_pyro: [['crossbow', 1], ['ammo_bolt', 12], ['rebel_pistol', 1], ['ammo_pistol', 24], ['fire_grenade', 3], ['bandage', 1]],
-  rebel_partisan: [['rebel_pistol', 1], ['ammo_pistol', 36], ['knife', 1], ['lockpick', 1], ['bandage', 2], ['grenade', 2]],
+  rebel_partisan: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 36], ['knife', 1], ['lockpick', 1], ['bandage', 2], ['grenade', 2]],
   vort: [],
   /** Бойцы отрядов с пустошей: у всех автоматы (трофейные MP7 и AR2), пистолет — запасной. */
   rebel_raider: [['rebel_smg', 1], ['ammo_smg', 135], ['rebel_pistol', 1], ['ammo_pistol', 24], ['grenade', 1]],
@@ -351,11 +351,14 @@ export const KITS: Record<string, [ItemId, number][]> = {
   hydra_sniper: [['sniper', 1], ['ammo_338', 30], ['usp', 1], ['ammo_pistol', 36], ['bandage', 2], ['smoke_grenade', 1]],
   commando: [['ar2', 1], ['ammo_ar2', 180], ['usp', 1], ['ammo_pistol', 36], ['medkit', 2], ['bandage', 2], ['grenade', 5]],
   // Спецагент: тихий пистолет, отмычки, аптечка.
-  spec_agent: [['usp', 1], ['ammo_pistol', 48], ['knife', 1], ['lockpick', 2], ['medkit', 1], ['bandage', 1], ['grenade', 1]],
+  spec_agent: [['mp7', 1], ['ammo_smg', 90], ['usp', 1], ['ammo_pistol', 48], ['knife', 1], ['lockpick', 2], ['medkit', 1], ['bandage', 1], ['grenade', 2]],
   /** Бандит: нож (в спину — два удара на патрульного) и самодельный пистолет. */
-  bandit: [['knife', 1], ['rebel_pistol', 1], ['ammo_pistol', 20], ['water', 1]],
-  /** Авторитет банды: трофейный MP7, пистолет, нож. */
-  gang_boss: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['knife', 1], ['bandage', 2]],
+  bandit: [['knife', 1], ['rebel_pistol', 1], ['ammo_pistol', 36], ['bandage', 1], ['water', 1]],
+  /** Бандит со стволом посерьёзнее (каждый GANGS.kits.armedEvery-й боец): трофейный MP7 или обрез и граната. */
+  bandit_armed: [['rebel_smg', 1], ['ammo_smg', 90], ['rebel_pistol', 1], ['ammo_pistol', 24], ['knife', 1], ['grenade', 1], ['bandage', 1]],
+  bandit_shotgun: [['spas12', 1], ['ammo_buckshot', 24], ['rebel_pistol', 1], ['ammo_pistol', 24], ['knife', 1], ['bandage', 1]],
+  /** Авторитет банды: АК-74, пистолет, нож, гранаты. */
+  gang_boss: [['ak74', 1], ['ammo_545', 120], ['revolver', 1], ['ammo_357', 18], ['knife', 1], ['grenade', 2], ['bandage', 2]],
   fugitive: [['bandage', 1]],
 };
 

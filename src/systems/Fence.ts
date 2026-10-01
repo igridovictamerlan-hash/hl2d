@@ -8,6 +8,7 @@ import { FENCE } from '../config/gangs';
 import { ITEMS, WEAPONS, type ItemId, type WeaponId } from '../config/items';
 import { GRENADE_KINDS } from './CombatSystem';
 import { T } from '../world/tiles';
+import type { Rng } from '../core/rng';
 
 /** Товар, который у барыги только «с рук»: стволы и гранаты. */
 export function handGoods(id: ItemId): boolean {
@@ -31,9 +32,14 @@ export class Fence {
   trader: Character | null = null;
   /** Заказы на удар по ВС, ждущие банду (оплачены подпольем). */
   orders = 0;
-  readonly stats = { boughtIn: 0, sold: 0, orders: 0, gangBuys: 0 };
+  readonly stats = { boughtIn: 0, sold: 0, orders: 0, gangBuys: 0, smuggled: 0 };
+  /** Свой поток случайности (контрабанда не сдвигает общую последовательность мира). */
+  private readonly rng: Rng;
+  private smuggleIn: number;
 
   constructor(private readonly ctx: AiContext) {
+    this.rng = ctx.rng.fork(0xfe4ce);
+    this.smuggleIn = this.rng.range(FENCE.smuggle.every[0], FENCE.smuggle.every[1]);
     const H = ctx.housing;
     const gate = ctx.map.poisOf('restricted_gate')[0];
     const ts = ctx.map.tileSize;
@@ -64,6 +70,23 @@ export class Fence {
       this.spot = this.counter = null;
     }
     for (const [id, n] of FENCE.start) this.wares.add(id, n);
+  }
+
+  /** Контрабанда со стороны (FENCE.smuggle): раз в every с — несколько стволов и гранат, до cap каждого. */
+  update(dt: number): void {
+    if (!this.present) return;
+    this.smuggleIn -= dt;
+    if (this.smuggleIn > 0) return;
+    const S = FENCE.smuggle;
+    this.smuggleIn = this.rng.range(S.every[0], S.every[1]);
+    const n = this.rng.int(S.count[0], S.count[1]);
+    for (let k = 0; k < n; k++) {
+      const goods = S.goods.filter(([id]) => this.wares.count(id) < (S.cap[id] ?? 1));
+      if (!goods.length) return;
+      let roll = this.rng.range(0, goods.reduce((a, [, w]) => a + w, 0));
+      const pick = goods.find(([, w]) => (roll -= w) < 0) ?? goods[goods.length - 1];
+      if (this.wares.add(pick[0], 1)) this.stats.smuggled++;
+    }
   }
 
   /** Сторона двери комнаты: ближайший к комнате проходимый тайл снаружи (по периметру). */

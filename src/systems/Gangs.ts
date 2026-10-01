@@ -224,9 +224,10 @@ export class GangSystem {
     for (const g of this.gangs) {
       if (!g.rooms.length) continue;
       const room = (k: number) => g.rooms[k % g.rooms.length];
+      const cycle = GANGS.kits.cycle;
       const spec = (prof: 'gang_boss' | 'bandit', k: number) => ({
         kind: 'gang' as const, faction: 'citizen' as const, profession: prof, division: null, rank: 0,
-        kit: prof === 'gang_boss' ? GANGS.kits.boss : GANGS.kits.member, gang: g.id, home: room(k).id, loyalty: -20,
+        kit: prof === 'gang_boss' ? GANGS.kits.boss : cycle[(k - 1) % cycle.length], gang: g.id, home: room(k).id, loyalty: -20,
       });
       const boss = spawnRole(ctx, spec('gang_boss', 0), g.hq);
       if (boss) this.dress(boss, g);
@@ -552,6 +553,7 @@ export class GangSystem {
 
   update(dt: number): void {
     this.time += dt;
+    this.ctx.fence?.update(dt);
     if (!this.gangs.length) return;
     this.scan -= dt;
     if (this.scan <= 0) {

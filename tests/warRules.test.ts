@@ -230,7 +230,7 @@ describe('мобилизация красного кода', () => {
 });
 
 describe('место преступления', () => {
-  test('тело ВС нашли — оцепление, следователь SU.01 и офицер, за ленту не пускают, тело не обыскать', { timeout: 120_000 }, () => {
+  test('тело ВС нашли — оцепление, следователь SU.01 и офицер, мирные проходят под лентой, тело не обыскать', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;
@@ -254,15 +254,15 @@ describe('место преступления', () => {
     expect(scene.medic?.rank).toBe(CP_UNIT.su2);
     expect(scene.investigator?.rank).toBe(CP_UNIT.su1);
     expect([CP_UNIT.ofc, CP_UNIT.insp]).toContain(scene.officer?.rank);
-    // Тело не обыскать не-сотруднику; житель внутри ленты выталкивается.
-    // Житель, которого сейчас никто не проверяет (задержанных и остановленных лента не касается).
+    // Тело не обыскать не-сотруднику; житель проходит под лентой (не выталкивается, CRIME.scene.blockCivilians).
     const cit = sim.entities.list.find((c) => c.faction === 'citizen' && !c.isPlayer && c.alive && c.law.phase === 'none')!;
     expect(sim.war.scenes.sealed(corpse, cit)).toBe(true);
     expect(sim.war.scenes.sealed(corpse, scene.officer)).toBe(false);
+    expect(scene.block).toBe(false);
     cit.x = cit.prevX = corpse.x + 10;
     cit.y = cit.prevY = corpse.y;
     sim.step();
-    expect(sim.war.scenes.inScene(scene, cit.x, cit.y)).toBe(false);
+    expect(sim.war.scenes.inScene(scene, cit.x, cit.y)).toBe(true);
     // Следователь доходит и осматривает тело, офицер стоит у ленты.
     const t = run(sim, 120, () => sim.war.scenes.stats.investigated > 0);
     console.log(`осмотр тела через ${t.toFixed(0)} с`);
@@ -430,6 +430,44 @@ describe('место преступления', () => {
     run(sim, 150, () => !!k1.covered && !!k2.covered && !!k1.scanned && !!k2.scanned);
     expect(k1.scanned && k2.scanned).toBe(true);
     expect(k1.covered && k2.covered).toBe(true);
+  });
+
+  test('лент не много: не больше maxOpen оцеплений, рядом стреляют — оцепляют после боя', () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    sim.war.reinforcements = false;
+    const S = CRIME.scene;
+    const ts = sim.map.tileSize;
+    const W = sim.map.width;
+    // Места далеко друг от друга (дальше gather) на улицах города.
+    const spots: { x: number; y: number }[] = [];
+    for (let i = 0; i < sim.map.tiles.length && spots.length < S.maxOpen + 2; i += 211) {
+      const tx = i % W;
+      const ty = (i - tx) / W;
+      const x = (tx + 0.5) * ts;
+      const y = (ty + 0.5) * ts;
+      const kind = sim.map.zoneAtTile(tx, ty)?.kind;
+      if (sim.map.isSolid(tx, ty) || sim.map.levelAt(x, y) !== 'city' || (kind !== 'residential' && kind !== 'avenue')) continue;
+      if (spots.some((p) => Math.hypot(p.x - x, p.y - y) < S.gather * 1.5)) continue;
+      spots.push({ x, y });
+    }
+    expect(spots.length).toBe(S.maxOpen + 2);
+    const body = (p: { x: number; y: number }): Corpse => {
+      const k: Corpse = { x: p.x, y: p.y, faction: 'cp', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      sim.combat.corpses.push(k);
+      return k;
+    };
+    for (const p of spots) sim.war.scenes.open(body(p), 'cp');
+    expect(sim.war.scenes.list.filter((s) => !s.closed)).toHaveLength(S.maxOpen);
+    // Стрельба рядом: тихо станет только через calm с.
+    const p = spots[0];
+    const shooter = sim.entities.list.find((c) => c.alive)!;
+    sim.combat.shots.push({ x: p.x + 40, y: p.y, t: sim.combat.now, shooter, weapon: 'usp', noise: 600 });
+    sim.step();
+    expect(sim.war.scenes.quiet(p.x, p.y)).toBe(false);
+    expect(sim.war.scenes.quiet(p.x + S.calmRadius * 2, p.y)).toBe(true);
+    for (let t = 0; t < (S.calm + 1) * 60; t++) sim.step();
+    expect(sim.war.scenes.quiet(p.x, p.y)).toBe(true);
   });
 
   test('красный код — оцеплений нет', () => {

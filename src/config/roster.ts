@@ -30,8 +30,8 @@ export const ROSTER = {
     ['hydra_sniper', 1],
   ] as [ProfessionId, number][],
   /** Партизаны в схроне под городом (ходят люками, на дела — группами): подпольщики и спецагенты. */
-  partisans: 3,
-  agents: 2,
+  partisans: 4,
+  agents: 3,
   /** OTA: командир OTA.KING и бойцы OTA.ALPHA (часть — с дробовиками). Воюют только на КПП. */
   ota: [
     ['ota_king', 1],

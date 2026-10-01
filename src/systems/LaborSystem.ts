@@ -55,8 +55,14 @@ export class LaborSystem {
   /** Столы канцелярии Управы (бумажная работа лоялистов) и кто за каким сидит. */
   readonly desks: { x: number; y: number; who: Character | null }[] = [];
   /** Санитар (синтет, сжигает тела) и когда выпустить следующего из Управы. */
-  cremator: Character | null = null;
+  /** Санитары на улицах (LABOR.cremator.count). */
+  readonly cremators: Character[] = [];
   private crematorAt = 0;
+
+  /** Первый живой санитар (для тестов и подсказок). */
+  get cremator(): Character | null {
+    return this.cremators.find((c) => c.alive) ?? null;
+  }
 
   constructor(private readonly ctx: AiContext) {
     const { map, nav, rng } = ctx;
@@ -296,14 +302,18 @@ export class LaborSystem {
     this.ctx.bus.emit('log', { text, kind: 'world' });
   }
 
-  /** Санитар выходит из Управы (один на город; погиб — следующий через LABOR.cremator.respawn с). */
+  /**
+   * Санитары выходят из Управы по одному (через LABOR.cremator.stagger с), пока их меньше count; погиб —
+   * замена через respawn с.
+   */
   private ensureCremator(): void {
-    if (this.cremator?.alive) return;
-    if (this.cremator && !this.cremator.alive) {
-      this.cremator = null;
-      this.crematorAt = this.time + LABOR.cremator.respawn;
+    const L = LABOR.cremator;
+    for (let i = this.cremators.length - 1; i >= 0; i--) {
+      if (this.cremators[i].alive) continue;
+      this.cremators.splice(i, 1);
+      this.crematorAt = Math.max(this.crematorAt, this.time + L.respawn);
     }
-    if (this.time < this.crematorAt || this.ctx.war.code === 'red') return;
+    if (this.cremators.length >= L.count || this.time < this.crematorAt || this.ctx.war.code === 'red') return;
     const gate = poiWorld(this.ctx, 'nexus_gate');
     if (!gate) return;
     const a = this.ctx.nav.nearestWalkable(gate.x, gate.y, 6);
@@ -313,7 +323,8 @@ export class LaborSystem {
     c.profession = 'cremator';
     c.inventory.clear();
     c.brain = new CrematorBrain(c, this.ctx);
-    this.cremator = c;
+    this.cremators.push(c);
+    this.crematorAt = this.time + L.stagger;
   }
 
   update(dt: number): void {

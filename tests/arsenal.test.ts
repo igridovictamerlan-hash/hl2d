@@ -254,6 +254,9 @@ describe('склад Протектората 2.0', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 40);
     sim.war.command.paused = true;
+    // Банды и подполье не уводят патрули на свои тревоги — проверяется вызов смены.
+    sim.ctx.gangs.paused = true;
+    sim.ctx.insurgency.paused = true;
     const A = sim.arsenal;
     run(sim, ARSENAL.shift.first + 1);
     expect(A.stats.shifts).toBe(1);
