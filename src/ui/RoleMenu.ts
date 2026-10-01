@@ -1,4 +1,4 @@
-import { FACTIONS, cpUnit, cpGroup, type FactionId, type DivisionId } from '../config/factions';
+import { FACTIONS, cpUnit, cpGroup, rebelUnitOf, type FactionId, type DivisionId } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION, professionsOf, type ProfessionId } from '../config/professions';
 import { ROLE_MENU, type RoleCardDef } from '../config/menus';
 import { drawPortrait, previewLook, previewWeapon } from './menuArt';
@@ -104,8 +104,9 @@ export class RoleMenu {
     });
     this.cardsEl.addEventListener('change', (e) => {
       const sel = e.target as HTMLSelectElement;
-      if (sel.dataset.rank === undefined) return;
-      this.rank[sel.dataset.rank as FactionId] = Number(sel.value);
+      if (sel.dataset.profSel !== undefined) this.prof[sel.dataset.profSel as FactionId] = sel.value as ProfessionId;
+      else if (sel.dataset.rank !== undefined) this.rank[sel.dataset.rank as FactionId] = Number(sel.value);
+      else return;
       this.render();
     });
     // Перехват до управления игрой: цифры и стрелки выбора не должны уходить персонажу.
@@ -267,7 +268,13 @@ export class RoleMenu {
         opts.push(`<label class="rm-field">Юнит<select data-rank="cp">${(FACTIONS.cp.ranks ?? []).map((u, i) => `<option value="${i}"${i === r ? ' selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>
           <p class="rm-unit">${esc(cpUnit(r).desc)}</p>`);
       }
-      if (profs.length > 1) {
+      if (id === 'rebel' && profs.length > 1) {
+        // У сопротивления профессий много (армия, «Гроза», подполье) — одним списком, как юниты ГО.
+        const unit = rebelUnitOf(curProf ?? null)?.def;
+        opts.push(`<label class="rm-field">Юнит<select data-prof-sel="rebel">${profs
+          .map((p) => `<option value="${p.id}"${p.id === curProf ? ' selected' : ''}>${esc(p.name)}${rebelUnitOf(p.id) ? ` · ${rebelUnitOf(p.id)!.def.hp} HP` : ''}</option>`)
+          .join('')}</select></label>${unit ? `<p class="rm-unit">${esc(unit.desc)}</p>` : ''}`);
+      } else if (profs.length > 1) {
         opts.push(`<div class="rm-field">Профессия<div class="rm-chips pick">${profs
           .map((p) => `<button type="button" data-prof="${p.id}" class="${p.id === curProf ? 'on' : ''}" aria-pressed="${p.id === curProf}">${esc(shortName(p.name))}</button>`)
           .join('')}</div></div>`);

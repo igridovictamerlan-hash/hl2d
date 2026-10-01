@@ -41,6 +41,10 @@ export class GunfireAudio {
     };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
+    // Вернулись на вкладку — браузер мог приостановить звук.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) void this.ctx?.resume();
+    });
   }
 
   toggle(): boolean {
@@ -122,6 +126,14 @@ export class GunfireAudio {
 
   /** Проиграть выстрелы и взрывы, случившиеся после прошлого вызова, и звуки попаданий рядом. */
   update(shots: readonly Shot[], listener: Character, now: number, sameLevel: (x: number, y: number) => boolean = () => true, fx: readonly Fx[] = []): void {
+    // Новый город (новая игра, перезапуск после победы, «отряд на отряд») — часы и счётчики боя с нуля.
+    // Без сброса звук молчал, пока новое время не догоняло старое, а бюджет звуков не пополнялся.
+    const lastSeq = fx.length ? fx[fx.length - 1].seq : 0;
+    if (now < this.budgetT || (shots.length && shots[shots.length - 1].t < this.lastT) || lastSeq < this.fxSeq) {
+      this.budgetT = now - 1;
+      this.lastT = -Infinity;
+      this.fxSeq = 0;
+    }
     if (now - this.budgetT >= 1) {
       this.budgetT = now;
       this.budget = AUDIO.maxPerSecond;
