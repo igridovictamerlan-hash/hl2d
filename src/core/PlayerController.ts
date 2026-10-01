@@ -237,6 +237,20 @@ export class PlayerController {
       ctx.combat.equip(p, null);
       this.say('Оружие убрано.');
     }
+    // Без оружия в руках — кулаки (ЛКМ).
+    if (!p.weapon && i.mouseInside && !wheel.open && i.mousePressed) {
+      const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
+      ctx.combat.punch(p, m.x, m.y);
+    }
+    // Оскорбить того, кто перед вами (O): может начаться драка, ГО потребует документы.
+    if (i.wasPressed('insult') && ctx.brawls) {
+      const t = ctx.brawls.targetFor(p);
+      if (!t) this.say('Рядом никого — оскорблять некого.');
+      else {
+        const msg = ctx.brawls.insult(p, t);
+        if (msg) this.say(msg, 'world');
+      }
+    }
     // Стрельба: автомат — пока зажата кнопка, остальное — по клику; дубинка — удар.
     const w = p.weapon ? WEAPONS[p.weapon] : null;
     if (w && i.mouseInside && !wheel.open && (w.mode === 'auto' ? i.mouseDown : i.mousePressed)) {

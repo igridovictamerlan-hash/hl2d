@@ -32,6 +32,7 @@ import { Housing } from '../src/systems/Housing';
 import { Fence } from '../src/systems/Fence';
 import { Routine } from '../src/systems/Routine';
 import { Errands } from '../src/systems/Errands';
+import { Brawls } from '../src/systems/Brawls';
 import { GangSystem } from '../src/systems/Gangs';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
 
@@ -84,6 +85,7 @@ export function makeSim(seedOrMap: number | GameMap) {
       gangs: null as unknown as GangSystem,
       routine: null as unknown as Routine,
       errands: null as unknown as Errands,
+      brawls: null as unknown as Brawls,
   };
   // Распорядок дня в тестах выключен (иначе ночью город спит) — у него свой тест.
   ctx.routine = new Routine(ctx, false);
@@ -117,6 +119,9 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.housing = new Housing(ctx);
   ctx.fence = new Fence(ctx);
   ctx.gangs = new GangSystem(ctx);
+  ctx.brawls = new Brawls(ctx);
+  // Случайные драки в тестах выключены (свой тест) — удары и братва работают.
+  ctx.brawls.enabled = false;
   economy.onEmpty = () => labor.noticeEmpty();
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;
@@ -139,6 +144,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     cwuHq.update(dt);
     ctx.shops.update();
     ctx.gangs.update(dt);
+    ctx.brawls.update(dt);
     arsenal.update(dt);
     prison.update();
   };

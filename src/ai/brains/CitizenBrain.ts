@@ -19,6 +19,7 @@ import { ECONOMY } from '../../config/economy';
 import { ARBAT } from '../../config/arbat';
 import type { CanteenSeat, StreetShop, SupplyTarget } from '../../systems/StreetShops';
 import { ROUTINE } from '../../config/routine';
+import { BRAWL, FISTS } from '../../config/brawl';
 import { HOUSING } from '../../config/housing';
 import { ITEMS, WEAPONS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
@@ -86,7 +87,7 @@ const near: Character[] = [];
 const near2: Character[] = [];
 
 /** Состояния, в которых мозг сам решает, куда смотреть (не «по ходу движения»). */
-const SELF_FACING = new Set(['crew', 'stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice', 'canteen', 'shopping']);
+const SELF_FACING = new Set(['brawl', 'crew', 'stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice', 'canteen', 'shopping']);
 
 /**
  * Житель города (гражданин, ГСР, повстанец): стоит → идёт → стоит. Иногда нарушает:
@@ -143,6 +144,8 @@ export class CitizenBrain implements Brain {
   /** Распорядок: идёт домой спать до утра; была ли смена на прошлом решении. */
   nightSleep = false;
   wasOnShift = true;
+  /** Драка: перестроить путь к противнику через… */
+  brawlRepath = 0;
   private turfTimer = 0;
   private turfWarnAt = 0;
   /** Столовая: сперва за супом к раздаче. */
@@ -174,7 +177,7 @@ export class CitizenBrain implements Brain {
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
-    this.fsm = new StateMachine<CitizenBrain>(this, [CREW, IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT, CANTEEN, SHOPPING], 'idle');
+    this.fsm = new StateMachine<CitizenBrain>(this, [CREW, IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT, CANTEEN, SHOPPING, BRAWL_STATE], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
     this.nextHome = ctx.law.now + ctx.rng.range(HOUSING.visit.first[0], HOUSING.visit.first[1]);
@@ -191,7 +194,7 @@ export class CitizenBrain implements Brain {
     // Банда: стычка с чужими (или с ГО, раз напал) — бой поверх любого занятия.
     if (self.gang >= 0 && phase === 'none' && this.gangFight(dt)) return;
     // Ведёт своих по городу: отстали — ждёт (решения не принимаются, пока стоит).
-    if ((this.escort.length || (self.gang >= 0 && phase === 'none')) && this.crewTick(dt)) {
+    if (this.fsm.current !== 'brawl' && (this.escort.length || (self.gang >= 0 && phase === 'none')) && this.crewTick(dt)) {
       this.mover.update(self, ctx, dt);
       return;
     }
@@ -412,6 +415,11 @@ export class CitizenBrain implements Brain {
       pb.partner = null;
       pb.lastChat = ctx.law.now;
     }
+    // Ссора: иногда разговор кончается дракой.
+    if (pb && p && ctx.brawls && this.fsm.current === 'chat') {
+      ctx.brawls.quarrel(this.self, p);
+      if (ctx.brawls.fighting(this.self)) return;
+    }
     if (stroll && pb && p) {
       const goal = this.pickGoal();
       const side = goal >= 0 ? randomAnchorAround({ x: ctx.nav.worldX(goal), y: ctx.nav.worldY(goal) }, ctx, 1, 3, this.avoid) : -1;
@@ -495,6 +503,41 @@ export class CitizenBrain implements Brain {
       }
     }
     return best;
+  }
+
+  /** Драка на кулаках (Brawls): бросить занятие и драться. */
+  startBrawl(): void {
+    if (this.partner) this.endChat(false);
+    this.fsm.change('brawl');
+  }
+
+  /** Драка кончилась: нокаут — постоять, оклематься; иначе — дальше по своим делам. */
+  endBrawl(ko: boolean): void {
+    if (this.fsm.current !== 'brawl') return;
+    this.idleLeft = ko ? this.ctx.rng.range(4, 7) : this.ctx.rng.range(1, 3);
+    this.fsm.change('idle');
+  }
+
+  /** Убежать от обидчика (не стал драться). */
+  fleeFrom(a: Character): void {
+    this.self.panicUntil = this.ctx.law.now + this.ctx.rng.range(3, 5);
+    this.panicFrom = { x: a.x, y: a.y };
+    this.fsm.change('panic');
+  }
+
+  /** Зевака: остановиться и поглазеть на драку. */
+  watchFight(x: number, y: number): void {
+    const cur = this.fsm.current;
+    if ((cur !== 'walk' && cur !== 'idle') || this.glanceUntil > this.ctx.law.now || !this.street) return;
+    const now = this.ctx.law.now;
+    if (cur === 'walk') {
+      this.glanceGoal = this.mover.goal;
+      this.mover.stop();
+    } else this.idleLeft = Math.max(this.idleLeft, BRAWL.watchTime[0]);
+    this.glanceUntil = now + this.ctx.rng.range(BRAWL.watchTime[0], BRAWL.watchTime[1]);
+    this.glanceDir = Math.atan2(y - this.self.y, x - this.self.x);
+    this.self.facing = this.glanceDir;
+    if (this.ctx.rng.chance(0.25)) this.self.say(this.ctx.rng.pick(BRAWL.lines.watch), now, 2);
   }
 
   /**
@@ -1808,6 +1851,45 @@ const RIOT: State<CitizenBrain> = {
 };
 
 /** Стрельба рядом: бежать прочь несколько секунд. */
+/** Драка на кулаках: к противнику, вплотную — бить (Brawls ведёт, кто с кем и до каких пор). */
+const BRAWL_STATE: State<CitizenBrain> = {
+  name: 'brawl',
+  enter(b) {
+    b.mover.stop();
+    b.mover.speed = b.walkSpeed * 1.2;
+    b.brawlRepath = 0;
+    if (b.self.weapon) b.ctx.combat.equip(b.self, null);
+  },
+  update(b, dt) {
+    const { self, ctx } = b;
+    const o = ctx.brawls?.opponentOf(self);
+    if (!o) {
+      b.idleLeft = ctx.rng.range(1, 3);
+      return 'idle';
+    }
+    if (ctx.combat.knockedOut(self)) {
+      b.mover.stop();
+      return;
+    }
+    const gap = Math.hypot(o.x - self.x, o.y - self.y) - o.radius - self.radius;
+    if (gap > FISTS.reach - self.radius) {
+      b.brawlRepath -= dt;
+      if (b.brawlRepath <= 0 || b.mover.status === 'idle' || b.mover.status === 'arrived') {
+        b.brawlRepath = 0.5;
+        const a = ctx.nav.nearestWalkable(o.x, o.y, 2);
+        if (a >= 0) b.mover.goTo(self, ctx, a);
+      }
+      return;
+    }
+    b.mover.stop();
+    faceTowards(self, o.x, o.y, dt);
+    if (ctx.combat.punch(self, o.x, o.y) && ctx.rng.chance(0.12)) self.say(ctx.rng.pick(BRAWL.lines.hit), ctx.law.now, 1.5);
+  },
+  exit(b) {
+    b.mover.speed = b.walkSpeed;
+  },
+};
+
 const PANIC: State<CitizenBrain> = {
   name: 'panic',
   enter(b) {

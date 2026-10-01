@@ -19,6 +19,7 @@ import { FACTIONS, cpHas, type FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { muzzleWorld } from '../entities/weaponPose';
 import { BARKS } from '../config/barks';
+import { FISTS } from '../config/brawl';
 import { bark, barkSide } from './Barks';
 
 const DEG = Math.PI / 180;
@@ -271,9 +272,13 @@ export class CombatSystem {
   /** Стычка банд (задаёт GangSystem): враги ли бойцы a и b разных банд. */
   gangHostile: ((a: Character, b: Character) => boolean) | null = null;
 
+  /** Вражда банды с обидчиком своего (задаёт Brawls): бойцы банды и обидчик — враги. */
+  vendettaHostile: ((a: Character, b: Character) => boolean) | null = null;
+
   /** Враги ли a и b: Альянс против повстанцев и тех, кто на него напал. */
   isHostile(a: Character, b: Character): boolean {
     if (!a.alive || !b.alive || a === b) return false;
+    if (this.vendettaHostile?.(a, b)) return true;
     const A = FACTIONS[a.faction].authority;
     const B = FACTIONS[b.faction].authority;
     // Бойцы разных банд в стычке (GangSystem) — враги друг другу.
@@ -670,6 +675,51 @@ export class CombatSystem {
    * Удар: ближайший в секторе перед собой. Дубинка оглушает; нож режет (кровотечение), в спину —
    * × backstab и мимо брони (два удара в спину валят патрульного).
    */
+  /** Ударили кулаком (задаёт Brawls: ответить, позвать братву). */
+  onPunch: (target: Character, attacker: Character) => void = () => {};
+
+  /**
+   * Удар кулаком — пустыми руками, оружие в руках не нужно (FISTS): кулаком не убить — здоровье не ниже
+   * floor, дошёл до него — нокаут (оглушён knockout с). Возвращает, в кого попал.
+   */
+  punch(c: Character, tx: number, ty: number): Character | null {
+    if (!c.alive || c.downed || this.time < c.nextShot || this.busy(c)) return null;
+    c.nextShot = this.time + 1 / FISTS.rate;
+    const ang = Math.atan2(ty - c.y, tx - c.x);
+    c.facing = ang;
+    const half = 45 * DEG;
+    let best: Character | null = null;
+    let bestD = Infinity;
+    for (const o of this.entities.near(c.x, c.y, c.radius + FISTS.range + 16, near)) {
+      if (o === c || !o.alive || o.downed) continue;
+      const gap = Math.hypot(o.x - c.x, o.y - c.y) - o.radius - c.radius;
+      if (gap > FISTS.range) continue;
+      if (gap > 4 && Math.abs(angleDiff(Math.atan2(o.y - c.y, o.x - c.x), ang)) > half) continue;
+      if (!lineOfSight(this.map, c.x, c.y, o.x, o.y)) continue;
+      if (gap < bestD) {
+        bestD = gap;
+        best = o;
+      }
+    }
+    this.swings.push({ x: c.x, y: c.y, ang, half, reach: c.radius + FISTS.range, t: COMBAT.swingTime, hit: !!best });
+    if (!best) return null;
+    this.stats.hit++;
+    best.stunUntil = Math.max(best.stunUntil, this.time + FISTS.stun);
+    best.aim = 0;
+    const dmg = Math.min(FISTS.damage * (1 - armorOf(best).torso * 0.5), Math.max(0, best.health - FISTS.floor));
+    this.emit('stab', best.x - Math.cos(ang) * best.radius, best.y - Math.sin(ang) * best.radius, ang, 'melee', c, best, 'torso', dmg, false);
+    if (dmg > 0) this.damage(best, dmg, c, 'torso');
+    else if (!best.disguised && !FACTIONS[c.faction].authority && FACTIONS[best.faction].authority) this.damage(best, 0, c, 'torso');
+    if (best.alive && best.health <= FISTS.floor + 0.01) best.stunUntil = Math.max(best.stunUntil, this.time + FISTS.knockout);
+    this.onPunch(best, c);
+    return best;
+  }
+
+  /** Нокаутирован кулаками (оглушён и на пороге здоровья). */
+  knockedOut(c: Character): boolean {
+    return c.health <= FISTS.floor + 0.01 && c.stunUntil > this.time;
+  }
+
   private swing(c: Character, w: WeaponDef, tx: number, ty: number): Character | null {
     if (!this.canFire(c)) return null;
     c.nextShot = this.time + 1 / w.fireRate;

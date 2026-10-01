@@ -57,6 +57,7 @@ import { Housing } from '../systems/Housing';
 import { Fence } from '../systems/Fence';
 import { Routine } from '../systems/Routine';
 import { Errands } from '../systems/Errands';
+import { Brawls } from '../systems/Brawls';
 import { GangSystem } from '../systems/Gangs';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { PrisonRenderer } from '../world/PrisonRenderer';
@@ -301,6 +302,7 @@ export class Game {
       gangs: null as unknown as GangSystem,
       routine: null as unknown as Routine,
       errands: null as unknown as Errands,
+      brawls: null as unknown as Brawls,
     };
     this.ai.routine = new Routine(this.ai);
     this.ai.errands = new Errands(this.ai);
@@ -324,6 +326,7 @@ export class Game {
     this.ai.housing = new Housing(this.ai);
     this.ai.fence = new Fence(this.ai);
     this.ai.gangs = new GangSystem(this.ai);
+    this.ai.brawls = new Brawls(this.ai);
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
@@ -880,6 +883,7 @@ export class Game {
     this.ai.cwuHq.update(dt);
     this.ai.shops.update();
     this.ai.gangs.update(dt);
+    this.ai.brawls.update(dt);
     this.ai.arsenal.update(dt);
     this.ai.prison.update();
     // Красный код (штурм Нексуса) — возрождения нет ни у кого, игрока тоже.

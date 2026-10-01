@@ -211,6 +211,8 @@ export class LawSystem {
 
   /** Задаёт Game: нарушает ли персонаж комендантский час (красный код, на улице). */
   curfewCheck: (c: Character) => boolean = () => false;
+  /** Задаёт Brawls: дерётся ли персонаж на кулаках (нарушение 'fight'). */
+  fightCheck: (c: Character) => boolean = () => false;
   /** Задаёт Game: нашли свёрток при обыске (поручение сорвано). */
   onContraband: (c: Character) => void = () => {};
   /** Задаёт Game: паникует ли персонаж (бег от стрельбы — не нарушение). */
@@ -231,6 +233,7 @@ export class LawSystem {
     if ((target.law.crimeUntil ?? -1) > this.time) return 'theft';
     if ((target.law.riotUntil ?? -1) > this.time) return 'riot';
     if (target.weapon) return 'weapon';
+    if (this.fightCheck(target)) return 'fight';
     const zk = this.map.zoneAtWorld(target.x, target.y)?.kind;
     if (zk === 'restricted') return 'restricted';
     // На склад Альянса посторонним нельзя (рабочие ГСР — по работе).
@@ -323,7 +326,7 @@ export class LawSystem {
       if (target.isPlayer) this.bus.emit('log', { text: ERRANDS.lines.found, kind: 'law' });
     }
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };
-    if (reason === 'running' || reason === 'restricted' || reason === 'insult') {
+    if (reason === 'running' || reason === 'restricted' || reason === 'insult' || reason === 'fight') {
       return { kind: 'fine', reason, fine: LAW.fines[reason] };
     }
     return { kind: 'ok', reason, fine: 0 };

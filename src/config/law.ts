@@ -36,7 +36,7 @@ export const LAW = {
   /** Сколько даётся игроку, чтобы остановиться. */
   complyGrace: 0.8,
 
-  fines: { running: 5, restricted: 15, insult: 12 },
+  fines: { running: 5, restricted: 15, insult: 12, fight: 15 },
   /** За что арест (иначе штраф). */
   arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot', 'contraband'] as readonly string[],
   /** Дознаватели JURY: проверка быстрее, штраф больше. */
@@ -91,7 +91,8 @@ export type Violation =
   | 'insult'
   | 'theft'
   | 'riot'
-  | 'contraband';
+  | 'contraband'
+  | 'fight';
 
 export const VIOLATION_NAMES: Record<Violation, string> = {
   running: 'бег',
@@ -107,4 +108,5 @@ export const VIOLATION_NAMES: Record<Violation, string> = {
   theft: 'кража',
   riot: 'участие в беспорядках',
   contraband: 'контрабанда',
+  fight: 'драка на улице',
 };
