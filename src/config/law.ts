@@ -1,6 +1,13 @@
 /** Законы Сити-17 и работа ГО. Время — секунды, расстояния — px, деньги — токены. */
 export const LAW = {
   /**
+   * Оружие в городе: стрелявший ближе firedWithin с назад (бандит, стычка банд) — уже не нарушитель, а
+   * вооружённый враг (hostile, розыск, тревога — ГО открывает огонь); ствол в руках без стрельбы — приказ и
+   * тревога патрулям квартала (не чаще alarmEvery с на человека). Патрульный, услышавший выстрел не
+   * Альянса ближе hear px в городе, поднимает тревогу (не чаще shotAlarmEvery с).
+   */
+  armed: { firedWithin: 6, alarmEvery: 30, hear: 520, shotAlarmEvery: 20 },
+  /**
    * Прочёсывание по тревоге (состояние hunt ГО): не толпой в одну точку — каждый берёт свою точку в
    * radius якорей вокруг последнего известного места, не ближе spacing px к точкам других, стоит там
    * pause с, оглядываясь, и идёт к следующей; место сместилось дальше moved px — всё заново.
@@ -31,7 +38,7 @@ export const LAW = {
 
   fines: { running: 5, restricted: 15, insult: 12 },
   /** За что арест (иначе штраф). */
-  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot'] as readonly string[],
+  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot', 'contraband'] as readonly string[],
   /** Дознаватели JURY: проверка быстрее, штраф больше. */
   juryCheckMul: 0.5,
   juryFineMul: 2,
@@ -83,7 +90,8 @@ export type Violation =
   | 'curfew'
   | 'insult'
   | 'theft'
-  | 'riot';
+  | 'riot'
+  | 'contraband';
 
 export const VIOLATION_NAMES: Record<Violation, string> = {
   running: 'бег',
@@ -98,4 +106,5 @@ export const VIOLATION_NAMES: Record<Violation, string> = {
   insult: 'оскорбление сотрудника ГО',
   theft: 'кража',
   riot: 'участие в беспорядках',
+  contraband: 'контрабанда',
 };

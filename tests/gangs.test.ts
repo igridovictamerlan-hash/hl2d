@@ -21,7 +21,7 @@ const setup = (npcs = 40) => {
 };
 
 describe('банды', () => {
-  test('две-три банды: авторитет и 4–5 бойцов, своя общага с общаком и свой район', { timeout: 60_000 }, () => {
+  test('две-три банды: авторитет и 6–7 бойцов, своя общага с общаком и свой район', { timeout: 60_000 }, () => {
     const sim = setup();
     const G = sim.ctx.gangs;
     expect(G.gangs.length).toBeGreaterThanOrEqual(2);

@@ -28,6 +28,8 @@ import type { ScannerSystem } from '../systems/ScannerSystem';
 import type { RosterSystem } from '../systems/Roster';
 import type { ElectionSystem } from '../systems/ElectionSystem';
 import type { StreetLifeSystem } from '../systems/StreetLife';
+import type { Routine } from '../systems/Routine';
+import type { Errands } from '../systems/Errands';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -81,4 +83,8 @@ export interface AiContext {
   fence: Fence;
   /** Банды: общаги, районы, общак, стычки, дела. */
   gangs: GangSystem;
+  /** Распорядок дня: фаза суток, сон и смены жителей. */
+  routine: Routine;
+  /** Поручения у досок объявлений (игра за гражданского). */
+  errands: Errands;
 }

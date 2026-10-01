@@ -14,9 +14,11 @@ import { AI } from '../../config/ai';
 import { CHARACTER } from '../../config/entities';
 import { LAW } from '../../config/law';
 import { FACTIONS } from '../../config/factions';
+import { apparentFaction } from '../../entities/cover';
 import { ECONOMY } from '../../config/economy';
 import { ARBAT } from '../../config/arbat';
 import type { CanteenSeat, StreetShop, SupplyTarget } from '../../systems/StreetShops';
+import { ROUTINE } from '../../config/routine';
 import { HOUSING } from '../../config/housing';
 import { ITEMS, WEAPONS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
@@ -138,6 +140,11 @@ export class CitizenBrain implements Brain {
   /** Когда пора заглянуть домой; дома — спит ли. */
   nextHome = 0;
   sleeping = false;
+  /** Распорядок: идёт домой спать до утра; была ли смена на прошлом решении. */
+  nightSleep = false;
+  wasOnShift = true;
+  private turfTimer = 0;
+  private turfWarnAt = 0;
   /** Столовая: сперва за супом к раздаче. */
   soupFirst = false;
   /** Боец банды: стрелок (стычки) и идёт ли бой. */
@@ -224,6 +231,7 @@ export class CitizenBrain implements Brain {
       }
     }
     if (this.profile.avoidCp && (cur === 'walk' || cur === 'idle')) this.watchForCp(dt);
+    if (self.gang >= 0 && (cur === 'walk' || cur === 'idle')) this.turfWatch(dt);
     this.checkBroadcast();
     if ((cur === 'walk' || cur === 'idle' || cur === 'queue') && ctx.rng.chance(BARKS.ambientPerSec * dt)) streetBark(self, ctx);
     this.fsm.update(dt);
@@ -362,25 +370,33 @@ export class CitizenBrain implements Brain {
     const { ctx } = this;
     // Воры и бандиты «работают» на улице: им не до бесед и бочек.
     const hustler = this.self.profession === 'thief' || this.self.profession === 'bandit' || this.self.gang >= 0;
-    if (!this.street || hustler || ctx.war.code === 'red' || !ctx.street || !ctx.rng.chance(STREET.activityChance)) return null;
+    // Распорядок: доля занятий и их веса — по времени суток (утром дела, вечером досуг).
+    const R = ctx.routine;
+    const act = R.activity(this.self);
+    if (!this.street || hustler || ctx.war.code === 'red' || !ctx.street || !ctx.rng.chance(act >= 0 ? act : STREET.activityChance)) return null;
     const W = STREET.weights;
     const st = ctx.street;
+    const m = (k: Parameters<typeof R.weight>[1]): number => R.weight(this.self, k);
     // Скамейки — только при зелёном коде; родня — если есть семья; карты — в общежитиях.
-    const bench = ctx.war.code === 'green' && st.benches.length ? W.bench : 0;
-    const family = this.self.family >= 0 ? W.family : 0;
+    const bench = ctx.war.code === 'green' && st.benches.length ? W.bench * m('bench') : 0;
+    const family = this.self.family >= 0 ? W.family * m('family') : 0;
     // Рабочим ГСР засиживаться за картами некогда.
-    const cards = st.tables.length && this.self.faction !== 'cwu' ? W.cards : 0;
-    const notice = st.boards.length ? W.notice : 0;
+    const cards = st.tables.length && this.self.faction !== 'cwu' ? W.cards * m('cards') : 0;
+    const notice = st.boards.length ? W.notice * m('notice') : 0;
     // По лавкам проспекта — при зелёном коде и если лавка неподалёку.
-    const shopping = ctx.war.code === 'green' && ctx.shops?.shopNear(this.self) ? ARBAT.visit.weight : 0;
-    let r = ctx.rng.range(0, W.chat + W.barrel + W.home + bench + family + cards + W.smoke + notice + shopping);
+    const shopping = ctx.war.code === 'green' && ctx.shops?.shopNear(this.self) ? ARBAT.visit.weight * m('shopping') : 0;
+    const chat = W.chat * m('chat');
+    const barrel = W.barrel * m('barrel');
+    const homeW = W.home * m('home');
+    const smoke = W.smoke * m('smoke');
+    let r = ctx.rng.range(0, chat + barrel + homeW + bench + family + cards + smoke + notice + shopping);
     if ((r -= shopping) < 0) return 'shopping';
-    if ((r -= W.chat) < 0) return this.startChat() ? 'chat' : null;
-    if ((r -= W.barrel) < 0) return 'barrel';
+    if ((r -= chat) < 0) return this.startChat() ? 'chat' : null;
+    if ((r -= barrel) < 0) return 'barrel';
     if ((r -= bench) < 0) return 'bench';
     if ((r -= family) < 0) return this.startFamilyChat() ? 'chat' : 'home';
     if ((r -= cards) < 0) return 'cards';
-    if ((r -= W.smoke) < 0) return 'smoke';
+    if ((r -= smoke) < 0) return 'smoke';
     if ((r -= notice) < 0) return 'notice';
     return 'home';
   }
@@ -418,6 +434,35 @@ export class CitizenBrain implements Brain {
     }
   }
 
+  /**
+   * Район банды опасен для чужих: боец на своём районе гонит чужака рядом (реплика), а ночью с шансом
+   * GANGS.turf.nightRob сразу грабит (без случайности днём — не сдвигает общий поток rng).
+   */
+  private turfWatch(dt: number): void {
+    this.turfTimer -= dt;
+    if (this.turfTimer > 0) return;
+    this.turfTimer = 1;
+    const { self, ctx } = this;
+    const now = ctx.law.now;
+    const g = ctx.gangs?.of(self);
+    if (!g || now < this.turfWarnAt || this.job || !ctx.gangs.inTurf(g, self.x, self.y)) return;
+    const T = GANGS.turf;
+    for (const o of ctx.entities.near(self.x, self.y, T.warn, near2)) {
+      if (o === self || !o.alive || o.gang >= 0 || o.downed || o.law.phase !== 'none') continue;
+      const f = apparentFaction(o);
+      if (f !== 'citizen' && f !== 'cwu') continue;
+      if (!lineOfSight(ctx.map, self.x, self.y, o.x, o.y)) continue;
+      this.turfWarnAt = now + T.warnEvery;
+      const L = GANGS.lines.turf;
+      self.say(L[(self.id + Math.floor(now)) % L.length], now, 2);
+      if (ctx.routine.night && o.money >= CRIME.npc.minMoney && ctx.crime.robOk(self, o) && !this.cpInSight(260) && ctx.rng.chance(T.nightRob)) {
+        this.job = { kind: 'rob', victim: o, left: CRIME.rob.time, until: now + CRIME.npc.giveUp, repath: 0, threatened: false };
+        this.fsm.change('work');
+      }
+      return;
+    }
+  }
+
   /** Повстанец: заметил ГО рядом — уходит в сторону (не бегом, чтобы не привлечь внимание). */
   private watchForCp(dt: number): void {
     this.cpCheck -= dt;
@@ -452,10 +497,28 @@ export class CitizenBrain implements Brain {
     return best;
   }
 
+  /**
+   * Распорядок: пора спать (горожане, ГСР, вортигонты без дома — нет; бандиты и воры — днём). Не в паре
+   * банды по городу, не в розыске, не грузчик и не оружейник склада (склад работает круглые сутки).
+   */
+  bedtime(): boolean {
+    const { ctx, self } = this;
+    if (!ctx.routine.enabled || self.isPlayer || self.faction === 'rebel' || self.faction === 'vort') return false;
+    if (this.inCrew || this.escort.length || self.law.wanted || ctx.war.code === 'red') return false;
+    if (self.profession === 'loader' || self.profession === 'armorer' || self.profession === 'cook') return false;
+    return ctx.routine.asleepTime(self);
+  }
+
   /** Что делать после паузы: работа, очередь, магазин или прогулка. */
   decide(): string {
     const { ctx, self } = this;
     const eco = ctx.economy;
+    // Распорядок: пора спать — домой, в кровать (до утра).
+    if (this.bedtime()) {
+      this.nightSleep = true;
+      if (ctx.rng.chance(0.35)) self.say(ctx.rng.pick(ROUTINE.lines.bed), ctx.law.now, 2);
+      return 'home';
+    }
     const job = this.pickJob();
     if (job) {
       this.job = job;
@@ -490,13 +553,14 @@ export class CitizenBrain implements Brain {
     const PW = LABOR.paperwork;
     // Идёт раздача, а паёк не получен — сначала очередь.
     const rationsFirst = eco.open && !eco.hasBeenServed(self);
-    if (self.faction === 'citizen' && self.profession === 'citizen' && self.loyalty >= PW.minLoyalty && !rationsFirst && !ctx.war.curfew && labor.desks.length && ctx.rng.chance(PW.chance)) {
+    const awake = !ctx.routine.enabled || ctx.routine.phaseOf(self) !== 'night';
+    if (self.faction === 'citizen' && self.profession === 'citizen' && self.loyalty >= PW.minLoyalty && !rationsFirst && !ctx.war.curfew && awake && labor.desks.length && ctx.rng.chance(PW.chance)) {
       const desk = labor.claimDesk(self);
       if (desk) return { kind: 'paper', desk, until: ctx.law.now + ctx.rng.range(PW.time[0], PW.time[1]), nextPay: ctx.law.now + PW.payEvery };
     }
     // Штаб ГСР: гражданин идёт устраиваться (если есть места), рабочий — на перерыв.
     const hq = ctx.cwuHq;
-    if (hq?.present && !ctx.war.curfew && !rationsFirst) {
+    if (hq?.present && !ctx.war.curfew && !rationsFirst && awake) {
       const H = CWU_HQ;
       // Лоялисты работают с бумагами в канцелярии — в штаб идут остальные.
       if (self.faction === 'citizen' && self.profession === 'citizen' && self.loyalty < PW.minLoyalty && !self.isPlayer && self.law.phase === 'none' && ctx.rng.chance(H.hire.chance) && hq.vacancy() && hq.apply(self)) {
@@ -509,6 +573,14 @@ export class CitizenBrain implements Brain {
         return { kind: 'rest', spot: ctx.rng.pick(hq.restSpots), until: ctx.law.now + ctx.rng.range(H.rest.time[0], H.rest.time[1]), lines: H.lines.rest };
       }
     }
+    // Распорядок: смена кончилась — работа ждёт до утра (склад и раздача — без смен).
+    if (!ctx.routine.onShift(self)) {
+      if (this.wasOnShift && ctx.rng.chance(0.5)) self.say(ctx.rng.pick(ROUTINE.lines.off), ctx.law.now, 2);
+      this.wasOnShift = false;
+      return null;
+    }
+    if (!this.wasOnShift && ctx.routine.enabled && ctx.rng.chance(0.4)) self.say(ctx.rng.pick(ROUTINE.lines.work), ctx.law.now, 2);
+    this.wasOnShift = true;
     switch (self.profession) {
       case 'gang_boss': {
         // Авторитет — в общаге у общака; иногда прогулка по району (null — уличная жизнь по району).
@@ -613,7 +685,8 @@ export class CitizenBrain implements Brain {
         return best && (self.inventory.has('bandage') || self.inventory.has('medkit')) ? { kind: 'heal', patient: best, repath: 0 } : null;
       }
       case 'thief': {
-        if (!ctx.rng.chance(CRIME.npc.chance) || this.cpInSight(250)) return null;
+        // Ночью воры выходят чаще: прохожих меньше, ГО видно хуже.
+        if (!ctx.rng.chance(CRIME.npc.chance * (ctx.routine.night ? ROUTINE.night.thiefMul : 1)) || this.cpInSight(250)) return null;
         let victim: Character | null = null;
         let bestD = Infinity;
         for (const o of ctx.entities.near(self.x, self.y, CRIME.npc.seek, near)) {
@@ -649,11 +722,15 @@ export class CitizenBrain implements Brain {
           if (v && ctx.rng.chance(CRIME.shank.chance) && this.pairedFor(v)) return { kind: 'shank', victim: v, until: ctx.law.now + CRIME.shank.giveUp, repath: 0 };
         }
         // Гоп-стоп: жертва в подворотне, ГО рядом не видно.
-        if (!ctx.rng.chance(CRIME.rob.npcChance) || this.cpInSight(260)) return null;
+        // Ночью и на своём районе гоп-стоп чаще: чужак на районе — законная добыча.
+        const g = ctx.gangs?.of(self);
+        const turfMul = g && ctx.gangs.inTurf(g, self.x, self.y) ? GANGS.turf.robMul : 1;
+        if (!ctx.rng.chance(Math.min(1, CRIME.rob.npcChance * turfMul * (ctx.routine.night ? ROUTINE.night.robMul : 1))) || this.cpInSight(260)) return null;
         let victim: Character | null = null;
         let bestD = Infinity;
         for (const o of ctx.entities.near(self.x, self.y, CRIME.rob.seek, near)) {
-          if (!ctx.crime.robOk(self, o) || o.money < CRIME.npc.minMoney || o.profession === 'bandit' || o.isPlayer) continue;
+          // Игрока грабят только на районе банды — там опасно.
+          if (!ctx.crime.robOk(self, o) || o.money < CRIME.npc.minMoney || o.profession === 'bandit' || (o.isPlayer && !(g && ctx.gangs.inTurf(g, o.x, o.y)))) continue;
           const d = Math.hypot(o.x - self.x, o.y - self.y);
           if (d < bestD) {
             bestD = d;
@@ -741,6 +818,11 @@ export class CitizenBrain implements Brain {
   /** Прогулка по городу: любимое место или точка вокруг. */
   private cityGoal(): number {
     const { ctx, profile } = this;
+    // Распорядок: «по делам» — к осмысленной цели, а не в случайную точку.
+    if (ctx.routine.enabled && ctx.rng.chance(ROUTINE.purpose)) {
+      const g = this.errandGoal();
+      if (g >= 0) return g;
+    }
     if (ctx.rng.chance(profile.favouriteChance)) {
       const g = randomAnchorInZone(ctx, ctx.rng.pick(profile.favourite));
       if (g >= 0 && !this.avoid.has(ctx.nav.zone[g])) return g;
@@ -748,6 +830,25 @@ export class CitizenBrain implements Brain {
     const C = AI.citizen;
     return randomAnchorAround(this.self, ctx, C.wanderDistance[0], C.wanderDistance[1], this.avoid);
   }
+  /** Цель «по делам»: лавка или ларёк, доска объявлений, площадь, дом родни, свой дом. */
+  private errandGoal(): number {
+    const { ctx, self } = this;
+    const pts: Vec2[] = [];
+    const R = ROUTINE.reach;
+    const add = (p: Vec2 | null | undefined): void => {
+      if (p && Math.hypot(p.x - self.x, p.y - self.y) < R && Math.hypot(p.x - self.x, p.y - self.y) > 160) pts.push(p);
+    };
+    for (const sh of ctx.shops?.shops ?? []) add(sh.front);
+    for (const b of ctx.street?.boards ?? []) add(b.stand);
+    add(ctx.street?.plaza);
+    for (const k of ctx.families?.kin(self) ?? []) add(ctx.housing?.of(k)?.at);
+    add(ctx.housing?.of(self)?.at);
+    if (!pts.length) return -1;
+    const p = ctx.rng.pick(pts);
+    const a = ctx.nav.nearestWalkable(p.x, p.y, 3);
+    return a >= 0 && !this.avoid.has(ctx.nav.zone[a]) ? a : -1;
+  }
+
   // ——— Банда: по одному — только на районе, в город — вместе ———
 
   /** Идёт ли в паре (ведёт или ведомый). */
@@ -1918,7 +2019,7 @@ const HOME: State<CitizenBrain> = {
     b.nextHome = ctx.law.now + ctx.rng.range(HOUSING.visit.every[0], HOUSING.visit.every[1]);
     const d = ctx.housing?.of(self);
     if (d) {
-      b.sleeping = !!d.bed && ctx.rng.chance(HOUSING.sleepChance);
+      b.sleeping = !!d.bed && (b.nightSleep || ctx.rng.chance(HOUSING.sleepChance));
       ctx.street.stats.homes++;
       ctx.housing.stats.visits++;
       if (!b.goToPoint(ctx.housing.spot(d, b.sleeping))) b.idleLeft = 0.5;
@@ -1937,14 +2038,24 @@ const HOME: State<CitizenBrain> = {
       if (st === 'arrived') {
         const H = HOUSING;
         const [lo, hi] = b.sleeping ? H.sleep : H.stay;
-        b.stayUntil = now + ctx.rng.range(lo, hi);
+        // Ночью — до утра (свой час подъёма), а не на пару минут.
+        const wake = b.nightSleep ? ctx.routine.untilWake(self) : 0;
+        b.stayUntil = now + (wake > 0 ? wake + ctx.rng.range(0, 15) : ctx.rng.range(lo, hi));
         if (b.sleeping) ctx.housing.stats.sleeps++;
         if (ctx.rng.chance(0.3)) self.say(ctx.rng.pick(b.sleeping ? H.lines.sleep : H.lines.home), now, 2);
       }
       return;
     }
     if (b.sleeping && ctx.rng.chance(0.04 / 60)) self.say(ctx.rng.pick(HOUSING.lines.sleep), now, 1.5);
+    // Утро настало раньше расчёта (часы сдвинулись — загрузка, тест) — встаёт.
+    if (b.nightSleep && !ctx.routine.asleepTime(self)) b.stayUntil = Math.min(b.stayUntil, now);
     if (now >= b.stayUntil) {
+      if (b.nightSleep) {
+        // Утро: встал — и сразу решает, куда (очередь, смена, дела).
+        if (ctx.rng.chance(0.35)) self.say(ctx.rng.pick(ROUTINE.lines.wake), now, 2);
+        b.idleLeft = ctx.rng.range(0.5, 3);
+        return 'idle';
+      }
       if (ctx.rng.chance(0.2)) self.say(ctx.rng.pick(HOUSING.lines.leave), now, 2);
       b.idleLeft = 0.5;
       return 'walk';
@@ -1952,6 +2063,7 @@ const HOME: State<CitizenBrain> = {
   },
   exit(b) {
     b.sleeping = false;
+    b.nightSleep = false;
   },
 };
 

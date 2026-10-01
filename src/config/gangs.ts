@@ -23,11 +23,17 @@ export const GANGS = {
   ] as readonly GangDef[],
   thirdChance: 0.12,
   /** Бойцов у банды (кроме авторитета). */
-  members: [4, 5] as const,
+  members: [6, 7] as const,
   /** Наборы: авторитет и бойцы. */
   kits: { boss: 'gang_boss', member: 'bandit' },
   /** Бойцы держатся своего района: с этой долей прогулки — по своему кварталу. */
   turfChance: 0.8,
+  /**
+   * Район опасен для чужих: на своём районе бойцы грабят чаще (шанс гоп-стопа × robMul) и в любой зоне
+   * района (не только в подворотнях); чужака (не из банды, не ГО) ближе warn px гонят — реплика, а ночью
+   * с шансом nightRob грабят сразу.
+   */
+  turf: { robMul: 2.2, warn: 140, warnEvery: 12, nightRob: 0.5 },
   /** Общак при старте (токены) и что в нём лежит. */
   bank: 120,
   stash: [['rebel_pistol', 2], ['ammo_pistol', 40]] as [ItemId, number][],
@@ -50,8 +56,8 @@ export const GANGS = {
    *  sell — лишнее из общака (стволы сверх keep, гранаты сверх grenades) — барыге за деньги.
    */
   ops: {
-    every: [50, 90] as const,
-    first: [25, 50] as const,
+    every: [40, 70] as const,
+    first: [20, 40] as const,
     weights: { racket: 3, raid: 2, hit: 1.2, convoy: 2, buy: 1.5, sell: 3 },
     racket: { take: [8, 16] as const, stay: 5, seek: 1600 },
     raid: { size: [2, 3] as const, time: 70 },

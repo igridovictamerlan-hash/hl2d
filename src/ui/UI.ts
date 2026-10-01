@@ -46,6 +46,8 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly arsenal: ArsenalSystem | null;
   /** Режим «отряд на отряд» (null — обычная игра). */
   readonly arena: SquadArena | null;
+  /** Строка HUD о городе: поручение, ночной час (пусто — ничего). */
+  readonly cityHint: string;
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null): void;
   resolveCheck(target: Character, choice: CheckChoice): void;
   /** Терминал кодов тревоги: игрок выбрал код. */
@@ -181,6 +183,8 @@ export class UI {
         ration += `\nПункты боепитания: ${ars.points.map((p) => `${p.name.split(' ').pop()} ${p.kits}${p.convoy ? ' (конвой)' : ''}`).join(' · ')}`;
       }
     }
+    const hint = this.host.arena ? '' : this.host.cityHint;
+    if (hint) ration += `\n${hint}`;
     this.hud.update(player, now, {
       look: this.host.pawnLook(player),
       weapon: player.weapon,

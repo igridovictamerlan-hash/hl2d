@@ -44,11 +44,11 @@ describe('свой дом у каждого', () => {
     const arbat = H.dwellings.filter((d) => d.kind === 'arbat');
     expect(arbat.length).toBeGreaterThanOrEqual(10);
     expect(arbat.filter((d) => d.households > 0).length / arbat.length).toBeGreaterThan(0.8);
-    // Каждому своё (семья — одна комната на всех).
+    // Каждому своё (семья — одна комната на всех; банда живёт в своей общаге — бойцов больше, чем комнат).
     const byHome = new Map<number, Set<string>>();
     for (const c of people) {
       const set = byHome.get(c.home) ?? new Set<string>();
-      set.add(c.family >= 0 ? `семья ${c.family}` : `житель ${c.id}`);
+      set.add(c.gang >= 0 ? `банда ${c.gang}` : c.family >= 0 ? `семья ${c.family}` : `житель ${c.id}`);
       byHome.set(c.home, set);
     }
     expect([...byHome.values()].every((s) => s.size === 1)).toBe(true);

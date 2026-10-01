@@ -5,6 +5,7 @@ import type { Dwelling } from './Housing';
 import type { StreetShop } from './StreetShops';
 import type { Convoy } from './Arsenal';
 import { Inventory } from '../entities/Inventory';
+import { ROUTINE } from '../config/routine';
 import { GANGS, FENCE, type GangDef } from '../config/gangs';
 import { WEAPONS, type ItemId, type WeaponId } from '../config/items';
 import { lineOfSight } from '../world/visibility';
@@ -533,7 +534,8 @@ export class GangSystem {
     for (const c of op.team) if (c.brain instanceof GangOpBrain) c.brain.finish(c, this.ctx);
     g.op = null;
     this.homeTogether(g, op.team);
-    g.nextOp = this.time + this.ctx.rng.range(GANGS.ops.every[0], GANGS.ops.every[1]);
+    // Ночью дела чаще (распорядок).
+    g.nextOp = this.time + this.ctx.rng.range(GANGS.ops.every[0], GANGS.ops.every[1]) * (this.ctx.routine.night ? ROUTINE.night.opsMul : 1);
   }
 
   /**

@@ -7,6 +7,8 @@ export type WeaponId =
 export type GrenadeId = 'grenade' | 'smoke_grenade' | 'fire_grenade';
 export type ItemId =
   | 'ration'
+  | 'parcel'
+  | 'parcel_x'
   | 'bread'
   | 'water'
   | 'canned'
@@ -243,6 +245,8 @@ export function weaponDps(w: WeaponDef): number {
 }
 
 export const ITEMS: Record<ItemId, ItemDef> = {
+  parcel: { id: 'parcel', name: 'Посылка', desc: 'Поручение с доски объявлений: отнести по адресу (метка на карте), E у дома.', kind: 'misc', stack: 1 },
+  parcel_x: { id: 'parcel_x', name: 'Свёрток', desc: 'Тайное поручение подполья. Не попадайтесь на проверке CID — это контрабанда.', kind: 'misc', stack: 1 },
   ration: { id: 'ration', name: 'Рацион', desc: 'Стандартный паёк Альянса. Сытость +60.', kind: 'food', stack: 5, food: 60 },
   bread: { id: 'bread', name: 'Хлеб', desc: 'Серый хлеб. Сытость +25.', kind: 'food', stack: 5, food: 25, price: 6 },
   water: { id: 'water', name: 'Вода Breen', desc: 'Банка «воды». Сытость +10.', kind: 'food', stack: 5, food: 10, price: 3 },

@@ -30,6 +30,8 @@ import { PrisonSystem } from '../src/systems/Prison';
 import { StreetShops } from '../src/systems/StreetShops';
 import { Housing } from '../src/systems/Housing';
 import { Fence } from '../src/systems/Fence';
+import { Routine } from '../src/systems/Routine';
+import { Errands } from '../src/systems/Errands';
 import { GangSystem } from '../src/systems/Gangs';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
 
@@ -80,7 +82,12 @@ export function makeSim(seedOrMap: number | GameMap) {
     housing: null as unknown as Housing,
       fence: null as unknown as Fence,
       gangs: null as unknown as GangSystem,
+      routine: null as unknown as Routine,
+      errands: null as unknown as Errands,
   };
+  // Распорядок дня в тестах выключен (иначе ночью город спит) — у него свой тест.
+  ctx.routine = new Routine(ctx, false);
+  ctx.errands = new Errands(ctx);
   const war = new WarSystem(ctx);
   ctx.war = war;
   const insurgency = new InsurgencySystem(ctx);

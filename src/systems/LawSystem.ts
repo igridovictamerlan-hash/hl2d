@@ -8,6 +8,7 @@ import type { DoorSystem, DoorGroup } from './DoorSystem';
 import { canSeeCircle } from '../world/visibility';
 import { adjustLoyalty } from './Loyalty';
 import { LOYALTY } from '../config/loyalty';
+import { ERRANDS } from '../config/errands';
 import { LAW, VIOLATION_NAMES, type Violation } from '../config/law';
 import { VISION } from '../config/vision';
 import { loyalistPerk } from './Loyalty';
@@ -210,6 +211,8 @@ export class LawSystem {
 
   /** Задаёт Game: нарушает ли персонаж комендантский час (красный код, на улице). */
   curfewCheck: (c: Character) => boolean = () => false;
+  /** Задаёт Game: нашли свёрток при обыске (поручение сорвано). */
+  onContraband: (c: Character) => void = () => {};
   /** Задаёт Game: паникует ли персонаж (бег от стрельбы — не нарушение). */
   panicking: (c: Character) => boolean = () => false;
 
@@ -312,6 +315,13 @@ export class LawSystem {
     else if ((target.law.riotUntil ?? -1) > this.time) reason = 'riot';
     else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
     else if (!law.hasCid && !fake) reason = 'no_cid';
+    // Свёрток подполья (поручение с доски) — при обыске находят с шансом: контрабанда, арест.
+    if (reason !== 'rebel' && target.inventory.has('parcel_x') && this.rng.chance(ERRANDS.secret.search)) {
+      target.inventory.remove('parcel_x', 1);
+      reason = 'contraband';
+      this.onContraband(target);
+      if (target.isPlayer) this.bus.emit('log', { text: ERRANDS.lines.found, kind: 'law' });
+    }
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };
     if (reason === 'running' || reason === 'restricted' || reason === 'insult') {
       return { kind: 'fine', reason, fine: LAW.fines[reason] };

@@ -52,8 +52,12 @@ export class CrimeSystem {
 
   /** Можно ли ограбить: как для кражи, и жертва — в подворотне (жилые кварталы, промзона). */
   robOk(bandit: Character, v: Character): boolean {
+    if (!this.victimOk(bandit, v)) return false;
+    // На районе своей банды — где угодно: чужим там не рады.
+    const g = this.ctx.gangs?.of(bandit);
+    if (g && v.gang !== g.id && this.ctx.gangs.inTurf(g, v.x, v.y)) return true;
     const kind = this.ctx.map.zoneAtWorld(v.x, v.y)?.kind;
-    return this.victimOk(bandit, v) && !!kind && (CRIME.rob.zones as readonly string[]).includes(kind);
+    return !!kind && (CRIME.rob.zones as readonly string[]).includes(kind);
   }
 
   /** Гоп-стоп (после выдержки CRIME.rob.time со стволом в руках). Возвращает, сколько отдали. */

@@ -397,6 +397,8 @@ const ITEM_ICON: Partial<Record<ItemId, string>> = {
   ammo_rocket: 'rocket',
   helmet_cp: 'helmet_cp',
   plate_vest: 'plate_vest',
+  parcel: 'ration',
+  parcel_x: 'ration',
 };
 
 export function iconOf(id: ItemId): string {

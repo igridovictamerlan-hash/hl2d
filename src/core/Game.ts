@@ -55,6 +55,8 @@ import { PrisonSystem } from '../systems/Prison';
 import { StreetShops } from '../systems/StreetShops';
 import { Housing } from '../systems/Housing';
 import { Fence } from '../systems/Fence';
+import { Routine } from '../systems/Routine';
+import { Errands } from '../systems/Errands';
 import { GangSystem } from '../systems/Gangs';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { PrisonRenderer } from '../world/PrisonRenderer';
@@ -196,6 +198,7 @@ export class Game {
       closeCodePanel: () => this.ui.code.close(),
       wheel: this.wheel,
       setSlow: (on) => (this.loop.timeScale = on ? HUD.wheel.slow : 1),
+      setMarker: (x, y) => (this.ui.mapView.marker = { x, y, level: 'city' }),
     });
     this.loop = new GameLoop(
       (dt) => this.update(dt),
@@ -296,7 +299,11 @@ export class Game {
       housing: null as unknown as Housing,
       fence: null as unknown as Fence,
       gangs: null as unknown as GangSystem,
+      routine: null as unknown as Routine,
+      errands: null as unknown as Errands,
     };
+    this.ai.routine = new Routine(this.ai);
+    this.ai.errands = new Errands(this.ai);
     this.war = new WarSystem(this.ai);
     this.ai.war = this.war;
     this.insurgency = new InsurgencySystem(this.ai);
@@ -323,9 +330,13 @@ export class Game {
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
     this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
     this.economy.onEmpty = () => this.labor.noticeEmpty();
+    // Раздача — только днём (распорядок), и не в комендантский час (WarSystem).
+    const warPause = this.economy.paused;
+    this.economy.paused = () => warPause() || !this.ai.routine.rationsHours();
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
     this.law.panicking = (c) => c.panicUntil > this.law.now;
+    this.law.onContraband = (c) => this.ai.errands.found(c);
     this.entities.clear();
     resetCids();
     this.playerCtl.reset();
@@ -514,6 +525,20 @@ export class Game {
 
   get darkness(): number {
     return this.lighting.darkness(this.time);
+  }
+
+  /** Строка HUD о городе: поручение с доски (адрес и срок), ночью — предупреждение гражданским. */
+  get cityHint(): string {
+    const ai = this.ai;
+    if (!ai?.errands || !this.player) return '';
+    const out: string[] = [];
+    const a = ai.errands.active;
+    if (a) {
+      const left = Math.max(0, Math.ceil(a.until - this.law.now));
+      out.push(`Поручение${a.secret ? ' (тайное — не попадитесь на проверке)' : ''}: ${a.name}, ${a.zone} · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`);
+    }
+    if (ai.routine.night && ai.errands.canTake(this.player)) out.push('Ночь: на улицах проверяют чаще, на районах банд грабят');
+    return out.join('\n');
   }
 
   /** Склад Альянса (для строки HUD). */

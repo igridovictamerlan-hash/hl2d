@@ -78,6 +78,8 @@ export class PlayerController {
       /** Колесо оружия (B1) и замедление мира, пока оно открыто. */
       wheel: WeaponWheel;
       setSlow(on: boolean): void;
+      /** Метка на карте (адрес поручения). */
+      setMarker(x: number, y: number): void;
     },
   ) {}
 
@@ -143,6 +145,9 @@ export class PlayerController {
       p.wantX = p.wantY = 0;
       return;
     }
+    // Поручение просрочено — посылку забирают.
+    const late = ctx.errands?.update(p);
+    if (late) this.say(late, 'world');
     // Тяжело ранен: ползёт (скорость режет бой), ничего не может; E — не ждать помощи.
     if (p.downed) {
       this.reset();
@@ -415,6 +420,18 @@ export class PlayerController {
     if (d(poiWorld(ctx, 'code_terminal')) < WAR.terminal.reach) {
       if (!ctx.war.canSetCode(p)) return this.say('Терминал Администрации: доступ только Администратору и старшим офицерам ГО (с OFC).');
       return this.hooks.openCodePanel();
+    }
+    // Поручение: у дома получателя — сдать посылку; у доски объявлений — взять новое.
+    if (ctx.errands) {
+      const done = ctx.errands.deliver(p);
+      if (done) return this.say(done, 'world');
+      const board = ctx.errands.canTake(p) ? ctx.errands.boardAt(p) : null;
+      if (board) {
+        const msg = ctx.errands.take(p, board);
+        const a = ctx.errands.active;
+        if (a && msg.indexOf(a.name) >= 0) this.hooks.setMarker(a.to.at.x, a.to.at.y);
+        return this.say(msg, 'world');
+      }
     }
     // Курьер ГСР с коробкой — сдать товар в лавку, ларёк или столовую проспекта.
     if (p.faction === 'cwu' && p.carrying && ctx.shops) {

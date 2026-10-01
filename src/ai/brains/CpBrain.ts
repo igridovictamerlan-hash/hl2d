@@ -17,6 +17,7 @@ import { CP_UNITS } from '../../config/cpUnits';
 import type { Corpse } from '../../systems/CombatSystem';
 import type { CrimeScene } from '../../systems/CrimeScenes';
 import { CRIME } from '../../config/crime';
+import { ROUTINE } from '../../config/routine';
 import { LAW } from '../../config/law';
 import { VISION } from '../../config/vision';
 import { dist, type Vec2 } from '../../core/math';
@@ -83,6 +84,11 @@ const WATCHING = new Set(['patrol', 'post', 'guard', 'hunt', 'medic', 'follow', 
  * безоружного повстанца пытается задержать. Ранен — отходит к медику/в бункер.
  * При красном коде патрульные прочёсывают город по данным «Надзора».
  */
+/** Когда поднимали тревогу из-за ствола в руках у человека (не чаще LAW.armed.alarmEvery). */
+const armedAlarm = new WeakMap<Character, number>();
+/** Последняя тревога «выстрелы» — у каждого мира своя (ключ — LawSystem). */
+const shotAlarmAt = new WeakMap<object, number>();
+
 export class CpBrain implements Brain {
   readonly mover: Mover;
   readonly gunner: Gunner;
@@ -530,9 +536,48 @@ export class CpBrain implements Brain {
     if (this.fsm.current === 'scene') this.fsm.change(this.idleState);
   }
 
+  /**
+   * Ствол в руках в городе: стрелял недавно — вооружённый враг (огонь, розыск, тревога); нет — тревога
+   * патрулям квартала (LAW.armed), сам — приказ «стоять».
+   */
+  private armedSeen(o: Character): void {
+    const { ctx } = this;
+    const now = ctx.law.now;
+    const A = LAW.armed;
+    if (o.hostile || o.faction === 'rebel' || ctx.map.levelAt(o.x, o.y) !== 'city' || ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint') return;
+    if (now - o.lastFired < A.firedWithin) {
+      o.hostile = true;
+      o.law.wanted = true;
+      this.self.say('Стрельба! Огонь на поражение!', now, 2);
+      ctx.war.raiseAlarm(o.x, o.y, 'стрельба в городе', false);
+      armedAlarm.set(o, now);
+      return;
+    }
+    if (now - (armedAlarm.get(o) ?? -1e9) < A.alarmEvery) return;
+    armedAlarm.set(o, now);
+    ctx.war.raiseAlarm(o.x, o.y, 'вооружённый на улице', false);
+  }
+
+  /** Патрульный в городе услышал чужой выстрел — тревога на место (не чаще LAW.armed.shotAlarmEvery). */
+  private listenShots(): void {
+    const { self, ctx } = this;
+    const A = LAW.armed;
+    const now = ctx.law.now;
+    if (now - (shotAlarmAt.get(ctx.law) ?? -1e9) < A.shotAlarmEvery || ctx.war.code === 'red' || ctx.map.levelAt(self.x, self.y) !== 'city') return;
+    const s = ctx.combat.heardShot(self, A.hear, 0.5);
+    const sh = s?.shooter;
+    if (!s || !sh || FACTIONS[sh.faction].authority || ctx.map.levelAt(s.x, s.y) !== 'city') return;
+    const k = ctx.map.zoneAtWorld(s.x, s.y)?.kind;
+    if (k === 'checkpoint' || k === 'outlands' || k === 'wasteland') return;
+    shotAlarmAt.set(ctx.law, now);
+    self.say('Выстрелы! Проверить!', now, 2);
+    ctx.war.raiseAlarm(s.x, s.y, 'выстрелы в квартале', false);
+  }
+
   /** Осмотреться: раненые свои (HELIX), нарушения, иногда — проверка «для порядка». */
   private lookAround(): void {
     const { self, ctx } = this;
+    if (!this.guardPost && (!this.duty || this.duty === 'squad')) this.listenShots();
     const law = ctx.law;
     const zone = ctx.map.zoneAtWorld(self.x, self.y);
     const atCheckpoint = zone?.kind === 'checkpoint';
@@ -565,6 +610,7 @@ export class CpBrain implements Brain {
       const v = law.observe(self, o);
       if (!v) continue;
       if (v === 'rebel') ctx.war.sighted(o);
+      if (v === 'weapon') this.armedSeen(o);
       // Вооружённого врага берёт на себя бой (Gunner), остальных — задерживаем.
       if (ctx.combat.threat(self, o)) continue;
       // Часовой не уходит с поста ради беготни по городу; постовой RCT — только рядом с постом.
@@ -587,7 +633,7 @@ export class CpBrain implements Brain {
       // Неблагонадёжных проверяют чаще, лоялистов — реже.
       const chance = atCheckpoint && inCheckpoint
         ? LAW.checkpointCheckChance
-        : LAW.randomCheckChance * (ctx.war.code === 'yellow' ? LAW.alarmCheckMul : 1) * (hasLoyalty(o) ? loyaltyTier(o).checkMul : 1);
+        : LAW.randomCheckChance * (ctx.war.code === 'yellow' ? LAW.alarmCheckMul : 1) * (hasLoyalty(o) ? loyaltyTier(o).checkMul : 1) * (ctx.routine.night && ctx.war.outdoors(o) ? ROUTINE.night.checkMul : 1);
       if (ctx.rng.chance(chance) && law.canSee(self, o)) {
         this.engage(o, 'routine');
         return;
