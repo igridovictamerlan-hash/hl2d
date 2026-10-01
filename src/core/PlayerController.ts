@@ -40,17 +40,17 @@ const REACH = 48;
 
 /**
  * Управление игроком: движение и взгляд, E — терминал найма, F — действие роли
- * (у ГО: проверить документы у того, кто перед вами), 1/2/3 — решение по проверке.
+ * (у ВС: проверить документы у того, кто перед вами), 1/2/3 — решение по проверке.
  * Если игрок задержан (у него временно есть мозг PrisonerBrain), ввод движения игнорируется.
  */
 export class PlayerController {
-  /** Идёт проверка документов, начатая игроком-ГО. */
+  /** Идёт проверка документов, начатая игроком-ВС. */
   private check: { target: Character; until: number } | null = null;
-  /** Чинит ли игрок (ГСР) поломку. */
+  /** Чинит ли игрок (ТС) поломку. */
   private repairing: RepairSpot | null = null;
   /** Лезет по люку: сколько осталось и куда. */
   private climbing: { left: number; to: { x: number; y: number }; down: boolean } | null = null;
-  /** Саботирует узел Альянса (повстанец). */
+  /** Саботирует узел Протектората (повстанец). */
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
   private packing = false;
@@ -242,7 +242,7 @@ export class PlayerController {
       const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
       ctx.combat.punch(p, m.x, m.y);
     }
-    // Оскорбить того, кто перед вами (O): может начаться драка, ГО потребует документы.
+    // Оскорбить того, кто перед вами (O): может начаться драка, ВС потребует документы.
     if (i.wasPressed('insult') && ctx.brawls) {
       const t = ctx.brawls.targetFor(p);
       if (!t) this.say('Рядом никого — оскорблять некого.');
@@ -301,7 +301,7 @@ export class PlayerController {
         this.sabotaging = null;
         ctx.economy.sabotage(sb.spot, p);
         p.money += INSURGENCY.sabotageReward;
-        this.say(`Узел Альянса выведен из строя. Сопротивление платит: +${INSURGENCY.sabotageReward} токенов. Уходите!`, 'world');
+        this.say(`Узел Протектората выведен из строя. Сопротивление платит: +${INSURGENCY.sabotageReward} токенов. Уходите!`, 'world');
       }
     }
     if (this.packing) {
@@ -334,7 +334,7 @@ export class PlayerController {
       else if (i.wasPressed('choice3')) this.hooks.closeCheckPanel('arrest');
     }
     this.updateCheck(p, ctx);
-    // Игрок-ГО догнал беглеца — задержание.
+    // Игрок-ВС догнал беглеца — задержание.
     if (FACTIONS[p.faction].authority) {
       for (const o of ctx.entities.near(p.x, p.y, LAW.catchDistance, near)) {
         if (o !== p && o.law.handler === p && o.law.phase === 'fleeing') ctx.law.arrest(p, o, 'resisting');
@@ -357,7 +357,7 @@ export class PlayerController {
   }
 
   /**
-   * E у лежащего: своего — поднять (нужен бинт или аптечка), врага Альянса (игрок-ГО) —
+   * E у лежащего: своего — поднять (нужен бинт или аптечка), врага Протектората (игрок-ВС) —
    * стабилизировать и задержать. true — действие начато или объяснено (дальше E не идёт).
    */
   private rescue(p: Character, ctx: AiContext): boolean {
@@ -421,7 +421,7 @@ export class PlayerController {
     const d = (q: { x: number; y: number } | null) => (q ? Math.hypot(q.x - p.x, q.y - p.y) : Infinity);
     const terminal = poiWorld(ctx, 'recruit_terminal');
     if (d(terminal) < REACH) return this.hooks.openRoleMenu();
-    // Канцелярия Нексуса: лоялист садится за свободный стол — бумажная работа для Администратора.
+    // Канцелярия Управы: лоялист садится за свободный стол — бумажная работа для Коменданта.
     const paperDesk = ctx.labor.desks.find((k) => Math.hypot(k.x - p.x, k.y - p.y) < LABOR.paperwork.reach);
     if (paperDesk) {
       if (p.faction !== 'citizen' || p.loyalty < LABOR.paperwork.minLoyalty) return this.say(`Бумажная работа — только для лоялистов (лояльность от ${LABOR.paperwork.minLoyalty}).`);
@@ -430,9 +430,9 @@ export class PlayerController {
       this.task = { kind: 'paper', x: paperDesk.x, y: paperDesk.y, left: T, total: T };
       return this.say('Разбираете бумаги для Администрации…');
     }
-    // Терминал кодов тревоги в кабинете Администратора.
+    // Терминал кодов тревоги в кабинете Коменданта.
     if (d(poiWorld(ctx, 'code_terminal')) < WAR.terminal.reach) {
-      if (!ctx.war.canSetCode(p)) return this.say('Терминал Администрации: доступ только Администратору и старшим офицерам ГО (с OFC).');
+      if (!ctx.war.canSetCode(p)) return this.say('Терминал Администрации: доступ только Коменданту и старшим офицерам ВС (с OFC).');
       return this.hooks.openCodePanel();
     }
     // Поручение: у дома получателя — сдать посылку; у доски объявлений — взять новое.
@@ -447,12 +447,12 @@ export class PlayerController {
         return this.say(msg, 'world');
       }
     }
-    // Курьер ГСР с коробкой — сдать товар в лавку, ларёк или столовую проспекта.
+    // Курьер ТС с коробкой — сдать товар в лавку, ларёк или столовую проспекта.
     if (p.faction === 'cwu' && p.carrying && ctx.shops) {
       const t = ctx.shops.dropAt(p, REACH + 8);
       if (t) {
         ctx.shops.deliver(p, t);
-        return this.say(`Коробка из штаба ГСР сдана${'shop' in t ? ` в «${t.shop.name}»: товара ${t.shop.goods}/${t.shop.cap}` : ` в столовую: супа ${ctx.shops.soup}/${ctx.shops.soupCap}`}. +${ARBAT.supply.pay} токенов`);
+        return this.say(`Коробка из штаба ТС сдана${'shop' in t ? ` в «${t.shop.name}»: товара ${t.shop.goods}/${t.shop.cap}` : ` в столовую: супа ${ctx.shops.soup}/${ctx.shops.soupCap}`}. +${ARBAT.supply.pay} токенов`);
       }
     }
     if (d(ctx.insurgency.market) < REACH + 8) {
@@ -472,19 +472,19 @@ export class PlayerController {
       const items = gang.stash.slots.map((s) => `${ITEMS[s.id].name}${s.qty > 1 ? ` ×${s.qty}` : ''}`).join(', ');
       return this.say(`Общак «${gang.def.name}»: ${gang.bank} ток.${items ? ` · ${items}` : ''}. Лучше вашего ствола нет.`);
     }
-    // Лавки (и магазин ГСР), кафе и ларьки проспекта; раздача и стол общей столовой — суп и обед.
+    // Лавки (и магазин ТС), кафе и ларьки проспекта; раздача и стол общей столовой — суп и обед.
     const street = ctx.shops?.shopAt(p, REACH + 8);
     if (street) {
       if (!street.stock.length) return this.say(`${street.name}: сегодня только поглазеть — товара нет.`);
       const why = ctx.shops.refusal(street);
       if (why === 'closed') return this.say(`${street.name}: закрыто — продавца нет за прилавком.`);
-      if (why === 'empty') return this.say(`${street.name}: полки пусты — ждут коробку из штаба ГСР.`);
+      if (why === 'empty') return this.say(`${street.name}: полки пусты — ждут коробку из штаба ТС.`);
       return this.hooks.openShop('street', street);
     }
     if (d(eco.shopCounter) < REACH + 8) return this.hooks.openShop('cwu');
     const serve = ctx.shops?.serveSpot;
     if (serve && d(serve) < REACH && !p.soupBowl) {
-      if (!ctx.shops.takeSoup(p)) return this.say(ctx.shops.kitchenOpen ? 'Общая столовая: суп кончился — ждут коробку из штаба ГСР.' : 'Общая столовая: повара у котла нет.');
+      if (!ctx.shops.takeSoup(p)) return this.say(ctx.shops.kitchenOpen ? 'Общая столовая: суп кончился — ждут коробку из штаба ТС.' : 'Общая столовая: повара у котла нет.');
       return this.say('Повар налил миску супа. Садитесь за стол (E у свободного места).');
     }
     const seat = ctx.shops?.seats.find((s) => !s.taken && Math.hypot(s.x - p.x, s.y - p.y) < REACH * 0.6);
@@ -522,14 +522,14 @@ export class PlayerController {
       const n = eco.refillAmmo(p, INSURGENCY.cacheMags);
       return this.say(n > 0 ? `Тайник: +${n} патронов.` : 'Тайник: патронов вам хватает.', 'world');
     }
-    // Прорванный КПП: гражданин (или ГСР) в коридоре может примкнуть к повстанцам.
+    // Прорванный КПП: гражданин (или ТС) в коридоре может примкнуть к повстанцам.
     const front = ctx.war.frontAt(p.x, p.y);
     if (front && front.owner === 'rebels' && (p.faction === 'citizen' || p.faction === 'cwu') && ctx.war.pointAt(front, p.x, p.y) >= 0) {
       ctx.war.defect(p, front);
       return this.say('Вы примкнули к сопротивлению! Оружие выдали — держите КПП.', 'world');
     }
     const corpse = ctx.combat.corpseNear(p.x, p.y, REACH);
-    // Любой повстанец в тюрьме Альянса: выбить дверь камеры, где сидят свои.
+    // Любой повстанец в тюрьме Протектората: выбить дверь камеры, где сидят свои.
     if (p.faction === 'rebel' && p.law.phase === 'none') {
       const jail = ctx.law.cells.find((c) => c.prison && ctx.law.occupants(c).length > 0 && d({ x: c.frontX, y: c.frontY }) < REACH + 8);
       if (jail) {
@@ -554,7 +554,7 @@ export class PlayerController {
         }
       }
     }
-    // Спецагент: форма с убитого ГО (в OTA не переодеться), взлом камеры КПЗ.
+    // Спецагент: форма с убитого ВС (в OTA не переодеться), взлом камеры КПЗ.
     if (p.faction === 'rebel' && p.profession === 'spec_agent') {
       const A = PARTISANS.agent;
       if (corpse && corpse.faction === 'cp' && !corpse.stripped) {
@@ -567,12 +567,12 @@ export class PlayerController {
         return this.say('Выбиваете дверь камеры…', 'world');
       }
     }
-    // Партизан: передать ствол бандиту — пусть ГО получит своё чужими руками.
+    // Партизан: передать ствол бандиту — пусть ВС получит своё чужими руками.
     if (p.faction === 'rebel' && p.profession === 'partisan') {
       const b = this.facingTarget(p, ctx, PARTISANS.arm.reach + 8, (o) => ctx.insurgency.armable(o));
       if (b) {
         ctx.insurgency.armBandit(p, b);
-        return this.say(`Вы передали ствол бандиту ${b.name}. Он пойдёт на ГО.`, 'world');
+        return this.say(`Вы передали ствол бандиту ${b.name}. Он пойдёт на ВС.`, 'world');
       }
     }
     // Наблюдатель OBS сначала сканирует тело (найти убийцу), потом можно обыскать.
@@ -609,30 +609,30 @@ export class PlayerController {
       if (p.profession === 'thief' && !eco.open && d(eco.window) < REACH + 8) {
         if (!p.inventory.has('lockpick')) return this.say('Нужна отмычка (чёрный рынок).');
         this.task = { kind: 'hack', x: eco.window.x, y: eco.window.y, left: CRIME.hack.time, total: CRIME.hack.time };
-        return this.say(`Взламываете раздатчик… ${CRIME.hack.time} с. Если увидит ГО — арест.`, 'world');
+        return this.say(`Взламываете раздатчик… ${CRIME.hack.time} с. Если увидит ВС — арест.`, 'world');
       }
     }
-    // Склад Альянса на окраине: выдача ГО, работа грузчиков и оружейника, диверсии подполья.
+    // Склад Протектората на окраине: выдача ВС, работа грузчиков и оружейника, диверсии подполья.
     if (ctx.arsenal?.present && ctx.map.zoneAtWorld(p.x, p.y)?.kind === 'arsenal' && this.arsenal(p, ctx)) return;
-    // Пункт боепитания в проходной КПП и в Нексусе.
+    // Пункт боепитания в проходной КПП и в Управе.
     if (this.kppPoint(p, ctx)) return;
-    // Ящик, брошенный конвоем ГО (засада): повстанцу или бандиту — забрать себе.
+    // Ящик, брошенный конвоем ВС (засада): повстанцу или бандиту — забрать себе.
     if ((p.faction === 'rebel' || p.profession === 'bandit') && ctx.arsenal?.present && ctx.arsenal.looseOutside.some((c) => d(c) < REACH + 6)) {
       const g = ctx.gangs?.of(p);
       if (g && ctx.gangs.lootToStash(g, p, REACH + 6)) return this.say(`Ящик с конвоя — в общак «${g.def.name}».`, 'world');
       if (ctx.insurgency.lootCrate(p, REACH + 6)) return this.say('Ящик с конвоя — ваш: патроны или гранаты в подсумок.', 'world');
     }
-    // Штаб ГСР: гражданин у стойки найма — устроиться (глава оформляет туда, где не хватает рук).
+    // Штаб ТС: гражданин у стойки найма — устроиться (глава оформляет туда, где не хватает рук).
     const hq = ctx.cwuHq;
     if (hq?.present && p.faction === 'citizen' && (d(hq.counter) < REACH + 12 || d(hq.applicantSpot) < REACH + 12)) {
       const head = hq.head;
-      if (!head) return this.say('Главы ГСР нет на месте — приходите позже.');
+      if (!head) return this.say('Главы ТС нет на месте — приходите позже.');
       const prof = hq.vacancy();
-      if (!prof) return this.say(`Глава ГСР: «${ctx.rng.pick(CWU_HQ.lines.noVacancy)}»`, 'world');
+      if (!prof) return this.say(`Глава ТС: «${ctx.rng.pick(CWU_HQ.lines.noVacancy)}»`, 'world');
       hq.hire(p, prof, head);
       return;
     }
-    // Работы ГСР: цех штаба, доставка коробок.
+    // Работы ТС: цех штаба, доставка коробок.
     const labor = ctx.labor;
     const station = labor.nearestStation(p.x, p.y);
     if (p.profession === 'packer' && station && d(station) < REACH) {
@@ -654,7 +654,7 @@ export class PlayerController {
         return;
       }
     }
-    // Мусор: уборщик и вортигонт убирают, остальные роются.
+    // Мусор: уборщик и поднадзорный убирают, остальные роются.
     const pile = labor.nearestTrash(p.x, p.y, false, REACH);
     if (pile) {
       if (p.profession === 'janitor' || p.faction === 'vort') {
@@ -665,15 +665,15 @@ export class PlayerController {
       this.task = { kind: 'search', x: pile.x, y: pile.y, left: LABOR.trash.searchTime, total: LABOR.trash.searchTime, pile };
       return this.say('Роетесь в мусоре…', 'world');
     }
-    // Повстанец: саботаж узла Альянса.
+    // Повстанец: саботаж узла Протектората.
     const node = eco.nodes.find((r) => !r.broken && d(r) < REACH);
     if (node && p.faction === 'rebel') {
       this.sabotaging = { spot: node, progress: 0 };
-      return this.say(`Саботаж узла… не отходите ${INSURGENCY.sabotageTime} с. ГО рядом быть не должно.`, 'world');
+      return this.say(`Саботаж узла… не отходите ${INSURGENCY.sabotageTime} с. ВС рядом быть не должно.`, 'world');
     }
-    // ГСР: встать на выдачу / выдать следующему (это работа повара).
+    // ТС: встать на выдачу / выдать следующему (это работа повара).
     if (p.faction === 'cwu' && p.profession !== 'cook' && eco.open && d(eco.dispenserSpot) < REACH) {
-      return this.say('Рационы выдают повара ГСР. Ваша работа — в описании профессии (меню роли).');
+      return this.say('Рационы выдают повара ТС. Ваша работа — в описании профессии (меню роли).');
     }
     if (p.faction === 'cwu' && eco.open && d(eco.dispenserSpot) < REACH) {
       if (eco.dispenser !== p) {
@@ -686,7 +686,7 @@ export class PlayerController {
     if (p.faction === 'cwu' && (p.profession === 'janitor' || p.profession === 'packer')) {
       const spot = eco.repairs.find((r) => r.broken && d(r) < REACH);
       if (spot) {
-        if (!p.inventory.has('toolkit')) return this.say('Нужен набор инструментов (есть в магазине ГСР).');
+        if (!p.inventory.has('toolkit')) return this.say('Нужен набор инструментов (есть в магазине ТС).');
         this.repairing = spot;
         return this.say('Ремонт… не отходите 5 секунд.', 'world');
       }
@@ -697,19 +697,19 @@ export class PlayerController {
       const n = eco.joinQueue(p);
       return this.say(n >= 0 ? `Вы в очереди за рационом: ${n + 1}-й. Подойдите к отметке у окна.` : 'Очередь заполнена — подождите.', 'world');
     }
-    // ГО: у стойки дежурного Нексуса — только медицина; патроны и гранаты — на складе Альянса.
+    // ВС: у стойки дежурного Управы — только медицина; патроны и гранаты — на складе Протектората.
     const desk = poiWorld(ctx, 'nexus_desk');
     if (p.faction === 'cp' && d(desk) < REACH * 1.5) {
       for (const [id, qty] of KITS[cpKit(p.rank)] ?? []) {
         if (ITEMS[id].kind === 'medical' && p.inventory.count(id) < qty) p.inventory.add(id, qty - p.inventory.count(id));
       }
-      return this.say(ctx.arsenal?.present ? 'Аптечка пополнена. Патроны и гранаты — на складе Альянса, у окна выдачи.' : 'Аптечка пополнена.', 'world');
+      return this.say(ctx.arsenal?.present ? 'Аптечка пополнена. Патроны и гранаты — на складе Протектората, у окна выдачи.' : 'Аптечка пополнена.', 'world');
     }
-    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Альянса и тел.');
+    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Протектората и тел.');
   }
 
   /**
-   * E на складе Альянса. ГО — окно выдачи (кладовщик — справка у стола); грузчик — взять ящик (крыльцо,
+   * E на складе Протектората. ВС — окно выдачи (кладовщик — справка у стола); грузчик — взять ящик (крыльцо,
    * стеллаж) и поставить (в ячейку, на расходный стеллаж), маяк; оружейник — ствол из ящика на ремонт,
    * верстак, стойка, проверка ящика патронов; повстанец — маяк, заряд, брак, кража; спецагент в форме —
    * «по наряду». true — обработано.
@@ -718,7 +718,7 @@ export class PlayerController {
     const A = ctx.arsenal;
     const d = (q: { x: number; y: number } | null) => (q ? Math.hypot(q.x - p.x, q.y - p.y) : Infinity);
     const R = ARSENAL.issue.reach + 8;
-    // Спецагент в форме Альянса у окна — гранаты «по наряду».
+    // Спецагент в форме Протектората у окна — гранаты «по наряду».
     if (p.faction === 'rebel' && p.profession === 'spec_agent' && coverAuthority(p) && d(A.window) < R) {
       this.task = { kind: 'requisition', x: p.x, y: p.y, left: ARSENAL.issue.every, total: ARSENAL.issue.every };
       this.say('Кладовщику: «Наряд на гранаты, подпись Надзора»…', 'world');
@@ -861,7 +861,7 @@ export class PlayerController {
     if (t.kind === 'dress' && t.corpse) {
       if (t.corpse.stripped) return this.say('С тела уже сняли форму.');
       ctx.insurgency.dressAs(p, t.corpse);
-      return this.say(`Вы в форме: ${t.corpse.name}. Для ГО — свой; выдаст только убийство.`, 'world');
+      return this.say(`Вы в форме: ${t.corpse.name}. Для ВС — свой; выдаст только убийство.`, 'world');
     }
     if (t.kind === 'break' && t.cell) {
       const n = ctx.insurgency.jailbreak(p, t.cell);
@@ -874,7 +874,7 @@ export class PlayerController {
     }
     if (t.kind === 'depot' && t.act) {
       const ok = ctx.arsenal.doSabotage(p, t.act);
-      return this.say(ok ? { steal: 'Ящик ваш — уходите, пока не хватились.', taint: 'Брак в ящике — у ГО будут осечки.', bomb: 'Заряд заложен — уходите!', beacon: 'Маяк не работает — борт не сядет.' }[t.act] : 'Не вышло — уже нечего.', 'world');
+      return this.say(ok ? { steal: 'Ящик ваш — уходите, пока не хватились.', taint: 'Брак в ящике — у ВС будут осечки.', bomb: 'Заряд заложен — уходите!', beacon: 'Маяк не работает — борт не сядет.' }[t.act] : 'Не вышло — уже нечего.', 'world');
     }
     if (t.kind === 'beacon') {
       ctx.arsenal.repairBeacon(p, ARSENAL.beacon.repair);
@@ -917,9 +917,9 @@ export class PlayerController {
     return best;
   }
 
-  /** G: умение профессии или отряда ГО. */
+  /** G: умение профессии или отряда ВС. */
   private special(p: Character, ctx: AiContext): void {
-    // Медик ГСР: лечит за плату (гражданин платит, ГО — бесплатно).
+    // Медик ТС: лечит за плату (гражданин платит, ВС — бесплатно).
     if (p.profession === 'cwu_medic') {
       if (this.healCooldown > 0) return;
       const t = this.facingTarget(p, ctx, LABOR.medic.range, (o) => (o.health < o.maxHealth || o.bleed > 0) && o.faction !== 'rebel');
@@ -952,9 +952,9 @@ export class PlayerController {
       const n = ctx.insurgency.startRiot(p, p.x, p.y);
       if (n <= 0) return this.say('Рядом некого поднять — нужны горожане (не лоялисты).');
       this.riotCooldown = PARTISANS.riot.cooldown;
-      return this.say(`Бунт! Поднялись ${n} горожан. ГО будет занято ими.`, 'world');
+      return this.say(`Бунт! Поднялись ${n} горожан. ВС будет занято ими.`, 'world');
     }
-    // Партизан: маскировка под гражданина или ГСР (без оружия в руках).
+    // Партизан: маскировка под гражданина или ТС (без оружия в руках).
     if (p.profession === 'partisan') {
       if (p.disguised) {
         p.disguised = false;
@@ -964,9 +964,9 @@ export class PlayerController {
       if (p.weapon) return this.say('Уберите оружие (H), чтобы надеть маскировку.');
       if (ctx.combat.now - p.lastHurt < 10 || p.hostile) return this.say('Вас только что видели в бою — маскировка не поможет.');
       ctx.insurgency.giveCover(p);
-      return this.say(`Вы в маскировке: для ГО вы ${p.cover?.faction === 'cwu' ? 'рабочий ГСР' : 'обычный гражданин'}. Выдаст только убийство; проверка CID — может, со стволом в руках ГО остановит.`, 'world');
+      return this.say(`Вы в маскировке: для ВС вы ${p.cover?.faction === 'cwu' ? 'рабочий ТС' : 'обычный гражданин'}. Выдаст только убийство; проверка CID — может, со стволом в руках ВС остановит.`, 'world');
     }
-    if (p.faction !== 'cp') return this.say('Умение (G) есть у ГО и у некоторых профессий (медики, партизан).');
+    if (p.faction !== 'cp') return this.say('Умение (G) есть у ВС и у некоторых профессий (медики, партизан).');
     // SU.02 в городе (не у раненых) — сканер; иначе — лечение.
     if (cpHas(p, 'drone') && ctx.map.zoneAtWorld(p.x, p.y)?.kind !== 'checkpoint' && !ctx.scanners.of(p)) {
       const err = ctx.scanners.deploy(p);
@@ -990,10 +990,10 @@ export class PlayerController {
     this.say(cpUnit(p.rank).desc);
   }
 
-  /** F: у ГО — проверка документов у ближайшего, кто перед игроком. */
+  /** F: у ВС — проверка документов у ближайшего, кто перед игроком. */
   private roleAction(p: Character, ctx: AiContext): void {
     if (p.faction !== 'cp') {
-      this.bus.emit('log', { text: 'Действие роли (F) пока есть только у ГО: проверка CID.', kind: 'system' });
+      this.bus.emit('log', { text: 'Действие роли (F) пока есть только у ВС: проверка CID.', kind: 'system' });
       return;
     }
     if (this.check || this.hooks.checkPanelTarget()) return;
@@ -1036,13 +1036,13 @@ export class PlayerController {
     this.bus.emit('law:checkResult', { target: c.target, verdict: ctx.law.judge(c.target) });
   }
 
-  /** Решение игрока-ГО по проверке. */
+  /** Решение игрока-ВС по проверке. */
   resolve(p: Character, target: Character, choice: CheckChoice, ctx: AiContext): void {
     if (target.law.handler !== p) return;
     const verdict = ctx.law.judge(target);
     if (choice === 'arrest') ctx.law.apply(p, target, { kind: 'arrest', reason: verdict.reason, fine: 0 });
     else if (choice === 'fine') ctx.law.apply(p, target, { kind: 'fine', reason: verdict.reason, fine: verdict.fine || LAW.fines.running });
     else ctx.law.apply(p, target, { kind: 'ok', reason: verdict.reason, fine: 0 });
-    if (choice === 'arrest') this.bus.emit('log', { text: 'Отведите задержанного к свободной камере КПЗ в Нексусе — он идёт за вами.', kind: 'system' });
+    if (choice === 'arrest') this.bus.emit('log', { text: 'Отведите задержанного к свободной камере КПЗ в Управе — он идёт за вами.', kind: 'system' });
   }
 }

@@ -42,14 +42,14 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly economy: EconomySystem;
   readonly combat: CombatSystem;
   readonly war: WarSystem;
-  /** Склад Альянса (запасы, борт) — для строки HUD. */
+  /** Склад Протектората (запасы, борт) — для строки HUD. */
   readonly arsenal: ArsenalSystem | null;
   /** Режим «отряд на отряд» (null — обычная игра). */
   readonly arena: SquadArena | null;
   /** Строка HUD о городе: поручение, ночной час (пусто — ничего). */
   readonly cityHint: string;
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null, name?: string | null): void;
-  /** Имя персонажа для меню роли: текущее (не ГО) и новое случайное. */
+  /** Имя персонажа для меню роли: текущее (не ВС) и новое случайное. */
   currentName(): string;
   suggestName(): string;
   resolveCheck(target: Character, choice: CheckChoice): void;
@@ -177,7 +177,7 @@ export class UI {
       const where = economy.hasBeenServed(player) ? 'вы получили' : i >= 0 ? `вы ${i + 1}-й в очереди` : `в очереди ${economy.queue.length}`;
       ration = `Раздача рационов открыта (${mmss(economy.timer)}) · ${where}`;
     } else ration = `Раздача рационов через ${mmss(economy.timer)}`;
-    // Склад Альянса: ГО и рабочим склада — запасы и когда борт.
+    // Склад Протектората: ВС и рабочим склада — запасы и когда борт.
     const ars = this.host.arsenal;
     if (!this.host.arena && ars?.present && (player.faction === 'cp' || player.profession === 'loader' || player.profession === 'armorer')) {
       const st = ars.stock;

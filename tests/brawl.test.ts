@@ -87,7 +87,7 @@ describe('кулаки и драки', () => {
     expect(sim.ctx.combat.isHostile(foe, mate)).toBe(true);
   });
 
-  test('случайные драки на улице и ГО разнимает', { timeout: 200_000 }, () => {
+  test('случайные драки на улице и ВС разнимает', { timeout: 200_000 }, () => {
     const sim = setup();
     sim.ctx.brawls.enabled = true;
     for (let t = 0; t < 240 * 60; t++) sim.step();

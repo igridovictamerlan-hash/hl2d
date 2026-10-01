@@ -14,7 +14,7 @@ export function previewLook(faction: FactionId, rank: number, profession: Profes
 /** Классы оружия по «весу»: на образце — самый тяжёлый ствол набора. */
 const CLASS_ORDER = ['launcher', 'pulse', 'sniper', 'rifle', 'shotgun', 'smg', 'magnum', 'pistol', 'blade', 'melee'];
 
-/** Ствол образца: лучший из набора роли (ГО — по юниту), без ствола — null. */
+/** Ствол образца: лучший из набора роли (ВС — по юниту), без ствола — null. */
 export function previewWeapon(faction: FactionId, rank: number, profession: ProfessionId | null): WeaponId | null {
   const kit = faction === 'cp' ? cpUnit(rank).kit : (profession && PROFESSIONS[profession]?.kit) || faction;
   const items = KITS[kit] ?? [];

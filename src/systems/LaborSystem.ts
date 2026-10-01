@@ -28,15 +28,15 @@ export interface TrashPile {
 
 /**
  * Работы профессий: завод рационов (фасовщик собирает коробки), доставка коробок к будке раздачи
- * (курьер пополняет склад будки — без него раздача встаёт), мусор на улицах (уборщик и вортигонты
- * убирают за плату, отбросы и воры роются), лечение у медика ГСР за плату.
+ * (курьер пополняет склад будки — без него раздача встаёт), мусор на улицах (уборщик и поднадзорные
+ * убирают за плату, отбросы и воры роются), лечение у медика ТС за плату.
  */
 export class LaborSystem {
   /** Конвейер (где фасуют — первое место цеха) и склад коробок (откуда берёт курьер). */
   readonly factory: Vec2 | null;
   readonly factoryStore: Vec2 | null;
   /**
-   * Места фасовки: конвейер (belt — где он нарисован) и где стоит фасовщик (x, y). В штабе ГСР —
+   * Места фасовки: конвейер (belt — где он нарисован) и где стоит фасовщик (x, y). В штабе ТС —
    * по конвейеру цеха на каждого; на старых картах без штаба — один у заводского двора промзоны.
    */
   readonly stations: { x: number; y: number; belt: Vec2; who: Character | null }[] = [];
@@ -52,9 +52,9 @@ export class LaborSystem {
   private lastEmptyNotice = -1e9;
   /** Счётчики (тесты, отладка). */
   stats = { packed: 0, delivered: 0, cleaned: 0, searched: 0, healed: 0, paperwork: 0 };
-  /** Столы канцелярии Нексуса (бумажная работа лоялистов) и кто за каким сидит. */
+  /** Столы канцелярии Управы (бумажная работа лоялистов) и кто за каким сидит. */
   readonly desks: { x: number; y: number; who: Character | null }[] = [];
-  /** Крематор (синтет, сжигает тела) и когда выпустить следующего из Нексуса. */
+  /** Санитар (синтет, сжигает тела) и когда выпустить следующего из Управы. */
   cremator: Character | null = null;
   private crematorAt = 0;
 
@@ -69,7 +69,7 @@ export class LaborSystem {
     const lines = map.poisOf('ration_line');
     const yard = map.poisOf('industrial_yard')[0];
     if (lines.length) {
-      // Цех фасовки в штабе ГСР: фасовщик стоит перед конвейером, лицом к нему (со стороны цеха).
+      // Цех фасовки в штабе ТС: фасовщик стоит перед конвейером, лицом к нему (со стороны цеха).
       const room = map.poisOf('cwu_production')[0];
       const rc = room ? { x: (room.x + room.w! / 2) * ts, y: (room.y + room.h! / 2) * ts } : null;
       for (const l of lines) {
@@ -122,7 +122,7 @@ export class LaborSystem {
     this.boxes++;
     this.stats.packed++;
     c.money += LABOR.factory.pay;
-    adjustLoyalty(c, LOYALTY.points.cwuWork, 'работа ГСР', this.ctx.bus);
+    adjustLoyalty(c, LOYALTY.points.cwuWork, 'работа ТС', this.ctx.bus);
     if (c.isPlayer) this.say(`Коробка рационов собрана (на складе завода: ${this.boxes}). +${LABOR.factory.pay} токенов`);
     return true;
   }
@@ -183,7 +183,7 @@ export class LaborSystem {
     this.stats.delivered++;
     c.money += LABOR.booth.pay;
     eco.markWorked(c);
-    adjustLoyalty(c, LOYALTY.points.cwuWork, 'работа ГСР', this.ctx.bus);
+    adjustLoyalty(c, LOYALTY.points.cwuWork, 'работа ТС', this.ctx.bus);
     if (c.isPlayer) this.say(`Коробка сдана: на складе будки ${eco.rationStock} рационов. +${LABOR.booth.pay} токенов`);
     return true;
   }
@@ -197,7 +197,7 @@ export class LaborSystem {
   noticeEmpty(): void {
     if (this.time - this.lastEmptyNotice < LABOR.emptyNoticeEvery) return;
     this.lastEmptyNotice = this.time;
-    this.ctx.bus.emit('log', { text: 'ГСР: на складе будки кончились рационы — курьеры, доставьте коробки с завода!', kind: 'world' });
+    this.ctx.bus.emit('log', { text: 'ТС: на складе будки кончились рационы — курьеры, доставьте коробки с завода!', kind: 'world' });
   }
 
   // ——— Мусор ———
@@ -270,10 +270,10 @@ export class LaborSystem {
     return null;
   }
 
-  // ——— Медик ГСР ———
+  // ——— Медик ТС ———
 
   /**
-   * Медик ГСР лечит пациента: гражданин платит (нет денег — не лечит), сотрудники Альянса —
+   * Медик ТС лечит пациента: гражданин платит (нет денег — не лечит), сотрудники Протектората —
    * бесплатно. Возвращает текст ошибки или null.
    */
   treat(medic: Character, patient: Character): string | null {
@@ -296,7 +296,7 @@ export class LaborSystem {
     this.ctx.bus.emit('log', { text, kind: 'world' });
   }
 
-  /** Крематор выходит из Нексуса (один на город; погиб — следующий через LABOR.cremator.respawn с). */
+  /** Санитар выходит из Управы (один на город; погиб — следующий через LABOR.cremator.respawn с). */
   private ensureCremator(): void {
     if (this.cremator?.alive) return;
     if (this.cremator && !this.cremator.alive) {
@@ -309,7 +309,7 @@ export class LaborSystem {
     const a = this.ctx.nav.nearestWalkable(gate.x, gate.y, 6);
     if (a < 0) return;
     const c = createCharacter(this.ctx.entities, this.ctx.rng, 'ota', this.ctx.nav.worldX(a), this.ctx.nav.worldY(a));
-    c.name = `Крематор-${this.ctx.rng.int(10, 99)}`;
+    c.name = `Санитар-${this.ctx.rng.int(10, 99)}`;
     c.profession = 'cremator';
     c.inventory.clear();
     c.brain = new CrematorBrain(c, this.ctx);

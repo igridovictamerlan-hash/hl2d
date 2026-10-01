@@ -63,7 +63,7 @@ export class MapRenderer {
   /** Трубы на крышах (тайлы). */
   private readonly chimney: Uint8Array;
   private readonly noise: Uint32Array;
-  /** Пол помещения: 1 — доска (жилые), 2 — плитка (Нексус, КПЗ, магазин, казённое). */
+  /** Пол помещения: 1 — доска (жилые), 2 — плитка (Управа, КПЗ, магазин, казённое). */
   private readonly floor: Uint8Array;
   private xs = new Float64Array(0);
   private ys = new Float64Array(0);

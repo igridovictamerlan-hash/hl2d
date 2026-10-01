@@ -33,7 +33,7 @@ describe('освещение и время суток', () => {
     expect(clockText(0.79)).toBe('18:57');
   });
 
-  test('источники света: фонари, бочки, узлы Альянса, комнаты, свет из люков в канализации', () => {
+  test('источники света: фонари, бочки, узлы Протектората, комнаты, свет из люков в канализации', () => {
     const sim = makeSim(12345);
     const { map } = sim;
     const street = sim.ctx.street;
@@ -47,7 +47,7 @@ describe('освещение и время суток', () => {
     const barrels = lights.filter((l) => l.color === LIGHTING.barrel.color);
     expect(barrels.length).toBe(street.barrels.length);
     expect(barrels.every((l) => !l.night && l.flicker > 0)).toBe(true);
-    // Узлы Альянса: сломан — не горит (ссылка на узел).
+    // Узлы Протектората: сломан — не горит (ссылка на узел).
     expect(lights.filter((l) => l.off).length).toBe(nodes.length);
     // Жилые комнаты — тёплый ночной свет, по лампе на комнату.
     const homes = map.poisOf('home').length;

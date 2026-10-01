@@ -10,8 +10,8 @@ const DEG = Math.PI / 180;
 
 /**
  * Кражи: карманная (вор за спиной у прохожего) и взлом раздатчика рационов (вор с отмычкой, пока
- * окно закрыто). После кражи вор «засвечен» CRIME.seenFor с — ГО, который его увидит, задержит за
- * кражу (LawSystem.observe → 'theft'). Жертва может заметить и закричать — ближайший ГО идёт на крик.
+ * окно закрыто). После кражи вор «засвечен» CRIME.seenFor с — ВС, который его увидит, задержит за
+ * кражу (LawSystem.observe → 'theft'). Жертва может заметить и закричать — ближайший ВС идёт на крик.
  */
 export class CrimeSystem {
   /** Счётчики (тесты, отладка). */
@@ -27,7 +27,7 @@ export class CrimeSystem {
     return Math.abs(angleDiff(toThief, victim.facing)) > P.behindDeg * DEG;
   }
 
-  /** Можно ли обокрасть: не власть, не вортигонт, не в разбирательстве, есть деньги. */
+  /** Можно ли обокрасть: не власть, не поднадзорный, не в разбирательстве, есть деньги. */
   victimOk(thief: Character, v: Character): boolean {
     return v !== thief && v.alive && !FACTIONS[v.faction].authority && v.faction !== 'vort' && v.law.phase === 'none' && v.money > 0;
   }
@@ -44,7 +44,7 @@ export class CrimeSystem {
     this.stats.pickpockets++;
     this.stats.stolen += amount;
     this.flag(thief);
-    if (thief.isPlayer) this.ctx.bus.emit('log', { text: `Вы вытащили у прохожего ${amount} токенов. Не попадитесь ГО на глаза ${CRIME.seenFor} с.`, kind: 'world' });
+    if (thief.isPlayer) this.ctx.bus.emit('log', { text: `Вы вытащили у прохожего ${amount} токенов. Не попадитесь ВС на глаза ${CRIME.seenFor} с.`, kind: 'world' });
     if (victim.isPlayer) this.ctx.bus.emit('log', { text: `У вас вытащили ${amount} токенов!`, kind: 'law' });
     else if (rng.chance(P.noticeChance)) this.cry(victim, thief);
     return amount;
@@ -71,13 +71,13 @@ export class CrimeSystem {
     this.stats.robberies++;
     this.stats.stolen += amount;
     this.flag(bandit);
-    if (bandit.isPlayer) this.ctx.bus.emit('log', { text: `Прохожий отдал ${amount} токенов. Уходите, пока не прибежали ГО.`, kind: 'world' });
+    if (bandit.isPlayer) this.ctx.bus.emit('log', { text: `Прохожий отдал ${amount} токенов. Уходите, пока не прибежали ВС.`, kind: 'world' });
     if (victim.isPlayer) this.ctx.bus.emit('log', { text: `Вас ограбили на ${amount} токенов!`, kind: 'law' });
     else {
       victim.say(rng.pick(['Не стреляй! Бери всё!', 'Ладно, ладно, забирай…']), this.ctx.law.now, 2);
       if (rng.chance(R.cryChance)) {
         const now = this.ctx.law.now;
-        victim.say(rng.pick(['Грабят!', 'Помогите! Грабят!', 'ГО! Бандит!']), now + 1.2, 2.5);
+        victim.say(rng.pick(['Грабят!', 'Помогите! Грабят!', 'ВС! Бандит!']), now + 1.2, 2.5);
         this.cry(victim, bandit, false);
       }
     }
@@ -95,12 +95,12 @@ export class CrimeSystem {
     if (this.ctx.rng.chance(H.lockpickBreak)) thief.inventory.remove('lockpick', 1);
     this.stats.hacks++;
     this.flag(thief);
-    this.ctx.bus.emit('log', { text: 'ГСР: раздатчик рационов взломан! Недостача на складе будки.', kind: 'world' });
+    this.ctx.bus.emit('log', { text: 'ТС: раздатчик рационов взломан! Недостача на складе будки.', kind: 'world' });
     return n;
   }
 
   /**
-   * Наблюдатель OBS отсканировал тело: убийца (если не сотрудник Альянса) объявлен в розыск,
+   * Наблюдатель OBS отсканировал тело: убийца (если не сотрудник Протектората) объявлен в розыск,
    * «Надзор» знает, где он сейчас. Возвращает текст для журнала.
    */
   investigate(corpse: Corpse, obs: Character): string {
@@ -108,7 +108,7 @@ export class CrimeSystem {
     const k = corpse.killer;
     const zone = this.ctx.map.zoneAtWorld(corpse.x, corpse.y)?.name ?? 'город';
     if (!k) return `Скан тела: ${corpse.name} — причина смерти не установлена.`;
-    if (FACTIONS[k.faction].authority) return `Скан тела: ${corpse.name} — ликвидирован сотрудником Альянса (${k.name}).`;
+    if (FACTIONS[k.faction].authority) return `Скан тела: ${corpse.name} — ликвидирован сотрудником Протектората (${k.name}).`;
     k.law.wanted = true;
     if (k.alive) {
       this.ctx.war.operatives.add(k);
@@ -122,7 +122,7 @@ export class CrimeSystem {
     return text;
   }
 
-  /** «Засветился»: ГО, увидевший вора в ближайшие секунды, задержит его. */
+  /** «Засветился»: ВС, увидевший вора в ближайшие секунды, задержит его. */
   private flag(thief: Character): void {
     thief.law.crimeUntil = this.ctx.law.now + CRIME.seenFor;
   }

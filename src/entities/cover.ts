@@ -7,7 +7,7 @@ export function apparentFaction(c: Character): FactionId {
   return c.disguised ? c.cover?.faction ?? 'citizen' : c.faction;
 }
 
-/** В маскировке под сотрудника Альянса (ГО, OTA): свои его не проверяют и не трогают. */
+/** В маскировке под сотрудника Протектората (ВС, OTA): свои его не проверяют и не трогают. */
 export function coverAuthority(c: Character): boolean {
   return c.disguised && !!c.cover && FACTIONS[c.cover.faction].authority;
 }

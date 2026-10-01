@@ -61,7 +61,7 @@ describe('походка', () => {
 });
 
 describe('снаряжение силового блока', () => {
-  test('у каждого юнита ГО свой стиль брони по эскизам; OTA — силовая броня', () => {
+  test('у каждого юнита ВС свой стиль брони по эскизам; OTA — силовая броня', () => {
     const ranks = FACTIONS.cp.ranks!;
     expect(Object.keys(PAWN.cpUnits).sort()).toEqual(ranks.map((r) => r.id).sort());
     expect(PAWN.cpUnits.pcu3.style).toBe('flak');

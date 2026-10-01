@@ -107,7 +107,7 @@ describe('живой мир', () => {
     expect(d0).toBeLessThan(GRENADE.radius);
   });
 
-  test('на КПП летят гранаты: у повстанцев и ГО они есть и идут в дело', { timeout: 120_000 }, () => {
+  test('на КПП летят гранаты: у повстанцев и ВС они есть и идут в дело', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     for (let t = 0; t < 180 * 60; t++) sim.step();

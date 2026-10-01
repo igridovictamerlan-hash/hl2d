@@ -68,7 +68,7 @@ export interface ItemDef {
 
 /**
  * Класс оружия — от него зависят пуля (вид и скорость), звук выстрела и хват: melee — дубинка,
- * blade — нож, rifle — автоматы (M4A4, AK-74), pulse — энерговинтовка AR2, sniper — снайперская
+ * blade — нож, rifle — автоматы (M4A4, AK-74), pulse — импульсная винтовка AR2, sniper — снайперская
  * винтовка, launcher — РПГ.
  */
 export type WeaponClass = 'melee' | 'blade' | 'pistol' | 'magnum' | 'smg' | 'rifle' | 'pulse' | 'shotgun' | 'crossbow' | 'sniper' | 'launcher';
@@ -201,7 +201,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     penetration: 0.35, draw: 0.6, aimMove: 0.6, noise: 2400, stun: 0, speed: 2500, pierce: 0.5, kick: 1.9, kickSide: 0.45, kickMax: 11, shake: 2.1,
   }),
   ar2: W({
-    id: 'ar2', name: 'Энерговинтовка AR2', class: 'pulse', mode: 'auto', damage: 70, pellets: 1, fireRate: 8,
+    id: 'ar2', name: 'Импульсная винтовка ИВЛ', class: 'pulse', mode: 'auto', damage: 70, pellets: 1, fireRate: 8,
     range: 640, effectiveRange: 440, falloff: 0.7, spreadHip: 5, spreadAim: 1, aimTime: 0.6, moveSpread: 2.5,
     recoil: 1.1, recovery: 9, maxRecoil: 6, magazine: 30, reload: 1.7, perRound: false, ammo: 'ar2',
     penetration: 0.55, draw: 0.6, aimMove: 0.6, noise: 2200, stun: 0, speed: 2200, pierce: 0.6, kick: 1.2, kickSide: 0.3, kickMax: 7, shake: 1.8,
@@ -247,7 +247,7 @@ export function weaponDps(w: WeaponDef): number {
 export const ITEMS: Record<ItemId, ItemDef> = {
   parcel: { id: 'parcel', name: 'Посылка', desc: 'Поручение с доски объявлений: отнести по адресу (метка на карте), E у дома.', kind: 'misc', stack: 1 },
   parcel_x: { id: 'parcel_x', name: 'Свёрток', desc: 'Тайное поручение подполья. Не попадайтесь на проверке CID — это контрабанда.', kind: 'misc', stack: 1 },
-  ration: { id: 'ration', name: 'Рацион', desc: 'Стандартный паёк Альянса. Сытость +60.', kind: 'food', stack: 5, food: 60 },
+  ration: { id: 'ration', name: 'Рацион', desc: 'Стандартный паёк Протектората. Сытость +60.', kind: 'food', stack: 5, food: 60 },
   bread: { id: 'bread', name: 'Хлеб', desc: 'Серый хлеб. Сытость +25.', kind: 'food', stack: 5, food: 25, price: 6 },
   water: { id: 'water', name: 'Вода Breen', desc: 'Банка «воды». Сытость +10.', kind: 'food', stack: 5, food: 10, price: 3 },
   canned: { id: 'canned', name: 'Консервы', desc: 'Редкость. Сытость +45.', kind: 'food', stack: 5, food: 45, price: 14 },
@@ -255,7 +255,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   bandage: { id: 'bandage', name: 'Бинт', desc: 'Лечение +15.', kind: 'medical', stack: 5, heal: 15, price: 9 },
   cigarettes: { id: 'cigarettes', name: 'Сигареты', desc: 'Ходовая валюта «чёрного рынка».', kind: 'misc', stack: 10, price: 5 },
   helmet: { id: 'helmet', name: 'Армейский шлем', desc: 'Шлем армии сопротивления: держит часть пуль в голову.', kind: 'gear', stack: 1, price: 60, gear: { slot: 'head', head: 0.45, color: '#55603a' } },
-  helmet_cp: { id: 'helmet_cp', name: 'Каска ГО', desc: 'Каска городской полиции: снята с тела.', kind: 'gear', stack: 1, price: 45, gear: { slot: 'head', head: 0.35, color: '#3f4a55' } },
+  helmet_cp: { id: 'helmet_cp', name: 'Каска ВС', desc: 'Каска городской полиции: снята с тела.', kind: 'gear', stack: 1, price: 45, gear: { slot: 'head', head: 0.35, color: '#3f4a55' } },
   vest: { id: 'vest', name: 'Бронежилет', desc: 'Мягкий бронежилет: держит часть пуль в корпус.', kind: 'gear', stack: 1, price: 70, gear: { slot: 'torso', torso: 0.4, color: '#4b5663' } },
   plate_vest: { id: 'plate_vest', name: 'Плитник', desc: 'Бронежилет с пластинами: крепче, но редкость.', kind: 'gear', stack: 1, price: 110, gear: { slot: 'torso', torso: 0.55, color: '#5d6b3a' } },
   backpack: { id: 'backpack', name: 'Рюкзак', desc: 'Больше места: +4 ячейки инвентаря, пока надет.', kind: 'gear', stack: 1, price: 40, gear: { slot: 'back', capacity: 4, color: '#5a6238' } },
@@ -264,10 +264,10 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   smoke_grenade: { id: 'smoke_grenade', name: 'Дымовая граната', desc: 'Дымовая завеса: сквозь неё не видно (пули летят).', kind: 'misc', stack: 3 },
   fire_grenade: { id: 'fire_grenade', name: 'Зажигательная граната', desc: 'Пламя на земле: кто в нём — горит.', kind: 'misc', stack: 3 },
   fake_cid: { id: 'fake_cid', name: 'Поддельная CID', desc: 'С чёрного рынка: «чистая» карта — снимает розыск (повстанца в лицо всё равно узнают).', kind: 'misc', stack: 1 },
-  toolkit: { id: 'toolkit', name: 'Набор инструментов', desc: 'Для ремонта (ГСР).', kind: 'tool', stack: 1, price: 20 },
+  toolkit: { id: 'toolkit', name: 'Набор инструментов', desc: 'Для ремонта (ТС).', kind: 'tool', stack: 1, price: 20 },
   ammo_pistol: { id: 'ammo_pistol', name: 'Патроны 9 мм', desc: 'Для пистолетов.', kind: 'ammo', stack: 120, ammo: 'pistol' },
   ammo_smg: { id: 'ammo_smg', name: 'Патроны 4.6 мм', desc: 'Для MP7.', kind: 'ammo', stack: 180, ammo: 'smg' },
-  ammo_ar2: { id: 'ammo_ar2', name: 'Энергоячейки AR2', desc: 'Для AR2.', kind: 'ammo', stack: 120, ammo: 'ar2' },
+  ammo_ar2: { id: 'ammo_ar2', name: 'Энергоячейки ИВЛ', desc: 'Для ИВЛ.', kind: 'ammo', stack: 120, ammo: 'ar2' },
   ammo_357: { id: 'ammo_357', name: 'Патроны .357', desc: 'Для револьвера.', kind: 'ammo', stack: 36, ammo: 'magnum' },
   ammo_buckshot: { id: 'ammo_buckshot', name: 'Дробь 12 к.', desc: 'Для SPAS-12.', kind: 'ammo', stack: 48, ammo: 'buckshot' },
   ammo_bolt: { id: 'ammo_bolt', name: 'Болты', desc: 'Для арбалета.', kind: 'ammo', stack: 20, ammo: 'bolt' },
@@ -275,20 +275,20 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   ammo_545: { id: 'ammo_545', name: 'Патроны 5.45', desc: 'Для АК-74.', kind: 'ammo', stack: 150, ammo: 'r545' },
   ammo_338: { id: 'ammo_338', name: 'Патроны .338', desc: 'Для снайперской винтовки.', kind: 'ammo', stack: 30, ammo: 'r338' },
   ammo_rocket: { id: 'ammo_rocket', name: 'Выстрел РПГ', desc: 'Ракета для РПГ.', kind: 'ammo', stack: 4, ammo: 'rocket' },
-  stunstick: { id: 'stunstick', name: 'Дубинка', desc: 'Электродубинка ГО: бьёт и оглушает (замедляет).', kind: 'weapon', stack: 1 },
+  stunstick: { id: 'stunstick', name: 'Дубинка', desc: 'Электродубинка ВС: бьёт и оглушает (замедляет).', kind: 'weapon', stack: 1 },
   knife: { id: 'knife', name: 'Нож', desc: 'Тихо. В спину — вдвое страшнее и мимо брони: два удара валят патрульного.', kind: 'weapon', stack: 1 },
   m4a4: { id: 'm4a4', name: 'M4A4', desc: 'Автомат: точный, 30 патронов.', kind: 'weapon', stack: 1 },
   ak74: { id: 'ak74', name: 'АК-74', desc: 'Автомат: чуть мощнее и сильнее уводит.', kind: 'weapon', stack: 1 },
   sniper: { id: 'sniper', name: 'Снайперская винтовка', desc: 'Долго целиться, зато через полкарты и сквозь броню.', kind: 'weapon', stack: 1 },
   rpg: { id: 'rpg', name: 'РПГ', desc: 'Ракета взрывается при попадании: против укрытий и кучек.', kind: 'weapon', stack: 1 },
-  usp: { id: 'usp', name: 'USP Match', desc: 'Табельный пистолет ГО.', kind: 'weapon', stack: 1 },
+  usp: { id: 'usp', name: 'USP Match', desc: 'Табельный пистолет ВС.', kind: 'weapon', stack: 1 },
   revolver: { id: 'revolver', name: 'Револьвер .357', desc: 'Мощный, но 6 патронов и сильная отдача.', kind: 'weapon', stack: 1 },
   spas12: { id: 'spas12', name: 'SPAS-12', desc: 'Дробовик: страшен вблизи, бесполезен вдали.', kind: 'weapon', stack: 1 },
   crossbow: { id: 'crossbow', name: 'Арбалет', desc: 'Тихий и точный, но долго целиться и заряжать.', kind: 'weapon', stack: 1 },
-  mp7: { id: 'mp7', name: 'MP7', desc: 'Пистолет-пулемёт ГО.', kind: 'weapon', stack: 1 },
-  ar2: { id: 'ar2', name: 'Энерговинтовка AR2', desc: 'Импульсная винтовка Альянса (у повстанцев — трофейная): пробивает укрытия.', kind: 'weapon', stack: 1 },
+  mp7: { id: 'mp7', name: 'MP7', desc: 'Пистолет-пулемёт ВС.', kind: 'weapon', stack: 1 },
+  ar2: { id: 'ar2', name: 'Импульсная винтовка ИВЛ', desc: 'Импульсная винтовка Протектората (у повстанцев — трофейная): пробивает укрытия.', kind: 'weapon', stack: 1 },
   rebel_pistol: { id: 'rebel_pistol', name: 'Самодельный пистолет', desc: 'Оружие сопротивления.', kind: 'weapon', stack: 1 },
-  rebel_smg: { id: 'rebel_smg', name: 'Трофейный MP7', desc: 'Отбит у ГО.', kind: 'weapon', stack: 1 },
+  rebel_smg: { id: 'rebel_smg', name: 'Трофейный MP7', desc: 'Отбит у ВС.', kind: 'weapon', stack: 1 },
 };
 
 export const AMMO_ITEM: Record<AmmoType, ItemId> = {
@@ -296,7 +296,7 @@ export const AMMO_ITEM: Record<AmmoType, ItemId> = {
   r556: 'ammo_556', r545: 'ammo_545', r338: 'ammo_338', rocket: 'ammo_rocket',
 };
 
-/** Стартовые наборы по ролям (и специализациям ГО). Первое оружие в списке — в руках. */
+/** Стартовые наборы по ролям (и специализациям ВС). Первое оружие в списке — в руках. */
 export const KITS: Record<string, [ItemId, number][]> = {
   citizen: [['water', 1]],
   cwu: [['toolkit', 1], ['bread', 1]],
@@ -315,7 +315,7 @@ export const KITS: Record<string, [ItemId, number][]> = {
   /** Охрана, инспектор, глава силового блока: MP7 и пистолет. */
   cp_qm: [['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['bandage', 1]],
   cp_guard: [['mp7', 1], ['ammo_smg', 120], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 1]],
-  /** OTA.ALPHA и OTA.KING: энерговинтовка AR2, пистолет, гранаты. */
+  /** OTA.ALPHA и OTA.KING: импульсная винтовка AR2, пистолет, гранаты. */
   ota_alpha: [['ar2', 1], ['ammo_ar2', 120], ['usp', 1], ['ammo_pistol', 36], ['grenade', 2], ['bandage', 1]],
   /** OTA.KING: ещё и РПГ. */
   ota_king: [['ar2', 1], ['ammo_ar2', 180], ['rpg', 1], ['ammo_rocket', 3], ['usp', 1], ['ammo_pistol', 36], ['grenade', 3], ['medkit', 1], ['bandage', 1]],
@@ -340,12 +340,12 @@ export const KITS: Record<string, [ItemId, number][]> = {
   /** Армия сопротивления: глава, ветераны, подрывник; HYDRA — спецотряд. */
   rebel_recruit: [['rebel_pistol', 1], ['ammo_pistol', 36], ['bandage', 2]],
   rebel_soldier: [['ak74', 1], ['ammo_545', 120], ['rebel_pistol', 1], ['ammo_pistol', 20], ['bandage', 2], ['grenade', 1]],
-  /** Патрик: энерговинтовка, РПГ, револьвер. */
+  /** Патрик: импульсная винтовка, РПГ, револьвер. */
   rebel_leader: [['ar2', 1], ['ammo_ar2', 150], ['rpg', 1], ['ammo_rocket', 3], ['revolver', 1], ['ammo_357', 18], ['medkit', 2], ['bandage', 2], ['grenade', 2]],
   rebel_veteran: [['ak74', 1], ['ammo_545', 150], ['rebel_pistol', 1], ['ammo_pistol', 20], ['bandage', 3], ['grenade', 2], ['smoke_grenade', 1]],
   rebel_demo: [['rebel_smg', 1], ['ammo_smg', 135], ['grenade', 8], ['fire_grenade', 2], ['bandage', 2]],
-  // HYDRA: RCT — M4A4 и гранаты (больше, чем у бойцов), сержант — энерговинтовка и пистолеты,
-  // снайпер — снайперская винтовка, коммандос — энерговинтовка, пистолет, много гранат.
+  // HYDRA: RCT — M4A4 и гранаты (больше, чем у бойцов), сержант — импульсная винтовка и пистолеты,
+  // снайпер — снайперская винтовка, коммандос — импульсная винтовка, пистолет, много гранат.
   hydra_rct: [['m4a4', 1], ['ammo_556', 150], ['usp', 1], ['ammo_pistol', 36], ['bandage', 2], ['grenade', 4], ['smoke_grenade', 2]],
   hydra_sergeant: [['ar2', 1], ['ammo_ar2', 150], ['usp', 1], ['ammo_pistol', 36], ['revolver', 1], ['ammo_357', 18], ['bandage', 3], ['grenade', 2]],
   hydra_sniper: [['sniper', 1], ['ammo_338', 30], ['usp', 1], ['ammo_pistol', 36], ['bandage', 2], ['smoke_grenade', 1]],
@@ -361,7 +361,7 @@ export const KITS: Record<string, [ItemId, number][]> = {
 
 
 /**
- * Снаряжение с тел: у убитого с бронёй формы (ГО, армия сопротивления) с шансом dropChance в луте
+ * Снаряжение с тел: у убитого с бронёй формы (ВС, армия сопротивления) с шансом dropChance в луте
  * остаётся шлем и бронежилет его стороны — их можно снять и надеть.
  */
 export const GEAR = {

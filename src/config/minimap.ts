@@ -54,7 +54,7 @@ export const MINIMAP = {
     /** Свой дом игрока. */
     home: '#f2e6c9',
     arsenal: '#8fb88a',
-    /** Тюрьма Альянса. */
+    /** Тюрьма Протектората. */
     prison: '#c8a2e8',
     hatch: '#b8b0a0',
     node: '#6ec2ff',

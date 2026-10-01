@@ -37,7 +37,7 @@ function calm(sim: Sim): void {
   sim.insurgency.paused = true;
 }
 
-describe('профессии ГСР: цепочка снабжения', () => {
+describe('профессии ТС: цепочка снабжения', () => {
   test('фасовщик собирает коробки на заводе, курьер несёт их на склад будки', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
@@ -75,7 +75,7 @@ describe('профессии ГСР: цепочка снабжения', () => {
     expect(eco.rationStock).toBe(2);
   });
 
-  test('уборщик убирает мусор за плату, вортигонт тоже; отброс находит в мусоре чаще', { timeout: 120_000 }, () => {
+  test('уборщик убирает мусор за плату, поднадзорный тоже; отброс находит в мусоре чаще', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
     const labor = sim.labor;
@@ -107,7 +107,7 @@ describe('профессии ГСР: цепочка снабжения', () => {
     expect(outcast).toBeGreaterThan(plain * 1.5);
   });
 
-  test('медик ГСР лечит гражданина за плату, сотрудника ГО — бесплатно', () => {
+  test('медик ТС лечит гражданина за плату, сотрудника ВС — бесплатно', () => {
     const sim = makeSim(12345);
     const m = createCharacter(sim.entities, sim.ctx.rng, 'cwu', 100, 100);
     equipKit(m, 'cwu_medic', sim.ctx);
@@ -129,7 +129,7 @@ describe('профессии ГСР: цепочка снабжения', () => {
     expect(sim.labor.treat(m, poor)).toMatch(/нет/);
   });
 
-  test('в городе ГСР работают сами: завод, доставка, уборка, раздача', { timeout: 120_000 }, () => {
+  test('в городе ТС работают сами: завод, доставка, уборка, раздача', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
     spawnPopulation(sim.ctx, 20);
@@ -173,7 +173,7 @@ describe('лоялисты', () => {
     expect(vl).toBeNull();
   });
 
-  test('/охрана: доверенному лоялисту двое патрульных ГО идут в сопровождение', { timeout: 60_000 }, () => {
+  test('/охрана: доверенному лоялисту двое патрульных ВС идут в сопровождение', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
     const p = poiWorld(sim.ctx, 'plaza_center')!;
@@ -202,8 +202,8 @@ describe('лоялисты', () => {
   });
 });
 
-describe('граждане: вор, вортигонты', () => {
-  test('карманная кража — только со спины; ГО, увидевший вора после кражи, задерживает за кражу', () => {
+describe('граждане: вор, поднадзорные', () => {
+  test('карманная кража — только со спины; ВС, увидевший вора после кражи, задерживает за кражу', () => {
     const sim = makeSim(12345);
     const p = poiWorld(sim.ctx, 'plaza_center')!;
     const victim = createCharacter(sim.entities, sim.ctx.rng, 'citizen', p.x, p.y);
@@ -218,7 +218,7 @@ describe('граждане: вор, вортигонты', () => {
     const got = sim.crime.pickpocket(thief, victim);
     expect(got).toBeGreaterThan(0);
     expect(victim.money).toBe(30 - got);
-    // ГО рядом, смотрит на вора.
+    // ВС рядом, смотрит на вора.
     const cp = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x - 80, p.y);
     cp.facing = 0;
     expect(sim.law.observe(cp, thief)).toBe('theft');
@@ -253,7 +253,7 @@ describe('граждане: вор, вортигонты', () => {
     expect(sim.crime.stats.pickpockets).toBeGreaterThan(0);
   });
 
-  test('вортигонтов ГО не проверяет', () => {
+  test('поднадзорных ВС не проверяет', () => {
     const sim = makeSim(12345);
     const p = poiWorld(sim.ctx, 'plaza_center')!;
     const v = createCharacter(sim.entities, sim.ctx.rng, 'vort', p.x + 60, p.y);

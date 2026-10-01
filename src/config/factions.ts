@@ -2,7 +2,7 @@ import type { ProfessionId } from './professions';
 
 export type FactionId = 'citizen' | 'cp' | 'cwu' | 'rebel' | 'ota' | 'admin' | 'vort';
 
-/** Ранг внутри фракции: у ГО и повстанцев цвет кружка зависит от ранга. */
+/** Ранг внутри фракции: у ВС и повстанцев цвет кружка зависит от ранга. */
 export interface RankDef {
   id: string;
   name: string;
@@ -54,45 +54,45 @@ export interface CpUnitDef extends RankDef {
 
 /**
  * Силовой блок города — юниты как на сервере. Номер в списке — Character.rank у фракции cp:
- *  PCU (городская полиция): RCT.PCU — рекрут на посту у входов в КПП, Нексус и в людных местах;
+ *  PCU (городская полиция): RCT.PCU — рекрут на посту у входов в КПП, Управа и в людных местах;
  *  PCU.03 — патруль; PCU.02 — ведёт патруль; PCU.01 (сержант) — ведёт патруль, MP7;
- *  PCU.OFC — офицер: построения на плацу Нексуса, надзор за полицией (их 2–3).
+ *  PCU.OFC — офицер: построения на плацу Управы, надзор за полицией (их 2–3).
  *  SU (спецотряд): SU.03 — спецназ на КПП; SU.02 — медик и техник (КПП, сканер в городе);
  *  SU.01 — следователь с патрулями (сканирует тела, ищет убийц); SU.GUARD — охрана инспекторов,
- *  Администратора и лоялистов (охраняют по очереди); SU.INSP — инспектор (2 на город).
- *  CMD.EPU — глава силового блока: с Администратором, из Нексуса — только с охраной.
- *  SU.QM — кладовщик склада Альянса (опись, выдача боекомплекта у окна); в конце списка, чтобы номера
+ *  Коменданта и лоялистов (охраняют по очереди); SU.INSP — инспектор (2 на город).
+ *  CMD.EPU — глава силового блока: с Комендантом, из Управы — только с охраной.
+ *  SU.QM — кладовщик склада Протектората (опись, выдача боекомплекта у окна); в конце списка, чтобы номера
  *  прежних юнитов в сохранениях не сдвинулись.
  */
 const CP_RANKS: readonly CpUnitDef[] = [
-  { id: 'rct', unit: 'rct', name: 'Рекрут (RCT.PCU)', short: 'RCT.PCU', color: '#a9dcff', outline: '#4f86ad', group: 'pcu', hp: 75, kit: 'cp', command: 0, skills: [], desc: 'Стоит на посту у входов в КПП и Нексус, в людных местах; дубинка и пистолет.' },
+  { id: 'rct', unit: 'rct', name: 'Рекрут (RCT.PCU)', short: 'RCT.PCU', color: '#a9dcff', outline: '#4f86ad', group: 'pcu', hp: 75, kit: 'cp', command: 0, skills: [], desc: 'Стоит на посту у входов в КПП и Управу, в людных местах; дубинка и пистолет.' },
   { id: 'pcu3', unit: 'pcu3', name: 'Юнит PCU.03', short: 'PCU.03', color: '#84c5fb', outline: '#3d73a2', group: 'pcu', hp: 90, kit: 'cp', command: 1, skills: [], desc: 'Патрульный: проверки CID, штрафы, аресты. Пистолет.' },
   { id: 'pcu2', unit: 'pcu2', name: 'Юнит PCU.02', short: 'PCU.02', color: '#62acf3', outline: '#2f6396', group: 'pcu', hp: 100, kit: 'cp', command: 2, skills: [], desc: 'Ведёт патрульную группу, указания младшим. Пистолет.' },
   { id: 'pcu1', unit: 'pcu1', name: 'Сержант (PCU.01)', short: 'PCU.01', color: '#4290e6', outline: '#23548c', group: 'pcu', hp: 110, kit: 'cp_sgt', command: 3, skills: [], desc: 'Сержант: ведёт группу, указания всем ниже. MP7 и пистолет.' },
-  { id: 'ofc', unit: 'ofc', name: 'Офицер (PCU.OFC)', short: 'PCU.OFC', color: '#2e73d2', outline: '#19437d', group: 'pcu', hp: 150, kit: 'cp_sgt', command: 4, skills: [], desc: 'Построения на плацу Нексуса, надзор за всей городской полицией. Терминал кодов.' },
-  { id: 'su3', unit: 'su3', name: 'Спецназ (SU.03)', short: 'SU.03', color: '#5fc4b0', outline: '#27685c', group: 'su', hp: 120, kit: 'cp_su', command: 2, skills: ['barrier'], desc: 'Держит КПП вместе с OTA. MP7 и пистолет, G — бетонный блок.' },
+  { id: 'ofc', unit: 'ofc', name: 'Офицер (PCU.OFC)', short: 'PCU.OFC', color: '#2e73d2', outline: '#19437d', group: 'pcu', hp: 150, kit: 'cp_sgt', command: 4, skills: [], desc: 'Построения на плацу Управы, надзор за всей городской полицией. Терминал кодов.' },
+  { id: 'su3', unit: 'su3', name: 'Спецназ (SU.03)', short: 'SU.03', color: '#5fc4b0', outline: '#27685c', group: 'su', hp: 120, kit: 'cp_su', command: 2, skills: ['barrier'], desc: 'Держит КПП вместе с Легионом. MP7 и пистолет, G — бетонный блок.' },
   { id: 'su2', unit: 'su2', name: 'Медик-техник (SU.02)', short: 'SU.02', color: '#48b4d0', outline: '#1f5f70', group: 'su', hp: 125, kit: 'cp_su_medic', command: 2, skills: ['medic', 'drone'], desc: 'Лечит своих на КПП (G), запускает сканер (G в городе). MP7 и пистолет.' },
   { id: 'su1', unit: 'su1', name: 'Следователь (SU.01)', short: 'SU.01', color: '#a08ae0', outline: '#4d3f7d', group: 'su', hp: 115, kit: 'cp', command: 3, skills: ['investigate'], desc: 'Ходит с патрулями, сканирует тела (E) и находит убийц. Проверка CID быстрее.' },
-  { id: 'guard', unit: 'guard', name: 'Охрана (SU.GUARD)', short: 'SU.GUARD', color: '#3f9c86', outline: '#1d4d42', group: 'su', hp: 140, kit: 'cp_guard', command: 2, skills: [], desc: 'Охраняет инспекторов, Администратора, EPU и лоялистов — по очереди. MP7.' },
-  { id: 'insp', unit: 'insp', name: 'Инспектор (SU.INSP)', short: 'SU.INSP', color: '#2f7fa0', outline: '#143c4d', group: 'su', hp: 140, kit: 'cp_guard', command: 5, skills: ['investigate'], desc: 'Надзор за SU и работой ГСР, указания офицерам. Всегда с охраной.' },
-  { id: 'epu', unit: 'epu', name: 'Глава силового блока (CMD.EPU)', short: 'CMD.EPU', color: '#d9b24a', outline: '#6e5516', group: 'cmd', hp: 200, kit: 'cp_guard', command: 6, skills: [], desc: 'Командует всеми. Сидит с Администратором, из Нексуса — только с охраной.' },
-  { id: 'qm', unit: 'qm', name: 'Кладовщик (SU.QM)', short: 'SU.QM', color: '#7fae7a', outline: '#3a5a36', group: 'su', hp: 110, kit: 'cp_qm', command: 1, skills: [], desc: 'Ведёт склад Альянса на окраине: опись, выдача боекомплекта ГО у окна (E). Пистолет.' },
+  { id: 'guard', unit: 'guard', name: 'Охрана (SU.GUARD)', short: 'SU.GUARD', color: '#3f9c86', outline: '#1d4d42', group: 'su', hp: 140, kit: 'cp_guard', command: 2, skills: [], desc: 'Охраняет инспекторов, Коменданта, EPU и лоялистов — по очереди. MP7.' },
+  { id: 'insp', unit: 'insp', name: 'Инспектор (SU.INSP)', short: 'SU.INSP', color: '#2f7fa0', outline: '#143c4d', group: 'su', hp: 140, kit: 'cp_guard', command: 5, skills: ['investigate'], desc: 'Надзор за SU и работой ТС, указания офицерам. Всегда с охраной.' },
+  { id: 'epu', unit: 'epu', name: 'Глава силового блока (CMD.EPU)', short: 'CMD.EPU', color: '#d9b24a', outline: '#6e5516', group: 'cmd', hp: 200, kit: 'cp_guard', command: 6, skills: [], desc: 'Командует всеми. Сидит с Комендантом, из Управы — только с охраной.' },
+  { id: 'qm', unit: 'qm', name: 'Кладовщик (SU.QM)', short: 'SU.QM', color: '#7fae7a', outline: '#3a5a36', group: 'su', hp: 110, kit: 'cp_qm', command: 1, skills: [], desc: 'Ведёт склад Протектората на окраине: опись, выдача боекомплекта ВС у окна (E). Пистолет.' },
 ];
 
 /** Номер юнита (Character.rank) по id. */
 export const CP_UNIT = Object.fromEntries(CP_RANKS.map((r, k) => [r.unit, k])) as Record<CpUnitId, number>;
 
-/** Описание юнита ГО по рангу. */
+/** Описание юнита ВС по рангу. */
 export function cpUnit(rank: number): CpUnitDef {
   return CP_RANKS[Math.max(0, Math.min(CP_RANKS.length - 1, rank))];
 }
 
-/** Есть ли у персонажа умение юнита ГО. */
+/** Есть ли у персонажа умение юнита ВС. */
 export function cpHas(c: { faction: FactionId; rank: number }, skill: CpSkill): boolean {
   return c.faction === 'cp' && cpUnit(c.rank).skills.includes(skill);
 }
 
-/** Юнит ГО такого id? */
+/** Юнит ВС такого id? */
 export function isCpUnit(c: { faction: FactionId; rank: number }, unit: CpUnitId): boolean {
   return c.faction === 'cp' && cpUnit(c.rank).unit === unit;
 }
@@ -120,7 +120,7 @@ const RED = { color: '#ff5a48', outline: '#6e1a12' };
  * профессии, rebelUnitOf): армия — новобранец 75 HP (пистолет), солдат 90 (пистолет, MP7), ветеран
  * 110 (MP7, пистолет), ветеран-медик 100 (лечит всех нуждающихся, на рожон не лезет), подрывник и
  * пиротехник 130; глава восстания Патрик 250 (броня как у OTA, без шлема, красный берет).
- * HYDRA (красные ники): RCT 150 (MP7, пистолет, гранат больше), сержант 170 (энерговинтовка,
+ * HYDRA (красные ники): RCT 150 (MP7, пистолет, гранат больше), сержант 170 (импульсная винтовка,
  * пистолеты), снайпер 110 (оружие — после обновления боевой системы), коммандос 200 (один на
  * сервер, при Патрике — ответ OTA). Партизаны (2) и спецагент (1) — под личиной, ники скрыты.
  */
@@ -131,13 +131,13 @@ export const REBEL_RANKS: readonly RebelUnitDef[] = [
   { id: 'medic', unit: 'medic', profession: 'rebel_medic', name: 'Ветеран-медик', short: 'Медик', hp: 100, elite: false, ...YELLOW, desc: 'Лечит всех нуждающихся, на рожон не лезет.' },
   { id: 'demo', unit: 'demo', profession: 'demolitionist', name: 'Подрывник', short: 'Подрывник', hp: 130, elite: false, ...YELLOW, desc: 'Много гранат.' },
   { id: 'pyro', unit: 'pyro', profession: 'pyro', name: 'Пиротехник', short: 'Пиро', hp: 130, elite: false, ...YELLOW, desc: 'Огонь: поджигающие гранаты и болты.' },
-  { id: 'leader', unit: 'leader', profession: 'rebel_leader', name: 'Глава восстания', short: 'Глава', hp: 250, elite: true, ...RED, desc: 'Патрик: броня как у OTA, красный берет.' },
-  { id: 'hydra_rct', unit: 'hydra_rct', profession: 'hydra_rct', name: 'RCT HYDRA', short: 'RCT HYDRA', hp: 150, elite: true, ...RED, desc: 'MP7, пистолет, гранат больше, чем у бойцов.' },
-  { id: 'hydra_sergeant', unit: 'hydra_sergeant', profession: 'hydra_sergeant', name: 'Сержант HYDRA', short: 'Сержант HYDRA', hp: 170, elite: true, ...RED, desc: 'Энерговинтовка и пистолеты.' },
-  { id: 'hydra_sniper', unit: 'hydra_sniper', profession: 'hydra_sniper', name: 'Снайпер HYDRA', short: 'Снайпер HYDRA', hp: 110, elite: true, ...RED, desc: 'Пока с пистолетом: винтовка — после обновления боевой системы.' },
-  { id: 'commando', unit: 'commando', profession: 'commando', name: 'Коммандос HYDRA', short: 'Коммандос', hp: 200, elite: true, ...RED, desc: 'Один на сервер: при Патрике, ответ OTA.' },
-  { id: 'partisan', unit: 'partisan', profession: 'partisan', name: 'Партизан', short: 'Партизан', hp: 100, elite: false, ...YELLOW, desc: 'Под видом гражданина или ГСР.' },
-  { id: 'agent', unit: 'agent', profession: 'spec_agent', name: 'Спецагент', short: 'Спецагент', hp: 120, elite: false, ...YELLOW, desc: 'Переодевается в убитых и OTA.' },
+  { id: 'leader', unit: 'leader', profession: 'rebel_leader', name: 'Глава восстания', short: 'Глава', hp: 250, elite: true, ...RED, desc: 'Патрик: броня как у Легиона, красный берет.' },
+  { id: 'hydra_rct', unit: 'hydra_rct', profession: 'hydra_rct', name: 'RCT «Грозы»', short: 'RCT «Грозы»', hp: 150, elite: true, ...RED, desc: 'MP7, пистолет, гранат больше, чем у бойцов.' },
+  { id: 'hydra_sergeant', unit: 'hydra_sergeant', profession: 'hydra_sergeant', name: 'Сержант «Грозы»', short: 'Сержант «Грозы»', hp: 170, elite: true, ...RED, desc: 'Импульсная винтовка и пистолеты.' },
+  { id: 'hydra_sniper', unit: 'hydra_sniper', profession: 'hydra_sniper', name: 'Снайпер «Грозы»', short: 'Снайпер «Грозы»', hp: 110, elite: true, ...RED, desc: 'Пока с пистолетом: винтовка — после обновления боевой системы.' },
+  { id: 'commando', unit: 'commando', profession: 'commando', name: 'Коммандос «Грозы»', short: 'Коммандос', hp: 200, elite: true, ...RED, desc: 'Один на сервер: при Патрике, ответ Легиону.' },
+  { id: 'partisan', unit: 'partisan', profession: 'partisan', name: 'Партизан', short: 'Партизан', hp: 100, elite: false, ...YELLOW, desc: 'Под видом гражданина или ТС.' },
+  { id: 'agent', unit: 'agent', profession: 'spec_agent', name: 'Спецагент', short: 'Спецагент', hp: 120, elite: false, ...YELLOW, desc: 'Переодевается в убитых стражников.' },
 ];
 
 /** Номер юнита сопротивления по id. */
@@ -153,45 +153,45 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
   citizen: {
     id: 'citizen', role: 'Гражданин', plural: 'Граждане',
     color: '#9a9ea4', outline: '#4a4d52', label: '#b9bdc2', yieldPriority: 1, authority: false, selectable: true,
-    description: 'Живёт по правилам Альянса: очереди, работа, проверки документов.',
+    description: 'Живёт по правилам Протектората: очереди, работа, проверки документов.',
   },
   cwu: {
-    id: 'cwu', role: 'ГСР', plural: 'Гражданский союз рабочих',
+    id: 'cwu', role: 'ТС', plural: 'Трудовой союз',
     color: '#e6dc6e', outline: '#6f6a1f', label: '#efe79a', yieldPriority: 2, authority: false, selectable: true,
-    description: 'Гражданский союз рабочих: завод рационов, доставка, раздача, уборка улиц, медпомощь.',
+    description: 'Трудовой союз: завод рационов, доставка, раздача, уборка улиц, медпомощь.',
   },
   rebel: {
     id: 'rebel', role: 'Повстанец', plural: 'Повстанцы',
     color: YELLOW.color, outline: YELLOW.outline, label: YELLOW.color, yieldPriority: 1,
     authority: false, selectable: true,
-    description: 'В розыске: при проверке CID арест. Прячьтесь от патрулей ГО.',
+    description: 'В розыске: при проверке CID арест. Прячьтесь от патрулей ВС.',
     ranks: REBEL_RANKS,
   },
   cp: {
-    id: 'cp', role: 'ГО', plural: 'Гражданская оборона',
+    id: 'cp', role: 'ВС', plural: 'Внутренняя стража',
     color: CP_RANKS[0].color, outline: CP_RANKS[0].outline, label: '#9cc9f5', yieldPriority: 4,
     authority: true, selectable: true,
     description: 'Силовой блок: городская полиция PCU, спецотряд SU, командование CMD.',
     ranks: CP_RANKS,
   },
   ota: {
-    id: 'ota', role: 'OTA', plural: 'Сверхчеловеческий отряд',
+    id: 'ota', role: 'Легионер', plural: 'Легион',
     color: '#1a2554', outline: '#060b20', label: '#7d8fd0', yieldPriority: 5, authority: true, selectable: false,
-    description: 'OTA.ALPHA и командир OTA.KING: воюют только на КПП, по городу не ходят.',
+    description: 'LGN.ALPHA и командир LGN.PRAETOR: воюют только на КПП, по городу не ходят.',
   },
   vort: {
-    id: 'vort', role: 'Вортигонт', plural: 'Вортигонты',
-    color: '#7f9a62', outline: '#34442a', label: '#a9c98a', yieldPriority: 0, authority: false, selectable: true,
-    description: 'Порабощённая раса: в ошейниках, убирают улицы города. Документы не проверяют.',
+    id: 'vort', role: 'Поднадзорный', plural: 'Поднадзорные',
+    color: '#8a8e93', outline: '#3d4044', label: '#c4c7cb', yieldPriority: 0, authority: false, selectable: true,
+    description: 'Бывшие заключённые под надзором: роба с номером, ошейник-маячок, убирают улицы. Документы не проверяют.',
   },
   admin: {
-    id: 'admin', role: 'Администратор', plural: 'Администрация',
+    id: 'admin', role: 'Комендант', plural: 'Администрация',
     color: '#f2f2f2', outline: '#8a8a8a', label: '#ffffff', yieldPriority: 6, authority: true, selectable: false,
     description: 'Один на город. Объявляет комендантский час и тревоги (этап 4).',
   },
 };
 
-/** Группы силового блока (Character.division у ГО — по юниту). */
+/** Группы силового блока (Character.division у ВС — по юниту). */
 export type DivisionId = 'pcu' | 'su' | 'cmd';
 
 export interface DivisionDef {
@@ -208,7 +208,7 @@ export const CP_DIVISIONS: Record<DivisionId, DivisionDef> = {
   cmd: { id: 'cmd', short: 'CMD', name: 'Командование (CMD)', color: '#e0c070', desc: 'Глава силового блока города.' },
 };
 
-/** Группа юнита ГО по рангу. */
+/** Группа юнита ВС по рангу. */
 export function cpGroup(rank: number): DivisionId {
   return cpUnit(rank).group;
 }

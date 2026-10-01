@@ -77,7 +77,7 @@ describe('видимость и двери', () => {
   });
 });
 
-describe('ГО: проверка, арест, КПЗ', () => {
+describe('ВС: проверка, арест, КПЗ', () => {
   test('проверка CID разыскиваемого → арест → конвой → камера → отпущен после срока', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const { entities, ctx, law, nav } = sim;
@@ -108,7 +108,7 @@ describe('ГО: проверка, арест, КПЗ', () => {
     expect(t.law.wanted).toBe(false);
   });
 
-  test('беглец: ГО гонится и либо задерживает, либо объявляет в розыск', { timeout: 60_000 }, () => {
+  test('беглец: ВС гонится и либо задерживает, либо объявляет в розыск', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const { entities, ctx, law, nav } = sim;
     const [a, b] = pairInSight(sim, 96);
@@ -156,7 +156,7 @@ describe('живой город со всеми фракциями', () => {
     const C = ROSTER.cp;
     const city = C.nexusPosts + C.publicPosts + C.squads * (1 + C.squadFollowers) + C.investigators + C.technicians + C.officers + C.inspectors + C.guards + C.epu;
     const depot = sim.arsenal.present ? 1 + ARSENAL.guards + ARSENAL.convoy.crew : 0;
-    // Тюрьма Альянса — охрана SU.GUARD и начальник (третий SU.INSP).
+    // Тюрьма Протектората — охрана SU.GUARD и начальник (третий SU.INSP).
     const prison = sim.ctx.prison.present ? PRISON.guards + 1 : 0;
     expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison);
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));

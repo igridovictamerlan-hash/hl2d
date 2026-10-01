@@ -44,7 +44,7 @@ export interface Cell {
   common: boolean;
   /** Места: у одиночной — одно в центре, у общей — по площади. */
   slots: CellSlot[];
-  /** Камера тюрьмы Альянса: повстанцев держат бессрочно, пока не освободят свои. */
+  /** Камера тюрьмы Протектората: повстанцев держат бессрочно, пока не освободят свои. */
   prison: boolean;
   /** Дверь выбита спецагентом: до этого времени не запирается. */
   brokenUntil: number;
@@ -62,7 +62,7 @@ export function isUnderground(c: Character): boolean {
   return c.faction === 'rebel' && (c.profession === 'partisan' || c.profession === 'spec_agent');
 }
 
-/** Кого ведут в тюрьму Альянса: всех повстанцев — армию, подполье, перебежчиков. */
+/** Кого ведут в тюрьму Протектората: всех повстанцев — армию, подполье, перебежчиков. */
 export function belongsInPrison(c: Character): boolean {
   return c.faction === 'rebel';
 }
@@ -73,15 +73,15 @@ function confiscable(id: ItemId): boolean {
   return k === 'weapon' || k === 'ammo' || id === 'grenade' || id === 'smoke_grenade' || id === 'fire_grenade';
 }
 
-/** Кого сажают в общую камеру: граждан, ГСР и вортигонтов (не бойцов армии). */
+/** Кого сажают в общую камеру: граждан, ТС и поднадзорных (не бойцов армии). */
 function belongsInCommon(c: Character): boolean {
   return c.faction === 'citizen' || c.faction === 'cwu' || c.faction === 'vort';
 }
 
 /**
- * Закон Сити-17: кто что нарушил на глазах у ГО, приказы «стоять», проверка CID, штрафы,
+ * Закон Верхнеречье: кто что нарушил на глазах у ВС, приказы «стоять», проверка CID, штрафы,
  * аресты, камеры КПЗ и сроки. Решения за NPC (побежит ли) принимаются здесь.
- * Мозги ГО (CpBrain) решают, КОГДА вмешаться; эта система — ЧТО из этого следует.
+ * Мозги ВС (CpBrain) решают, КОГДА вмешаться; эта система — ЧТО из этого следует.
  */
 export class LawSystem {
   readonly cells: Cell[] = [];
@@ -90,7 +90,7 @@ export class LawSystem {
   readonly evidence = new Map<Character, { id: ItemId; qty: number }[]>();
   /** Выход из тюрьмы (за воротами двора) — туда выводят отсидевшего игрока. */
   prisonGate: Vec2 | null = null;
-  /** Куда выводить отпущенного (из тюрьмы — за её ворота; иначе ворота Нексуса). */
+  /** Куда выводить отпущенного (из тюрьмы — за её ворота; иначе ворота Управы). */
   readonly releaseSpot = new Map<Character, Vec2>();
 
   constructor(
@@ -222,21 +222,21 @@ export class LawSystem {
   observe(observer: Character, target: Character): Violation | null {
     // Лежащего тяжелораненого не «замечают» как нарушителя: его задерживают отдельно (ai/Tactics).
     if (FACTIONS[target.faction].authority || target.law.phase !== 'none' || !target.alive || target.downed) return null;
-    // Переодетый в сотрудника Альянса — «свой».
+    // Переодетый в сотрудника Протектората — «свой».
     if (coverAuthority(target)) return null;
-    // Вортигонтов-рабов Альянс не проверяет.
+    // Поднадзорных-рабов Протекторат не проверяет.
     if (target.faction === 'vort') return null;
     if (!this.canSee(observer, target)) return null;
     // Повстанца узнают сразу (форма), вооружённого — тоже; партизана в маскировке — нет.
     if (target.faction === 'rebel' && !target.disguised) return 'rebel';
-    // Только что украл — на глазах у ГО.
+    // Только что украл — на глазах у ВС.
     if ((target.law.crimeUntil ?? -1) > this.time) return 'theft';
     if ((target.law.riotUntil ?? -1) > this.time) return 'riot';
     if (target.weapon) return 'weapon';
     if (this.fightCheck(target)) return 'fight';
     const zk = this.map.zoneAtWorld(target.x, target.y)?.kind;
     if (zk === 'restricted') return 'restricted';
-    // На склад Альянса посторонним нельзя (рабочие ГСР — по работе).
+    // На склад Протектората посторонним нельзя (рабочие ТС — по работе).
     if (zk === 'arsenal' && apparentFaction(target) === 'citizen') return 'restricted';
     // В тюрьму посторонним нельзя никому.
     if (zk === 'prison' && target.law.phase === 'none') return 'restricted';
@@ -254,7 +254,7 @@ export class LawSystem {
     );
   }
 
-  /** ГО приказывает стоять. NPC может решить бежать. */
+  /** ВС приказывает стоять. NPC может решить бежать. */
   order(handler: Character, target: Character, reason: Violation): void {
     const law = target.law;
     law.phase = 'ordered';
@@ -294,7 +294,7 @@ export class LawSystem {
     }
   }
 
-  /** Начать проверку (ГО рядом). */
+  /** Начать проверку (ВС рядом). */
   beginCheck(handler: Character, target: Character): void {
     const law = target.law;
     law.phase = 'checking';
@@ -352,11 +352,11 @@ export class LawSystem {
     this.clear(target);
   }
 
-  /** Снять разбирательство (отпустили или ГО отвлёкся). */
+  /** Снять разбирательство (отпустили или ВС отвлёкся). */
   clear(target: Character): void {
     const law = target.law;
     const wasPlayerCheck = law.handler?.isPlayer;
-    // Сняли процедуру с задержанного (конвоир погиб, ГО отвлёкся) — прежний мозг назад, бронь места в
+    // Сняли процедуру с задержанного (конвоир погиб, ВС отвлёкся) — прежний мозг назад, бронь места в
     // камере — снять (иначе «пленник» без процедуры стоит вечно).
     const freed = target.brain instanceof PrisonerBrain && !!law.savedBrain;
     const wasReleasing = law.phase === 'releasing';
@@ -371,7 +371,7 @@ export class LawSystem {
     if (wasPlayerCheck) this.bus.emit('law:checkClosed', { target });
   }
 
-  /** ГО потерял беглеца — тот в розыске. */
+  /** ВС потерял беглеца — тот в розыске. */
   lost(target: Character): void {
     const handler = target.law.handler;
     target.law.wanted = true;
@@ -428,7 +428,7 @@ export class LawSystem {
   }
 
   /**
-   * Камера со свободным местом — ближайшая к точке. Повстанцев (армия, подполье) — в тюрьму Альянса
+   * Камера со свободным местом — ближайшая к точке. Повстанцев (армия, подполье) — в тюрьму Протектората
    * (мест нет — в КПЗ); граждан — сперва в общую камеру КПЗ, остальных — сперва в одиночные; нет места —
    * в любую камеру КПЗ. В тюрьму сажают только повстанцев.
    */
@@ -543,7 +543,7 @@ export class LawSystem {
               this.startFlee(c);
             }
           }
-          // Игрок-ГО ушёл от задержанного — отпускаем.
+          // Игрок-ВС ушёл от задержанного — отпускаем.
           if (h.isPlayer && Math.hypot(h.x - c.x, h.y - c.y) > 90) this.clear(c);
           break;
         }
@@ -554,7 +554,7 @@ export class LawSystem {
             this.clear(c);
             break;
           }
-          // Игрок-ГО привёл задержанного к свободной камере — заводим.
+          // Игрок-ВС привёл задержанного к свободной камере — заводим.
           if (h.isPlayer) {
             const cell = this.freeCell(h.x, h.y, c);
             if (cell && Math.hypot(h.x - cell.frontX, h.y - cell.frontY) < 56) this.putInCell(c, cell);
@@ -573,7 +573,7 @@ export class LawSystem {
               // Тюрьма: бессрочно (игроку — срок LAW.prison.playerTime), оружие — в комнату изъятого.
               law.jailUntil = c.isPlayer ? this.time + LAW.prison.playerTime : Infinity;
               this.confiscate(c);
-              this.log(`${who(c, true)} помещён в тюрьму Альянса${c.isPlayer ? ` на ${LAW.prison.playerTime} с` : ' — бессрочно'}`, 'law');
+              this.log(`${who(c, true)} помещён в тюрьму Протектората${c.isPlayer ? ` на ${LAW.prison.playerTime} с` : ' — бессрочно'}`, 'law');
             } else {
               law.jailUntil = this.time + (c.isPlayer ? LAW.jailTime.player : LAW.jailTime.npc);
               law.wanted = false;
@@ -613,7 +613,7 @@ export class LawSystem {
           }
           break;
         case 'releasing':
-          // PrisonerBrain выводит к воротам Нексуса и сообщает done.
+          // PrisonerBrain выводит к воротам Управы и сообщает done.
           if ((c.brain as PrisonerBrain | null)?.done || this.time - law.since > 30) {
             this.releaseSpot.delete(c);
             this.restoreBrain(c);
@@ -707,7 +707,7 @@ export class LawSystem {
   /** Освобождённого своими из тюрьмы — куда ему дальше (задаёт InsurgencySystem). */
   onFreed: ((c: Character) => void) | null = null;
 
-  /** Кто сидит в тюрьме Альянса. */
+  /** Кто сидит в тюрьме Протектората. */
   imprisoned(): Character[] {
     const out: Character[] = [];
     for (const cell of this.cells) if (cell.prison) for (const s of cell.slots) if (s.occupant) out.push(s.occupant);
@@ -758,7 +758,7 @@ export class LawSystem {
   }
 }
 
-/** «ГО-2231» / «Иван Попов». */
+/** «ВС-2231» / «Иван Попов». */
 export function label(c: Character): string {
   return c.isPlayer ? `${c.name} (вы)` : c.name;
 }
@@ -766,6 +766,6 @@ export function label(c: Character): string {
 /** «гражданина #48102» — как в радиопереговорах. */
 export function who(c: Character, nominative = false): string {
   if (c.isPlayer) return nominative ? 'Вы' : 'вас';
-  const f = c.faction === 'rebel' ? (nominative ? 'Повстанец' : 'повстанца') : c.faction === 'cwu' ? (nominative ? 'Рабочий ГСР' : 'рабочего ГСР') : nominative ? 'Гражданин' : 'гражданина';
+  const f = c.faction === 'rebel' ? (nominative ? 'Повстанец' : 'повстанца') : c.faction === 'cwu' ? (nominative ? 'Рабочий ТС' : 'рабочего ТС') : nominative ? 'Гражданин' : 'гражданина';
   return `${f} #${c.cid}`;
 }

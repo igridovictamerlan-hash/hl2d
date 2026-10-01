@@ -72,7 +72,7 @@ describe('юниты сопротивления', () => {
     expect(cmd[0].rank).toBe(REBEL_UNIT.commando);
   });
 
-  test('подполье: 3 партизана в личине горожанина или ГСР и 2 спецагента', () => {
+  test('подполье: 3 партизана в личине горожанина или ТС и 2 спецагента', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     const g = sim.insurgency.garrison;
@@ -91,7 +91,7 @@ describe('юниты сопротивления', () => {
   });
 });
 
-describe('тюрьма Альянса: допрос и рейд', () => {
+describe('тюрьма Протектората: допрос и рейд', () => {
   test('пойманного партизана ведут в тюрьму, начальник тюрьмы допрашивает — тот выдаёт второго', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
@@ -155,7 +155,7 @@ describe('тюрьма Альянса: допрос и рейд', () => {
 });
 
 describe('спецагент', () => {
-  test('в форме ГО — ГО не проверяет; взлом камеры тюрьмы; раскрытие', () => {
+  test('в форме ВС — ВС не проверяет; взлом камеры тюрьмы; раскрытие', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 10);
@@ -183,7 +183,7 @@ describe('спецагент', () => {
     expect(agent.law.wanted).toBe(true);
   });
 
-  test('переодевается в убитого сотрудника ГО', () => {
+  test('переодевается в убитого сотрудника ВС', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 10);
@@ -200,7 +200,7 @@ describe('спецагент', () => {
     expect(sim.law.checkable(agent)).toBe(false);
   });
 
-  test('в OTA не переодевается: без свежего тела ГО — на дело под гражданской личиной', () => {
+  test('в OTA не переодевается: без свежего тела ВС — на дело под гражданской личиной', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 10);
@@ -222,7 +222,7 @@ describe('спецагент', () => {
     expect(b.mission).toBe('riot');
   });
 
-  test('бунт: горожане вокруг бунтуют, ГО видит нарушение, тревога', () => {
+  test('бунт: горожане вокруг бунтуют, ВС видит нарушение, тревога', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
@@ -279,7 +279,7 @@ describe('спецагент', () => {
 });
 
 describe('подполье: взлом и растяжки', () => {
-  test('в КПЗ Нексуса сидят — подпольщик идёт через люк и выбивает дверь, у двери оставляет растяжку', { timeout: 240_000 }, () => {
+  test('в КПЗ Управы сидят — подпольщик идёт через люк и выбивает дверь, у двери оставляет растяжку', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
@@ -325,7 +325,7 @@ describe('подполье: взлом и растяжки', () => {
 });
 
 describe('подполье группами', () => {
-  test('саботаж вдвоём: первый ломает узел, второй — дозорный; заметил ГО — группа уходит', { timeout: 120_000 }, () => {
+  test('саботаж вдвоём: первый ломает узел, второй — дозорный; заметил ВС — группа уходит', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 10);
@@ -359,7 +359,7 @@ describe('подполье группами', () => {
     expect((op.team[1].brain as UndergroundBrain).mode).toBe('cover');
   });
 
-  test('засада на конвой ГО: группа ждёт на пути, открывает огонь, раскрывается и забирает брошенные ящики', { timeout: 240_000 }, () => {
+  test('засада на конвой ВС: группа ждёт на пути, открывает огонь, раскрывается и забирает брошенные ящики', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 20);
@@ -401,7 +401,7 @@ describe('подполье группами', () => {
     run(sim, 60, () => g.attack);
     expect(g.attack).toBe(true);
     expect(sim.insurgency.stats.ambushes).toBe(1);
-    // Открыли огонь — личины нет, враги Альянса.
+    // Открыли огонь — личины нет, враги Протектората.
     for (const m of g.members) {
       expect(m.disguised).toBe(false);
       expect(m.hostile).toBe(true);

@@ -229,7 +229,7 @@ describe('тяжёлое ранение', () => {
     sim.entities.rebuildHash();
     sim.combat.damage(v, v.health + 5, null, 'torso');
     expect(sim.combat.canRevive(h, v)).toBe(true);
-    // Враг поднимать не станет, ГО — задерживает (стабилизирует), а не лечит.
+    // Враг поднимать не станет, ВС — задерживает (стабилизирует), а не лечит.
     const cp = dummy(sim, 'cp', p.x - 20, p.y, 'cp');
     expect(sim.combat.canRevive(cp, v)).toBe(false);
     expect(sim.combat.canRevive(cp, v, true)).toBe(true);
@@ -279,7 +279,7 @@ describe('тяжёлое ранение', () => {
     expect(sim.combat.revives).toBeGreaterThan(0);
   });
 
-  test('ГО в городе задерживает лежащего раненого повстанца и ведёт в КПЗ', { timeout: 60_000 }, () => {
+  test('ВС в городе задерживает лежащего раненого повстанца и ведёт в КПЗ', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;

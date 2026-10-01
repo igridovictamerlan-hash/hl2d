@@ -18,8 +18,8 @@ const esc = (s: string): string => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;',
 /**
  * Выбор роли — «карточки сторон» (лист меню R1): при старте и у терминала найма. Карточка стороны —
  * живая пешка той же отрисовкой, что в игре (меняется с профессией и юнитом), сложность, чем
- * заняться, где появляетесь. Выбранная карточка шире: профессии (ГО — юнит с описанием), их умения.
- * Внизу — имя (у ГО позывной назначается), «другое имя», новая игра и «Играть за …».
+ * заняться, где появляетесь. Выбранная карточка шире: профессии (ВС — юнит с описанием), их умения.
+ * Внизу — имя (у ВС позывной назначается), «другое имя», новая игра и «Играть за …».
  * Клавиши: 1–5 и ←/→ — сторона, Enter — играть, Esc — закрыть (если роль уже есть).
  */
 export class RoleMenu {
@@ -32,7 +32,7 @@ export class RoleMenu {
   private readonly newBtn: HTMLButtonElement;
   private readonly factions: FactionId[];
   private selected: FactionId;
-  /** Выбор внутри стороны: юнит ГО и профессия каждой стороны. */
+  /** Выбор внутри стороны: юнит ВС и профессия каждой стороны. */
   private readonly rank: Partial<Record<FactionId, number>> = {};
   private readonly prof: Partial<Record<FactionId, ProfessionId>> = {};
   private armed = false;
@@ -269,7 +269,7 @@ export class RoleMenu {
           <p class="rm-unit">${esc(cpUnit(r).desc)}</p>`);
       }
       if (id === 'rebel' && profs.length > 1) {
-        // У сопротивления профессий много (армия, «Гроза», подполье) — одним списком, как юниты ГО.
+        // У сопротивления профессий много (армия, «Гроза», подполье) — одним списком, как юниты ВС.
         const unit = rebelUnitOf(curProf ?? null)?.def;
         opts.push(`<label class="rm-field">Юнит<select data-prof-sel="rebel">${profs
           .map((p) => `<option value="${p.id}"${p.id === curProf ? ' selected' : ''}>${esc(p.name)}${rebelUnitOf(p.id) ? ` · ${rebelUnitOf(p.id)!.def.hp} HP` : ''}</option>`)
@@ -297,7 +297,7 @@ export class RoleMenu {
   }
 }
 
-/** Короткое имя профессии на чипе: без хвоста «ГСР». */
+/** Короткое имя профессии на чипе: без хвоста «ТС». */
 function shortName(n: string): string {
-  return n.replace(/\s+ГСР$/, '').replace(' склада', '');
+  return n.replace(/\s+ТС$/, '').replace(' склада', '');
 }

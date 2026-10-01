@@ -243,7 +243,7 @@ describe('гранаты', () => {
 });
 
 describe('растяжки', () => {
-  test('растяжку повстанца задевает ГО, а не горожанин; тело можно заминировать', () => {
+  test('растяжку повстанца задевает ВС, а не горожанин; тело можно заминировать', () => {
     const sim = makeSim(12345);
     const p = plaza(sim);
     const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', p.x, p.y);
@@ -280,7 +280,7 @@ describe('растяжки', () => {
     expect(m?.corpse).toBeTruthy();
   });
 
-  test('сотрудник Альянса замечает растяжку и обезвреживает', () => {
+  test('сотрудник Протектората замечает растяжку и обезвреживает', () => {
     const sim = makeSim(12345);
     const p = plaza(sim);
     const r = createCharacter(sim.entities, sim.ctx.rng, 'rebel', p.x, p.y);

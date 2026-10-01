@@ -21,7 +21,7 @@ export interface StreetShop {
   /** Место продавца за прилавком (у ларька — внутри, продавец не нужен). */
   vendorSpot: Vec2 | null;
   stock: readonly ItemId[];
-  /** Запас товара (единиц) и предел — привозят курьеры из штаба ГСР. */
+  /** Запас товара (единиц) и предел — привозят курьеры из штаба ТС. */
   goods: number;
   cap: number;
   /** Продавец этой лавки и курьер, который несёт сюда коробку. */
@@ -45,7 +45,7 @@ export type SupplyTarget = { shop: StreetShop } | { canteen: true };
 /**
  * Улица старого города: лавки, кафе и ларьки главного проспекта (горожане заходят купить что-нибудь,
  * игрок — E у прилавка) и общая столовая, куда горожане с пайком идут поесть за столом, а без пайка
- * — за супом. Товар и суп привозят курьеры из штаба ГСР (коробки цеха); за прилавком — продавец,
+ * — за супом. Товар и суп привозят курьеры из штаба ТС (коробки цеха); за прилавком — продавец,
  * у котла — повар столовой; без них лавка закрыта, супа нет.
  */
 export class StreetShops {
@@ -175,7 +175,7 @@ export class StreetShops {
     return this.shops.filter((s) => s.vendorSpot);
   }
 
-  // ——— Снабжение из штаба ГСР ———
+  // ——— Снабжение из штаба ТС ———
 
   /** Куда нужнее всего коробка (запас ниже доли low, никто уже не несёт), или null. */
   supplyNeed(): SupplyTarget | null {
@@ -228,7 +228,7 @@ export class StreetShops {
     this.stats.delivered++;
     c.money += S.pay;
     this.ctx.economy.markWorked(c);
-    adjustLoyalty(c, LOYALTY.points.cwuWork, 'работа ГСР', this.ctx.bus);
+    adjustLoyalty(c, LOYALTY.points.cwuWork, 'работа ТС', this.ctx.bus);
     return true;
   }
 
@@ -274,13 +274,13 @@ export class StreetShops {
   buy(c: Character, s: StreetShop, id: ItemId): string | null {
     const why = this.refusal(s);
     if (why === 'closed') return `${s.name}: закрыто — продавца нет на месте.`;
-    if (why === 'empty' || s.goods <= 0) return `${s.name}: товар кончился — ждут коробку из штаба ГСР.`;
+    if (why === 'empty' || s.goods <= 0) return `${s.name}: товар кончился — ждут коробку из штаба ТС.`;
     if (!s.stock.includes(id)) return 'Этого здесь не продают.';
     const err = this.ctx.economy.buy(c, id);
     if (err) return err;
     s.goods--;
     this.stats.purchases++;
-    // Продавцу — за продажу (как у прилавка магазина ГСР; там economy.buy уже заплатил тому, кто рядом).
+    // Продавцу — за продажу (как у прилавка магазина ТС; там economy.buy уже заплатил тому, кто рядом).
     const v = s.vendor;
     if (v && v.alive && s.vendorSpot && s.sub !== 'cwu') {
       v.money += ECONOMY.cwuPay.sale;

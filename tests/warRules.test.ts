@@ -32,7 +32,7 @@ function spotNear(sim: Sim, p: { x: number; y: number }, r0: number, r1: number)
 }
 
 describe('коды тревоги', () => {
-  test('жёлтый — только когда ГО увидел убитого патрульного в городе', () => {
+  test('жёлтый — только когда ВС увидел убитого патрульного в городе', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
@@ -69,7 +69,7 @@ describe('коды тревоги', () => {
     expect(sim.entities.list.some((c) => c.alive && c.name === name)).toBe(true);
   });
 
-  test('Администратор погиб при красном коде — выборов нет до отбоя', () => {
+  test('Комендант погиб при красном коде — выборов нет до отбоя', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;
@@ -158,7 +158,7 @@ describe('КПП', () => {
 });
 
 describe('мобилизация красного кода', () => {
-  test('ГО с постов — в Нексус, у склада остаётся пара часовых; отбой — назад', { timeout: 60_000 }, () => {
+  test('ВС с постов — в Управу, у склада остаётся пара часовых; отбой — назад', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
     sim.war.command.paused = true;
@@ -230,7 +230,7 @@ describe('мобилизация красного кода', () => {
 });
 
 describe('место преступления', () => {
-  test('тело ГО нашли — оцепление, следователь SU.01 и офицер, за ленту не пускают, тело не обыскать', { timeout: 120_000 }, () => {
+  test('тело ВС нашли — оцепление, следователь SU.01 и офицер, за ленту не пускают, тело не обыскать', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;
@@ -279,7 +279,7 @@ describe('место преступления', () => {
     expect((o.brain as CpBrain).scene).toBeNull();
   });
 
-  test('убит гражданский — SU.01 и медик, медик пишет в блокнот и накрывает тело, потом крематор', { timeout: 120_000 }, () => {
+  test('убит гражданский — SU.01 и медик, медик пишет в блокнот и накрывает тело, потом санитар', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;
@@ -318,7 +318,7 @@ describe('место преступления', () => {
     // Следователь осмотрел: убийца объявлен в розыск (его могли уже и задержать).
     expect(corpse.scanned).toBe(true);
     expect(killer.law.wanted || killer.law.phase !== 'none').toBe(true);
-    // Оцепление снято — крематор забирает накрытое тело.
+    // Оцепление снято — санитар забирает накрытое тело.
     (sim.labor as unknown as { crematorAt: number }).crematorAt = 0;
     run(sim, 240, () => !sim.combat.corpses.includes(corpse));
     expect(sim.combat.corpses.includes(corpse)).toBe(false);
@@ -365,14 +365,14 @@ describe('место преступления', () => {
         expect(near).toBe(true);
       }
     }
-    // Тело гражданского: мирные проходят и под лентой, и между козлами (не пускают только к убитому ГО с оружием).
+    // Тело гражданского: мирные проходят и под лентой, и между козлами (не пускают только к убитому ВС с оружием).
     expect(a.block).toBe(false);
     const w = sim.war.scenes.open(body(wide!), 'civil')!;
     expect(w.lines.some((l) => l.barrier)).toBe(true);
     expect(w.block).toBe(false);
   });
 
-  test('SU.02 заняты — на второе происшествие идёт медик ГСР, осматривает и возвращается к работе', { timeout: 120_000 }, () => {
+  test('SU.02 заняты — на второе происшествие идёт медик ТС, осматривает и возвращается к работе', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 30);
     sim.war.command.paused = true;
@@ -389,7 +389,7 @@ describe('место преступления', () => {
     };
     const s1 = sim.war.scenes.open(body(spotNear(sim, plaza, 0, 3)), 'civil')!;
     expect(s1.medic?.rank).toBe(CP_UNIT.su2);
-    // Второе происшествие — далеко от первого (иначе одна зона): медик ГСР сейчас не у площади.
+    // Второе происшествие — далеко от первого (иначе одна зона): медик ТС сейчас не у площади.
     if (Math.hypot(medic.x - plaza.x, medic.y - plaza.y) < CRIME.scene.merge * 3) {
       const away = spotNear(sim, plaza, 30, 45);
       medic.x = medic.prevX = away.x;
@@ -441,7 +441,7 @@ describe('место преступления', () => {
     expect(sim.war.scenes.open({ x: plaza.x, y: plaza.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] }, 'civil')).toBeNull();
   });
 
-  test('бандит обирает неоцеплённое тело ГО — забирает оружие', { timeout: 60_000 }, () => {
+  test('бандит обирает неоцеплённое тело ВС — забирает оружие', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
@@ -451,9 +451,9 @@ describe('место преступления', () => {
     sim.combat.damage(victim, 9999, null);
     // Несколько бандитов вокруг: каждый решает сам (с шансом CRIME.loot.chance), кто-то да обберёт.
     const bandits = [0, 1, 2].map(() => spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 6, 10))!);
-    // Крематор из Нексуса (он у площади) не должен увезти тело раньше: проверяем бандитов.
+    // Санитар из Управы (он у площади) не должен увезти тело раньше: проверяем бандитов.
     (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
-    // Тело могут заметить ГО у площади — тогда лента; здесь проверяем неоцеплённое (ленту снимаем).
+    // Тело могут заметить ВС у площади — тогда лента; здесь проверяем неоцеплённое (ленту снимаем).
     for (let i = 0; i < 90 * 60 && sim.crime.stats.corpseLoots === 0; i++) {
       sim.war.scenes.closeAll();
       sim.step();

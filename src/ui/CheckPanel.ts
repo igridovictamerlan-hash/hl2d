@@ -6,7 +6,7 @@ import { FACTIONS } from '../config/factions';
 
 export type CheckChoice = 'release' | 'fine' | 'arrest';
 
-/** Результат проверки CID для игрока-ГО: 1 — отпустить, 2 — штраф, 3 — арест. */
+/** Результат проверки CID для игрока-ВС: 1 — отпустить, 2 — штраф, 3 — арест. */
 export class CheckPanel {
   private readonly el: HTMLElement;
   target: Character | null = null;

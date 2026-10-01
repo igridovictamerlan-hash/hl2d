@@ -137,7 +137,7 @@ export function tacticalBody(ctx: Ctx, d: PawnDir, O: Outfit, seed: number): voi
   ctx.restore();
   bodyPath(ctx, d);
   stroke(ctx, PAWN.outlineWidth);
-  // Рукава и нашивка λ на плече.
+  // Рукава и нашивка-молния «Грозы» на плече.
   const sleeves = side ? [0.5] : [-PAWN.body.shoulder - 0.2, PAWN.body.shoulder + 0.2];
   for (const px of sleeves) {
     ctx.beginPath();
@@ -160,10 +160,10 @@ export function tacticalBody(ctx: Ctx, d: PawnDir, O: Outfit, seed: number): voi
     ctx.rect(lx - 1.6, top + 1.4, 3.2, 2.6);
     fillStroke(ctx, T.patch, 0.5);
     ctx.beginPath();
-    ctx.moveTo(lx - 0.9, top + 3.6);
-    ctx.lineTo(lx + 0.2, top + 1.8);
-    ctx.moveTo(lx - 0.3, top + 2.8);
-    ctx.lineTo(lx + 0.9, top + 3.6);
+    ctx.moveTo(lx + 0.6, top + 1.7);
+    ctx.lineTo(lx - 0.6, top + 2.8);
+    ctx.lineTo(lx + 0.5, top + 2.8);
+    ctx.lineTo(lx - 0.6, top + 3.9);
     stroke(ctx, 0.55, O.lambda as string);
   }
 }

@@ -4,7 +4,7 @@ import type { Zone } from '../world/GameMap';
 import type { Character } from '../entities/Character';
 import type { Verdict } from '../systems/LawSystem';
 
-/** Вид строки журнала: system — подсказки, world — события, radio — рация Альянса, law — закон, chat — речь. */
+/** Вид строки журнала: system — подсказки, world — события, radio — рация Протектората, law — закон, chat — речь. */
 export type LogKind = 'system' | 'world' | 'radio' | 'law' | 'chat';
 
 /** Все события игры и их данные. Новые события добавлять сюда. */
@@ -12,7 +12,7 @@ export interface GameEvents {
   'map:loaded': { seed: number; stats: MapStats | null; source: 'generated' | 'file' };
   'zone:enter': { entityId: number; zone: Zone };
   log: { text: string; kind: LogKind };
-  /** Победа восстания: Нексус взят, Администратор мёртв. */
+  /** Победа восстания: Управа взят, Комендант мёртв. */
   victory: { side: 'rebels' };
   /** Раунд окончен — перезапустить карту (Game). */
   restart: Record<string, never>;
@@ -20,15 +20,15 @@ export interface GameEvents {
   announce: { text: string };
   /** Смена кода тревоги. */
   alert: { code: 'green' | 'yellow' | 'red' };
-  /** Игрок-ГО закончил проверку документов — показать решение. */
+  /** Игрок-ВС закончил проверку документов — показать решение. */
   'law:checkResult': { target: Character; verdict: Verdict };
   /** Панель проверки закрыта (решение принято или задержанный ушёл). */
   'law:checkClosed': { target: Character };
   /** Персонаж (игрок) перешёл к повстанцам у прорванного КПП. */
   defected: { who: Character };
-  /** Игрок избран Администратором города. */
+  /** Игрок избран Комендантом города. */
   elected: { who: Character };
-  /** Игрока приняли на работу в штабе ГСР. */
+  /** Игрока приняли на работу в штабе ТС. */
   hired: { who: Character; profession: ProfessionId };
 }
 

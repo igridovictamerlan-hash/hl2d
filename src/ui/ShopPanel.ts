@@ -7,7 +7,7 @@ import type { StreetShop } from '../systems/StreetShops';
 export type ShopKind = 'cwu' | 'black' | 'street';
 
 export interface ShopHandlers {
-  /** Цена в магазине ГСР для игрока (со скидкой лоялиста). */
+  /** Цена в магазине ТС для игрока (со скидкой лоялиста). */
   price(id: ItemId): number | undefined;
   buy(id: ItemId): string | null;
   buyBlack(k: number): string | null;
@@ -17,7 +17,7 @@ export interface ShopHandlers {
 }
 
 /**
- * Прилавок (E): магазин ГСР или чёрный рынок в канализации (покупка оружия и патронов,
+ * Прилавок (E): магазин ТС или чёрный рынок в канализации (покупка оружия и патронов,
  * скупка трофеев и рационов). Закрывается, если отойти.
  */
 export class ShopPanel {
@@ -80,7 +80,7 @@ export class ShopPanel {
     this.sellSig = '';
     this.el.classList.toggle('black', kind === 'black');
     if (kind === 'cwu' || kind === 'street') {
-      this.title.textContent = kind === 'street' && street ? street.name.toUpperCase() : 'МАГАЗИН ГСР';
+      this.title.textContent = kind === 'street' && street ? street.name.toUpperCase() : 'МАГАЗИН ТС';
       this.list.innerHTML = (kind === 'street' && street ? street.stock : ECONOMY.shop.stock)
         .map((id) => {
           const d = ITEMS[id];

@@ -23,11 +23,11 @@ export type RoleKind =
   | 'post' | 'squad' | 'tech' | 'officer' | 'inspector' | 'bodyguard' | 'epu'
   | 'army' | 'leader' | 'hydra' | 'partisan' | 'agent'
   | 'trader' | 'admin'
-  /** Склад Альянса: кладовщик SU.QM у стола выдачи и охрана SU.GUARD на постах. */
+  /** Склад Протектората: кладовщик SU.QM у стола выдачи и охрана SU.GUARD на постах. */
   | 'qm' | 'depot'
-  /** Экипаж конвоя склада (ГО): носит ящики на пункты боепитания КПП и Нексуса. */
+  /** Экипаж конвоя склада (ВС): носит ящики на пункты боепитания КПП и Управы. */
   | 'convoy'
-  /** Тюрьма Альянса: охрана SU.GUARD на постах и начальник — третий инспектор SU.INSP. */
+  /** Тюрьма Протектората: охрана SU.GUARD на постах и начальник — третий инспектор SU.INSP. */
   | 'jailer' | 'warden'
   /** Боец или авторитет банды (живут в общаге банды). */
   | 'gang';
@@ -56,12 +56,12 @@ export interface RoleSpec {
   post?: Vec2;
   facing?: number;
   station?: Vec2;
-  /** Патрульная группа ГО: номер и ведущий ли. */
+  /** Патрульная группа ВС: номер и ведущий ли. */
   squad?: number;
   lead?: boolean;
 }
 
-/** Здоровье роли: ГО — по юниту, сопротивление — по юниту из профессии, остальные — ROSTER.hp. */
+/** Здоровье роли: ВС — по юниту, сопротивление — по юниту из профессии, остальные — ROSTER.hp. */
 export function roleHp(faction: Fid, rank: number, profession: ProfessionId | null | undefined): number | undefined {
   if (faction === 'cp') return cpUnit(rank).hp;
   if (faction === 'rebel') return rebelUnitOf(profession)?.def.hp;
@@ -80,7 +80,7 @@ function inZone(ctx: AiContext, kind: Parameters<typeof randomAnchorInZone>[1]):
   return a >= 0 ? { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) } : null;
 }
 
-/** Где появляется роль после гибели: ГО и OTA — Цитадель, армия — лагерь, партизаны — схрон… */
+/** Где появляется роль после гибели: ВС и OTA — ГЭС, армия — лагерь, партизаны — схрон… */
 export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
   // Жители — у себя дома (подполье — в схроне, явка только для добычи).
   const home = spec.home !== undefined && (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'gang') ? ctx.housing?.dwellings[spec.home] : undefined;
@@ -102,7 +102,7 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'jailer':
     case 'warden':
     case 'epu': {
-      // ГО — из казармы Нексуса (нары), нет казармы — у ворот.
+      // ВС — из казармы Управы (нары), нет казармы — у ворот.
       const n = ctx.map.poisOf('bunk').length;
       const p = n ? poiWorld(ctx, 'bunk', Math.floor(ctx.rng.next() * n)) : poiWorld(ctx, 'nexus_gate');
       return p ? spotNear(ctx, p, 2) : null;
@@ -149,11 +149,11 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   equipKit(c, spec.kit, ctx);
   // Жители оружие на виду не носят (бандит достаёт ствол только для грабежа).
   if (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'trader' || spec.kind === 'gang') ctx.combat.equip(c, null);
-  // ГО — здоровье по юниту (RCT.PCU 75 … CMD.EPU 200), остальные — по профессии.
+  // ВС — здоровье по юниту (RCT.PCU 75 … CMD.EPU 200), остальные — по профессии.
   const hp = roleHp(spec.faction, spec.rank, spec.profession);
   if (hp) c.maxHealth = c.health = hp;
   if (spec.faction === 'cp') c.division = cpUnit(spec.rank).group;
-  // Грузчики и оружейник склада Альянса — с допуском: документы всегда в порядке.
+  // Грузчики и оружейник склада Протектората — с допуском: документы всегда в порядке.
   if (spec.profession === 'loader' || spec.profession === 'armorer') c.law.hasCid = true;
   c.role = { ...spec, name: c.name };
   switch (spec.kind) {
@@ -239,8 +239,8 @@ function respawnDelay(spec: RoleSpec): number {
 
 /**
  * Постоянный состав: погибший NPC (с ролью) появляется снова через ROSTER.respawn секунд на спавне
- * своей стороны. Администратор не возрождается — его место занимает победитель выборов. Часовые КПП,
- * где идёт капт, ждут в Цитадели его конца (во время капта подкреплений нет).
+ * своей стороны. Комендант не возрождается — его место занимает победитель выборов. Часовые КПП,
+ * где идёт капт, ждут на ГЭС его конца (во время капта подкреплений нет).
  */
 export class RosterSystem {
   private readonly queue: { spec: RoleSpec; at: number }[] = [];
@@ -273,12 +273,12 @@ export class RosterSystem {
   update(dt: number): void {
     this.time += dt;
     if (this.paused) return;
-    // Красный код (штурм Нексуса): никто не возрождается — ни ГО, ни OTA, ни повстанцы, ни жители.
+    // Красный код (штурм Управы): никто не возрождается — ни ВС, ни OTA, ни повстанцы, ни жители.
     if (this.ctx.war.code === 'red') return;
     for (let i = this.queue.length - 1; i >= 0; i--) {
       const q = this.queue[i];
       if (this.time < q.at) continue;
-      // Штурм Нексуса (идёт волна повстанцев) — ГО и OTA из Цитадели не выходят, как в капте; Нексус
+      // Штурм Управы (идёт волна повстанцев) — ВС и OTA с ГЭС не выходят, как в капте; Управа
       // пал — выходят снова, отбивать его.
       const combine = q.spec.faction === 'cp' || q.spec.faction === 'ota';
       const nexus = this.ctx.war.nexus;
@@ -286,7 +286,7 @@ export class RosterSystem {
         q.at = this.time + 2;
         continue;
       }
-      // Во время капта часовые и медики этого КПП ждут в Цитадели.
+      // Во время капта часовые и медики этого КПП ждут на ГЭС.
       const f = q.spec.front !== undefined ? this.ctx.war.fronts[q.spec.front] : null;
       if (f?.capture && (q.spec.kind === 'guard' || q.spec.kind === 'medic')) {
         q.at = this.time + 2;
@@ -294,7 +294,7 @@ export class RosterSystem {
       }
       this.queue.splice(i, 1);
       const c = spawnRole(this.ctx, q.spec);
-      // ГО и OTA из Цитадели — с набором со склада (пусто — патронов по минимуму).
+      // ВС и OTA с ГЭС — с набором со склада (пусто — патронов по минимуму).
       if (c && (c.faction === 'cp' || c.faction === 'ota')) this.ctx.arsenal?.kitOnRespawn(c);
       if (c) this.respawned++;
       else this.queue.push({ spec: q.spec, at: this.time + 5 });

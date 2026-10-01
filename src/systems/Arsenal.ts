@@ -56,8 +56,8 @@ export interface Slot {
 }
 
 /**
- * Пункт боепитания: в проходной КПП (front — номер фронта), в Нексусе (front = -1) или в оружейной
- * тюрьмы (front = -2, ещё и стволы на стойках): комплекты патронов и гранаты. Пополняют конвои ГО со склада.
+ * Пункт боепитания: в проходной КПП (front — номер фронта), в Управе (front = -1) или в оружейной
+ * тюрьмы (front = -2, ещё и стволы на стойках): комплекты патронов и гранаты. Пополняют конвои ВС со склада.
  */
 export interface KppPoint {
   front: number;
@@ -82,7 +82,7 @@ export interface KppPoint {
 }
 
 /**
- * Конвой ГО: экипаж (lead — ведущий, без ящика; остальные — носильщики) берёт ящики со стеллажей
+ * Конвой ВС: экипаж (lead — ведущий, без ящика; остальные — носильщики) берёт ящики со стеллажей
  * (load), строится на крыльце (form), колонной идёт к пункту (march) и сдаёт ящики (unload).
  */
 export type ConvoyPhase = 'load' | 'form' | 'march' | 'unload';
@@ -133,13 +133,13 @@ const near: Character[] = [];
 const AREA_OF: Record<CrateKind, SlotArea> = { ammo: 'hall', grenades: 'vault', weapons: 'repair' };
 
 /**
- * Склад Альянса на окраине (config/arsenal.ts). Всё по ячейкам: что видно на стеллажах — то и лежит.
- *  Цитадель → борт на крыльцо (ящики на места сброса, кладовщик на приёмке) → грузчики ГСР разносят:
+ * Склад Протектората на окраине (config/arsenal.ts). Всё по ячейкам: что видно на стеллажах — то и лежит.
+ *  ГЭС → борт на крыльцо (ящики на места сброса, кладовщик на приёмке) → грузчики ТС разносят:
  *  патроны на стеллажи зала, гранаты в запертый отсек, стволы в консервации — в ящики мастерской;
  *  оружейник расконсервирует ствол за верстаком и вешает на стойку зала; грузчики держат полным
  *  расходный стеллаж у окна; кладовщик SU.QM выдаёт у окна (табельное, боекомплект, гранаты).
  *  Пункт боепитания в проходной КПП пустеет — конвой: грузчики несут туда ящики из зала, охранник
- *  склада сопровождает; гарнизон КПП пополняется у пункта. ГО города после возрождения — с одним
+ *  склада сопровождает; гарнизон КПП пополняется у пункта. ВС города после возрождения — с одним
  *  пистолетом, сначала за табельным. Опись и инспекция; диверсии подполья.
  */
 export class ArsenalSystem {
@@ -150,7 +150,7 @@ export class ArsenalSystem {
   readonly padRect: { x: number; y: number; w: number; h: number } | null = null;
   readonly hall: Vec2 | null = null;
   readonly desk: Vec2 | null = null;
-  /** Где стоит кладовщик (у стола) и где ГО у окна; тайлы окна. */
+  /** Где стоит кладовщик (у стола) и где ВС у окна; тайлы окна. */
   readonly deskSpot: Vec2 | null = null;
   readonly window: Vec2 | null = null;
   readonly windowTiles: Vec2[] = [];
@@ -329,7 +329,7 @@ export class ArsenalSystem {
     addSlots('arsenal_rack', 'rack');
     addSlots('arsenal_issue', 'shelf');
     addSlots('arsenal_repair', 'repair');
-    // Окно выдачи: место ГО — в коридоре перед окном (с той стороны, что дальше от стола кладовщика).
+    // Окно выдачи: место ВС — в коридоре перед окном (с той стороны, что дальше от стола кладовщика).
     let fx = 0;
     let fy = 0;
     let n = 0;
@@ -463,7 +463,7 @@ export class ArsenalSystem {
   }
 
   /**
-   * Пункты боепитания: в проходной каждого КПП и в Нексусе у казармы — в нише у стены, не на проходе.
+   * Пункты боепитания: в проходной каждого КПП и в Управе у казармы — в нише у стены, не на проходе.
    */
   private buildPoints(): void {
     const { ctx } = this;
@@ -507,7 +507,7 @@ export class ArsenalSystem {
       if (k < 0) continue;
       this.points.push({ front: f.index, name: f.name, x: nav.worldX(k), y: nav.worldY(k), kits: K.start, grenades: K.grenadesStart, cap: K.cap, low: K.low, grenadesCap: K.grenadesCap, grenadesLow: K.grenadesLow, guns: 0, gunsCap: 0, gunsLow: 0, tainted: 0, convoy: null });
     }
-    // Нексус: у казармы ГО (нары), в зоне Нексуса, не в камерах.
+    // Управа: у казармы ВС (нары), в зоне Управы, не в камерах.
     const bunks = map.poisOf('bunk');
     const nexus = new Set(map.zones.filter((z) => z.kind === 'nexus').map((z) => z.id));
     if (nexus.size) {
@@ -656,7 +656,7 @@ export class ArsenalSystem {
     this.shift.until = this.time + ARSENAL.shift.window;
     this.shiftServed.clear();
     this.stats.shifts++;
-    this.ctx.law.log(`Склад Альянса: патрульная группа ${sq + 1} — на склад, сдать смену и пополнить боекомплект.`, 'radio');
+    this.ctx.law.log(`Склад Протектората: патрульная группа ${sq + 1} — на склад, сдать смену и пополнить боекомплект.`, 'radio');
   }
 
   /** Вызвана ли группа бойца на склад (смена) и он ещё не отметился у окна. */
@@ -672,7 +672,7 @@ export class ArsenalSystem {
     if (s.phase === 'none' && this.time >= this.nextFlight) {
       if (ctx.war.code === 'red') {
         this.nextFlight = this.time + 20;
-        if (!this.redLogged) ctx.law.log('Склад Альянса: красный код — рейсы из Цитадели отменены.', 'radio');
+        if (!this.redLogged) ctx.law.log('Склад Протектората: красный код — рейсы с ГЭС отменены.', 'radio');
         this.redLogged = true;
       } else {
         this.redLogged = false;
@@ -687,7 +687,7 @@ export class ArsenalSystem {
         s.aborted = true;
         s.phase = 'leave';
         this.stats.aborted++;
-        ctx.law.log('Склад Альянса: маяк крыльца не отвечает — борт ушёл без разгрузки. Рейс сорван.', 'radio');
+        ctx.law.log('Склад Протектората: маяк крыльца не отвечает — борт ушёл без разгрузки. Рейс сорван.', 'radio');
         if (this.pad) ctx.war.raiseAlarm(this.pad.x, this.pad.y, 'срыв поставки на склад', false);
       } else {
         s.phase = 'hover';
@@ -708,7 +708,7 @@ export class ArsenalSystem {
     const { ctx } = this;
     const p = this.pad!;
     const s = this.ship;
-    // Прилетает со стороны Цитадели (Нексуса), уходит дальше.
+    // Прилетает со стороны ГЭС (Управы), уходит дальше.
     const nx = ctx.map.poisOf('nexus_gate')[0];
     const ts = ctx.map.tileSize;
     const dir = nx ? Math.atan2((nx.y + 0.5) * ts - p.y, (nx.x + 0.5) * ts - p.x) : -Math.PI / 2;
@@ -719,10 +719,10 @@ export class ArsenalSystem {
     s.t = 0;
     s.aborted = false;
     this.stats.flights++;
-    ctx.law.log(`Склад Альянса: ${ctx.rng.pick(ARSENAL.lines.dropship)}`, 'radio');
+    ctx.law.log(`Склад Протектората: ${ctx.rng.pick(ARSENAL.lines.dropship)}`, 'radio');
   }
 
-  /** Заявка в Цитадель: ячеек занято меньше reorder — борт через lead с (если раньше не летит). */
+  /** Заявка на ГЭС: ячеек занято меньше reorder — борт через lead с (если раньше не летит). */
   private requestFlight(): void {
     if (this.requested || this.ship.phase !== 'none') return;
     const R = ARSENAL.reorder;
@@ -744,7 +744,7 @@ export class ArsenalSystem {
     const at = this.time + ARSENAL.flight.lead;
     if (at < this.nextFlight) this.nextFlight = at;
     const who = this.qm?.fit ? this.qm.name : 'Кладовщик';
-    this.ctx.law.log(`Склад Альянса: ${who} — ${this.ctx.rng.pick(ARSENAL.lines.request)} Борт через ${Math.round(this.nextFlight - this.time)} с.`, 'radio');
+    this.ctx.law.log(`Склад Протектората: ${who} — ${this.ctx.rng.pick(ARSENAL.lines.request)} Борт через ${Math.round(this.nextFlight - this.time)} с.`, 'radio');
   }
 
   /** Контейнер: ящики по накладной — на места сброса крыльца, стопками; накладная — в опись. */
@@ -864,7 +864,7 @@ export class ArsenalSystem {
     this.updateVault();
   }
 
-  // ————— Конвои ГО: склад → пункты боепитания КПП и Нексуса —————
+  // ————— Конвои ВС: склад → пункты боепитания КПП и Управы —————
 
   /** Боец конвоя (роль convoy) свободен и у склада. */
   private crewReady(c: Character): boolean {
@@ -881,7 +881,7 @@ export class ArsenalSystem {
     return null;
   }
 
-  /** Пункт боепитания Нексуса. */
+  /** Пункт боепитания Управы. */
   get nexusPoint(): KppPoint | null {
     return this.points.find((p) => p.front === -1) ?? null;
   }
@@ -939,7 +939,7 @@ export class ArsenalSystem {
     this.stats.convoys++;
     this.nextConvoy = this.time + C.every;
     for (const c of v.crew) (c.brain as CpBrain).fsm.change('convoy');
-    ctx.law.log(`Склад Альянса: конвой ГО — на пункт боепитания ${point.name}, ящиков: ${ammo + grenades}${guns ? `, стволов: ${guns}` : ''}.`, 'radio');
+    ctx.law.log(`Склад Протектората: конвой ВС — на пункт боепитания ${point.name}, ящиков: ${ammo + grenades}${guns ? `, стволов: ${guns}` : ''}.`, 'radio');
     v.lead.say(ctx.rng.pick(ARSENAL.lines.convoy), ctx.law.now, 2.5);
   }
 
@@ -971,7 +971,7 @@ export class ArsenalSystem {
       else if (cr.kind === 'gun') this.ledger.weapons = Math.max(0, this.ledger.weapons - 1);
     }
     this.stats.convoyLost += lost;
-    if (why) this.ctx.law.log(`Склад Альянса: конвой на ${v.point.name} сорван (${why})${lost ? ` — брошено ящиков: ${lost}` : ''}.`, 'radio');
+    if (why) this.ctx.law.log(`Склад Протектората: конвой на ${v.point.name} сорван (${why})${lost ? ` — брошено ящиков: ${lost}` : ''}.`, 'radio');
     else this.stats.convoysDone++;
     for (const c of v.crew) {
       const b = c.brain;
@@ -1046,7 +1046,7 @@ export class ArsenalSystem {
       if (v.phase === 'form' && (ready || this.time - v.since > C.gather)) {
         v.phase = 'march';
         v.since = this.time;
-        ctx.law.log(`Склад Альянса: конвой вышел на ${v.point.name}.`, 'radio');
+        ctx.law.log(`Склад Протектората: конвой вышел на ${v.point.name}.`, 'radio');
       }
       if (near(form, C.formRadius * 0.6)) return { to: null, face: this.gate };
       return { to: form };
@@ -1081,7 +1081,7 @@ export class ArsenalSystem {
     }
     const done = v.crew.every((o) => !o.fit || !this.carried.has(o)) && ![...this.crates].some((cr) => cr.convoy === v);
     if (done || this.time - v.since > C.unloadMax) {
-      ctx.law.log(`Склад Альянса: конвой дошёл — пункт боепитания ${v.point.name} пополнен (${v.point.kits} компл., гранат ${v.point.grenades}${v.point.gunsCap ? `, стволов ${v.point.guns}` : ''}).`, 'radio');
+      ctx.law.log(`Склад Протектората: конвой дошёл — пункт боепитания ${v.point.name} пополнен (${v.point.kits} компл., гранат ${v.point.grenades}${v.point.gunsCap ? `, стволов ${v.point.guns}` : ''}).`, 'radio');
       this.endConvoy(v, null);
       return null;
     }
@@ -1150,7 +1150,7 @@ export class ArsenalSystem {
     return this.crates.filter((cr) => !this.inside(cr.x, cr.y) && cr.kind !== 'gun');
   }
 
-  // ————— Работа ГСР: грузчики —————
+  // ————— Работа ТС: грузчики —————
 
   /** Что делать грузчику сейчас (null — нечего). Ячейки и ящики бронируются. */
   loaderTask(c: Character): HaulTask | null {
@@ -1536,7 +1536,7 @@ export class ArsenalSystem {
     this.beaconBy = null;
     this.stats.repairedBeacon++;
     c.money += ARSENAL.work.payStore * 2;
-    this.ctx.law.log(`${c.name} (ГСР) починил маяк крыльца склада.`, 'world');
+    this.ctx.law.log(`${c.name} (ТС) починил маяк крыльца склада.`, 'world');
     return true;
   }
 
@@ -1626,7 +1626,7 @@ export class ArsenalSystem {
       this.ledger.ammo--;
       this.stats.caught++;
       this.ctx.law.log(`Оружейник ${c.name}: в ящике патронов брак — партия списана. Кто-то копался в ящиках!`, 'radio');
-      if (this.hall) this.ctx.war.raiseAlarm(this.hall.x, this.hall.y, 'брак в патронах на складе Альянса', false);
+      if (this.hall) this.ctx.war.raiseAlarm(this.hall.x, this.hall.y, 'брак в патронах на складе Протектората', false);
     }
     return true;
   }
@@ -1641,7 +1641,7 @@ export class ArsenalSystem {
     } else if (task.slot.reserved === c) task.slot.reserved = null;
   }
 
-  // ————— Выдача ГО —————
+  // ————— Выдача ВС —————
 
   private shelfCrate(kind: LoadKind): Slot | null {
     return this.slots.find((s) => s.area === 'shelf' && s.crate?.kind === kind && s.crate.left > 0 && !(kind === 'gun' && s.crate.broken)) ?? null;
@@ -1702,7 +1702,7 @@ export class ArsenalSystem {
     }
     if (!got) return this.ctx.rng.pick(ARSENAL.lines.empty);
     this.stats.issued++;
-    // Табельный ствол — в руки (ГО вне боя всё равно возьмёт дубинку, если надо).
+    // Табельный ствол — в руки (ВС вне боя всё равно возьмёт дубинку, если надо).
     qm.say(this.ctx.rng.pick(ARSENAL.lines.qm), this.ctx.law.now, 2);
     return null;
   }
@@ -1732,7 +1732,7 @@ export class ArsenalSystem {
   }
 
   /**
-   * Идти ли ГО города к окну: нет табельного ствола (и на складе есть), или патронов к основному меньше
+   * Идти ли ВС города к окну: нет табельного ствола (и на складе есть), или патронов к основному меньше
    * issue.lowMags магазинов (и патроны есть). Склад закрыт — нет.
    */
   needsKit(c: Character): boolean {
@@ -1741,8 +1741,8 @@ export class ArsenalSystem {
   }
 
   /**
-   * Куда ГО города за снабжением: нет табельного — к окну склада (стволы только там); мало патронов — к
-   * ближайшему из окна склада (открыто, патроны есть) и пункта боепитания Нексуса (не пуст). null — не нужно.
+   * Куда ВС города за снабжением: нет табельного — к окну склада (стволы только там); мало патронов — к
+   * ближайшему из окна склада (открыто, патроны есть) и пункта боепитания Управы (не пуст). null — не нужно.
    */
   supplyFor(c: Character): { spot: Vec2; point: KppPoint | null } | null {
     if (!this.present) return null;
@@ -1759,7 +1759,7 @@ export class ArsenalSystem {
     return dn < dw ? { spot: nexus!, point: nexus } : { spot: this.window!, point: null };
   }
 
-  /** OTA резерва (или любой боец Нексуса): мало патронов и пункт Нексуса не пуст. */
+  /** OTA резерва (или любой боец Управы): мало патронов и пункт Управы не пуст. */
   needsNexus(c: Character): boolean {
     const p = this.nexusPoint;
     return !!p && p.kits > 0 && this.lowAmmo(c, ARSENAL.issue.lowMags);
@@ -1776,8 +1776,8 @@ export class ArsenalSystem {
   }
 
   /**
-   * Возрождённый ГО города (патруль, группа, техник, офицер) выходит из казармы с одним пистолетом —
-   * табельное и боекомплект получит на складе. Гарнизоны КПП, посты и охрану снаряжает Цитадель.
+   * Возрождённый ВС города (патруль, группа, техник, офицер) выходит из казармы с одним пистолетом —
+   * табельное и боекомплект получит на складе. Гарнизоны КПП, посты и охрану снаряжает ГЭС.
    */
   kitOnRespawn(c: Character): void {
     if (!this.present || c.faction !== 'cp') return;
@@ -1815,7 +1815,7 @@ export class ArsenalSystem {
     return this.drawAt(c, this.pointOf(front));
   }
 
-  /** Пополниться у пункта боепитания (КПП или Нексус). Причина отказа или null. */
+  /** Пополниться у пункта боепитания (КПП или Управа). Причина отказа или null. */
   drawAt(c: Character, p: KppPoint | null): string | null {
     if (!p) return 'пункта нет';
     const K = ARSENAL.kpp;
@@ -1869,11 +1869,11 @@ export class ArsenalSystem {
     if (short > 0) {
       this.stats.shortages++;
       this.lockdownUntil = this.time + ARSENAL.inspect.lockdown;
-      ctx.law.log(`${by.name}: недостача на складе Альянса — ${short} ед. Выдача закрыта, склад под проверкой!`, 'radio');
-      if (this.hall) ctx.war.raiseAlarm(this.hall.x, this.hall.y, 'недостача на складе Альянса', false);
+      ctx.law.log(`${by.name}: недостача на складе Протектората — ${short} ед. Выдача закрыта, склад под проверкой!`, 'radio');
+      if (this.hall) ctx.war.raiseAlarm(this.hall.x, this.hall.y, 'недостача на складе Протектората', false);
       by.say('Недостача! Кто подписывал накладные?', ctx.law.now, 3);
     } else {
-      ctx.law.log(`${by.name} проверил опись склада Альянса: всё сходится.`, 'radio');
+      ctx.law.log(`${by.name} проверил опись склада Протектората: всё сходится.`, 'radio');
       by.say('Опись сходится. Продолжайте.', ctx.law.now, 2.5);
     }
     Object.assign(this.ledger, st);
@@ -1986,7 +1986,7 @@ export class ArsenalSystem {
         this.bomb = null;
         this.stats.defused++;
         o.say('Заряд у двери! Обезвреживаю!', ctx.law.now, 2.5);
-        ctx.law.log(`Склад Альянса: ${o.name} обезвредил заряд у двери зала.`, 'radio');
+        ctx.law.log(`Склад Протектората: ${o.name} обезвредил заряд у двери зала.`, 'radio');
         return;
       }
     }
@@ -2002,11 +2002,11 @@ export class ArsenalSystem {
       s.crate = null;
       this.ledger.ammo = Math.max(0, this.ledger.ammo - 1);
     }
-    ctx.law.log('Взрыв на складе Альянса! Часть запасов уничтожена, пожар.', 'radio');
-    ctx.war.raiseAlarm(b.x, b.y, 'взрыв на складе Альянса', false);
+    ctx.law.log('Взрыв на складе Протектората! Часть запасов уничтожена, пожар.', 'radio');
+    ctx.war.raiseAlarm(b.x, b.y, 'взрыв на складе Протектората', false);
   }
 
-  /** Спецагент в форме Альянса «по наряду»: гранаты у окна (кладовщик записывает — это не кража). */
+  /** Спецагент в форме Протектората «по наряду»: гранаты у окна (кладовщик записывает — это не кража). */
   requisition(by: Character): number {
     if (this.closed || !this.quartermaster) return 0;
     const n = this.takeGrenades(ARSENAL.requisition.grenades);
@@ -2067,9 +2067,9 @@ export class ArsenalSystem {
     else if (act === 'bomb') ok = this.plantBomb(by);
     else ok = this.breakBeacon();
     if (ok && act !== 'bomb' && this.watched(by.x, by.y, by) && ctx.rng.chance(ARSENAL.ops.caught)) {
-      ctx.combat.reveal(by, 'пойманы на складе Альянса');
+      ctx.combat.reveal(by, 'пойманы на складе Протектората');
       by.law.wanted = true;
-      ctx.war.raiseAlarm(by.x, by.y, 'диверсия на складе Альянса', false);
+      ctx.war.raiseAlarm(by.x, by.y, 'диверсия на складе Протектората', false);
     }
     return ok;
   }

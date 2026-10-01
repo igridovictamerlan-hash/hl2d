@@ -18,9 +18,9 @@ import { apparentFaction, displayName } from './cover';
 import { CROUCH, DOWNED } from '../config/tactics';
 import type { PawnLook } from './PawnRenderer';
 
-/** Подпись роли: ГО и повстанцы — с рангом, жители — с номером CID. */
+/** Подпись роли: ВС и повстанцы — с рангом, жители — с номером CID. */
 export function roleLabel(c: Character): string {
-  // Партизан в маскировке подписан по личине: гражданин, рабочий ГСР, сотрудник ГО или OTA.
+  // Партизан в маскировке подписан по личине: гражданин, рабочий ТС, сотрудник ВС или OTA.
   if (c.disguised) {
     const cv = c.cover;
     if (!cv || cv.faction === 'citizen') return `${FACTIONS.citizen.role} · #${c.cid}`;
@@ -38,7 +38,7 @@ export function roleLabel(c: Character): string {
   let s = c.faction === 'rebel' && r ? r.name : r ? `${role} · ${r.short}` : c.faction === 'admin' || c.faction === 'vort' ? role : `${role} · #${c.cid}`;
   const phase = c.law.phase;
   if (phase === 'cuffed' || phase === 'entering') s += ' · задержан';
-  // Бессрочно сидят только в тюрьме Альянса (повстанцы).
+  // Бессрочно сидят только в тюрьме Протектората (повстанцы).
   else if (phase === 'jailed') s += c.law.jailUntil === Infinity ? ' · в тюрьме' : ' · в КПЗ';
   return s;
 }

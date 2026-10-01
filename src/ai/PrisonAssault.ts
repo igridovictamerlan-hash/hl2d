@@ -75,7 +75,7 @@ export class PrisonAssault {
       // Ведущий: все на местах (или ждали долго) — сигнал.
       if (self === g.lead && city) {
         const ready = g.members.every((m) => m === self || (ctx.map.levelAt(m.x, m.y) === 'city' && Math.hypot(m.x - self.x, m.y - self.y) < P.huddle));
-        // Патруль ГО рядом (не охрана тюрьмы) — переждать, пока уйдёт.
+        // Патруль ВС рядом (не охрана тюрьмы) — переждать, пока уйдёт.
         let patrol = false;
         for (const o of ctx.entities.near(self.x, self.y, P.patrolClear, near)) {
           const duty = (o.brain as { duty?: string } | null)?.duty;

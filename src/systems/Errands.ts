@@ -17,7 +17,7 @@ const fill = (s: string, v: Record<string, string | number>): string => s.replac
 
 /**
  * Поручения у досок объявлений — игра за гражданского: отнести посылку жителю в другой конец города.
- * Тайная посылка подполья — контрабанда (предмет `parcel_x`): ГО находит её при проверке CID
+ * Тайная посылка подполья — контрабанда (предмет `parcel_x`): ВС находит её при проверке CID
  * (LawSystem.judge → `found`). Только для игрока.
  */
 export class Errands {
@@ -117,7 +117,7 @@ export class Errands {
     return ERRANDS.lines.late;
   }
 
-  /** ГО нашли свёрток при проверке (LawSystem): поручение сорвано. */
+  /** ВС нашли свёрток при проверке (LawSystem): поручение сорвано. */
   found(c: Character): void {
     if (!c.isPlayer || !this.active?.secret) return;
     this.active = null;

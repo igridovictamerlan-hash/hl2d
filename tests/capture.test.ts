@@ -44,7 +44,7 @@ describe('капт КПП', () => {
     expect(f.squad.every((r) => (r.brain as RebelBrain).mode === 'capture')).toBe(true);
   });
 
-  test('тамбур: точки берутся по очереди (D3, потом D4), тревога у проходной; контрудар из Цитадели отбивает обе', { timeout: 240_000 }, () => {
+  test('тамбур: точки берутся по очереди (D3, потом D4), тревога у проходной; контрудар с ГЭС отбивает обе', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     expect(f.points.map((p) => p.name)).toEqual(['D3', 'D4']);
@@ -69,7 +69,7 @@ describe('капт КПП', () => {
     for (let k = 0; k < WAR.capture.killsToWin; k++) killInCorridor(sim, f, 'rebel');
     expect(f.held).toBe(2);
     expect(f.owner).toBe('rebels');
-    // Повстанцев нет — резерв OTA из Цитадели занимает точки и отбивает КПП (сначала D4, потом D3).
+    // Повстанцев нет — резерв OTA с ГЭС занимает точки и отбивает КПП (сначала D4, потом D3).
     for (const c of sim.entities.list) if (c.faction === 'rebel') c.alive = false;
     for (let k = 0; k < 4; k++) spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_alpha', division: null, rank: 0, kit: 'ota_alpha' });
     const cpBefore = sim.entities.list.filter((c) => c.alive && (c.faction === 'cp' || c.faction === 'ota')).length;
@@ -113,7 +113,7 @@ describe('капт КПП', () => {
     expect(f.held).toBe(1);
   });
 
-  test('капт: гарнизон точки перебит — точка захвачена; подкрепления ГО во время капта не приходят', () => {
+  test('капт: гарнизон точки перебит — точка захвачена; подкрепления ВС во время капта не приходят', () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     // Гарнизон D3 на постах.
@@ -132,7 +132,7 @@ describe('капт КПП', () => {
     }
     sim.war.startCapture(f);
     expect(f.capture!.defenders.length).toBeGreaterThan(0);
-    // Убиваем гарнизон без стрельбы — и ждём: новых ГО на КПП быть не должно.
+    // Убиваем гарнизон без стрельбы — и ждём: новых ВС на КПП быть не должно.
     // Гарнизон D3 — часовые двух постов внешней камеры.
     expect(f.capture!.defenders.every((d) => sim.war.pointOfPost(f, (d.brain as CpBrain).guardPost!) === 0)).toBe(true);
     for (const d of f.capture!.defenders) sim.combat.damage(d, 1000, null);
@@ -158,7 +158,7 @@ describe('капт КПП', () => {
     expect(reinforcements).toBe(0);
   });
 
-  test('часовой КПП погиб — возрождается в казарме Нексуса и бежит на свой пост', { timeout: 90_000 }, () => {
+  test('часовой КПП погиб — возрождается в казарме Управы и бежит на свой пост', { timeout: 90_000 }, () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     const post = f.points[1].posts[0];
@@ -169,7 +169,7 @@ describe('капт КПП', () => {
     const g = sim.entities.list.find((c) => c.alive && c.brain instanceof CpBrain && c.brain.guardPost === post)!;
     expect(g).toBeTruthy();
     expect(g.name).toBe(g0.name);
-    // Появился в казарме Нексуса (у нар) и уже бежит оттуда.
+    // Появился в казарме Управы (у нар) и уже бежит оттуда.
     const ts = sim.map.tileSize;
     const bunkD = Math.min(...sim.map.poisOf('bunk').map((b) => Math.hypot(g.x - (b.x + 0.5) * ts, g.y - (b.y + 0.5) * ts)));
     expect(bunkD).toBeLessThan(260);
@@ -214,7 +214,7 @@ describe('капт КПП', () => {
         f.squad.push(r);
       }
     }
-    // Одна точка ещё у Альянса — в город никто не идёт.
+    // Одна точка ещё у Протектората — в город никто не идёт.
     sim.war.fronts[0].held = 2;
     sim.war.fronts[0].owner = 'rebels';
     sim.war.fronts[1].held = 1;

@@ -147,7 +147,7 @@ export class Housing {
     return P.single;
   }
 
-  /** Явка подполья: не ближе safe.fromNexus к воротам Нексуса. */
+  /** Явка подполья: не ближе safe.fromNexus к воротам Управы. */
   private safeOk = (d: Dwelling): boolean => {
     const ts = this.ctx.map.tileSize;
     const g = this.ctx.map.poisOf('nexus_gate')[0];
@@ -155,7 +155,7 @@ export class Housing {
   };
 
   /**
-   * Дом для одного жителя без дома (near — место работы: продавцу — лавка, ГСР — штаб). Подпольщику —
+   * Дом для одного жителя без дома (near — место работы: продавцу — лавка, ТС — штаб). Подпольщику —
    * явка с тайником. Возвращает жилище или null (всё занято).
    */
   house(c: Character, near: Vec2 | null = null): Dwelling | null {

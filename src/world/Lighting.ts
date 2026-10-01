@@ -8,7 +8,7 @@ import { LIGHTING, type Rgb } from '../config/lighting';
 /**
  * Источник света в мире: где, радиус (px мира), цвет, яркость; night — горит только в темноте
  * (лампы, прожекторы); flicker — мерцание огня; bloom — светится само (плафон, пламя); off — узел
- * Альянса: сломан — не горит.
+ * Протектората: сломан — не горит.
  */
 export interface Light {
   x: number;
@@ -62,7 +62,7 @@ export function clockText(f: number): string {
 
 /**
  * Постоянные источники карты: фонари улиц, бочки с огнём, комнаты и места по POI (LIGHTING.pois),
- * узлы Альянса, свет из люков в канализации. Собирается один раз при загрузке карты (без DOM).
+ * узлы Протектората, свет из люков в канализации. Собирается один раз при загрузке карты (без DOM).
  */
 export function staticLights(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[]): Light[] {
   const out: Light[] = [];

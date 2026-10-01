@@ -7,7 +7,7 @@ import { dist } from '../../core/math';
 
 /**
  * Задержанный (NPC или игрок): идёт за конвоиром в наручниках, заходит в камеру, сидит,
- * после срока выходит за ворота Нексуса (из тюрьмы — за её ворота). Этапы задаёт LawSystem (law.phase).
+ * после срока выходит за ворота Управы (из тюрьмы — за её ворота). Этапы задаёт LawSystem (law.phase).
  */
 export class PrisonerBrain implements Brain {
   readonly mover = new Mover(95);
@@ -58,7 +58,7 @@ export class PrisonerBrain implements Brain {
         this.mover.stop();
         break;
       case 'releasing': {
-        // Из тюрьмы — за её ворота, из КПЗ — за ворота Нексуса.
+        // Из тюрьмы — за её ворота, из КПЗ — за ворота Управы.
         const spot = ctx.law.releaseSpot.get(self);
         const gate = ctx.map.poisOf('nexus_gate')[0];
         if (!spot && !gate) {

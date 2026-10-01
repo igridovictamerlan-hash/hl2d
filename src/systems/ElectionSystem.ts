@@ -15,22 +15,22 @@ export interface Election {
 }
 
 /**
- * Выборы Администратора города. Администратор погиб — в течение ELECTION.duration с граждане и ГСР
+ * Выборы Коменданта города. Комендант погиб — в течение ELECTION.duration с граждане и ТС
  * голосуют за одного из ELECTION.candidates самых лояльных (не ниже уровня «Лоялист»; нет таких —
  * самые лояльные). NPC голосуют сами (чаще — за более лояльного), игрок — командой /голос N.
- * Победитель идёт в кабинет Нексуса и становится Администратором (погибнет — снова выборы).
+ * Победитель идёт в кабинет Управы и становится Комендантом (погибнет — снова выборы).
  */
 export class ElectionSystem {
   current: Election | null = null;
   /** Сколько выборов прошло (для тестов и отладки). */
   held = 0;
   private time = 0;
-  /** Администратор погиб при красном коде — выборы после отбоя. */
+  /** Комендант погиб при красном коде — выборы после отбоя. */
   private owed = false;
 
   constructor(private readonly ctx: AiContext) {
     ctx.combat.deathListeners.push((c) => {
-      // При красном коде (штурм Нексуса) выборов нет — новый Администратор после отбоя.
+      // При красном коде (штурм Управы) выборов нет — новый Комендант после отбоя.
       if (c.faction !== 'admin' || this.current || this.adminAlive()) return;
       if (ctx.war.code === 'red') this.owed = true;
       else this.start();
@@ -58,8 +58,8 @@ export class ElectionSystem {
     if (!candidates.length) return null;
     this.current = { candidates, votes: candidates.map(() => 0), until: this.time + ELECTION.duration, voted: new Set() };
     const list = candidates.map((c, i) => `${i + 1}) ${c.isPlayer ? 'ВЫ' : c.name} (лояльность ${c.loyalty})`).join(', ');
-    this.log(`Альянс: Администратор города погиб. Выборы нового Администратора среди лоялистов: ${list}. Голосуйте: /голос номер.`);
-    this.ctx.bus.emit('announce', { text: 'Выборы Администратора' });
+    this.log(`Протекторат: Комендант города погиб. Выборы нового Коменданта среди лоялистов: ${list}. Голосуйте: /голос номер.`);
+    this.ctx.bus.emit('announce', { text: 'Выборы Коменданта' });
     return this.current;
   }
 
@@ -67,7 +67,7 @@ export class ElectionSystem {
   vote(voter: Character, index: number): string | null {
     const e = this.current;
     if (!e) return 'Сейчас выборов нет.';
-    if (!hasLoyalty(voter)) return 'Голосуют только граждане и ГСР.';
+    if (!hasLoyalty(voter)) return 'Голосуют только граждане и ТС.';
     if (e.voted.has(voter)) return 'Вы уже проголосовали.';
     if (index < 0 || index >= e.candidates.length) return `Номер кандидата — от 1 до ${e.candidates.length}.`;
     e.voted.add(voter);
@@ -87,7 +87,7 @@ export class ElectionSystem {
     this.time += dt;
     const e = this.current;
     if (!e) {
-      // Администратор погиб при красном коде — выборы после отбоя.
+      // Комендант погиб при красном коде — выборы после отбоя.
       if (this.owed && this.ctx.war.code !== 'red') {
         this.owed = false;
         if (!this.adminAlive()) this.start();
@@ -121,7 +121,7 @@ export class ElectionSystem {
     this.appoint(e.candidates[best], e.votes[best]);
   }
 
-  /** Новый Администратор: форма, кабинет в Нексусе, роль (погибнет — снова выборы). */
+  /** Новый Комендант: форма, кабинет в Управе, роль (погибнет — снова выборы). */
   private appoint(c: Character, votes: number): void {
     const { ctx } = this;
     ctx.law.clear(c);
@@ -133,12 +133,12 @@ export class ElectionSystem {
     c.division = null;
     c.carrying = false;
     equipKit(c, 'admin', ctx);
-    c.name = `Администратор ${c.name.split(' ').slice(-1)[0]}`;
+    c.name = `Комендант ${c.name.split(' ').slice(-1)[0]}`;
     c.role = { kind: 'admin', faction: 'admin', profession: null, division: null, rank: 0, kit: 'admin', name: c.name };
     const desk = poiWorld(ctx, 'nexus_desk');
     if (!c.isPlayer && desk) c.brain = new PostBrain(desk, ctx.rng.range(0, Math.PI * 2));
-    this.log(`Альянс: новый Администратор города — ${c.isPlayer ? 'ВЫ' : c.name} (${votes} голосов).`);
-    ctx.bus.emit('announce', { text: `Новый Администратор · ${c.isPlayer ? 'вы' : c.name}` });
+    this.log(`Протекторат: новый Комендант города — ${c.isPlayer ? 'ВЫ' : c.name} (${votes} голосов).`);
+    ctx.bus.emit('announce', { text: `Новый Комендант · ${c.isPlayer ? 'вы' : c.name}` });
     if (c.isPlayer) ctx.bus.emit('elected', { who: c });
   }
 }

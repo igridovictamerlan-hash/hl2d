@@ -8,8 +8,9 @@ import { LAW } from '../config/law';
 import { LOYALTY } from '../config/loyalty';
 import { DEFAULT_PROFESSION } from '../config/professions';
 
-/** Вортигонты — прозвища (у рабов Альянса номеров нет). */
-const VORT_NAMES = ['Ваал', 'Зин-Гал', 'Ксоро', 'Ур-Ган', 'Лоррек', 'Тахаб', 'Галун', 'Ирвек', 'Соллог', 'Наар'];
+/** Поднадзорные — прозвища (у рабов Протектората номеров нет). */
+/** Серии номеров поднадзорных (на робе). */
+const VORT_NAMES = ['А-112', 'Б-407', 'В-238', 'Г-264', 'Д-519', 'Е-073', 'Ж-341', 'К-886', 'Л-150', 'М-692'];
 
 const usedCids = new Set<string>();
 
@@ -34,12 +35,12 @@ export function randomName(rng: Rng): string {
   return `${first} ${last}`;
 }
 
-/** Имя по фракции: у ГО и OTA — позывной с номером юнита. */
+/** Имя по фракции: у ВС и OTA — позывной с номером юнита. */
 export function nameFor(rng: Rng, faction: FactionId): string {
-  if (faction === 'cp') return `ГО-${rng.int(1000, 9999)}`;
-  if (faction === 'ota') return `OTA-${rng.int(100, 999)}`;
-  if (faction === 'admin') return `Администратор ${rng.pick(LAST_NAMES)}`;
-  if (faction === 'vort') return `Вортигонт ${rng.pick(VORT_NAMES)}`;
+  if (faction === 'cp') return `ВС-${rng.int(1000, 9999)}`;
+  if (faction === 'ota') return `LGN-${rng.int(100, 999)}`;
+  if (faction === 'admin') return `Комендант ${rng.pick(LAST_NAMES)}`;
+  if (faction === 'vort') return `Поднадзорный ${rng.pick(VORT_NAMES)}`;
   return randomName(rng);
 }
 
@@ -52,7 +53,7 @@ export function createCharacter(
   isPlayer = false,
   rank = 0,
 ): Character {
-  // Номера ГО и OTA не повторяются (по ним узнают в журнале и возвращают после гибели).
+  // Номера ВС и OTA не повторяются (по ним узнают в журнале и возвращают после гибели).
   let name = nameFor(rng, faction);
   if (faction === 'cp' || faction === 'ota') for (let k = 0; k < 20 && entities.list.some((o) => o.name === name); k++) name = nameFor(rng, faction);
   const c = new Character({ id: entities.allocId(), faction, name, cid: newCid(rng), x, y, isPlayer });

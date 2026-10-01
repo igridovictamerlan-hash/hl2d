@@ -51,7 +51,7 @@ export interface CityLayout {
   plazaSide: 'N' | 'S';
   nexus: Rect;
   nexusRot: 0 | 180;
-  /** Штаб ГСР: фасадом (face — куда вход) на главный проспект, вдали от Нексуса, площади и КПП. */
+  /** Штаб ТС: фасадом (face — куда вход) на главный проспект, вдали от Управы, площади и КПП. */
   cwuHq: { rect: Rect; face: 'N' | 'S' } | null;
   /** Пограничные КПП на концах главного проспекта; mirror — город с запада (восточный конец). */
   checkpoints: { rect: Rect; mirror: boolean }[];
@@ -314,7 +314,7 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
     }
   }
 
-  // Нексус: рядом с площадью или напротив неё, воротами к магистрали.
+  // Управа: рядом с площадью или напротив неё, воротами к магистрали.
   const nw = NEXUS_TEMPLATE[0].length;
   const nh = NEXUS_TEMPLATE.length;
   const blocked: Rect[] = [restricted, plaza, ...checkpoints.map((c) => c.rect)];
@@ -343,12 +343,12 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   }
   const inMap = (r: Rect) => r.x >= border + 2 && r.y >= border + 2 && r.x + r.w <= W - border - 2 && r.y + r.h <= H - border - 2;
   const pick = candidates.find((c) => inMap(c.rect) && !blocked.some((b) => rectsOverlap(c.rect, b, 3)));
-  if (!pick) throw new Error('layout: нет места для Нексуса');
+  if (!pick) throw new Error('layout: нет места для Управы');
   if (!inMap(plaza) || rectsOverlap(plaza, restricted, 4) || (vAvenue && rectsOverlap(plaza, vAvenue.band, 1))) {
     throw new Error('layout: площадь не помещается');
   }
 
-  // Штаб ГСР — фасадом на главный проспект, вдали от Нексуса, площади и КПП (там бой).
+  // Штаб ТС — фасадом на главный проспект, вдали от Управы, площади и КПП (там бой).
   const H_ = GENERATOR.cwuHq;
   const hw = CWU_HQ_TEMPLATE[0].length;
   const hh = CWU_HQ_TEMPLATE.length;
@@ -372,7 +372,7 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
       }
       const rect = { x, y: side === 'N' ? top - hh : bottom, w: hw, h: hh };
       if (!inMap(rect) || hqBlocked.some((b) => rectsOverlap(rect, b, 3))) continue;
-      // Расстояния — между краями (Нексус велик: по центрам штаб вставал бы вплотную к нему).
+      // Расстояния — между краями (Управа велик: по центрам штаб вставал бы вплотную к нему).
       const dCp = Math.min(...cpEdges.map((e) => Math.max(e - rect.x - rect.w, rect.x - e, 0)));
       const score = Math.min(gap(rect, pick.rect), gap(rect, plaza), dCp * H_.cpWeight) + rng.next();
       if (score > hqScore) {

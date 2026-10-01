@@ -316,10 +316,10 @@ function busyStatus(p: Character, now: number): string {
 function lawStatus(p: Character, now: number): string {
   const l = p.law;
   switch (l.phase) {
-    case 'ordered': return `${l.handler?.name ?? 'ГО'}: стоять на месте!`;
+    case 'ordered': return `${l.handler?.name ?? 'ВС'}: стоять на месте!`;
     case 'checking': return 'Проверка документов…';
-    case 'fleeing': return 'Вы в бегах — ГО преследует!';
-    // Повстанцев ведут в тюрьму Альянса (свои могут отбить раньше срока).
+    case 'fleeing': return 'Вы в бегах — ВС преследует!';
+    // Повстанцев ведут в тюрьму Протектората (свои могут отбить раньше срока).
     case 'cuffed': return p.faction === 'rebel' ? 'Задержаны. Конвой в тюрьму' : 'Задержаны. Конвой в КПЗ';
     case 'entering': return 'Вас заводят в камеру';
     case 'jailed': return `${p.faction === 'rebel' ? 'Тюрьма (ждите своих)' : 'КПЗ'}: ещё ${Math.max(0, Math.ceil(l.jailUntil - now))} с`;

@@ -19,7 +19,7 @@ export class DeathScreen {
     this.el.hidden = p.alive;
     if (!p.alive) {
       this.timer.textContent = arena ?? (red
-        ? 'Код красный: идёт штурм Нексуса — возрождения нет до отбоя'
+        ? 'Код красный: идёт штурм Управы — возрождения нет до отбоя'
         : `Возрождение через ${Math.max(0, Math.ceil(p.respawnAt - now))} с`);
     }
   }

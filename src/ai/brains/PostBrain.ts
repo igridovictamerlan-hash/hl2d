@@ -5,7 +5,7 @@ import { Mover } from '../Mover';
 import { turnTowards } from '../facing';
 import type { Vec2 } from '../../core/math';
 
-/** Стоит на своём месте (Администратор в кабинете Нексуса). Отошёл/толкнули — возвращается. */
+/** Стоит на своём месте (Комендант в кабинете Управы). Отошёл/толкнули — возвращается. */
 export class PostBrain implements Brain {
   readonly mover = new Mover(70);
   stateName = 'на посту';

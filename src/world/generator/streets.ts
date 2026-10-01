@@ -26,9 +26,9 @@ export interface StreetPlan {
   arteries: Artery[];
   dorms: Placement[];
   villas: Placement[];
-  /** Склад Альянса (на окраине, у улицы от проспекта) или null. */
+  /** Склад Протектората (на окраине, у улицы от проспекта) или null. */
   arsenal: Placement | null;
-  /** Тюрьма Альянса (у улицы от проспекта, вдали от Нексуса и склада) или null. */
+  /** Тюрьма Протектората (у улицы от проспекта, вдали от Управы и склада) или null. */
   prison: Placement | null;
 }
 
@@ -88,7 +88,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
     if (chosen.some((o) => o.dir === c.dir && Math.abs(o.i - c.i) < S.minApart)) continue;
     chosen.push(c);
   }
-  // Сторона проспекта, куда не вышло ни одного ствола (там Нексус и КПП), — улица начинается
+  // Сторона проспекта, куда не вышло ни одного ствола (там Управа и КПП), — улица начинается
   // через detachedRow линий решётки от проспекта; к ней ведут переулки.
   for (const dir of [-1, 1] as const) {
     if (chosen.some((c) => c.dir === dir)) continue;
@@ -209,7 +209,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   const dorms = place(DORM_TEMPLATE, rng.int(D.count[0], D.count[1]), D.gap, D.tries);
   const villas = place(VILLA_TEMPLATE, rng.int(V.count[0], V.count[1]), V.gap, V.tries);
 
-  // Склад Альянса — последним и на своём генераторе (fork не сдвигает общий — штаб, общежития и
+  // Склад Протектората — последним и на своём генераторе (fork не сдвигает общий — штаб, общежития и
   // особняки остаются где были). Здание с крыльцом велико для места «вдоль улицы», поэтому — любое
   // свободное место на окраине, откуда до улицы, начинающейся у проспекта (не переулок, не отдельная
   // улица, к которой ведут переулки), не дальше road.reach: из таких — самое далёкое от проспекта
@@ -239,7 +239,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   }
   if (arsenal) taken.push(arsenal.rect);
 
-  // Тюрьма — так же, на своём генераторе: у улицы от проспекта, не у склада, на расстоянии от Нексуса
+  // Тюрьма — так же, на своём генераторе: у улицы от проспекта, не у склада, на расстоянии от Управы
   // около nexusIdeal (отдельная цель штурма, но конвою с задержанным не через весь город).
   const PR = GENERATOR.prison;
   const prng = rng.fork(0x9215);

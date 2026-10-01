@@ -13,20 +13,20 @@ const near: Character[] = [];
 export const CHAT_HELP: [string, string][] = [
   ['текст', 'сказать вслух (слышат рядом)'],
   ['/me действие', 'действие от третьего лица'],
-  ['/r текст', 'рация (ГО, OTA)'],
+  ['/r текст', 'рация (ВС, Легион)'],
   ['/roll', 'бросок 1–100'],
   ['/cid', 'ваша CID, статус и лояльность'],
-  ['/донос', 'сообщить ГО о подозрительном, кого видите (+лояльность; ложный — минус)'],
-  ['/поощрить', 'ГО: поднять лояльность гражданину перед собой'],
-  ['/охрана', 'доверенный лоялист: два юнита ГО сопровождают вас'],
-  ['/выборы', 'ход выборов Администратора (после его гибели)'],
-  ['/голос N', 'проголосовать за кандидата номер N (граждане и ГСР)'],
+  ['/донос', 'сообщить ВС о подозрительном, кого видите (+лояльность; ложный — минус)'],
+  ['/поощрить', 'ВС: поднять лояльность гражданину перед собой'],
+  ['/охрана', 'доверенный лоялист: два юнита ВС сопровождают вас'],
+  ['/выборы', 'ход выборов Коменданта (после его гибели)'],
+  ['/голос N', 'проголосовать за кандидата номер N (граждане и ТС)'],
   ['/помощь', 'список команд'],
 ];
 
 /**
  * Чат и команды игрока (логика без DOM: ввод — ui/ChatBox). Речь — реплика над головой и строка
- * журнала; NPC реагируют: горожанин отвечает на приветствие, ГО рядом — на оскорбление (проверка,
+ * журнала; NPC реагируют: горожанин отвечает на приветствие, ВС рядом — на оскорбление (проверка,
  * штраф). Команды — /me, /r, /roll, /cid, /донос, /поощрить, /помощь (и английские синонимы).
  */
 export class ChatSystem {
@@ -57,7 +57,7 @@ export class ChatSystem {
       case 'r':
       case 'р':
       case 'рация':
-        if (!FACTIONS[p.faction].authority) return this.log('Рации у вас нет — только у ГО и OTA.');
+        if (!FACTIONS[p.faction].authority) return this.log('Рации у вас нет — только у стражи и Легиона.');
         if (!rest) return this.log('Использование: /r текст');
         return this.log(`${p.name}: ${rest}`, 'radio');
       case 'roll':
@@ -104,7 +104,7 @@ export class ChatSystem {
     p.say(text, now, CHAT.bubbleTime);
     this.log(`${p.name}: ${text}`, 'chat');
     const { ctx } = this;
-    // Оскорбили ГО — тот, кто рядом и видит, требует документы (штраф за оскорбление).
+    // Оскорбили ВС — тот, кто рядом и видит, требует документы (штраф за оскорбление).
     if (CHAT.insult.test(text) && !FACTIONS[p.faction].authority && p.law.phase === 'none') {
       for (const o of ctx.entities.near(p.x, p.y, CHAT.hearRange, near)) {
         if (o === p || !(o.brain instanceof CpBrain) || !ctx.law.canSee(o, p)) continue;
@@ -137,7 +137,7 @@ export class ChatSystem {
   /** /охрана: доверенный лоялист вызывает двух ближайших свободных патрульных в сопровождение. */
   private escort(p: Character, now: number): void {
     const E = LOYALTY.escort;
-    if (!loyalistPerk(p, 'escort')) return this.log('Охрану ГО могут запросить только доверенные лоялисты.');
+    if (!loyalistPerk(p, 'escort')) return this.log('Охрану ВС могут запросить только доверенные лоялисты.');
     if (now - this.lastEscort < E.cooldown) return this.log(`Запрос охраны — не чаще раза в ${E.cooldown / 60} мин.`);
     const guards = this.ctx.entities.list
       .filter((o) => o.alive && o.brain instanceof CpBrain && o.brain.canGuard && this.ctx.map.levelAt(o.x, o.y) === 'city')
@@ -168,7 +168,7 @@ export class ChatSystem {
     }
     if (!suspect) {
       adjustLoyalty(p, LOYALTY.points.falseReport, 'ложный донос', ctx.bus);
-      return this.log('Надзор: донос не подтвердился. Не тратьте время Альянса.', 'radio');
+      return this.log('Надзор: донос не подтвердился. Не тратьте время Протектората.', 'radio');
     }
     const zone = ctx.map.zoneAtWorld(suspect.x, suspect.y)?.name ?? 'город';
     adjustLoyalty(p, LOYALTY.points.report, 'донос', ctx.bus);
@@ -191,9 +191,9 @@ export class ChatSystem {
     }
   }
 
-  /** ГО поощряет гражданина перед собой. */
+  /** ВС поощряет гражданина перед собой. */
   private reward(p: Character, now: number): void {
-    if (p.faction !== 'cp' && p.faction !== 'admin') return this.log('Поощрять может только ГО или Администратор.');
+    if (p.faction !== 'cp' && p.faction !== 'admin') return this.log('Поощрять может только ВС или Комендант.');
     let best: Character | null = null;
     let bestD: number = CHAT.rewardRange;
     for (const o of this.ctx.entities.near(p.x, p.y, CHAT.rewardRange, near)) {
@@ -207,7 +207,7 @@ export class ChatSystem {
     if (!best) return this.log('Рядом некого поощрить — подойдите к гражданину.');
     if (now - (this.rewarded.get(best) ?? -1e9) < LOYALTY.rewardCooldown) return this.log(`${best.name} уже поощрён недавно.`);
     this.rewarded.set(best, now);
-    adjustLoyalty(best, LOYALTY.points.reward, 'поощрение ГО', this.ctx.bus);
+    adjustLoyalty(best, LOYALTY.points.reward, 'поощрение ВС', this.ctx.bus);
     best.say(this.ctx.rng.pick(LINES.citizenPraised), now, 2.5);
     this.log(`${p.name} поощрил гражданина ${best.name} (лояльность ${best.loyalty}).`, 'world');
   }

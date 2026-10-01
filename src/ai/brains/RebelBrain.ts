@@ -33,7 +33,7 @@ export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 
  *  raid — занимает позицию на пустоши с видом на ворота КПП и перестреливается с часовыми;
  *  assault — идёт на прорыв через коридор КПП в город (стреляет по пути);
  *  infiltrate — прорвался: прячется в кварталах, отстреливается, если нашли;
- *  storm — все точки D наши: штурм Нексуса (перебежками к зоне Нексуса и держать её); своих в тюрьме
+ *  storm — все точки D наши: штурм Управы (перебежками к зоне Управы и держать её); своих в тюрьме
  *    много, а на воле мало (PrisonSystem.rescue) — сперва штурм тюрьмы: выбить двери камер;
  *  retreat — ранен или без патронов: уходит тропой в лагерь (там — camp);
  *  capture — идёт капт КПП: занимает позиции в передней части коридора и у внешних ворот;
@@ -361,7 +361,7 @@ export class RebelBrain implements Brain {
     return best;
   }
 
-  /** Сколько штурмующих Нексус стоит или идёт ближе WAR.capture.spacing к точке. */
+  /** Сколько штурмующих Управа стоит или идёт ближе WAR.capture.spacing к точке. */
   private crowdNear(x: number, y: number): number {
     let n = 0;
     const r = WAR.capture.spacing;
@@ -391,7 +391,7 @@ export class RebelBrain implements Brain {
   staged = false;
   private stageSpot = false;
 
-  /** Штурм Нексуса (выход в город при всех точках D). */
+  /** Штурм Управы (выход в город при всех точках D). */
   storm(): void {
     this.mode = 'storm';
     this.staged = false;
@@ -402,7 +402,7 @@ export class RebelBrain implements Brain {
     this.phaseLeft = 0;
   }
 
-  /** Раунд окончен (Нексус удержан): все бойцы уходят в лагерь. */
+  /** Раунд окончен (Управа удержан): все бойцы уходят в лагерь. */
   withdraw(): void {
     if (this.mode === 'camp') return;
     this.mode = 'retreat';
@@ -493,7 +493,7 @@ export class RebelBrain implements Brain {
       if (!self.inventory.has('bandage') && !self.inventory.has('medkit')) return false;
       let bestD = 240;
       for (const o of ctx.entities.near(self.x, self.y, bestD, nearRebels)) {
-        // Лечит всех нуждающихся: своих и мирных (не Альянс и не бандитов).
+        // Лечит всех нуждающихся: своих и мирных (не Протекторат и не бандитов).
         const friend = o.faction === 'rebel' || ((o.faction === 'citizen' || o.faction === 'cwu' || o.faction === 'vort') && !o.hostile);
         if (o === self || !friend || !o.alive || (o.health >= o.maxHealth * COMBAT.medicBelow && o.bleed <= 0)) continue;
         const d = Math.hypot(o.x - self.x, o.y - self.y);
@@ -532,10 +532,10 @@ export class RebelBrain implements Brain {
     this.mover.goTo(this.self, this.ctx, anchor);
   }
 
-  /** Проспект и площадь (для штурма Нексуса — идти к нему переулками, а не по открытому). */
+  /** Проспект и площадь (для штурма Управы — идти к нему переулками, а не по открытому). */
   private openStreets: ReadonlySet<number> | null = null;
 
-  /** В городе к Нексусу — переулками, пока до него дальше WAR.nexus.alleysUntil; у Нексуса — напрямую. */
+  /** В городе к Управе — переулками, пока до него дальше WAR.nexus.alleysUntil; у Управы — напрямую. */
   private approachNexus(): void {
     const { ctx } = this;
     const gate = ctx.map.poisOf('nexus_gate')[0];
@@ -736,7 +736,7 @@ export class RebelBrain implements Brain {
       }
       case 'assault': {
         if (!f) break;
-        // Все точки D наши — сначала сбор волны во внутреннем дворе (он наш), потом все разом на Нексус.
+        // Все точки D наши — сначала сбор волны во внутреннем дворе (он наш), потом все разом на Управу.
         if (ctx.war.cityPush && !ctx.war.nexus.wave) {
           const yard = f.points[f.points.length - 1]?.floor ?? [];
           if (!this.stageSpot && yard.length) {
@@ -768,7 +768,7 @@ export class RebelBrain implements Brain {
         const stalled = this.goal < 0 || this.mover.status === 'failed' || this.mover.status === 'arrived' || (this.mover.status === 'idle' && !(fighting && this.gunner.target));
         if (ctx.war.cityPush && (this.stageSpot || stalled)) {
           this.stageSpot = false;
-          // Цель волны — Нексус или (своих в тюрьме много) тюрьма.
+          // Цель волны — Управа или (своих в тюрьме много) тюрьма.
           if (ctx.prison?.rescue && ctx.prison.center) {
             this.approach(ctx.prison.center);
             this.go(ctx.nav.nearestWalkable(ctx.prison.center.x, ctx.prison.center.y, 6));
@@ -911,18 +911,18 @@ export class RebelBrain implements Brain {
           break;
         }
         this.jailCell = null;
-        // Перебежками к Нексусу; внутри — меняет позицию, держит зону.
+        // Перебежками к Управе; внутри — меняет позицию, держит зону.
         const N = WAR.nexus;
         const C = WAR.capture;
         const inside = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'nexus';
-        // В Нексусе — бой из-за углов коридоров, а не посреди зала.
+        // В Управе — бой из-за углов коридоров, а не посреди зала.
         if (inside && fighting && this.gunner.target && this.tactics.fight(self, ctx, this.gunner, this.mover, dt, null, TACTICS.leash)) {
           this.goal = -1;
           break;
         }
         if (this.goal < 0 || this.mover.status === 'failed' || (this.mover.status === 'arrived' && (!inside || this.relocate <= 0))) {
           this.relocate = ctx.rng.range(N.relocate[0], N.relocate[1]);
-          // Из нескольких точек Нексуса — где меньше своих (не толпой).
+          // Из нескольких точек Управы — где меньше своих (не толпой).
           let best = -1;
           let bestN = Infinity;
           for (let k = 0; k < 5; k++) {
@@ -934,7 +934,7 @@ export class RebelBrain implements Brain {
               best = a;
             }
           }
-          // Внутри (или Нексус уже взят) — часть бойцов идёт прямо на Администратора: без него город не пал.
+          // Внутри (или Управа уже взят) — часть бойцов идёт прямо на Коменданта: без него город не пал.
           if ((inside || ctx.war.nexus.fallen) && ctx.rng.chance(N.huntAdmin)) {
             const admin = ctx.entities.list.find((c) => c.alive && c.faction === 'admin');
             const a = admin ? ctx.nav.nearestWalkable(admin.x, admin.y, 4) : -1;

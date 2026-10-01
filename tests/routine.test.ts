@@ -86,7 +86,7 @@ describe('распорядок дня', () => {
     expect(found).toBe(true);
   });
 
-  test('ГО: стрелявший в городе — вооружённый враг (огонь, розыск, тревога)', { timeout: 60_000 }, () => {
+  test('ВС: стрелявший в городе — вооружённый враг (огонь, розыск, тревога)', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 10);

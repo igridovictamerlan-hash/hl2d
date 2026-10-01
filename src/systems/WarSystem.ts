@@ -29,7 +29,7 @@ function rebelBrain(r: Character): RebelBrain | null {
 
 /**
  * Код тревоги: зелёный — спокойно; жёлтый — в городе нашли убитого патрульного; красный — КПП прорван,
- * повстанцы в городе штурмуют Нексус (возрождения нет ни у кого).
+ * повстанцы в городе штурмуют Управа (возрождения нет ни у кого).
  */
 export type AlertCode = 'green' | 'yellow' | 'red';
 
@@ -98,9 +98,9 @@ export interface Front {
   capture: Capture | null;
   nextCaptureAt: number;
   heldSince: number;
-  /** Сколько секунд в отбиваемой точке нет повстанцев (а ГО уже там). */
+  /** Сколько секунд в отбиваемой точке нет повстанцев (а ВС уже там). */
   rebelFree: number;
-  /** Когда следующий контрудар из Цитадели по захваченной точке. */
+  /** Когда следующий контрудар с ГЭС по захваченной точке. */
   retakeAt: number;
   reinforceAt: number;
   medicAt: number;
@@ -109,23 +109,23 @@ export interface Front {
 /**
  * Война на границе. У каждого пограничного КПП по ту сторону ворот — отряды повстанцев,
  * постоянная перестрелка с часовыми GRID. Иногда отряд идёт на прорыв через коридор;
- * прорвавшийся в город объявляет КРАСНЫЙ КОД: комендантский час, из Нексуса выходит OTA,
- * ГО прочёсывает город. Когда прорвавшихся не осталось — отбой (зелёный код).
+ * прорвавшийся в город объявляет КРАСНЫЙ КОД: комендантский час, из Управы выходит OTA,
+ * ВС прочёсывает город. Когда прорвавшихся не осталось — отбой (зелёный код).
  */
 export class WarSystem {
   code: AlertCode = 'green';
-  /** Код, включённый с терминала Администратора (держится до отмены), и кто его включил. */
+  /** Код, включённый с терминала Коменданта (держится до отмены), и кто его включил. */
   manualCode: AlertCode | null = null;
   private manualBy: Character | null = null;
   curfew = false;
   readonly fronts: Front[] = [];
   readonly infiltrators = new Set<Character>();
-  /** Нападавшие в городе (повстанцы с операций из канализации, напавший на ГО игрок). */
+  /** Нападавшие в городе (повстанцы с операций из канализации, напавший на ВС игрок). */
   readonly operatives = new Set<Character>();
   /** Точка тревоги: куда стягиваются патрули, пока нападавших не видно. */
   alarm: { x: number; y: number; until: number } | null = null;
   private yellowSince = 0;
-  /** Тела ГО в городе, которые уже заметили (код жёлтый поднимается один раз на тело). */
+  /** Тела ВС в городе, которые уже заметили (код жёлтый поднимается один раз на тело). */
   private readonly seenCorpses = new Set<Corpse>();
   private corpseScan = 0;
   private otaTimer = 0;
@@ -146,11 +146,11 @@ export class WarSystem {
   curfewSince = 0;
   /** Все точки D у повстанцев — они выходят в город. */
   cityPush = false;
-  /** Мобилизованные красным кодом ГО (CpBrain.rally) и места обороны Нексуса. */
+  /** Мобилизованные красным кодом ВС (CpBrain.rally) и места обороны Управы. */
   private mobilized = new Set<Character>();
   private rallySpots: Vec2[] | null = null;
   private mobilizeTimer = 0;
-  /** Подкрепления ГО из Цитадели на КПП (тесты отключают, чтобы они не шли через город). */
+  /** Подкрепления ВС с ГЭС на КПП (тесты отключают, чтобы они не шли через город). */
   reinforcements = true;
   /** Граждане, бегущие к прорванному КПП, чтобы примкнуть к повстанцам. */
   readonly defectors = new Set<Character>();
@@ -159,11 +159,11 @@ export class WarSystem {
   private defectLeft = 0;
   private citizensAtStart = -1;
   readonly stats = { defected: 0, counterattacks: 0, nexusFalls: 0, victories: 0, otaDeployed: 0, gateHolders: 0 };
-  /** Штурм Нексуса: накопленный захват (с), захвачен ли и когда, объявлен ли штурм. */
+  /** Штурм Управы: накопленный захват (с), захвачен ли и когда, объявлен ли штурм. */
   readonly nexus = { progress: 0, fallen: false, fallenAt: 0, rebels: 0, defenders: 0, wave: false, waveSince: 0, stagedSince: -1 };
   /** Командование сопротивления: армия в лагере, цель главы, клич. */
   readonly command: RebelCommand;
-  /** Места преступления: оцепление у тел убитых ГО в городе. */
+  /** Места преступления: оцепление у тел убитых ВС в городе. */
   readonly scenes: CrimeScenes;
 
   constructor(private readonly ctx: AiContext) {
@@ -171,7 +171,7 @@ export class WarSystem {
     this.scenes = new CrimeScenes(ctx);
     this.buildFronts();
     ctx.economy.paused = () => this.curfew;
-    ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Альянса');
+    ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Протектората');
     ctx.combat.onDamage = (target, attacker, killed) => this.onDamage(target, attacker, killed);
     const nav = ctx.nav;
     for (const a of nav.walkable) {
@@ -339,7 +339,7 @@ export class WarSystem {
     for (const [a, c] of this.shelterClaims) if (c === who) this.shelterClaims.delete(a);
   }
 
-  /** Сообщить: сотрудник Альянса видит прорвавшегося. */
+  /** Сообщить: сотрудник Протектората видит прорвавшегося. */
   sighted(c: Character): void {
     if (this.infiltrators.has(c) || this.operatives.has(c)) this.lastKnown.set(c, { x: c.x, y: c.y });
   }
@@ -431,7 +431,7 @@ export class WarSystem {
     return { guards, medics };
   }
 
-  /** Сколько защитников (ГО на постах, OTA) живы у точки k фронта f. */
+  /** Сколько защитников (ВС на постах, OTA) живы у точки k фронта f. */
   defendersAt(f: Front, k: number): number {
     let n = 0;
     for (const c of this.ctx.entities.list) {
@@ -444,11 +444,11 @@ export class WarSystem {
   }
 
   /**
-   * Контрудар: свободные OTA из резерва в Цитадели бегут на посты точки k (ГО туда же приходят сами —
-   * часовые этой точки после гибели возрождаются в Цитадели и бегут на свои посты).
+   * Контрудар: свободные OTA из резерва на ГЭС бегут на посты точки k (ВС туда же приходят сами —
+   * часовые этой точки после гибели возрождаются на ГЭС и бегут на свои посты).
    */
   private counterattack(f: Front, k: number): number {
-    // Штурм Нексуса (красный код) — резерв OTA держит Цитадель, контрударов нет; штурм отбит — КПП отбивают.
+    // Штурм Управы (красный код) — резерв OTA держит ГЭС, контрударов нет; штурм отбит — КПП отбивают.
     if (!this.reinforcements || this.code === 'red') return 0;
     const pt = f.points[k];
     const posts = pt?.posts.length ? pt.posts : f.posts;
@@ -470,7 +470,7 @@ export class WarSystem {
     return kind !== 'checkpoint' && kind !== 'outlands' && kind !== 'wasteland' && kind !== 'rebel_camp';
   }
 
-  /** Ранение сотрудника Альянса в городе — тревога; погибшие за тревогу — эскалация до красного. */
+  /** Ранение сотрудника Протектората в городе — тревога; погибшие за тревогу — эскалация до красного. */
   /** Фронт, в зоне которого точка (КПП или пустошь у него), или null. */
   frontAt(x: number, y: number): Front | null {
     const kind = this.ctx.map.zoneAtWorld(x, y)?.kind;
@@ -573,7 +573,7 @@ export class WarSystem {
       this.ctx.bus.emit('announce', { text: `${pt.name} захвачена · ${score}` });
     }
     // Захват точки — патрули стягиваются к проходной (код не меняется: жёлтый — только убитый
-    // патрульный в городе, красный — штурм Нексуса).
+    // патрульный в городе, красный — штурм Управы).
     this.raiseAlarm(f.apron.x, f.apron.y, `${f.name}: точка ${pt.name} захвачена повстанцами`);
   }
 
@@ -654,7 +654,7 @@ export class WarSystem {
 
   /**
    * OTA — туда, где сопротивление (WAR.ota): резерв и OTA с тихих КПП уходят на КПП, где повстанцев
-   * больше всего, — на посты ближайшей к пустоши точки Альянса (КПП прорван — отбиваемой).
+   * больше всего, — на посты ближайшей к пустоши точки Протектората (КПП прорван — отбиваемой).
    */
   private deployOta(counts: number[]): void {
     const O = WAR.ota;
@@ -688,11 +688,11 @@ export class WarSystem {
     }
     if (sent > 0) {
       this.stats.otaDeployed += sent;
-      this.ctx.law.log(`Надзор: у ${f.name} скопление повстанцев (${counts[best]}) — OTA (${sent}) выдвигаются на ${f.points[k].name}.`, 'radio');
+      this.ctx.law.log(`Надзор: у ${f.name} скопление повстанцев (${counts[best]}) — легионеры (${sent}) выдвигаются на ${f.points[k].name}.`, 'radio');
     }
   }
 
-  /** Убитый ГО в городе, которого увидел кто-то из Альянса, — код жёлтый. */
+  /** Убитый ВС в городе, которого увидел кто-то из Протектората, — код жёлтый. */
   private scanCorpses(): void {
     const { combat, entities, map } = this.ctx;
     for (const b of combat.corpses) {
@@ -705,7 +705,7 @@ export class WarSystem {
         // Убит патрульный — код жёлтый; гражданский — точка тревоги рядом.
         if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true);
         else if (b.killer) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`);
-        // Проходы перекрывают, на осмотр идут следователь и медик (при штурме Нексуса — не до того).
+        // Проходы перекрывают, на осмотр идут следователь и медик (при штурме Управы — не до того).
         if (this.code !== 'red') this.scenes.open(b, cp ? 'cp' : 'civil');
         break;
       }
@@ -713,7 +713,7 @@ export class WarSystem {
     for (const b of this.seenCorpses) if (!combat.corpses.includes(b)) this.seenCorpses.delete(b);
   }
 
-  /** Жив ли Администратор. */
+  /** Жив ли Комендант. */
   adminAlive(): boolean {
     return this.ctx.entities.list.some((c) => c.alive && c.faction === 'admin');
   }
@@ -729,9 +729,9 @@ export class WarSystem {
   }
 
   /**
-   * Капт: старт при сборе повстанцев, таймер. Захваченные точки Альянс отбивает контрударами из
-   * Цитадели (ГО + OTA), начиная с ближней к городу; точка отбита, когда в её камере (и дальше к
-   * городу) нет повстанцев, а ГО уже там — retakeCalm с.
+   * Капт: старт при сборе повстанцев, таймер. Захваченные точки Протекторат отбивает контрударами из
+   * ГЭС (ВС + OTA), начиная с ближней к городу; точка отбита, когда в её камере (и дальше к
+   * городу) нет повстанцев, а ВС уже там — retakeCalm с.
    */
   private updateCapture(f: Front, dt: number): void {
     const W = WAR.capture;
@@ -742,7 +742,7 @@ export class WarSystem {
     const c = f.capture;
     if (c) {
       // Гарнизон точки перебит — захвачена; штурмующих не осталось (погибли, отошли) — отбита.
-      // Защитников на точке не осталось (гарнизон перебит, ГО и OTA во дворе нет), а штурмующие уже
+      // Защитников на точке не осталось (гарнизон перебит, ВС и OTA во дворе нет), а штурмующие уже
       // во дворе — точка взята сразу, без ожидания таймера.
       // Тяжелораненые (лежат) — уже не бойцы ни с той, ни с другой стороны.
       const attackers = f.squad.filter((r) => r.fit && rebelBrain(r)?.mode === 'capture').length;
@@ -767,7 +767,7 @@ export class WarSystem {
       const sent = this.counterattack(f, k);
       if (sent > 0) {
         this.stats.counterattacks++;
-        this.ctx.law.log(`${f.name}: контрудар — из Цитадели на ${pt.name} бегут OTA (${sent}).`, 'radio');
+        this.ctx.law.log(`${f.name}: контрудар — из Управы на ${pt.name} бегут легионеры (${sent}).`, 'radio');
       }
     }
     let rebelsIn = 0;
@@ -794,7 +794,7 @@ export class WarSystem {
         if (b?.mode === 'hold' && b.post && this.pointOfPost(f, b.post) >= k) b.orderRegroup();
       }
       const all = f.held === 0;
-      this.ctx.law.log(`${f.name}: точка ${pt.name} отбита.${all ? ' КПП снова под контролем Альянса.' : ''}`, 'radio');
+      this.ctx.law.log(`${f.name}: точка ${pt.name} отбита.${all ? ' КПП снова под контролем Протектората.' : ''}`, 'radio');
       this.ctx.bus.emit('announce', { text: all ? `КПП отбит · ${f.name}` : `${pt.name} отбита` });
     }
   }
@@ -842,11 +842,11 @@ export class WarSystem {
   }
 
   /**
-   * Терминал Администратора: включить код жёлтый / красный или отбой (зелёный). null — сделано, иначе
+   * Терминал Коменданта: включить код жёлтый / красный или отбой (зелёный). null — сделано, иначе
    * причина отказа. Включённый так код держится, пока его не снимут с терминала.
    */
   setCode(code: AlertCode, by: Character): string | null {
-    if (!this.canSetCode(by)) return 'Доступ запрещён: только Администратор и старшие офицеры ГО.';
+    if (!this.canSetCode(by)) return 'Доступ запрещён: только Комендант и старшие офицеры ВС.';
     if (code === this.code) {
       if (code === 'green') return 'Тревоги нет — код уже зелёный.';
       this.manualCode = code;
@@ -898,12 +898,12 @@ export class WarSystem {
     this.scenes.closeAll();
     this.ctx.bus.emit('announce', { text: 'Код красный · комендантский час' });
     for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код красный. Комендантский час!', this.ctx.law.now, 5);
-    // OTA по городу не ходит — держит Цитадель и КПП; прочёсывают город PCU и SU.
-    if (this.ota.some((o) => o.alive)) this.ctx.law.log('Надзор: OTA держит Цитадель. PCU и SU — прочёсывание кварталов.', 'radio');
+    // OTA по городу не ходит — держит ГЭС и КПП; прочёсывают город PCU и SU.
+    if (this.ota.some((o) => o.alive)) this.ctx.law.log('Надзор: Легион держит Управу. PCU и SU — прочёсывание кварталов.', 'radio');
   }
 
   /**
-   * Штурм Нексуса: повстанцев в зоне Нексуса ≥ WAR.nexus.minAttackers и больше, чем защитников, —
+   * Штурм Управы: повстанцев в зоне Управы ≥ WAR.nexus.minAttackers и больше, чем защитников, —
    * захват копится; захвачен и удержан holdToWin с — победа восстания (раунд заново).
    */
   private updateNexus(dt: number): void {
@@ -924,14 +924,14 @@ export class WarSystem {
       if (map.zoneAtWorld(c.x, c.y)?.kind !== 'nexus') continue;
       // Штурмующие — бойцы в режиме штурма и игрок-повстанец (не отпущенные из КПЗ).
       if (c.faction === 'rebel' && c.law.phase === 'none' && (c.isPlayer || b?.mode === 'storm')) rebels++;
-      // Защитники — боеспособные: раненый, отошедший перевязываться, Нексус не держит.
+      // Защитники — боеспособные: раненый, отошедший перевязываться, Управа не держит.
       else if ((c.faction === 'cp' || c.faction === 'ota') && c.health >= c.maxHealth * COMBAT.woundedFraction) defenders++;
     }
     n.rebels = rebels;
     n.defenders = defenders;
-    // Волна: собрались у Нексуса (или ждали достаточно) — все разом; штурмующих не осталось — конец.
+    // Волна: собрались у Управы (или ждали достаточно) — все разом; штурмующих не осталось — конец.
     if (stormers === 0 || (n.wave && !n.fallen && this.time - n.waveSince > N.waveMax)) {
-      // Волна выдохлась — Цитадель снова высылает силы; уцелевшие собираются на новую.
+      // Волна выдохлась — ГЭС снова высылает силы; уцелевшие собираются на новую.
       if (n.wave && stormers > 0) for (const c of entities.list) if (c.alive && rebelBrain(c)?.mode === 'assault') rebelBrain(c)!.staged = false;
       n.wave = false;
       n.stagedSince = -1;
@@ -944,8 +944,8 @@ export class WarSystem {
       if (staged >= N.waveSize || (staged >= part && waited >= N.stageMax) || (staged > 0 && waited >= N.stageHardMax)) {
         n.wave = true;
         n.waveSince = this.time;
-        this.ctx.law.log(`Надзор: повстанцы (${stormers}) штурмуют Нексус! Всем юнитам — к Нексусу!`, 'radio');
-        this.ctx.bus.emit('announce', { text: 'Штурм Нексуса' });
+        this.ctx.law.log(`Надзор: повстанцы (${stormers}) штурмуют Управу! Всем юнитам — к Управе!`, 'radio');
+        this.ctx.bus.emit('announce', { text: 'Штурм Управы' });
       }
     }
     if (!n.fallen) {
@@ -955,24 +955,24 @@ export class WarSystem {
         n.fallen = true;
         n.fallenAt = this.time;
         this.stats.nexusFalls++;
-        this.ctx.law.log(`Администрация: НЕКСУС ЗАХВАЧЕН повстанцами!${this.adminAlive() ? ' Администратор ещё жив — защищать Администратора!' : ''} Всем силам Альянса — отбить Нексус!`, 'world');
-        this.ctx.bus.emit('announce', { text: 'Нексус захвачен повстанцами' });
+        this.ctx.law.log(`Администрация: УПРАВА ЗАХВАЧЕН повстанцами!${this.adminAlive() ? ' Комендант ещё жив — защищать Коменданта!' : ''} Всем силам Протектората — отбить Управу!`, 'world');
+        this.ctx.bus.emit('announce', { text: 'Управа захвачена повстанцами' });
       }
       return;
     }
     if (rebels === 0) {
       n.fallen = false;
       n.progress = 0;
-      this.ctx.law.log('Надзор: Нексус отбит. Повстанцы выбиты из Цитадели.', 'radio');
-      this.ctx.bus.emit('announce', { text: 'Нексус отбит' });
+      this.ctx.law.log('Надзор: Управа отбита. Повстанцы выбиты из Управы.', 'radio');
+      this.ctx.bus.emit('announce', { text: 'Управа отбита' });
       return;
     }
-    // Нексус взят и Администратор мёртв — город пал.
+    // Управа взят и Комендант мёртв — город пал.
     if (!this.adminAlive()) this.rebelVictory();
   }
 
   /**
-   * Нексус взят, Администратор мёртв: победа восстания. Бойцы уходят в лагерь, через
+   * Управа взят, Комендант мёртв: победа восстания. Бойцы уходят в лагерь, через
    * WAR.nexus.restartDelay с — событие 'restart' (Game перезапускает карту).
    */
   private rebelVictory(): void {
@@ -984,7 +984,7 @@ export class WarSystem {
     n.fallen = false;
     n.wave = false;
     n.stagedSince = -1;
-    this.ctx.law.log(`Сопротивление: НЕКСУС ВЗЯТ, АДМИНИСТРАТОР МЁРТВ — ВОССТАНИЕ ПОБЕДИЛО! Через ${WAR.nexus.restartDelay} с — новый город.`, 'world');
+    this.ctx.law.log(`Сопротивление: УПРАВА ВЗЯТ, КОМЕНДАНТ МЁРТВ — ВОССТАНИЕ ПОБЕДИЛО! Через ${WAR.nexus.restartDelay} с — новый город.`, 'world');
     this.ctx.bus.emit('announce', { text: 'Победа восстания · город пал' });
     for (const c of this.ctx.entities.list) {
       if (!c.alive || c.faction !== 'rebel') continue;
@@ -1001,7 +1001,7 @@ export class WarSystem {
     this.infiltrators.clear();
     this.lastKnown.clear();
     this.cityPush = false;
-    this.declareGreen('Альянс восстановил контроль');
+    this.declareGreen('Протекторат восстановил контроль');
     this.command.pickTarget('новый штурм');
   }
 
@@ -1035,9 +1035,9 @@ export class WarSystem {
   }
 
   /**
-   * Мобилизация красного кода: ГО с постов, медики КПП, кладовщик, экипаж конвоя и охрана склада
-   * (кроме WAR.mobilize.depotKeep часовых) — на оборону Нексуса (CpBrain.rally); OTA с постов — в
-   * Цитадель. Код снят — все назад на свои посты и службы.
+   * Мобилизация красного кода: ВС с постов, медики КПП, кладовщик, экипаж конвоя и охрана склада
+   * (кроме WAR.mobilize.depotKeep часовых) — на оборону Управы (CpBrain.rally); OTA с постов — в
+   * ГЭС. Код снят — все назад на свои посты и службы.
    */
   private updateMobilize(): void {
     const M = WAR.mobilize;
@@ -1079,7 +1079,7 @@ export class WarSystem {
         depot++;
         continue;
       }
-      // Уже в Нексусе (посты у ворот и в Цитадели) — и так обороняют.
+      // Уже в Управе (посты у ворот и на ГЭС) — и так обороняют.
       if (this.ctx.map.zoneAtWorld(b.guardPost?.x ?? -1, b.guardPost?.y ?? -1)?.kind === 'nexus') continue;
       // Ближайшее к воротам свободное место.
       let spot: Vec2 | null = null;
@@ -1096,7 +1096,7 @@ export class WarSystem {
     }
   }
 
-  /** Места обороны Нексуса: якоря его зоны не дальше reach px от ворот, через spacing px, ближе к воротам — раньше. */
+  /** Места обороны Управы: якоря его зоны не дальше reach px от ворот, через spacing px, ближе к воротам — раньше. */
   private nexusSpots(): Vec2[] {
     const M = WAR.mobilize;
     const { map, nav } = this.ctx;
@@ -1128,13 +1128,13 @@ export class WarSystem {
     }
     if (!this.cityPush) {
       this.cityPush = true;
-      // Повстанцы выходят в город — OTA с КПП уходят держать Цитадель.
+      // Повстанцы выходят в город — OTA с КПП уходят держать ГЭС.
       for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
       const names = this.fronts.flatMap((f) => f.points.map((p) => p.name)).join(', ');
       this.ctx.law.log(`Надзор: все точки ${names} в руках повстанцев — сопротивление выходит в город!`, 'radio');
       this.ctx.bus.emit('announce', { text: 'Все точки D у повстанцев · выход в город' });
     }
-    // Красный код — мобилизация: на КПП остаётся rebelKeep, остальные — на Нексус.
+    // Красный код — мобилизация: на КПП остаётся rebelKeep, остальные — на Управу.
     const holdKeep = this.code === 'red' ? WAR.mobilize.rebelKeep : WAR.holdKeep;
     for (const f of this.fronts) {
       let keep = holdKeep;
@@ -1279,7 +1279,7 @@ export class WarSystem {
       this.restartAt = -1;
       this.ctx.bus.emit('restart', {});
     }
-    // Все точки D у повстанцев — выход в город (до проверки прорвавшихся: они сразу штурмуют Нексус).
+    // Все точки D у повстанцев — выход в город (до проверки прорвавшихся: они сразу штурмуют Управа).
     this.updateCityPush();
     for (const f of this.fronts) {
       // Прорыв в город: боец в штурме (все точки D взяты, forceAssault) вышел за КПП.
@@ -1299,18 +1299,18 @@ export class WarSystem {
         if (b.mode === 'storm' || b.mode === 'infiltrate') continue;
         this.infiltrators.add(r);
         this.lastKnown.set(r, { x: r.x, y: r.y });
-        // Все точки D наши — не прятаться, а штурмовать Нексус.
+        // Все точки D наши — не прятаться, а штурмовать Управа.
         if (this.cityPush) b.storm();
         else b.infiltrate();
-        // Красный код — только штурм Нексуса (КПП прорваны, повстанцы в городе).
-        if (this.cityPush && this.code !== 'red') this.declareRed(f.name, 'КПП прорван, повстанцы штурмуют Нексус');
+        // Красный код — только штурм Управы (КПП прорваны, повстанцы в городе).
+        if (this.cityPush && this.code !== 'red') this.declareRed(f.name, 'КПП прорван, повстанцы штурмуют Управу');
       }
       this.updateCapture(f, dt);
       if (!f.assaultAnnounced && f.squad.some((r) => rebelBrain(r)?.mode === 'assault')) {
         f.assaultAnnounced = true;
         this.ctx.law.log(`${f.name}: повстанцы идут на прорыв!`, 'radio');
       }
-      // Точки снова у Альянса и повстанцев у КПП мало — OTA этого фронта возвращаются в резерв.
+      // Точки снова у Протектората и повстанцев у КПП мало — OTA этого фронта возвращаются в резерв.
       if (f.held === 0 && !f.capture && counts[f.index] < WAR.ota.minRebels) {
         for (const o of this.ota) {
           const b = o.brain;
@@ -1361,7 +1361,7 @@ export class WarSystem {
       const storming = [...this.infiltrators].some((r) => rebelBrain(r)?.mode === 'storm');
       if (long > WAR.redMaxTime && this.infiltrators.size > 0 && !storming) this.goUnderground();
       if (this.calm >= WAR.calmToGreen && long >= WAR.redMinTime) {
-        if (this.fronts.some((f) => f.held > 0)) this.declareYellow('— штурм Нексуса отбит, КПП ещё у повстанцев', 'Штурм отбит · код жёлтый');
+        if (this.fronts.some((f) => f.held > 0)) this.declareYellow('— штурм Управы отбит, КПП ещё у повстанцев', 'Штурм отбит · код жёлтый');
         else this.declareGreen();
       }
     }

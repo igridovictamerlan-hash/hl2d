@@ -19,7 +19,7 @@ const DEG = Math.PI / 180;
 /** Судьба лежащего раненого: добивает ли его каждая сторона (решается раз за падение). */
 const finishFate = new WeakMap<Character, { at: number; sides: Partial<Record<'ota' | 'rebel' | 'cp', boolean>> }>();
 
-/** Свой-чужой по стороне (Альянс / остальные): выстрел «своего» подсказывает, куда смотреть. */
+/** Свой-чужой по стороне (Протекторат / остальные): выстрел «своего» подсказывает, куда смотреть. */
 function differentSides(a: Character, b: Character): boolean {
   return FACTIONS[a.faction].authority !== FACTIONS[b.faction].authority;
 }
@@ -29,7 +29,7 @@ function differentSides(a: Character, b: Character): boolean {
  * огнестрела; раненый или услышавший выстрел сначала поворачивается в примерную сторону. Берёт в руки
  * лучший ствол под дистанцию, реагирует с задержкой, целится (конус сужается, пока стоит) и
  * стреляет, когда конус у цели достаточно узкий; очередями с паузами (отдача успевает спасть),
- * перезаряжается, не стреляет, если на линии огня свой. ГО после боя снова берёт дубинку.
+ * перезаряжается, не стреляет, если на линии огня свой. ВС после боя снова берёт дубинку.
  */
 export class Gunner {
   target: Character | null = null;
@@ -74,7 +74,7 @@ export class Gunner {
     let bestD = range;
     let downed: Character | null = null;
     let downedD = range * 0.6;
-    // Подпольщик под личиной, которому можно стрелять, сам выбирает цели из Альянса (его пока не узнают).
+    // Подпольщик под личиной, которому можно стрелять, сам выбирает цели из Протектората (его пока не узнают).
     const covert = self.faction === 'rebel' && self.disguised && !this.holdFire;
     for (const o of ctx.entities.near(self.x, self.y, range, near)) {
       const d = Math.hypot(o.x - self.x, o.y - self.y);
@@ -102,7 +102,7 @@ export class Gunner {
   }
 
   /**
-   * Добить ли лежащего врага: решается раз на лежащего и сторону (OTA чаще, повстанцы реже, ГО —
+   * Добить ли лежащего врага: решается раз на лежащего и сторону (OTA чаще, повстанцы реже, ВС —
    * только на фронте, в городе задерживает).
    */
   private wantsFinish(self: Character, o: Character, ctx: AiContext): boolean {
@@ -141,7 +141,7 @@ export class Gunner {
     return false;
   }
 
-  /** Вне боя ГО возвращает в руки дубинку (как на серверах: огнестрел — только по делу). */
+  /** Вне боя ВС возвращает в руки дубинку (как на серверах: огнестрел — только по делу). */
   private holster(self: Character, ctx: AiContext, dt: number): void {
     this.calm += dt;
     if (this.calm < COMBAT.ai.holsterAfter || self.faction !== 'cp' || self.weapon === 'stunstick') return;

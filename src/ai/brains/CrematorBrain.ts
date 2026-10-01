@@ -8,7 +8,7 @@ import { randomAnchorAround, zoneIds } from '../destinations';
 import { LABOR } from '../../config/labor';
 
 /**
- * Крематор (синтет Альянса): бродит по городу, находит тела и сжигает их (LABOR.cremator.burnTime с
+ * Санитар (служба Протектората): бродит по городу, находит тела и сжигает их (LABOR.cremator.burnTime с
  * пламени — тело исчезает вместе с лутом). В бою не участвует, ни с кем не говорит.
  */
 export class CrematorBrain implements Brain {
@@ -45,7 +45,7 @@ export class CrematorBrain implements Brain {
       let bestD = Infinity;
       for (const c of combat.corpses) {
         if (c.cremator && c.cremator !== self && c.cremator.alive) continue;
-        // Под оцеплением тело не трогают — крематор приходит, когда ленту снимут.
+        // Под оцеплением тело не трогают — санитар приходит, когда ленту снимут.
         if (ctx.war.scenes.awaiting(c)) continue;
         if (ctx.map.levelAt(c.x, c.y) !== 'city' || this.avoid.has(ctx.nav.zone[ctx.nav.nearestWalkable(c.x, c.y, 2)] ?? -1)) continue;
         const d = Math.hypot(c.x - self.x, c.y - self.y);

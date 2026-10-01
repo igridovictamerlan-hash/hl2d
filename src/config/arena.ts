@@ -1,10 +1,10 @@
 import type { FactionId } from './factions';
 import type { ProfessionId } from './professions';
 
-/** Боец отряда: фракция, юнит (номер ранга: у ГО — CP_RANKS, у армии — по профессии), профессия, набор. */
+/** Боец отряда: фракция, юнит (номер ранга: у ВС — CP_RANKS, у армии — по профессии), профессия, набор. */
 export interface ArenaUnit {
   faction: FactionId;
-  /** Юнит силового блока (CP_UNIT) — у ГО; у остальных 0. */
+  /** Юнит силового блока (CP_UNIT) — у ВС; у остальных 0. */
   cpUnit?: 'su3' | 'su2' | 'su1' | 'guard' | 'pcu1';
   profession: ProfessionId | null;
   kit: string;
@@ -12,7 +12,7 @@ export interface ArenaUnit {
 
 /**
  * Экспериментальный режим «отряд на отряд» (systems/SquadArena.ts): на пограничном КПП front
- * Альянс (во внутреннем дворе) против отряда сопротивления (на пустоши) — как в CS: раунд до
+ * Протекторат (во внутреннем дворе) против отряда сопротивления (на пустоши) — как в CS: раунд до
  * гибели одной стороны или roundTime с (тогда побеждает тот, у кого живых больше), пауза breakTime с,
  * отряды заново. Город вокруг пуст: ни жителей, ни войны, ни подполья. Игрок — в своём отряде
  * (вместо первого бойца), ?mode=squad&side=rebel|combine или кнопка в главном меню.
@@ -45,7 +45,7 @@ export const ARENA = {
       { faction: 'rebel', profession: 'hydra_rct', kit: 'hydra_rct' },
     ],
   } satisfies Record<ArenaSide, ArenaUnit[]>,
-  sideNames: { combine: 'Альянс', rebel: 'Сопротивление' } as Record<ArenaSide, string>,
+  sideNames: { combine: 'Протекторат', rebel: 'Сопротивление' } as Record<ArenaSide, string>,
 } as const;
 
 export type ArenaSide = 'combine' | 'rebel';

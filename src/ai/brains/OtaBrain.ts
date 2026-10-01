@@ -14,8 +14,8 @@ import { ARSENAL } from '../../config/arsenal';
 export type OtaMode = 'reserve' | 'post' | 'home';
 
 /**
- * Боец OTA (OTA.ALPHA, командир OTA.KING) — резерв Цитадели. Воюет только на КПП, по городу не ходит.
- *  reserve — ждёт приказа в комнате OTA в Нексусе (у своего шкафа; нет комнаты — у ворот);
+ * Боец OTA (OTA.ALPHA, командир OTA.KING) — резерна ГЭС. Воюет только на КПП, по городу не ходит.
+ *  reserve — ждёт приказа в комнате OTA в Управе (у своего шкафа; нет комнаты — у ворот);
  *  post — контрудар: бежит на пост захваченной точки КПП и держит его (WarSystem.counterattack);
  *  home — отбой: возвращается в комнату OTA (там снова reserve).
  */
@@ -32,7 +32,7 @@ export class OtaBrain implements Brain {
   /** Тактика боя: укрытия у поста, помощь своим раненым. */
   readonly tactics = new Tactician();
   private fightHome: Vec2 | null = null;
-  /** Резерв: за патронами к пункту боепитания Нексуса (когда проверить снова). */
+  /** Резерв: за патронами к пункту боепитания Управы (когда проверить снова). */
   private supply = false;
   private supplyCheck = 0;
 
@@ -66,7 +66,7 @@ export class OtaBrain implements Brain {
     this.repath = 0;
   }
 
-  /** Резерв с пустыми подсумками — к пункту боепитания Нексуса и назад. true — занят этим. */
+  /** Резерв с пустыми подсумками — к пункту боепитания Управы и назад. true — занят этим. */
   private supplyStep(self: Character, ctx: AiContext, dt: number): boolean {
     const A = ctx.arsenal;
     if (!A?.present) return false;
@@ -123,9 +123,9 @@ export class OtaBrain implements Brain {
         if (a >= 0) this.mover.goTo(self, ctx, a);
       }
     } else if (this.mode === 'reserve' && this.supplyStep(self, ctx, dt)) {
-      // Резерв: за патронами к пункту Нексуса.
+      // Резерв: за патронами к пункту Управы.
     } else {
-      // Резерв и возврат: в комнате OTA, у своего шкафа (нет комнаты — у ворот Нексуса).
+      // Резерв и возврат: в комнате OTA, у своего шкафа (нет комнаты — у ворот Управы).
       const spots = ctx.map.poisOf('ota_spot');
       const g = spots.length ? poiWorld(ctx, 'ota_spot', self.id % spots.length) : poiWorld(ctx, 'nexus_gate');
       const near = spots.length ? 20 : 70;

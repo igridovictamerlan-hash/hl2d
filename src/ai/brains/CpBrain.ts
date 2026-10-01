@@ -77,10 +77,10 @@ const SCENE_RESUME = new Set(['patrol', 'patrol-again', 'post', 'follow', 'duty'
 const WATCHING = new Set(['patrol', 'post', 'guard', 'hunt', 'medic', 'follow', 'duty', 'bodyguard']);
 
 /**
- * Сотрудник ГО. Патрулирует узкие места и ключевые точки, иногда стоит постом.
+ * Сотрудник ВС. Патрулирует узкие места и ключевые точки, иногда стоит постом.
  * Часовой КПП (GRID) стоит на посту и держит коридор; медик HELIX лечит раненых.
  * Нарушение: приказ «стоять» → подход → проверка CID → штраф/арест → конвой в КПЗ.
- * Вооружённый враг (повстанец с оружием, напавший на Альянс) — бой на поражение;
+ * Вооружённый враг (повстанец с оружием, напавший на Протекторат) — бой на поражение;
  * безоружного повстанца пытается задержать. Ранен — отходит к медику/в бункер.
  * При красном коде патрульные прочёсывают город по данным «Надзора».
  */
@@ -97,7 +97,7 @@ export class CpBrain implements Brain {
   readonly guardFacing: number;
   /** Рейд на логово сопротивления: точка у лагеря вместо своего поста (InsurgencySystem.raid). */
   raidPost: Vec2 | null = null;
-  /** Мобилизация красного кода (WarSystem.updateMobilize): место обороны Нексуса — поверх поста и службы. */
+  /** Мобилизация красного кода (WarSystem.updateMobilize): место обороны Управы — поверх поста и службы. */
   rally: Vec2 | null = null;
   rallyFacing = 0;
   readonly front: number;
@@ -157,7 +157,7 @@ export class CpBrain implements Brain {
   resupplyCheck = 0;
   resupplyWait = 0;
   resupplyUntil = 0;
-  /** Куда за снабжением: пункт боепитания (КПП, Нексус) или null — окно склада. */
+  /** Куда за снабжением: пункт боепитания (КПП, Управа) или null — окно склада. */
   resupplyPoint: KppPoint | null = null;
   resupplyAt: Vec2 | null = null;
   /** Конвой: куда шли в прошлый раз (сменилась цель — новый путь). */
@@ -363,22 +363,22 @@ export class CpBrain implements Brain {
     this.dutyArrived = false;
     this.dutyLine = null;
     if (this.duty === 'inspector') {
-      // Обход: повара на раздаче, канцелярия с лоялистами, завод ГСР, площадь, плац.
+      // Обход: повара на раздаче, канцелярия с лоялистами, завод ТС, площадь, плац.
       const places: [Vec2 | null, readonly string[]][] = [
         [ctx.economy.dispenserSpot, SECURITY.lines.inspectCook],
         [pick('clerk_desk'), SECURITY.lines.inspectClerk],
         [pick('clerk_desk'), SECURITY.lines.inspectClerk],
         [ctx.labor.factory, SECURITY.lines.inspectCook],
-        // Штаб ГСР: глава отчитывается инспектору (CwuHqSystem).
+        // Штаб ТС: глава отчитывается инспектору (CwuHqSystem).
         [ctx.cwuHq?.desk ?? null, CWU_HQ.lines.inspect],
         [ctx.cwuHq?.desk ?? null, CWU_HQ.lines.inspect],
         [poiWorld(ctx, 'plaza_center'), SECURITY.lines.inspect],
         [poiWorld(ctx, 'nexus_yard'), SECURITY.lines.inspect],
-        // Склад Альянса: сверка описи с запасами (ArsenalSystem).
+        // Склад Протектората: сверка описи с запасами (ArsenalSystem).
         [ctx.arsenal?.ledgerSpot ?? null, ARSENAL.lines.inspect],
       ];
       const [p, lines] = ctx.rng.pick(places.filter(([q]) => q)) ?? [null, SECURITY.lines.inspect];
-      // Встать рядом, а не на рабочее место повара или фасовщика (у описи склада и у стола главы ГСР —
+      // Встать рядом, а не на рабочее место повара или фасовщика (у описи склада и у стола главы ТС —
       // прямо у стола: точка «вокруг» может оказаться за стеной, в соседней комнате).
       const ledger = p !== null && (p === ctx.arsenal?.ledgerSpot || p === ctx.cwuHq?.desk);
       const a = p && !ledger ? randomAnchorAround(p, ctx, 2, 4, this.patrolAvoid) : -1;
@@ -415,7 +415,7 @@ export class CpBrain implements Brain {
       this.dutyLine = ctx.rng.pick(SECURITY.lines.officer);
       this.dutyUntil = now + ctx.rng.range(D.officer[0], D.officer[1]);
     } else {
-      // Глава и свободная охрана — у кабинета Администратора; глава на выходе — у цели выхода.
+      // Глава и свободная охрана — у кабинета Коменданта; глава на выходе — у цели выхода.
       const tour = this.duty === 'epu' ? ctx.security?.tourSpot : null;
       const office = poiWorld(ctx, 'nexus_desk');
       this.dutySpot = tour ?? (office ? { x: office.x + ctx.rng.range(-24, 24), y: office.y + ctx.rng.range(18, 40) } : null);
@@ -476,7 +476,7 @@ export class CpBrain implements Brain {
     }
     cur = this.fsm.current;
     // Патроны на исходе — к окну выдачи склада (патрульный, не на посту и не в строю).
-    // Снабжение (склад Альянса): ГО города без табельного или с пустыми подсумками — к окну выдачи
+    // Снабжение (склад Протектората): ВС города без табельного или с пустыми подсумками — к окну выдачи
     // склада (из группы и со службы тоже, если нет табельного); часовой КПП в затишье — к пункту
     // боепитания в проходной.
     if (ctx.arsenal?.present && ctx.law.now >= this.resupplyCheck && !this.formation && !this.scene) {
@@ -624,7 +624,7 @@ export class CpBrain implements Brain {
     // Плановые проверки CID — работа PCU (и следователей), не командования и не охраны.
     if ((this.duty && STAFF.has(this.duty) && this.duty !== 'officer') || this.duty === 'qm' || this.duty === 'convoy' || this.duty === 'jailer' || this.formation) return;
     for (const o of near) {
-      // Работника ГСР на раздаче плановой проверкой не дёргают.
+      // Работника ТС на раздаче плановой проверкой не дёргают.
       if (o === self || !law.checkable(o) || o === ctx.economy.dispenser) continue;
       // Грузчиков и оружейника склада (с допуском, на службе) плановой проверкой не дёргают.
       if (o.profession === 'loader' || o.profession === 'armorer') continue;
@@ -641,7 +641,7 @@ export class CpBrain implements Brain {
     }
   }
 
-  /** Раненый сотрудник Альянса поблизости. */
+  /** Раненый сотрудник Протектората поблизости. */
   findPatient(range: number): Character | null {
     let best: Character | null = null;
     let bestD = range;
@@ -737,7 +737,7 @@ const POST: State<CpBrain> = {
 };
 
 /**
- * Пополнение боекомплекта на складе Альянса: к окну выдачи, постоять issue.every с — кладовщик
+ * Пополнение боекомплекта на складе Протектората: к окну выдачи, постоять issue.every с — кладовщик
  * выдаёт (или отказывает: пусто, закрыто, кладовщика нет). Не дошёл за issue.giveUp с — бросает.
  */
 const RESUPPLY: State<CpBrain> = {
@@ -776,7 +776,7 @@ const RESUPPLY: State<CpBrain> = {
         const why = A.issue(b.self);
         if (why) b.self.say(b.ctx.rng.pick(ARSENAL.lines.refused), b.ctx.law.now, 2);
         else {
-          // Табельное — в руки, на улице ГО всё равно возьмёт дубинку, если не бой.
+          // Табельное — в руки, на улице ВС всё равно возьмёт дубинку, если не бой.
           const gun = b.ctx.combat.bestWeapon(b.self, 200);
           if (gun) b.ctx.combat.equip(b.self, gun);
         }
@@ -794,8 +794,8 @@ const RESUPPLY: State<CpBrain> = {
 };
 
 /**
- * Куда за снабжением: часовому КПП — к пункту боепитания в проходной; ГО города — вызвали на смену или
- * нет табельного — к окну склада, мало патронов — к ближайшему из окна и пункта Нексуса.
+ * Куда за снабжением: часовому КПП — к пункту боепитания в проходной; ВС города — вызвали на смену или
+ * нет табельного — к окну склада, мало патронов — к ближайшему из окна и пункта Управы.
  */
 function pickSupply(b: CpBrain): void {
   const A = b.ctx.arsenal;
@@ -821,7 +821,7 @@ function resupplySpot(b: CpBrain): Vec2 | null {
 }
 
 
-/** Пост далеко (подкрепление из Цитадели) — к нему бегом. */
+/** Пост далеко (подкрепление с ГЭС) — к нему бегом. */
 /** Где стоять часовому: на рейде — у лагеря, иначе — на своём посту. */
 function postOf(b: CpBrain): Vec2 {
   return b.rally ?? b.raidPost ?? b.guardPost!;
@@ -1158,7 +1158,7 @@ const FIGHT: State<CpBrain> = {
   },
 };
 
-/** Ранен: отходит в бункер КПП / к медику / к Нексусу и ждёт лечения. */
+/** Ранен: отходит в бункер КПП / к медику / к Управе и ждёт лечения. */
 const RETREAT: State<CpBrain> = {
   name: 'retreat',
   enter(b) {

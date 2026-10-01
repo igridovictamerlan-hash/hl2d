@@ -9,9 +9,9 @@ import { ARBAT } from '../src/config/arbat';
 import { ZONE_NAMES } from '../src/config/names';
 import { createCharacter } from '../src/entities/factory';
 
-describe('штаб ГСР на проспекте', () => {
+describe('штаб ТС на проспекте', () => {
   for (const seed of [12345, 777, 3]) {
-    test(`сид ${seed}: штаб фасадом на главный проспект, вдали от Нексуса и площади`, { timeout: 30_000 }, () => {
+    test(`сид ${seed}: штаб фасадом на главный проспект, вдали от Управы и площади`, { timeout: 30_000 }, () => {
       const map = generateCity(seed);
       const hq = map.poisOf('cwu_hq')[0];
       expect(hq).toBeTruthy();
@@ -32,7 +32,7 @@ describe('штаб ГСР на проспекте', () => {
 });
 
 describe('свой дом у каждого', () => {
-  test('жители, ГСР, вортигонты и подполье — с домом; Арбат заселён; возрождение — дома', { timeout: 120_000 }, () => {
+  test('жители, ТС, поднадзорные и подполье — с домом; Арбат заселён; возрождение — дома', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 70);
     const H = sim.ctx.housing;
@@ -52,7 +52,7 @@ describe('свой дом у каждого', () => {
       byHome.set(c.home, set);
     }
     expect([...byHome.values()].every((s) => s.size === 1)).toBe(true);
-    // Подполье — в явках с тайником, подальше от Нексуса.
+    // Подполье — в явках с тайником, подальше от Управы.
     const under = people.filter((c) => c.faction === 'rebel');
     expect(under.length).toBeGreaterThanOrEqual(3);
     for (const c of under) expect(H.stashOf(c)).not.toBeNull();
@@ -79,7 +79,7 @@ describe('свой дом у каждого', () => {
   });
 });
 
-describe('лавки проспекта: продавцы и товар из штаба ГСР', () => {
+describe('лавки проспекта: продавцы и товар из штаба ТС', () => {
   test('за прилавками продавцы, курьеры носят коробки из штаба, товар расходится', { timeout: 400_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;

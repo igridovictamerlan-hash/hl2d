@@ -11,7 +11,7 @@ import { fetchMap } from './world/mapIO';
  *   ?map=city1  — загрузить public/maps/city1.json
  *   ?npcs=40    — число NPC-граждан
  *   ?debug=1    — сразу включить отладку ИИ
- *   ?mode=squad — экспериментальный режим «отряд на отряд» (&side=combine — за Альянс)
+ *   ?mode=squad — экспериментальный режим «отряд на отряд» (&side=combine — за Протекторат)
  * Без ?seed и ?map игра продолжается из сохранения в браузере (если есть).
  */
 const params = new URLSearchParams(location.search);
@@ -40,7 +40,7 @@ async function boot(): Promise<void> {
     game.ui.dev.message(`Не удалось загрузить карту: ${(e as Error).message}`, true);
   }
   if (params.has('debug')) game.debug.enabled = true;
-  // ?mode=squad — сразу «отряд на отряд» (side=combine — за Альянс); иначе главное меню поверх
+  // ?mode=squad — сразу «отряд на отряд» (side=combine — за Протекторат); иначе главное меню поверх
   // уже созданного города (он живёт за ним, пока меню открыто — на паузе).
   if (params.get('mode') === 'squad') game.startArena(params.get('side') === 'combine' ? 'combine' : 'rebel');
   else game.ui.menu.open('main');

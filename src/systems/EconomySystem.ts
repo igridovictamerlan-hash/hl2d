@@ -14,7 +14,7 @@ import { T } from '../world/tiles';
 import type { Vec2 } from '../core/math';
 
 /**
- * Точка поломки — чинит ГСР. fuse — щиток в переулке (ломается сам), node — узел Альянса
+ * Точка поломки — чинит ТС. fuse — щиток в переулке (ломается сам), node — узел Протектората
  * на проспекте или площади (выходит из строя только от саботажа, ремонт дороже).
  */
 export interface RepairSpot {
@@ -29,13 +29,13 @@ export interface RepairSpot {
 }
 
 /**
- * Экономика Сити-17:
- *  - раздача рационов по таймеру: окно у будки на площади, живая очередь, выдаёт работник ГСР;
+ * Экономика Верхнеречье:
+ *  - раздача рационов по таймеру: окно у будки на площади, живая очередь, выдаёт работник ТС;
  *    рацион = паёк в инвентарь + токены, один раз за раздачу на CID;
  *  - сытость у всех падает, голодающий теряет здоровье; NPC сами едят, если есть еда;
- *  - зарплаты ГО, ГСР (если работал), Администратору;
- *  - поломки по городу, которые чинит ГСР (оплата за ремонт);
- *  - магазин ГСР: покупка за токены.
+ *  - зарплаты ВС, ТС (если работал), Коменданту;
+ *  - поломки по городу, которые чинит ТС (оплата за ремонт);
+ *  - магазин ТС: покупка за токены.
  */
 export class EconomySystem {
   /** Окно раздачи открыто. */
@@ -56,7 +56,7 @@ export class EconomySystem {
   private serveProgress = 0;
   private salaryTimer: number = ECONOMY.salary.interval;
   private breakTimer: number;
-  /** Кто работал в этот период зарплаты (ГСР). */
+  /** Кто работал в этот период зарплаты (ТС). */
   private worked = new Set<number>();
   private time = 0;
 
@@ -113,7 +113,7 @@ export class EconomySystem {
       if (this.repairs.some((r) => Math.hypot(r.x - wx, r.y - wy) < 14 * ts)) continue;
       this.repairs.push({ index: this.repairs.length, kind: 'fuse', x: wx, y: wy, broken: false, worker: null, progress: 0 });
     }
-    // Узлы Альянса: у стены на проспекте или площади, разнесённые по городу.
+    // Узлы Протектората: у стены на проспекте или площади, разнесённые по городу.
     const N = ECONOMY.nodes;
     let nodes = 0;
     for (let tries = 0; tries < 6000 && nodes < N.count; tries++) {
@@ -137,16 +137,16 @@ export class EconomySystem {
     return this.repairs.filter((r) => r.kind === 'node');
   }
 
-  /** Задаёт WarSystem: саботаж — тревога Администратора. */
+  /** Задаёт WarSystem: саботаж — тревога Коменданта. */
   onSabotage: (spot: RepairSpot, by: Character) => void = () => {};
 
-  /** Саботаж узла Альянса. */
+  /** Саботаж узла Протектората. */
   sabotage(spot: RepairSpot, by: Character): void {
     if (spot.kind !== 'node' || spot.broken) return;
     spot.broken = true;
     spot.progress = 0;
     const zone = this.map.zoneAtWorld(spot.x, spot.y)?.name ?? 'город';
-    this.bus.emit('log', { text: `Надзор: узел Альянса выведен из строя — ${zone}. Саботаж!`, kind: 'radio' });
+    this.bus.emit('log', { text: `Надзор: узел Протектората выведен из строя — ${zone}. Саботаж!`, kind: 'radio' });
     this.onSabotage(spot, by);
   }
 
@@ -196,7 +196,7 @@ export class EconomySystem {
     if (i >= 0) this.queue.splice(i, 1);
   }
 
-  /** Работник ГСР встаёт на выдачу (если место свободно). */
+  /** Работник ТС встаёт на выдачу (если место свободно). */
   claimDispenser(c: Character): boolean {
     if (this.dispenser && this.dispenser !== c && this.dispenser.alive && this.dispenserBusy(this.dispenser)) return false;
     this.dispenser = c;
@@ -216,7 +216,7 @@ export class EconomySystem {
     this.worked.add(c.id);
   }
 
-  /** Выдать рацион первому в очереди (вызывает работник ГСР). */
+  /** Выдать рацион первому в очереди (вызывает работник ТС). */
   serveNext(worker: Character): Character | null {
     if (!this.queue.length || !this.open) return null;
     const slot = this.queueSlot(0);
@@ -253,7 +253,7 @@ export class EconomySystem {
     this.markWorked(worker);
     if (c.isPlayer) this.bus.emit('log', { text: `Вы получили рацион и ${tokens} токенов.`, kind: 'world' });
     adjustLoyalty(c, LOYALTY.points.ration, 'рацион получен', this.bus);
-    adjustLoyalty(worker, LOYALTY.points.cwuWork, 'работа ГСР', this.bus);
+    adjustLoyalty(worker, LOYALTY.points.cwuWork, 'работа ТС', this.bus);
     return c;
   }
 
@@ -279,7 +279,7 @@ export class EconomySystem {
   }
 
   /** Купить в магазине. */
-  /** Цена в магазине ГСР для персонажа (лоялистам — скидка). */
+  /** Цена в магазине ТС для персонажа (лоялистам — скидка). */
   shopPrice(c: Character, id: ItemId): number | undefined {
     const base = ITEMS[id].price;
     if (base === undefined) return undefined;
@@ -292,7 +292,7 @@ export class EconomySystem {
     if (c.money < price) return `Не хватает токенов: нужно ${price}.`;
     if (c.inventory.add(id, 1) === 0) return 'Инвентарь полон.';
     c.money -= price;
-    // Продавец ГСР у прилавка получает процент.
+    // Продавец ТС у прилавка получает процент.
     if (this.shopCounter) {
       for (const o of this.entities.near(this.shopCounter.x, this.shopCounter.y, 48)) {
         if (o.faction === 'cwu' && o !== c) {
@@ -331,7 +331,7 @@ export class EconomySystem {
 
   /**
    * Пополнить боекомплект: для каждого ствола в инвентаре — запас до mags магазинов
-   * (тайник повстанцев, стойка дежурного в Нексусе). Остальные вещи не трогает.
+   * (тайник повстанцев, стойка дежурного в Управе). Остальные вещи не трогает.
    */
   refillAmmo(c: Character, mags: number): number {
     let added = 0;
@@ -358,8 +358,8 @@ export class EconomySystem {
     const pay = spot.kind === 'node' ? ECONOMY.cwuPay.node : ECONOMY.cwuPay.repair;
     worker.money += pay;
     adjustLoyalty(worker, LOYALTY.points.cwuWork, 'ремонт', this.bus);
-    const what = spot.kind === 'node' ? 'узел Альянса' : 'неисправность';
-    this.bus.emit('log', { text: `${worker.isPlayer ? 'Вы починили' : `${worker.name} (ГСР) починил`} ${what}. +${pay} токенов`, kind: 'world' });
+    const what = spot.kind === 'node' ? 'узел Протектората' : 'неисправность';
+    this.bus.emit('log', { text: `${worker.isPlayer ? 'Вы починили' : `${worker.name} (ТС) починил`} ${what}. +${pay} токенов`, kind: 'world' });
     return true;
   }
 
@@ -453,7 +453,7 @@ export class EconomySystem {
         r.broken = true;
         r.progress = 0;
         const zone = this.map.zoneAtWorld(r.x, r.y)?.name ?? 'город';
-        this.bus.emit('log', { text: `ГСР: неисправность — ${zone}. Требуется ремонт.`, kind: 'world' });
+        this.bus.emit('log', { text: `ТС: неисправность — ${zone}. Требуется ремонт.`, kind: 'world' });
       }
     }
     for (const r of this.repairs) if (r.worker && (!r.worker.alive || Math.hypot(r.worker.x - r.x, r.worker.y - r.y) > 40)) r.worker = null;

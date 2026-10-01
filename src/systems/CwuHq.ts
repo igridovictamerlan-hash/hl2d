@@ -7,9 +7,9 @@ import { KITS } from '../config/items';
 import { adjustLoyalty } from './Loyalty';
 
 /**
- * Штаб ГСР у главного проспекта. Приёмная: граждане приходят устраиваться — встают в очередь у
- * стойки найма, глава ГСР выходит к стойке и оформляет (hire.time с): берут туда, где рабочих
- * меньше всего не хватает (hire.needs), мест нет — отказ. Устроившийся становится рабочим ГСР (роль
+ * Штаб ТС у главного проспекта. Приёмная: граждане приходят устраиваться — встают в очередь у
+ * стойки найма, глава ТС выходит к стойке и оформляет (hire.time с): берут туда, где рабочих
+ * меньше всего не хватает (hire.needs), мест нет — отказ. Устроившийся становится рабочим ТС (роль
  * меняется — возрождается уже рабочим). Места перерыва рабочих — комната отдыха и столовая.
  * Инспектор SU.INSP, дойдя до главы, требует отчёт — глава отчитывается.
  */
@@ -60,7 +60,7 @@ export class CwuHqSystem {
     inRoom('cwu_lounge', this.roundSpots);
   }
 
-  /** Глава ГСР (живой) или null. */
+  /** Глава ТС (живой) или null. */
   get head(): Character | null {
     for (const c of this.ctx.entities.list) if (c.alive && c.profession === 'cwu_head') return c;
     return null;
@@ -150,7 +150,7 @@ export class CwuHqSystem {
         else {
           this.stats.rejected++;
           head!.say(ctx.rng.pick(CWU_HQ.lines.noVacancy), ctx.law.now, 3);
-          if (first.isPlayer) ctx.law.log('Глава ГСР: мест нет, приходите позже.', 'world');
+          if (first.isPlayer) ctx.law.log('Глава ТС: мест нет, приходите позже.', 'world');
         }
       }
     }
@@ -166,13 +166,13 @@ export class CwuHqSystem {
         this.stats.inspections++;
         o.say(ctx.rng.pick(CWU_HQ.lines.inspect), ctx.law.now, 3);
         head.say(ctx.rng.pick(CWU_HQ.lines.headReply), ctx.law.now + 1.5, 3);
-        ctx.law.log(`${o.name} инспектирует штаб ГСР: ${head.name} отчитывается о выработке.`, 'radio');
+        ctx.law.log(`${o.name} инспектирует штаб ТС: ${head.name} отчитывается о выработке.`, 'radio');
         break;
       }
     }
   }
 
-  /** Оформить гражданина рабочим ГСР (NPC и игрок): форма, набор, роль, лояльность. */
+  /** Оформить гражданина рабочим ТС (NPC и игрок): форма, набор, роль, лояльность. */
   hire(c: Character, prof: ProfessionId, head: Character | null): void {
     const { ctx } = this;
     ctx.economy.leaveQueue(c);
@@ -182,13 +182,13 @@ export class CwuHqSystem {
     c.division = null;
     const kit = PROFESSIONS[prof].kit ?? 'cwu';
     for (const [id, qty] of KITS[kit] ?? []) c.inventory.add(id, qty);
-    // На склад Альянса — с допуском (документы выправлены при найме).
+    // На склад Протектората — с допуском (документы выправлены при найме).
     if (prof === 'loader' || prof === 'armorer') c.law.hasCid = true;
     if (c.role) c.role = { ...c.role, kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit, name: c.name, family: undefined };
-    adjustLoyalty(c, CWU_HQ.hire.loyalty, 'устройство в ГСР', ctx.bus);
+    adjustLoyalty(c, CWU_HQ.hire.loyalty, 'устройство в ТС', ctx.bus);
     this.stats.hired++;
     head?.say(ctx.rng.pick(CWU_HQ.lines.hired), ctx.law.now, 3);
-    ctx.law.log(`Штаб ГСР: ${c.isPlayer ? 'вы приняты' : `${c.name} принят(а)`} на работу — ${PROFESSIONS[prof].name}.`, c.isPlayer ? 'world' : 'radio');
+    ctx.law.log(`Штаб ТС: ${c.isPlayer ? 'вы приняты' : `${c.name} принят(а)`} на работу — ${PROFESSIONS[prof].name}.`, c.isPlayer ? 'world' : 'radio');
     if (c.isPlayer) ctx.bus.emit('hired', { who: c, profession: prof });
   }
 }

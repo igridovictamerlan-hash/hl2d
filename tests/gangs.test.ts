@@ -82,7 +82,7 @@ describe('банды', () => {
 
   test('дела: дань с лавки — в общак, ствол у барыги — в общак', { timeout: 120_000 }, () => {
     const sim = setup();
-    // Без ГО: проверка CID по дороге (ведомый побежал — арестован, дело сорвано) — дело случая.
+    // Без ВС: проверка CID по дороге (ведомый побежал — арестован, дело сорвано) — дело случая.
     for (const c of sim.entities.list.filter((o) => o.faction === 'cp')) sim.entities.remove(c);
     const G = sim.ctx.gangs;
     G.paused = true;
@@ -111,7 +111,7 @@ describe('банды', () => {
     expect(g.stash.slots.filter((s) => GANGS.arms.includes(s.id as never)).reduce((n, s) => n + s.qty, 0)).toBe(guns + 1);
   });
 
-  test('удар по ГО: бойцы достают стволы у патрульного, враги Альянса, в розыске', { timeout: 120_000 }, () => {
+  test('удар по ВС: бойцы достают стволы у патрульного, враги Протектората, в розыске', { timeout: 120_000 }, () => {
     const sim = setup(20);
     const G = sim.ctx.gangs;
     G.paused = true;
@@ -145,7 +145,7 @@ describe('банды', () => {
 });
 
 describe('барыга — вся связь подполья с улицей', () => {
-  test('хата у запретной зоны; партизан сдаёт краденое с явки, заказ — банде удар по ГО', { timeout: 200_000 }, () => {
+  test('хата у запретной зоны; партизан сдаёт краденое с явки, заказ — банде удар по ВС', { timeout: 200_000 }, () => {
     // Без патрулей (проверка CID по дороге — дело случая): подполье, барыга, банды, дома.
     const sim = makeSim(12345);
     sim.war.command.paused = true;
@@ -180,7 +180,7 @@ describe('барыга — вся связь подполья с улицей', 
     expect(F.wares.count('mp7')).toBe(wares + 2);
     expect(stash.slots).toHaveLength(0);
     expect(sim.insurgency.stats.fenced).toBe(5);
-    // Заказ подполья → банда идёт бить ГО (оплачено).
+    // Заказ подполья → банда идёт бить ВС (оплачено).
     F.orders = Math.max(F.orders, 1);
     sim.ctx.gangs.paused = false;
     const g = sim.ctx.gangs.gangs[0];
@@ -207,7 +207,7 @@ describe('по одному — только на районе, в городе 
       for (const c of sim.entities.list) {
         // Тяжелораненый лежит (стычка) — он не «гуляет один».
         if (c.gang < 0 || c.isPlayer || !c.fit || sim.map.levelAt(c.x, c.y) !== 'city') continue;
-        // Задержанных ведёт ГО, отпущенный из КПЗ идёт на район сам — это не прогулка.
+        // Задержанных ведёт ВС, отпущенный из КПЗ идёт на район сам — это не прогулка.
         if (c.brain?.constructor.name === 'PrisonerBrain') jailed.add(c.id);
         if (jailed.has(c.id)) continue;
         samples++;
@@ -251,7 +251,7 @@ describe('товар барыге', () => {
     expect(guns(stash)).toBeGreaterThan(0);
     expect(I.goodsStash()).not.toBeNull();
     for (let t = 0; t < 240 * 60 && I.ops.includes(op); t++) sim.step();
-    // Товар есть — к барыге: краденый ствол Альянса у него в продаже.
+    // Товар есть — к барыге: краденый ствол Протектората у него в продаже.
     const before = guns(F.wares);
     const deal = I.startOperation('fence')!;
     expect(deal.kind).toBe('fence');

@@ -10,7 +10,7 @@ export const AI = {
      * армия сопротивления — в лагере (config/roster.ts), партизаны в схроне, пара подпольщиков.
      */
     cpPerCheckpoint: 5, rebels: 0, admin: 1,
-    /** ГСР по профессиям (config/professions.ts): повара на раздаче, фасовщик, курьер, уборщики, медик. */
+    /** ТС по профессиям (config/professions.ts): повара на раздаче, фасовщик, курьер, уборщики, медик. */
     // Продавцы лавок и повар столовой — по числу мест на карте (Population, ARBAT.staff).
     cwuProfessions: ['cook', 'cook', 'packer', 'packer', 'courier', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic', 'loader', 'loader', 'loader', 'armorer'] as const,
     /** Доля воров и отбросов среди граждан. */
@@ -23,7 +23,7 @@ export const AI = {
     /** Бандиты-одиночки (без банды; банды — config/gangs.ts). */
     banditShare: 0,
     fugitiveShare: 0.05,
-    /** Вортигонты-рабы, убирающие улицы. */
+    /** Поднадзорные-рабы, убирающие улицы. */
     vorts: 5,
   },
 

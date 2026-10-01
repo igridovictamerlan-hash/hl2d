@@ -35,7 +35,7 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(by('insp')).toHaveLength(ROSTER.cp.inspectors + (sim.ctx.prison.present ? 1 : 0));
     expect(by('insp').filter((c) => c.role?.kind === 'inspector')).toHaveLength(ROSTER.cp.inspectors);
     expect(by('epu')).toHaveLength(ROSTER.cp.epu);
-    // Охранников меньше, чем целей охраны (инспекторы, глава, Администратор, лоялисты); охрана склада
+    // Охранников меньше, чем целей охраны (инспекторы, глава, Комендант, лоялисты); охрана склада
     // стоит на своих постах и в очередь охраны не входит.
     expect(by('guard').filter((c) => c.role?.kind === 'bodyguard').length).toBeLessThan(ROSTER.cp.inspectors + ROSTER.cp.epu + 1 + SECURITY.guard.loyalists);
     // Оружие: PCU.03 — пистолет без MP7, сержант — MP7, SU.03 — M4A4, OTA.KING — ещё и РПГ.
@@ -43,7 +43,7 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(by('pcu3')[0].inventory.has('usp')).toBe(true);
     expect(by('pcu1')[0].inventory.has('mp7')).toBe(true);
     expect(by('su3')[0].inventory.has('m4a4')).toBe(true);
-    // RCT: у ворот Нексуса, в проходных КПП и в людных местах; на постах КПП — только SU.03.
+    // RCT: у ворот Управы, в проходных КПП и в людных местах; на постах КПП — только SU.03.
     const rct = by('rct');
     expect(rct.length).toBe(ROSTER.cp.nexusPosts + ROSTER.cp.publicPosts + sim.war.fronts.reduce((n, f) => n + f.gatePosts.length, 0));
     const gate = poiWorld(sim.ctx, 'nexus_gate')!;
@@ -88,7 +88,7 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(median).toBeLessThan(160);
   });
 
-  test('построение: офицер собирает юнитов PCU на плацу Нексуса и распускает', { timeout: 120_000 }, () => {
+  test('построение: офицер собирает юнитов PCU на плацу Управы и распускает', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 30);
     sim.war.command.paused = true;
@@ -131,7 +131,7 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
       for (const g of guards) if (brain(g).ward) wards.add(brain(g).ward!);
     }
     expect(wards.size).toBeGreaterThan(guards.length);
-    // Глава силового блока — в Нексусе; на выходе к площади с ним вся охрана.
+    // Глава силового блока — в Управе; на выходе к площади с ним вся охрана.
     const epu = cps(sim).find((c) => brain(c).duty === 'epu')!;
     expect(['nexus', 'cells']).toContain(sim.map.zoneAtWorld(epu.x, epu.y)?.kind);
     (sim.security as unknown as { nextTour: number }).nextTour = 0;

@@ -9,9 +9,9 @@ import { COMBAT } from '../../config/combat';
 import { PARTISANS } from '../../config/underground';
 
 /**
- * Бандит со стволом от партизан — «чужие руки» сопротивления. Ищет патрульного ГО в городе (не на
- * КПП и не в Нексусе), подходит с оружием в кармане, в PARTISANS.hired.engage px достаёт ствол —
- * с этого момента он враг Альянса (hostile) — и стреляет. Время вышло, ранен или цели нет —
+ * Бандит со стволом от партизан — «чужие руки» сопротивления. Ищет патрульного ВС в городе (не на
+ * КПП и не в Управе), подходит с оружием в кармане, в PARTISANS.hired.engage px достаёт ствол —
+ * с этого момента он враг Протектората (hostile) — и стреляет. Время вышло, ранен или цели нет —
  * прячет оружие и возвращается к прежней жизни (но остаётся в розыске).
  */
 export class HiredGunBrain implements Brain {
@@ -31,7 +31,7 @@ export class HiredGunBrain implements Brain {
   }
 
   get stateName(): string {
-    return this.gunner.target ? 'наёмник · бой' : 'наёмник · ищет ГО';
+    return this.gunner.target ? 'наёмник · бой' : 'наёмник · ищет ВС';
   }
 
   /** Бросить дело: оружие в карман, прежний мозг. */
@@ -76,7 +76,7 @@ export class HiredGunBrain implements Brain {
       }
     }
     const prey = this.prey;
-    // Вблизи — достать ствол: теперь он враг Альянса (и в розыске).
+    // Вблизи — достать ствол: теперь он враг Протектората (и в розыске).
     if (!self.hostile && Math.hypot(prey.x - self.x, prey.y - self.y) < H.engage) {
       self.hostile = true;
       self.law.wanted = true;

@@ -56,7 +56,7 @@ export const LIGHTING = {
   campfire: { color: [255, 140, 60] as Rgb, radius: 170, power: 1, flicker: 0.25 },
   /** Своё свечение вокруг игрока — чтобы ночью видеть себя и шаг вокруг. */
   player: { color: [120, 112, 104] as Rgb, radius: 130, power: 0.7 },
-  /** Узлы Альянса (терминалы у стен) — холодный голубой. */
+  /** Узлы Протектората (терминалы у стен) — холодный голубой. */
   node: { color: [110, 180, 255] as Rgb, radius: 46, power: 0.8 },
   /** Пламя на земле, взрыв, вспышка выстрела (живёт muzzleTime с), горящий человек. */
   fire: { color: [255, 130, 50] as Rgb, radiusMul: 2.2, power: 1, flicker: 0.3 },
@@ -66,8 +66,8 @@ export const LIGHTING = {
   /** Люк в канализации: свет сверху. */
   hatch: { color: [210, 205, 180] as Rgb, radius: 70, power: 0.6 },
   /**
-   * Комнаты и места по POI. Жилые — тёплые лампы (дом, общежитие, особняк), Альянс — холодный
-   * белый (Нексус, КПЗ, цех ГСР), КПП — прожекторы у постов.
+   * Комнаты и места по POI. Жилые — тёплые лампы (дом, общежитие, особняк), Протекторат — холодный
+   * белый (Управа, КПЗ, цех ТС), КПП — прожекторы у постов.
    */
   pois: {
     home: { color: [255, 184, 104], radius: 100, power: 1, night: true, bloom: true },
@@ -106,7 +106,7 @@ export const LIGHTING = {
     rebel_base: { color: [255, 170, 90], radius: 150, power: 0.9, night: false, flicker: 0.12 },
     rebel_cache: { color: [255, 180, 100], radius: 80, power: 0.7, night: false, flicker: 0.1 },
     trader: { color: [255, 190, 110], radius: 90, power: 0.8, night: false, flicker: 0.1 },
-    // Тюрьма Альянса: двор и коридор — холодные прожекторы у постов, караулка и допросная — лампы.
+    // Тюрьма Протектората: двор и коридор — холодные прожекторы у постов, караулка и допросная — лампы.
     prison_post: { color: [210, 228, 255], radius: 120, power: 0.85, night: true, bloom: true },
     prison_office: { color: [255, 205, 140], radius: 80, power: 0.8, night: true, bloom: true },
     prison_guardroom: { color: [255, 200, 130], radius: 70, power: 0.8, night: true, bloom: true },
@@ -119,7 +119,7 @@ export const LIGHTING = {
     prison_itable: { color: [255, 225, 160], radius: 50, power: 1, night: true, bloom: true },
     prison_mast: { color: [225, 235, 255], radius: 130, power: 0.9, night: true, bloom: true },
     prison_beacon: { color: [255, 70, 50], radius: 40, power: 0.5, night: true },
-    // Склад Альянса: зал и контора — холодный белый, площадка — прожекторы у постов, мастерская и
+    // Склад Протектората: зал и контора — холодный белый, площадка — прожекторы у постов, мастерская и
     // караулка — тёплые лампы, маяк площадки — красный (мигает — ArsenalRenderer).
     arsenal_hall: { color: [215, 230, 255], radius: 120, power: 0.75, night: true },
     arsenal_office: { color: [220, 232, 255], radius: 80, power: 0.75, night: true },

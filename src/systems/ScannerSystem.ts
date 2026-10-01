@@ -4,7 +4,7 @@ import { CP_UNITS } from '../config/cpUnits';
 import { FACTIONS } from '../config/factions';
 import { CpBrain } from '../ai/brains/CpBrain';
 
-/** Сканер Альянса (дрон техника TECH). */
+/** Сканер Протектората (дрон техника TECH). */
 export interface Scanner {
   owner: Character;
   x: number;
@@ -23,7 +23,7 @@ export interface Scanner {
 const near: Character[] = [];
 
 /**
- * Сканеры техников ГО: дрон облетает кварталы вокруг техника (над стенами), засекает повстанцев,
+ * Сканеры техников ВС: дрон облетает кварталы вокруг техника (над стенами), засекает повстанцев,
  * вооружённых и разыскиваемых. Повстанец или вооружённый в городе — тревога и «Надзор» знает, где он;
  * разыскиваемого — ближайший свободный патрульный идёт задерживать. Вспышка — «фото».
  */
@@ -110,7 +110,7 @@ export class ScannerSystem {
         if (cp) (cp.brain as CpBrain).engage(c, 'wanted');
         ctx.bus.emit('log', { text: `Сканер ${s.owner.name}: в розыске — ${c.isPlayer ? 'ВЫ' : c.name}, ${zone}.`, kind: 'radio' });
       }
-      if (c.isPlayer) ctx.bus.emit('log', { text: 'Над вами сканер Альянса — вас сфотографировали!', kind: 'law' });
+      if (c.isPlayer) ctx.bus.emit('log', { text: 'Над вами сканер Протектората — вас сфотографировали!', kind: 'law' });
     }
   }
 

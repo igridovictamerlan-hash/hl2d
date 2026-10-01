@@ -195,7 +195,7 @@ export class GunfireAudio {
     const gust = 1 - W.gust * 0.5 * (1 + Math.sin(this.ambientT * W.gustRate) * Math.sin(this.ambientT * W.gustRate * 2.3 + 1));
     const level = W.gain * (1 + (W.nightMul - 1) * dark) * (sewer ? W.sewerMul : 1) * gust * (this.muted ? 0 : 1);
     this.windGain.gain.setTargetAtTime(level, ctx.currentTime, 0.5);
-    // Гул корабля Альянса (поставка на склад).
+    // Гул корабля Протектората (поставка на склад).
     const S = A.ship;
     if (ship && !this.shipGain) {
       const src = ctx.createBufferSource();

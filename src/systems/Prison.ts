@@ -45,12 +45,12 @@ export function isArmy(c: Character): boolean {
 }
 
 /**
- * Тюрьма Альянса — режимный объект: посты охраны (SU.GUARD, роль jailer: дежурный за стойкой приёмной,
+ * Тюрьма Протектората — режимный объект: посты охраны (SU.GUARD, роль jailer: дежурный за стойкой приёмной,
  * коридор блока, двор) и их обход, кабинет начальника — третьего инспектора SU.INSP (роль warden),
  * приёмка задержанных у стойки, шлюз между решётками, оружейная со стволами и боекомплектом (пункт
- * боепитания склада — пополняют конвои ГО; охрана берёт патроны здесь, освобождённые из камер —
+ * боепитания склада — пополняют конвои ВС; охрана берёт патроны здесь, освобождённые из камер —
  * вооружаются), двор-площадка с посадочными маяками. Камеры и заключённые — в LawSystem (Cell.prison),
- * изъятое — LawSystem.evidence. Решает, когда армия при выходе в город идёт не на Нексус, а выручать
+ * изъятое — LawSystem.evidence. Решает, когда армия при выходе в город идёт не на Управу, а выручать
  * своих (rescue).
  */
 export class PrisonSystem {
@@ -98,7 +98,7 @@ export class PrisonSystem {
   readonly drops: Vec2[] = [];
   /** Кого уже оформили в приёмной (снимок, отпечатки, обыск). */
   private readonly processed = new Set<Character>();
-  /** Армия идёт на тюрьму (а не на Нексус); сколько сидело, когда решили. */
+  /** Армия идёт на тюрьму (а не на Управу); сколько сидело, когда решили. */
   rescue = false;
   private rescueFrom = 0;
   readonly stats = { rescues: 0, freedByArmy: 0, freedByUnderground: 0, assaults: 0, armed: 0, armoryBroken: 0, intakes: 0, fromEvidence: 0 };
@@ -320,7 +320,7 @@ export class PrisonSystem {
     this.ctx.law.confiscate(c);
     this.stats.intakes++;
     by?.say(this.ctx.rng.pick(PRISON.lines.intake), this.ctx.law.now, 2.5);
-    this.ctx.law.log(`Тюрьма Альянса: ${c.isPlayer ? 'вас оформили' : `${c.name} оформлен`} в приёмной — снимок, отпечатки, обыск; изъятое — в комнату улик.`, 'law');
+    this.ctx.law.log(`Тюрьма Протектората: ${c.isPlayer ? 'вас оформили' : `${c.name} оформлен`} в приёмной — снимок, отпечатки, обыск; изъятое — в комнату улик.`, 'law');
   }
 
   /** Оформление больше не нужно помнить (сел, освобождён, погиб). */
@@ -350,7 +350,7 @@ export class PrisonSystem {
     this.stats.armoryBroken++;
     this.setArmoryLock(false);
     if (this.armoryDoor) ctx.doors.open(this.armoryDoor);
-    ctx.law.log(`Тюрьма Альянса: дверь оружейной выбита${by.isPlayer ? ' — вами' : ''}! Беглые разбирают стволы.`, 'radio');
+    ctx.law.log(`Тюрьма Протектората: дверь оружейной выбита${by.isPlayer ? ' — вами' : ''}! Беглые разбирают стволы.`, 'radio');
     const d = this.armoryDoorTiles[0];
     if (d) ctx.war.raiseAlarm(d.x, d.y, 'взлом оружейной тюрьмы');
   }
@@ -415,7 +415,7 @@ export class PrisonSystem {
   }
 
   /**
-   * Дверь оружейной: отперта, пока рядом сотрудник Альянса, внутри кто-то есть, охранник идёт за
+   * Дверь оружейной: отперта, пока рядом сотрудник Протектората, внутри кто-то есть, охранник идёт за
    * патронами, конвой склада везёт сюда груз — или она выбита.
    */
   private updateArmoryDoor(): void {
@@ -472,12 +472,12 @@ export class PrisonSystem {
         this.rescue = true;
         this.rescueFrom = jailed;
         this.stats.rescues++;
-        this.ctx.law.log(`Надзор: повстанцы идут на тюрьму Альянса — выручать своих (${jailed} в камерах)! Охране — к бою!`, 'radio');
+        this.ctx.law.log(`Надзор: повстанцы идут на тюрьму Протектората — выручать своих (${jailed} в камерах)! Охране — к бою!`, 'radio');
         this.ctx.bus.emit('announce', { text: 'Повстанцы штурмуют тюрьму' });
       }
     } else if (jailed < R.min || jailed <= this.rescueFrom * (1 - R.freed)) {
       this.rescue = false;
-      this.ctx.law.log(`Сопротивление: из тюрьмы вызволили своих — теперь на Нексус!`, 'world');
+      this.ctx.law.log(`Сопротивление: из тюрьмы вызволили своих — теперь на Управу!`, 'world');
     }
   }
 }

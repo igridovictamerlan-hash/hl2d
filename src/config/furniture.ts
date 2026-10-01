@@ -26,7 +26,7 @@ export const FURNITURE = {
   } as Record<string, readonly [number, number]>,
   /** Стол со стульями посередине — если комната не меньше tableMin тайлов; размер стола. */
   table: { min: [4, 3] as const, w: 28, h: 18 },
-  /** Столовая штаба ГСР: столы в ряд посередине (шаг step px), стулья сверху и снизу. */
+  /** Столовая штаба ТС: столы в ряд посередине (шаг step px), стулья сверху и снизу. */
   canteen: { step: 46 },
   /** Вокруг конвейера цеха ничего не ставим (полуширина и полувысота, px). */
   conveyorClear: [30, 18] as const,
@@ -37,7 +37,7 @@ export const FURNITURE = {
     dorm_common: ['bookshelf', 'bookshelf', 'crate', 'crate', 'plant', 'stove', 'plant'],
     villa: ['bed_double', 'nightstand', 'nightstand', 'wardrobe', 'bookshelf', 'plant', 'lamp', 'plant'],
     villa_living: ['sofa', 'bookshelf', 'bookshelf', 'armchair', 'armchair', 'plant', 'lamp', 'plant', 'bookshelf'],
-    // Штаб ГСР: комната отдыха, столовая (плюс ряд столов со стульями), кабинет главы, приёмная, цех.
+    // Штаб ТС: комната отдыха, столовая (плюс ряд столов со стульями), кабинет главы, приёмная, цех.
     cwu_lounge: ['sofa', 'armchair', 'armchair', 'bookshelf', 'plant', 'lamp', 'plant'],
     cwu_canteen: ['stove', 'stove', 'crate', 'plant', 'crate'],
     cwu_office: ['bookshelf', 'bookshelf', 'wardrobe', 'plant', 'lamp', 'plant'],

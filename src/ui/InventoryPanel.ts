@@ -197,7 +197,7 @@ export class InventoryPanel {
     this.slot(ctx, L + S + G, T, S, S - 4, 'ТОКЕНЫ', null);
     drawIcon(ctx, 'tokens', L + S + G + S / 2, T + S / 2 - 2, 0.8);
     text(ctx, String(p.money), L + 2 * S + G - 8, T + S - 16, 13, C.ink, 'right', 900);
-    this.hits.push({ x: L + S + G, y: T, w: S, h: S - 4, title: `Токены: ${p.money}`, desc: 'Деньги Альянса.', act: '' });
+    this.hits.push({ x: L + S + G, y: T, w: S, h: S - 4, title: `Токены: ${p.money}`, desc: 'Деньги Протектората.', act: '' });
     const dollX = L + S + G;
     const dollW = 2 * S + G + 120;
     const rx = dollX + dollW + G;

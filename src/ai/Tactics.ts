@@ -255,7 +255,7 @@ export function watchSector(self: Character, leader: Character, k: number, last:
  * Тактика бойца (один на мозг): бой из-за угла (сидит за стеной — выглядывает на очередь — назад;
  * прижали — сидит дольше, перезаряжается за стеной), из-за бетонного блока (присев; врага не видно
  * — огонь на подавление по месту, где его видели), помощь своим тяжелораненым (оттащить из-под огня,
- * перевязать и поднять), задержание лежащего врага (ГО).
+ * перевязать и поднять), задержание лежащего врага (ВС).
  */
 export class Tactician {
   mode: 'none' | 'move' | 'hide' | 'peek' | 'hold' = 'none';
@@ -276,7 +276,7 @@ export class Tactician {
   private dragTo: Vec2 | null = null;
   private dragUntil = 0;
   private dragged = false;
-  /** ГО: кого задерживает (лежащего врага). */
+  /** ВС: кого задерживает (лежащего врага). */
   private arrestee: Character | null = null;
   private arrestScan = 0;
 
@@ -590,7 +590,7 @@ export class Tactician {
   }
 
   /**
-   * ГО в городе: лежащего раненого врага (повстанец, напавший) — стабилизировать и задержать.
+   * ВС в городе: лежащего раненого врага (повстанец, напавший) — стабилизировать и задержать.
    * Возвращает задержанного, когда наручники надеты (мозг ведёт его в КПЗ); занят — через busy.
    */
   detain(self: Character, ctx: AiContext, mover: Mover, dt: number): { busy: boolean; cuffed: Character | null } {

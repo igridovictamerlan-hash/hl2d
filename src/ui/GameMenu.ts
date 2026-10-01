@@ -1,5 +1,21 @@
 import { CONTROLS_GROUPS } from './HelpBar';
-import { ID_CARD } from '../config/menus';
+import { ID_CARD, INTRO } from '../config/menus';
+
+/** Вводную о городе показываем сами один раз (дальше — пункт меню). */
+function loreSeen(): boolean {
+  try {
+    return localStorage.getItem(INTRO.storageKey) === '1';
+  } catch {
+    return true;
+  }
+}
+function markLoreSeen(): void {
+  try {
+    localStorage.setItem(INTRO.storageKey, '1');
+  } catch {
+    /* не запомним — покажем ещё раз */
+  }
+}
 import type { PawnLook } from '../entities/PawnRenderer';
 import type { WeaponId } from '../config/items';
 import { drawPortrait } from './menuArt';
@@ -11,7 +27,7 @@ export interface IdCardInfo {
   /** Сторона и уточнение (юнит, профессия). */
   role: string;
   detail: string;
-  /** Уровень лояльности (только граждане и ГСР). */
+  /** Уровень лояльности (только граждане и ТС). */
   loyalty: { name: string; color: string; points: number } | null;
   money: number;
   look: PawnLook;
@@ -45,7 +61,7 @@ export interface GameMenuHost {
   idCard(): IdCardInfo | null;
 }
 
-type Screen = 'buttons' | 'controls' | 'confirmNew' | 'arena';
+type Screen = 'buttons' | 'controls' | 'confirmNew' | 'arena' | 'lore';
 type StampKind = keyof typeof ID_CARD.stamps;
 
 interface Item {
@@ -123,6 +139,8 @@ export class GameMenu {
   open(mode: 'main' | 'pause'): void {
     this.mode = mode;
     this.screen = 'buttons';
+    // Первый запуск — сначала вводная о городе (листок поверх удостоверения).
+    if (mode === 'main' && !loreSeen()) this.screen = 'lore';
     this.note = '';
     this.stamp = null;
     this.el.hidden = false;
@@ -194,6 +212,9 @@ export class GameMenu {
         this.close();
         h.changeRole();
         return;
+      case 'lore':
+        this.screen = 'lore';
+        break;
       case 'sound':
         h.toggleSound();
         break;
@@ -242,13 +263,13 @@ export class GameMenu {
     this.el.innerHTML = `
       ${main ? '<div class="gm-desk" aria-hidden="true"><i class="gm-lamp"></i><i class="gm-ring"></i><i class="gm-sheet a"></i><i class="gm-sheet b"></i><i class="gm-pen"></i><i class="gm-clip-loose"></i></div>' : ''}
       <article class="idc${info ? '' : ' blank'}" role="dialog" aria-label="${main ? 'Главное меню' : 'Пауза'}">
-        <i class="idc-crease" aria-hidden="true"></i><i class="idc-dogear" aria-hidden="true"></i><i class="idc-watermark" aria-hidden="true">С-17</i>
+        <i class="idc-crease" aria-hidden="true"></i><i class="idc-dogear" aria-hidden="true"></i><i class="idc-watermark" aria-hidden="true">ВР</i>
         <section class="idc-left">
           <div class="idc-photo${info?.wanted ? ' wanted' : ''}">
             <i class="idc-scale" aria-hidden="true"><b>190</b><b>180</b><b>170</b><b>160</b></i>
             ${photo}
             <i class="idc-clip" aria-hidden="true"></i>
-            <i class="idc-seal" aria-hidden="true">НАДЗОР<br>С-17</i>
+            <i class="idc-seal" aria-hidden="true">НАДЗОР<br>ВР</i>
           </div>
           <dl class="idc-fields">
             <dt>CID</dt><dd>${info ? `#${esc(cid)}${info.forged ? '<span class="idc-pencil">липа</span>' : ''}` : dash}</dd>
@@ -284,14 +305,23 @@ export class GameMenu {
     const main = this.mode === 'main';
     const right = this.card.querySelector<HTMLElement>('.idc-right')!;
     const memo = this.el.querySelector<HTMLElement>('.idc-memo')!;
-    const head = `<header class="idc-top"><span class="idc-city">СИТИ-17</span><span class="idc-form">${main ? ID_CARD.form : ID_CARD.pauseForm}</span></header>
+    const head = `<header class="idc-top"><span class="idc-city">ВЕРХНЕРЕЧЬЕ</span><span class="idc-form">${main ? ID_CARD.form : ID_CARD.pauseForm}</span></header>
       <div class="idc-name"><span>Фамилия, имя</span><b>${info ? esc(info.name) : '<span class="idc-blank wide"></span>'}</b>${info ? `<small>${esc(info.clock)}</small>` : ''}</div>`;
     const L = ID_CARD.labels;
     let heading = main ? ID_CARD.heading : ID_CARD.pauseHeading;
     let text = '';
     let items: Item[];
-    memo.hidden = this.screen !== 'controls';
-    if (this.screen === 'controls') {
+    const sheet = this.screen === 'controls' || this.screen === 'lore';
+    memo.hidden = !sheet;
+    if (this.screen === 'lore') {
+      markLoreSeen();
+      memo.innerHTML = `<header><b>${INTRO.title}</b><span>${INTRO.sub}</span></header>
+        <div class="idc-lore">${INTRO.text.map((t) => `<p>${esc(t)}</p>`).join('')}</div>
+        <div class="idc-lore-who">${INTRO.who.map(([k, v]) => `<div><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}</div>
+        <nav class="idc-menu"><button type="button" class="idc-item primary" data-act="back"><span class="box"></span><span class="lbl">${INTRO.ok}</span><kbd>1</kbd></button></nav>`;
+      items = [{ act: 'back', label: INTRO.ok, primary: true }];
+      heading = 'ВВОДНАЯ ПРИЛОЖЕНА · ОЗНАКОМЬТЕСЬ';
+    } else if (this.screen === 'controls') {
       memo.innerHTML = `<header><b>${ID_CARD.controlsTitle}</b><span>приложение к форме 17</span></header>
         <div class="idc-memo-cols">${CONTROLS_GROUPS.map(([title, rows]) => `<section><h4>${esc(title)}</h4>${rows.map(([k, v]) => `<div><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`).join('')}</section>`).join('')}</div>
         <nav class="idc-menu"><button type="button" class="idc-item primary" data-act="back"><span class="box"></span><span class="lbl">${L.back}</span><kbd>1</kbd></button></nav>`;
@@ -312,6 +342,7 @@ export class GameMenu {
         ? [
             { act: 'continue', label: h.canContinue() ? L.continue : L.register, primary: true },
             ...(h.canContinue() ? [{ act: 'new', label: L.newGame }] : []),
+            { act: 'lore', label: INTRO.item },
             { act: 'arena', label: L.arena },
             { act: 'controls', label: L.controls },
             sound,
@@ -329,14 +360,14 @@ export class GameMenu {
               { act: 'exit', label: L.exit },
             ];
     }
-    const nav = this.screen === 'controls'
-      ? `<p class="idc-text">Памятка лежит поверх удостоверения. Esc или пункт на памятке — вернуться.</p>`
+    const nav = sheet
+      ? `<p class="idc-text">Листок лежит поверх удостоверения. Esc или пункт на листке — вернуться.</p>`
       : `<nav class="idc-menu">${items.map((it, i) => `<button type="button" class="idc-item${it.primary ? ' primary' : ''}${it.on ? ' on' : ''}" data-act="${it.act}"${it.on !== undefined ? ` aria-pressed="${it.on}"` : ''}><span class="box"></span><span class="lbl">${esc(it.label)}</span>${it.value ? `<span class="val">${esc(it.value)}</span>` : ''}<kbd>${i + 1}</kbd></button>`).join('')}</nav>`;
     const note = this.note ? `<div class="idc-note ${this.noteOk ? 'ok' : 'err'}">${esc(this.note)}</div>` : '<div class="idc-note"></div>';
     right.innerHTML = `${head}<div class="idc-heading">${heading}</div>${text ? `<p class="idc-text">${esc(text)}</p>` : ''}${nav}${note}
       <footer class="idc-warn">${ID_CARD.warning}<br><span>${main ? ID_CARD.foot : ID_CARD.pauseFoot}</span></footer>`;
     this.setStamp(this.screen === 'confirmNew' ? 'void' : !info ? 'blank' : info.wanted ? 'wanted' : 'ok');
-    const scope = this.screen === 'controls' ? memo : right;
+    const scope = sheet ? memo : right;
     const target = (focusAct && scope.querySelector<HTMLButtonElement>(`[data-act="${focusAct}"]`)) || scope.querySelector<HTMLButtonElement>('.idc-item');
     target?.focus({ preventScroll: true });
   }

@@ -109,7 +109,7 @@ export class SquadArena {
     const nav = ctx.nav;
     const at = (a: number) => ({ x: nav.worldX(a), y: nav.worldY(a) });
     const inner = f.points[f.points.length - 1].floor;
-    // Альянс — в глубине внутреннего двора (дальше от входа), сопротивление — на пустоши.
+    // Протекторат — в глубине внутреннего двора (дальше от входа), сопротивление — на пустоши.
     const deep = inner.slice(Math.floor(inner.length * 0.6));
     this.bases = {
       combine: (deep.length ? deep : inner).map(at),

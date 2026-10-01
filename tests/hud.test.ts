@@ -113,7 +113,7 @@ describe('снаряжение: надеть и снять', () => {
     expect(cit.gear).toEqual({});
   });
 
-  it('форма роли не хуже надетого: у ГО броня — максимум из формы и надетого', async () => {
+  it('форма роли не хуже надетого: у ВС броня — максимум из формы и надетого', async () => {
     const { wear } = await import('../src/systems/Gear');
     const { armorOf, roleArmor } = await import('../src/systems/wounds');
     const sim = makeSim(12345);

@@ -7,7 +7,7 @@ import { createCharacter } from '../src/entities/factory';
 import { facadeReach } from '../src/world/generator/layout';
 import { furnishMap } from '../src/world/furnish';
 
-describe('штаб ГСР', () => {
+describe('штаб ТС', () => {
   test('генератор: штаб у главного проспекта — цех с конвейерами, отдых, столовая, кабинет, приёмная', () => {
     for (const seed of [12345, 777, 4242]) {
       const map = generateCity(seed);
@@ -36,7 +36,7 @@ describe('штаб ГСР', () => {
     }
   });
 
-  test('глава ГСР в штабе, граждане устраиваются, фасовщики работают в цехе, инспектор проверяет главу', { timeout: 240_000 }, () => {
+  test('глава ТС в штабе, граждане устраиваются, фасовщики работают в цехе, инспектор проверяет главу', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 30);
     sim.war.command.paused = true;
@@ -57,11 +57,11 @@ describe('штаб ГСР', () => {
       if (sim.labor.stations.some((s) => s.who && Math.hypot(s.who.x - s.x, s.who.y - s.y) < 30)) packerAtLine++;
     }
     const cwuAfter = sim.entities.list.filter((c) => c.faction === 'cwu').length;
-    console.log(`штаб ГСР: ${JSON.stringify(hq.stats)}, ГСР ${cwuBefore} → ${cwuAfter}, глава в штабе ${Math.round((headInHq / samples) * 100)}%, фасуют у конвейера ${packerAtLine} с, коробок ${sim.labor.stats.packed}`);
+    console.log(`штаб ТС: ${JSON.stringify(hq.stats)}, ТС ${cwuBefore} → ${cwuAfter}, глава в штабе ${Math.round((headInHq / samples) * 100)}%, фасуют у конвейера ${packerAtLine} с, коробок ${sim.labor.stats.packed}`);
     expect(headInHq / samples).toBeGreaterThan(0.6);
     expect(hq.stats.hired).toBeGreaterThanOrEqual(1);
     expect(cwuAfter).toBeGreaterThan(cwuBefore);
-    // Принятый — рабочий ГСР с профессией из списка нужных и ролью для возрождения.
+    // Принятый — рабочий ТС с профессией из списка нужных и ролью для возрождения.
     const hired = sim.entities.list.filter((c) => c.faction === 'cwu' && c.role?.faction === 'cwu' && c.profession && c.profession in CWU_HQ.hire.needs);
     expect(hired.length).toBeGreaterThan(0);
     expect(packerAtLine).toBeGreaterThan(30);
@@ -69,7 +69,7 @@ describe('штаб ГСР', () => {
     expect(hq.stats.inspections).toBeGreaterThanOrEqual(1);
   });
 
-  test('игрок-гражданин у стойки: мест нет — отказ; есть место — принят в ГСР', () => {
+  test('игрок-гражданин у стойки: мест нет — отказ; есть место — принят в ТС', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 30);
     const hq = sim.cwuHq;

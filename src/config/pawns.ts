@@ -66,16 +66,16 @@ export const PAWN = {
     // Повстанцы: синяя рубаха (как в HL2), с солдата — бронежилет и бандана; новобранец — без жилета.
     rebel: { base: '#4d6a86', armor: '#5d6b3a', belt: '#3a2f22', head: 'bandana', cloth: '#7a4a2a', vestFromRank: 1 },
     /**
-     * ГО — по юнитам (cpUnits ниже: PCU — flak, SU — recon, CMD.EPU — marine). OTA — силовая броня
+     * ВС — по юнитам (cpUnits ниже: PCU — flak, SU — recon, CMD.EPU — marine). OTA — силовая броня
      * как у пехотинцев RimWorld (style: 'marine'): крупные наплечники, сегментная кираса, горжет, пояс
      * с подсумками, набедренники, ранец, закрытый шлем с Т-образным визором и решёткой. trim — полосы
-     * на наплечниках и шлеме (у ГО — цвет ранга).
+     * на наплечниках и шлеме (у ВС — цвет ранга).
      */
     cp: { style: 'flak', base: '#262c36', armor: '#66717c', belt: '#1c2128', trim: 'rank', helmet: '#4f5d6f', visor: '#10151b', shine: '#7fa7cc', head: 'flak' },
     ota: { style: 'marine', base: '#5d6166', armor: '#cfccc1', belt: '#4a4d52', trim: '#7c2a24', helmet: '#d6d3c8', visor: '#15191e', shine: '#9fb3c4', eye: '#ff4a3a', head: 'helmet' },
     admin: { base: '#3b3f46', head: 'hair', vest: false, collar: '#f2f2f2', tie: '#7a1c1c' },
-    /** Вортигонт: сутулое зеленоватое тело, большой красный глаз и два малых, металлический ошейник раба. */
-    vort: { style: 'vort', skin: '#7f9a62', spots: '#5f7a48', eye: '#e2342a', collar: '#8d949c', light: '#58d0ff' },
+    /** Поднадзорный: серая роба с номером, ошейник-маячок с огоньком. */
+    vort: { base: '#7b7f84', head: 'hair', vest: false, convict: true, number: '#ece6d2', band: '#8d949c', light: '#58d0ff' },
   } as Record<FactionId, Record<string, string | boolean | number>>,
   /**
    * Силовой блок по эскизам RimWorld (поверх outfits.cp): style — 'flak' (PCU: каска и стёганый
@@ -155,15 +155,15 @@ export const PAWN = {
     lambda: '#e07a2a',
   },
   /** Обувь по фракциям (ступни при ходьбе); нет в списке — gear.boot. */
-  boots: { citizen: '#3b3029', cwu: '#35302a', rebel: '#3a2f22', admin: '#16171a', vort: '#6d8753', ota: '#2c2f33' } as Partial<Record<FactionId, string>>,
+  boots: { citizen: '#3b3029', cwu: '#35302a', rebel: '#3a2f22', admin: '#16171a', vort: '#2f3134', ota: '#2c2f33' } as Partial<Record<FactionId, string>>,
   /**
-   * Одежда по профессиям — поверх фракционной (перекрывает её поля): белый халат медика ГСР с
+   * Одежда по профессиям — поверх фракционной (перекрывает её поля): белый халат медика ТС с
    * красным крестом, поварской колпак и фартук, тёмная куртка с капюшоном вора, рваньё отброса,
-   * повязка медика и очки пиротехника у повстанцев, крематор — синтет в плаще с маской.
+   * повязка медика и очки пиротехника у повстанцев, санитар — синтет в плаще с маской.
    */
   professionOutfits: {
     cwu_medic: { base: '#e6e4dc', head: 'hair', cross: '#c93030', collar: '#cfccc4' },
-    // Глава ГСР — костюм цвета ГСР с жёлтым галстуком и повязкой, без кепки.
+    // Глава ТС — костюм цвета ТС с жёлтым галстуком и повязкой, без кепки.
     cwu_head: { base: '#4a4638', head: 'hair', collar: '#e8e2d0', tie: '#c9a53e', armband: '#c9a53e', zip: false },
     cook: { head: 'chef', chef: '#f4f2ec', apron: '#f1efe8' },
     courier: { cap: '#8b6a3e', bag: '#7a5a38' },

@@ -105,7 +105,7 @@ export class Routine {
     return within(this.hour(), ROUTINE.rations[0], ROUTINE.rations[1]);
   }
 
-  /** Ночь (для проверок ГО, воров и банд). */
+  /** Ночь (для проверок ВС, воров и банд). */
   get night(): boolean {
     return this.enabled && this.phase() === 'night';
   }

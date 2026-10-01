@@ -51,7 +51,7 @@ describe('проспект старого города', () => {
       expect(house / edge).toBeGreaterThan(0.7);
     });
 
-    test(`сид ${seed}: столовая со столами, лавки, магазин ГСР, ларьки и клумбы`, () => {
+    test(`сид ${seed}: столовая со столами, лавки, магазин ТС, ларьки и клумбы`, () => {
       const map = get(seed);
       const canteen = map.poisOf('canteen');
       expect(canteen).toHaveLength(1);

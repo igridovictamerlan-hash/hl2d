@@ -106,7 +106,7 @@ export interface Corpse {
   /** Кто убил (для сканирования OBS) и отсканировано ли уже. */
   killer: Character | null;
   scanned?: boolean;
-  /** Сжигает крематор: до этого времени горит, потом исчезает; кто сжигает. */
+  /** Сжигает санитар: до этого времени горит, потом исчезает; кто сжигает. */
   burning?: number;
   cremator?: Character | null;
   rank: number;
@@ -155,7 +155,7 @@ export interface Mine {
   y: number;
   kind: 'grenade' | 'fire_grenade';
   owner: Character;
-  /** Ставил сотрудник Альянса (тогда задевают повстанцы и напавшие). */
+  /** Ставил сотрудник Протектората (тогда задевают повстанцы и напавшие). */
   alliance: boolean;
   armedAt: number;
   corpse: Corpse | null;
@@ -207,7 +207,7 @@ const near: Character[] = [];
 const barrierAt: number[] = [];
 const FX_KEEP = 400;
 
-/** Медик: поднимает быстрее и крепче (ветеран-медик, медик ГСР, SU.02). */
+/** Медик: поднимает быстрее и крепче (ветеран-медик, медик ТС, SU.02). */
 export function isMedic(c: Character): boolean {
   return c.profession === 'rebel_medic' || c.profession === 'cwu_medic' || cpHas(c, 'medic');
 }
@@ -275,7 +275,7 @@ export class CombatSystem {
   /** Вражда банды с обидчиком своего (задаёт Brawls): бойцы банды и обидчик — враги. */
   vendettaHostile: ((a: Character, b: Character) => boolean) | null = null;
 
-  /** Враги ли a и b: Альянс против повстанцев и тех, кто на него напал. */
+  /** Враги ли a и b: Протекторат против повстанцев и тех, кто на него напал. */
   isHostile(a: Character, b: Character): boolean {
     if (!a.alive || !b.alive || a === b) return false;
     if (this.vendettaHostile?.(a, b)) return true;
@@ -290,8 +290,8 @@ export class CombatSystem {
   }
 
   /**
-   * Стрелять ли a по b: повстанцы стреляют по Альянсу всегда, Альянс — по вооружённым
-   * врагам и напавшим (безоружного повстанца ГО пытается задержать).
+   * Стрелять ли a по b: повстанцы стреляют по Протекторату всегда, Протекторат — по вооружённым
+   * врагам и напавшим (безоружного повстанца ВС пытается задержать).
    */
   threat(a: Character, b: Character): boolean {
     // Лежащий и задержанный (в наручниках, в камере) — не угроза.
@@ -305,7 +305,7 @@ export class CombatSystem {
     if (!c.disguised) return;
     c.disguised = false;
     c.cover = null;
-    if (c.isPlayer) this.bus.emit('log', { text: `Маскировка раскрыта: вы ${why}. Теперь ГО узнаёт вас в лицо.`, kind: 'law' });
+    if (c.isPlayer) this.bus.emit('log', { text: `Маскировка раскрыта: вы ${why}. Теперь ВС узнаёт вас в лицо.`, kind: 'law' });
   }
 
   weaponOf(c: Character): WeaponDef | null {
@@ -789,7 +789,7 @@ export class CombatSystem {
     if (attacker && !attacker.disguised && !FACTIONS[attacker.faction].authority && FACTIONS[target.faction].authority && !attacker.hostile) {
       attacker.hostile = true;
       attacker.law.wanted = true;
-      if (attacker.isPlayer) this.bus.emit('log', { text: 'Вы напали на Альянс — ГО будет стрелять без предупреждения.', kind: 'law' });
+      if (attacker.isPlayer) this.bus.emit('log', { text: 'Вы напали на Протекторат — ВС будет стрелять без предупреждения.', kind: 'law' });
     }
     if (target.health <= 0) {
       // Тяжёлое ранение, если не в голову без шлема, не взрыв вплотную и не урон «с запасом».
@@ -842,7 +842,7 @@ export class CombatSystem {
 
   /**
    * Может ли h поднять лежащего t (свой, рядом, есть бинт или аптечка) — или, если arrest,
-   * «стабилизировать» и задержать (сотрудник Альянса и враг Альянса).
+   * «стабилизировать» и задержать (сотрудник Протектората и враг Протектората).
    */
   canRevive(h: Character, t: Character, arrest = false): boolean {
     if (!t.alive || !t.downed || !h.fit || h === t || this.busy(h)) return false;
@@ -962,10 +962,10 @@ export class CombatSystem {
     return block;
   }
 
-  /** Кто слушает гибель персонажей: постоянный состав (возрождение), выборы администратора. */
+  /** Кто слушает гибель персонажей: постоянный состав (возрождение), выборы коменданта. */
   readonly deathListeners: ((c: Character, killer: Character | null) => void)[] = [];
 
-  /** Задаёт WarSystem: ранение/гибель (тревога при нападении на ГО в городе). */
+  /** Задаёт WarSystem: ранение/гибель (тревога при нападении на ВС в городе). */
   onDamage: (target: Character, attacker: Character | null, killed: boolean) => void = () => {};
 
   kill(c: Character, killer: Character | null, how: string | null = null): void {
@@ -989,7 +989,7 @@ export class CombatSystem {
     this.stopDrag(c);
     this.kills++;
     const loot = c.inventory.takeAll();
-    // Надетое — на теле; у бойца в форме (ГО, армия) с шансом — шлем и бронежилет его стороны.
+    // Надетое — на теле; у бойца в форме (ВС, армия) с шансом — шлем и бронежилет его стороны.
     loot.push(...gearLoot(c));
     const drop = GEAR.drops[c.faction];
     if (drop && this.rng.chance(GEAR.dropChance)) {
@@ -1004,7 +1004,7 @@ export class CombatSystem {
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
     if (c.law.phase !== 'none') this.law.release(c);
-    // Убийство выдаёт подпольщика под личиной: теперь его узнают, а за убитого из Альянса — враг и розыск.
+    // Убийство выдаёт подпольщика под личиной: теперь его узнают, а за убитого из Протектората — враг и розыск.
     if (killer && killer !== c && killer.disguised) {
       this.reveal(killer, `убили ${c.name}`);
       if (FACTIONS[c.faction].authority && !FACTIONS[killer.faction].authority) {
@@ -1184,7 +1184,7 @@ export class CombatSystem {
     return FACTIONS[o.faction].authority;
   }
 
-  /** Растяжки: сработать от врага рядом; сотрудники Альянса замечают и обезвреживают чужие. */
+  /** Растяжки: сработать от врага рядом; сотрудники Протектората замечают и обезвреживают чужие. */
   private updateMines(dt: number): void {
     this.mineScan -= dt;
     const scan = this.mineScan <= 0;
@@ -1212,7 +1212,7 @@ export class CombatSystem {
         continue;
       }
       if (!scan || m.alliance) continue;
-      // Заметить чужую растяжку: сотрудник Альянса видит её вблизи (в угле обзора, прямая видимость).
+      // Заметить чужую растяжку: сотрудник Протектората видит её вблизи (в угле обзора, прямая видимость).
       for (const o of this.entities.near(m.x, m.y, MINE.spot, near)) {
         if (!o.alive || o.isPlayer || !FACTIONS[o.faction].authority) continue;
         const a = Math.atan2(m.y - o.y, m.x - o.x);

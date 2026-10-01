@@ -10,7 +10,7 @@ export function loyaltyTier(c: Character): LoyaltyTier {
   return tier;
 }
 
-/** Лояльность есть только у тех, кого проверяют (граждане, ГСР); у вортигонтов её нет. */
+/** Лояльность есть только у тех, кого проверяют (граждане, ТС); у поднадзорных её нет. */
 export function hasLoyalty(c: Character): boolean {
   return !FACTIONS[c.faction].authority && c.faction !== 'rebel' && c.faction !== 'vort';
 }

@@ -50,7 +50,7 @@ export interface NoticeBoard {
 
 /**
  * Уличная жизнь города: бочки с огнём во дворах (у них греются компании), «дома» — якоря в
- * подъездах и квартирах жилых кварталов, обращения Администратора на площади по таймеру.
+ * подъездах и квартирах жилых кварталов, обращения Коменданта на площади по таймеру.
  * Сами занятия — состояния CitizenBrain (chat, barrel, home, listen).
  */
 export class StreetLifeSystem {
@@ -351,7 +351,7 @@ export class StreetLifeSystem {
       this.broadcast++;
       this.broadcastUntil = this.time + B.duration;
       this.nextLine = this.time;
-      ctx.bus.emit('announce', { text: 'Обращение Администратора · площадь' });
+      ctx.bus.emit('announce', { text: 'Обращение Коменданта · площадь' });
     }
     if (this.broadcasting && this.time >= this.nextLine) {
       this.nextLine = this.time + B.lineEvery;

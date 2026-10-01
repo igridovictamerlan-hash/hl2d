@@ -32,7 +32,7 @@ export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat
   if (weapon) ctx.combat.equip(c, weapon);
 }
 
-/** Набор юнита ГО по рангу (config/factions.ts, CP_RANKS). */
+/** Набор юнита ВС по рангу (config/factions.ts, CP_RANKS). */
 export function cpKit(rank: number): string {
   return cpUnit(rank).kit;
 }
@@ -79,9 +79,9 @@ export function armyKit(profession: ProfessionId): string {
 
 /**
  * Заселение — постоянный состав мира, как игроки на сервере (config/roster.ts, AI.population):
- * граждане (часть у площади; воры, отбросы, бандиты, беглецы), ГСР по профессиям, вортигонты,
- * подпольщики, патрули ГО, часовые на всех постах КПП и медики, резерв OTA в Цитадели,
- * Администратор, армия сопротивления в лагере (глава, ветераны, солдаты, пиро, подрывник, HYDRA),
+ * граждане (часть у площади; воры, отбросы, бандиты, беглецы), ТС по профессиям, поднадзорные,
+ * подпольщики, патрули ВС, часовые на всех постах КПП и медики, резерв OTA на ГЭС,
+ * Комендант, армия сопротивления в лагере (глава, ветераны, солдаты, пиро, подрывник, HYDRA),
  * партизаны и торговец в схроне. У каждого — роль (RoleSpec): погибнув, он появляется снова.
  */
 export function spawnPopulation(ctx: AiContext, citizens: number): void {
@@ -106,14 +106,14 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const prof: ProfessionId = j >= 0 ? special[j] : 'citizen';
     const c = put({ kind: 'citizen', faction: 'citizen', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'citizen' }, spot);
     if (!c) continue;
-    // Отбросы общества — без лояльности к Альянсу; беглец — без CID и в розыске.
+    // Отбросы общества — без лояльности к Протекторату; беглец — без CID и в розыске.
     if (prof === 'outcast' || prof === 'bandit') c.loyalty = Math.min(c.loyalty, -10);
     if (prof === 'fugitive') {
       c.loyalty = Math.min(c.loyalty, -20);
       c.law.hasCid = false;
       c.law.wanted = true;
     }
-    // Часть обычных граждан — лоялисты (ходят в канцелярию Нексуса на бумажную работу).
+    // Часть обычных граждан — лоялисты (ходят в канцелярию Управы на бумажную работу).
     if (prof === 'citizen' && ctx.rng.chance(P.loyalistShare)) c.loyalty = Math.round(ctx.rng.range(P.loyalistLoyalty[0], P.loyalistLoyalty[1]));
     if (c.role) c.role.loyalty = c.loyalty;
     if (prof !== 'fugitive') residents.push(c);
@@ -125,10 +125,10 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : depot ? freeSpot(ctx, depot, 0, 4, none0, 20) : freeSpot(ctx, plaza, 3, 30, civAvoid);
     put({ kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'cwu' }, at);
   }
-  // Глава ГСР — за столом в кабинете штаба.
+  // Глава ТС — за столом в кабинете штаба.
   const hqDesk = ctx.cwuHq?.desk;
   if (hqDesk) put({ kind: 'cwu', faction: 'cwu', profession: 'cwu_head', division: null, rank: 0, kit: 'cwu_head' }, freeSpot(ctx, hqDesk, 0, 2, new Set(), 16) ?? hqDesk);
-  // Лавки и кафе проспекта — продавец ГСР за каждым прилавком; в общей столовой — повар у котла.
+  // Лавки и кафе проспекта — продавец ТС за каждым прилавком; в общей столовой — повар у котла.
   const shops = ctx.shops;
   if (shops) {
     for (const s of shops.staffed) {
@@ -140,7 +140,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
       if (c) shops.cook = c;
     }
   }
-  // Жители — семьями: фамилия, цвет повязки, дом (Арбат, общежитие или особняк). Рабочие ГСР — на работе.
+  // Жители — семьями: фамилия, цвет повязки, дом (Арбат, общежитие или особняк). Рабочие ТС — на работе.
   ctx.families?.assign(residents);
   for (let k = 0; k < P.vorts; k++) {
     put({ kind: 'vort', faction: 'vort', profession: 'vort_slave', division: null, rank: 0, kit: 'vort' }, freeSpot(ctx, anywhere, 10, 110, civAvoid));
@@ -158,7 +158,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   };
   const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'arsenal', 'prison']);
   const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
-  // RCT.PCU на постах: у ворот Нексуса (лицом наружу) и в людных местах — площадь и улицы.
+  // RCT.PCU на постах: у ворот Управы (лицом наружу) и в людных местах — площадь и улицы.
   const inside = zoneIds(ctx, ['nexus', 'cells']);
   // Нет места у самой точки — чуть дальше, в крайнем случае у площади: состав постов всегда полный.
   const postSpot = (p: { x: number; y: number }, r0: number, r1: number, avoid: ReadonlySet<number>) =>
@@ -193,11 +193,11 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     put(cpSpec('squad', 'su1', { squad: s, lead: false }), at ? freeSpot(ctx, at, 0, 4, patrolAvoid, 24) : freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
   }
   for (let k = 0; k < C.technicians; k++) put(cpSpec('tech', 'su2'), freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
-  // Командование в Нексусе: офицеры на плацу, инспекторы у канцелярии, охрана и глава — у кабинета.
+  // Командование в Управе: офицеры на плацу, инспекторы у канцелярии, охрана и глава — у кабинета.
   const yard = poiWorld(ctx, 'nexus_yard') ?? nexus;
   const office = poiWorld(ctx, 'nexus_desk') ?? nexus;
   const desk = poiWorld(ctx, 'clerk_desk') ?? office;
-  // Администратор — первым, за своим столом (охрана и глава встают рядом).
+  // Комендант — первым, за своим столом (охрана и глава встают рядом).
   if (P.admin > 0) {
     const desk = poiWorld(ctx, 'nexus_desk');
     if (desk) put({ kind: 'admin', faction: 'admin', profession: null, division: null, rank: 0, kit: 'admin' }, freeSpot(ctx, desk, 0, 0, none, 10));
@@ -206,7 +206,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   for (let k = 0; k < C.inspectors; k++) put(cpSpec('inspector', 'insp'), freeSpot(ctx, desk, 0, 3, none, 24));
   for (let k = 0; k < C.guards; k++) put(cpSpec('bodyguard', 'guard'), freeSpot(ctx, office, 0, 4, none, 24));
   for (let k = 0; k < C.epu; k++) put(cpSpec('epu', 'epu'), freeSpot(ctx, office, 0, 2, none, 24));
-  // Склад Альянса на окраине: кладовщик SU.QM за столом (лицом к окну выдачи), охрана SU.GUARD на постах.
+  // Склад Протектората на окраине: кладовщик SU.QM за столом (лицом к окну выдачи), охрана SU.GUARD на постах.
   const ars = ctx.arsenal;
   if (ars?.present && ars.desk) {
     const face = ars.window ? Math.atan2(ars.window.y - ars.desk.y, ars.window.x - ars.desk.x) : 0;
@@ -223,7 +223,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
       put(cpSpec('convoy', C.unit, { post, facing: ctx.rng.range(0, Math.PI * 2) }), post);
     }
   }
-  // Тюрьма Альянса: охрана SU.GUARD на постах (двор и коридор), начальник — третий инспектор SU.INSP.
+  // Тюрьма Протектората: охрана SU.GUARD на постах (двор и коридор), начальник — третий инспектор SU.INSP.
   const pr = ctx.prison;
   if (pr?.present) {
     for (const p of pr.posts.slice(0, PRISON.guards)) {
@@ -251,7 +251,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
       put(cpSpec('medic', 'su2', { front: f.index, station: st }), freeSpot(ctx, st, 0, 0, none, 20));
     }
   }
-  // OTA: командир OTA.KING и бойцы OTA.ALPHA (часть — с дробовиками) — резерв Цитадели.
+  // OTA: командир OTA.KING и бойцы OTA.ALPHA (часть — с дробовиками) — резерна ГЭС.
   for (const [prof, n] of ROSTER.ota) {
     for (let k = 0; k < n; k++) {
       const kit = prof === 'ota_king' ? 'ota_king' : ctx.rng.chance(ROSTER.otaShotgunChance) ? 'ota_shotgun' : 'ota_alpha';
@@ -277,7 +277,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   ctx.gangs?.populate();
   // Свой дом — каждому жителю (семьи уже заселены), явка — каждому подпольщику.
   settleAll(ctx);
-  // Штаб ГСР: сколько граждан было (город не пустеет от найма — CWU_HQ.hire.minCitizenShare).
+  // Штаб ТС: сколько граждан было (город не пустеет от найма — CWU_HQ.hire.minCitizenShare).
   if (ctx.cwuHq) ctx.cwuHq.citizensAtStart = ctx.entities.list.filter((c) => c.faction === 'citizen').length;
 }
 
@@ -302,7 +302,7 @@ export function workplaceOf(ctx: AiContext, c: Character): { x: number; y: numbe
   }
 }
 
-/** Жители (граждане, ГСР, вортигонты) и подпольщики — кто живёт в городе. */
+/** Жители (граждане, ТС, поднадзорные) и подпольщики — кто живёт в городе. */
 export function needsHome(c: Character): boolean {
   if (c.isPlayer) return false;
   if (c.faction === 'citizen' || c.faction === 'cwu' || c.faction === 'vort') return true;
@@ -342,7 +342,7 @@ export function roleSpawn(ctx: AiContext, faction: FactionId, profession: Profes
     // Армия сопротивления — в лагере в пустоши.
     spot = freeSpot(ctx, poiWorld(ctx, 'rebel_camp')!, 0, 6, none, 30);
   } else if (faction === 'rebel') {
-    // Подальше от Нексуса, в жилых кварталах.
+    // Подальше от Управы, в жилых кварталах.
     const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp', 'arsenal', 'prison']);
     const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
     for (let k = 0; k < 20 && !spot; k++) {

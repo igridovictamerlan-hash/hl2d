@@ -25,7 +25,7 @@ describe('лояльность', () => {
     adjustLoyalty(c, 1000, 'тест');
     expect(c.loyalty).toBe(LOYALTY.max);
     expect(loyaltyTier(c).checkMul).toBeLessThan(1);
-    // Скидка лоялисту в магазине ГСР.
+    // Скидка лоялисту в магазине ТС.
     expect(sim.economy.shopPrice(c, 'medkit')!).toBeLessThan(28);
     c.loyalty = -50;
     expect(loyaltyTier(c).checkMul).toBeGreaterThan(1);
@@ -74,7 +74,7 @@ describe('чат и команды', () => {
     expect(sim.log.at(-1)).toContain('Неизвестная команда');
   });
 
-  test('оскорбление ГО, который видит, — требует документы, затем штраф; на приветствие отвечают', { timeout: 30_000 }, () => {
+  test('оскорбление ВС, который видит, — требует документы, затем штраф; на приветствие отвечают', { timeout: 30_000 }, () => {
     const sim = makeSim(12345);
     const p = plaza(sim);
     const me = createCharacter(sim.entities, sim.ctx.rng, 'citizen', p.x, p.y, true);
@@ -97,7 +97,7 @@ describe('чат и команды', () => {
     expect(other.speech).not.toBeNull();
   });
 
-  test('донос: видимый повстанец — тревога и +лояльность; ложный — минус; ГО поощряет', () => {
+  test('донос: видимый повстанец — тревога и +лояльность; ложный — минус; ВС поощряет', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     const p = plaza(sim);
@@ -113,7 +113,7 @@ describe('чат и команды', () => {
     chat.submit(me, '/донос');
     expect(me.loyalty).toBe(LOYALTY.points.falseReport + LOYALTY.points.report);
     expect(sim.war.alarmActive).toBe(true);
-    // Поощрение ГО.
+    // Поощрение ВС.
     const cp = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x + 20, p.y, false);
     sim.entities.rebuildHash();
     const before = me.loyalty;

@@ -25,9 +25,9 @@ export type AgentMode = 'base' | 'dress' | 'mission' | 'return';
 
 /**
  * Спецагент сопротивления (один на сервер). Из схрона через люк: для покушения и взлома КПЗ сперва
- * переодевается в форму убитого ГО (свежее тело в городе; в OTA — никогда); в форме ГО свои его не
+ * переодевается в форму убитого ВС (свежее тело в городе; в OTA — никогда); в форме ВС свои его не
  * проверяют. Свежего тела нет — идёт под своей гражданской личиной («по наряду» без формы не выдадут —
- * тогда бунт). Миссии: покушение на Администратора и
+ * тогда бунт). Миссии: покушение на Коменданта и
  * высших чинов (CMD.EPU, SU.INSP, PCU.OFC) — вплотную достаёт ствол (маскировка слетает) и стреляет;
  * взлом камеры КПЗ или клетки — все сбегают; бунт горожан на площади. Потом — к люку и вниз.
  */
@@ -96,12 +96,12 @@ export class AgentBrain implements Brain {
       this.target = this.pickTarget(ctx);
       if (!this.target) return false;
     } else if (m === 'jailbreak') {
-      // Только КПЗ Нексуса: тюрьму берут штурмом всем подпольем (InsurgencySystem.startPrisonAssault).
+      // Только КПЗ Управы: тюрьму берут штурмом всем подпольем (InsurgencySystem.startPrisonAssault).
       this.cell = ctx.insurgency.occupiedCell();
       if (!this.cell) return false;
       if (!this.backup) ctx.insurgency.markJailbreak();
     }
-    // Покушение, взлом и «наряд» на складе — в личине сотрудника Альянса; бунт — и под видом горожанина.
+    // Покушение, взлом и «наряд» на складе — в личине сотрудника Протектората; бунт — и под видом горожанина.
     if (m !== 'riot' && !coverAuthority(self)) this.beginDress(self, ctx);
     else this.beginMission(self, ctx);
     // Покушение и взлом — парой: свободный второй спецагент идёт прикрытием.
@@ -226,7 +226,7 @@ export class AgentBrain implements Brain {
     this.cell = null;
     this.backup = false;
     this.partner = null;
-    // Под личиной не бежит (бег — нарушение для ГО): быстрым шагом; раскрытый — бегом.
+    // Под личиной не бежит (бег — нарушение для ВС): быстрым шагом; раскрытый — бегом.
     this.mover.speed = self.disguised ? CHARACTER.walkSpeed * PARTISANS.briskWalk : CHARACTER.runSpeed * 0.8;
     const base = ctx.insurgency.base;
     if (base) this.travel.start(self, ctx, this.mover, base);
@@ -458,11 +458,11 @@ export class AgentBrain implements Brain {
         } else if (this.mission === 'riot') {
           if (ctx.insurgency.startRiot(self, self.x, self.y) > 0) this.stats.riots++;
         } else if (this.mission === 'requisition') {
-          // В форме Альянса «по наряду»: кладовщик выдаёт гранаты и записывает — это не кража.
+          // В форме Протектората «по наряду»: кладовщик выдаёт гранаты и записывает — это не кража.
           const n = ctx.arsenal.requisition(self);
           if (n > 0) {
             this.stats.requisitions++;
-            ctx.insurgency.radio(`спецагент получил на складе Альянса «по наряду» гранат: ${n}.`);
+            ctx.insurgency.radio(`спецагент получил на складе Протектората «по наряду» гранат: ${n}.`);
           }
         }
         this.goHome(self, ctx);

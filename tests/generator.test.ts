@@ -34,7 +34,7 @@ describe('генератор переулочного города', () => {
     expect(Buffer.from(a.zoneGrid).equals(Buffer.from(b.zoneGrid))).toBe(true);
   });
 
-  test('шаблон Нексуса прямоугольный', () => {
+  test('шаблон Управы прямоугольный', () => {
     const w = NEXUS_TEMPLATE[0].length;
     for (const row of NEXUS_TEMPLATE) expect(row.length).toBe(w);
     expect(rotateTemplate(NEXUS_TEMPLATE, 180)[0]).toBe([...NEXUS_TEMPLATE[NEXUS_TEMPLATE.length - 1]].reverse().join(''));
@@ -96,7 +96,7 @@ describe('генератор переулочного города', () => {
         expect(map.zones.filter((z) => z.kind === 'checkpoint')).toHaveLength(10);
       });
 
-      test('открытые пространства ≤ 300×300 px: площадь и двор Нексуса', () => {
+      test('открытые пространства ≤ 300×300 px: площадь и двор Управы', () => {
         const map = get(seed);
         const maxTiles = Math.floor(300 / map.tileSize);
         for (const kind of ['plaza', 'nexus'] as ZoneKind[]) {

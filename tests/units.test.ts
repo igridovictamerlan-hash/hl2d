@@ -28,7 +28,7 @@ function spot(sim: Sim, dx: number, dy = 0): { x: number; y: number } {
   return { x: sim.nav.worldX(a), y: sim.nav.worldY(a) };
 }
 
-describe('спецподразделения ГО и огонь', () => {
+describe('спецподразделения ВС и огонь', () => {
   test('OBS осматривает тело и объявляет убийцу в розыск', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
@@ -79,7 +79,7 @@ describe('спецподразделения ГО и огонь', () => {
     expect(c.health).toBe(hp);
   });
 
-  test('крематор сжигает тела в городе', { timeout: 120_000 }, () => {
+  test('санитар сжигает тела в городе', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
     run(sim, 1);
@@ -89,7 +89,7 @@ describe('спецподразделения ГО и огонь', () => {
     const v = createCharacter(sim.entities, sim.ctx.rng, 'citizen', sim.nav.worldX(a), sim.nav.worldY(a));
     sim.combat.kill(v, null);
     const corpse = sim.combat.corpses[sim.combat.corpses.length - 1];
-    // Тело гражданского у Нексуса оцепляют (место преступления) — здесь проверяем самого крематора.
+    // Тело гражданского у Управы оцепляют (место преступления) — здесь проверяем самого санитара.
     run(sim, 90, () => {
       sim.war.scenes.closeAll();
       return !sim.combat.corpses.includes(corpse);

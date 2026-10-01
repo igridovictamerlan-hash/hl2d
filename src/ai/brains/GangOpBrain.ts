@@ -16,10 +16,10 @@ import { followColumn, watchSector } from '../Tactics';
  * Боец банды на деле (GangSystem.startOp) — мозг на время дела, потом прежний (finish):
  *  racket — к прилавку лавки, постоять, первый собирает дань;
  *  raid — в чужой район, бродить там (стычка начнётся сама — GangSystem.scanFeuds);
- *  hit — к патрульному ГО у района, ближе engage — ствол в руки (враг Альянса, розыск), огонь;
+ *  hit — к патрульному ВС у района, ближе engage — ствол в руки (враг Протектората, розыск), огонь;
  *  convoy — наперерез колонне склада, ближе engage и на виду — огонь; брошенные ящики — в общак;
  *  buy — к барыге, купить ствол в общак.
- * Стреляет по врагам (Gunner): бойцам чужой банды в стычке и, раз напал, — по ГО. По городу — вместе
+ * Стреляет по врагам (Gunner): бойцам чужой банды в стычке и, раз напал, — по ВС. По городу — вместе
  * (GANGS.pairs): остальные идут колонной за ведущим (первый живой из команды), ведущий ждёт отставших;
  * ведущий остался один — дело бросает.
  */
@@ -56,7 +56,7 @@ export class GangOpBrain implements Brain {
     if (a >= 0) this.mover.goTo(self, ctx, a);
   }
 
-  /** Патрульный ГО в городе у района (не на КПП, не в Нексусе). */
+  /** Патрульный ВС в городе у района (не на КПП, не в Управе). */
   private pickPrey(self: Character, ctx: AiContext): Character | null {
     let best: Character | null = null;
     let bestD: number = GANGS.ops.hit.seek;
@@ -81,7 +81,7 @@ export class GangOpBrain implements Brain {
 
   /** Бойцы команды, ещё идущие на это дело. */
   private crew(): Character[] {
-    // Кого проверяет ГО — всё ещё в команде (остальные ждут).
+    // Кого проверяет ВС — всё ещё в команде (остальные ждут).
     const ph = (c: Character) => c.law.phase === 'none' || c.law.phase === 'ordered' || c.law.phase === 'checking';
     return this.op.team.filter((c) => c.alive && c.fit && ph(c) && c.brain instanceof GangOpBrain && c.brain.op === this.op);
   }
@@ -235,7 +235,7 @@ export class GangOpBrain implements Brain {
     if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);
   }
 
-  /** Напасть на Альянс: вся команда достаёт стволы — враги Альянса, в розыске. */
+  /** Напасть на Протекторат: вся команда достаёт стволы — враги Протектората, в розыске. */
   private attack(self: Character, ctx: AiContext, what: 'hit' | 'convoy'): void {
     for (const c of this.op.team) {
       if (!c.alive || c.hostile) continue;
@@ -243,7 +243,7 @@ export class GangOpBrain implements Brain {
       c.law.wanted = true;
     }
     self.say(ctx.rng.pick(what === 'hit' ? GANGS.lines.hit : GANGS.lines.convoy), ctx.law.now, 2);
-    ctx.law.log(`${this.op.gang.def.name}: нападение на ${what === 'hit' ? 'патруль ГО' : 'конвой склада'}!`, 'radio');
-    ctx.war.raiseAlarm(self.x, self.y, what === 'hit' ? 'банда напала на патруль' : 'банда напала на конвой ГО', false);
+    ctx.law.log(`${this.op.gang.def.name}: нападение на ${what === 'hit' ? 'патруль ВС' : 'конвой склада'}!`, 'radio');
+    ctx.war.raiseAlarm(self.x, self.y, what === 'hit' ? 'банда напала на патруль' : 'банда напала на конвой ВС', false);
   }
 }

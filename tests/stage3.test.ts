@@ -43,7 +43,7 @@ function pairInSight(sim: Sim, d: number): [number, number] {
 }
 
 describe('экономика', () => {
-  test('раздача рационов: очередь, ГСР выдаёт, граждане получают паёк и токены', { timeout: 60_000 }, () => {
+  test('раздача рационов: очередь, ТС выдаёт, граждане получают паёк и токены', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     // Горожан побольше: бандиты в очередь на площадь ходят только парами — из 20 их заметная доля.
     spawnPopulation(sim.ctx, 30);
@@ -58,7 +58,7 @@ describe('экономика', () => {
     const served = sim.entities.list.filter((c) => sim.economy.hasBeenServed(c));
     console.log(`получили рацион: ${served.length}, работник: ${sim.economy.dispenser?.name ?? '—'}`);
     expect(served.length).toBeGreaterThanOrEqual(5);
-    // Токены пришли почти всем (у кого-то их по пути вытащил вор или взял медик ГСР).
+    // Токены пришли почти всем (у кого-то их по пути вытащил вор или взял медик ТС).
     const paid = served.filter((c) => c.money >= (before.get(c) ?? 0) + ECONOMY.rations.tokens - 20);
     expect(paid.length).toBeGreaterThanOrEqual(Math.ceil(served.length * 0.75));
     expect(served.some((c) => c.inventory.has('ration') || c.hunger > 90)).toBe(true);
@@ -90,7 +90,7 @@ describe('экономика', () => {
     expect(sim.economy.buy(c, 'medkit')).toMatch(/Не хватает/);
   });
 
-  test('ГСР чинит поломку и получает оплату', { timeout: 60_000 }, () => {
+  test('ТС чинит поломку и получает оплату', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const spot = sim.economy.repairs[0];
     spot.broken = true;
@@ -112,7 +112,7 @@ describe('бой', () => {
     const [a, b] = pairInSight(sim, 96);
     const shooter = createCharacter(sim.entities, sim.ctx.rng, 'cp', sim.nav.worldX(a), sim.nav.worldY(a));
     equipKit(shooter, 'cp', sim.ctx);
-    // Патрульный ГО ходит с дубинкой — достаём пистолет.
+    // Патрульный ВС ходит с дубинкой — достаём пистолет.
     expect(shooter.weapon).toBe('stunstick');
     sim.combat.equip(shooter, 'usp');
     const target = createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(b), sim.nav.worldY(b));
@@ -156,7 +156,7 @@ describe('бой', () => {
     expect(sim.combat.stats.wall).toBeGreaterThan(0);
   });
 
-  test('ГО реагирует на повстанцев: вооружённого — огнём, безоружного — задержанием', { timeout: 60_000 }, () => {
+  test('ВС реагирует на повстанцев: вооружённого — огнём, безоружного — задержанием', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const [a, b] = pairInSight(sim, 120);
     const cp = createCharacter(sim.entities, sim.ctx.rng, 'cp', sim.nav.worldX(a), sim.nav.worldY(a));
@@ -187,7 +187,7 @@ describe('бой', () => {
 });
 
 describe('война на границе', () => {
-  test('у КПП идёт перестрелка, есть потери, ГО получает подкрепления', { timeout: 120_000 }, () => {
+  test('у КПП идёт перестрелка, есть потери, ВС получает подкрепления', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
     run(sim, 150);
@@ -208,7 +208,7 @@ describe('война на границе', () => {
     run(sim, 30);
     // Отряд у западного КПП «прорывается»: переносим бойца за внутренние ворота.
     const f = sim.war.fronts[0];
-    // Красный код — только штурм Нексуса: все КПП прорваны.
+    // Красный код — только штурм Управы: все КПП прорваны.
     for (const o of sim.war.fronts) {
       o.held = o.points.length;
       o.owner = 'rebels';
@@ -221,7 +221,7 @@ describe('война на границе', () => {
     sim.step();
     expect(sim.war.code).toBe('red');
     expect(sim.war.curfew).toBe(true);
-    // OTA по городу не ходит: остаётся в резерве Цитадели или на КПП (прочёсывают PCU и SU).
+    // OTA по городу не ходит: остаётся в резерве ГЭС или на КПП (прочёсывают PCU и SU).
     for (const o of sim.war.ota) expect(['reserve', 'post', 'home']).toContain((o.brain as OtaBrain).mode);
     expect(sim.economy.open).toBe(false);
     // Граждане уходят в укрытия.

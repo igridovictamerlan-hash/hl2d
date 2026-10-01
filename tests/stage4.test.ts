@@ -107,7 +107,7 @@ describe('канализация', () => {
 describe('сопротивление в городе', () => {
   test('саботаж: группа из убежища через люк выводит из строя узел, код жёлтый, потом отбой', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
-    // Только убежище, без городских патрулей, боёв на КПП и подкреплений из Цитадели (они идут через город).
+    // Только убежище, без городских патрулей, боёв на КПП и подкреплений с ГЭС (они идут через город).
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
     sim.insurgency.populate();
@@ -130,7 +130,7 @@ describe('сопротивление в городе', () => {
     expect(sim.war.code).toBe('green');
   });
 
-  test('оружие бандиту: подпольщик приносит ствол, бандит идёт на ГО чужими руками', { timeout: 180_000 }, () => {
+  test('оружие бандиту: подпольщик приносит ствол, бандит идёт на ВС чужими руками', { timeout: 180_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
@@ -143,7 +143,7 @@ describe('сопротивление в городе', () => {
     const op = sim.insurgency.startOperation('arm')!;
     expect(op).not.toBeNull();
     expect(op.team.length).toBe(1);
-    // Подпольщик в личине: ГО его не узнаёт.
+    // Подпольщик в личине: ВС его не узнаёт.
     expect(op.team[0].disguised).toBe(true);
     const t = run(sim, 170, () => sim.insurgency.stats.armed > 0);
     console.log(`ствол передан через ${t.toFixed(0)} с (${op.where})`);
@@ -154,7 +154,7 @@ describe('сопротивление в городе', () => {
     for (const c of op.team) if (c.alive) expect(sim.map.levelAt(c.x, c.y)).toBe('sewer');
   });
 
-  test('бандит со стволом от партизан идёт на патрульного ГО и стреляет', { timeout: 60_000 }, () => {
+  test('бандит со стволом от партизан идёт на патрульного ВС и стреляет', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;

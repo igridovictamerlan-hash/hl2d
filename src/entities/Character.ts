@@ -10,9 +10,9 @@ import type { Violation } from '../config/law';
 
 /**
  * Этапы разбирательства с законом:
- * ordered — ГО приказал стоять; checking — идёт проверка CID; fleeing — убегает;
+ * ordered — ВС приказал стоять; checking — идёт проверка CID; fleeing — убегает;
  * cuffed — в наручниках, идёт за конвоиром; entering — заводят в камеру; jailed — сидит;
- * releasing — выходит из Нексуса после отсидки.
+ * releasing — выходит из Управы после отсидки.
  */
 export type LawPhase = 'none' | 'ordered' | 'checking' | 'fleeing' | 'cuffed' | 'entering' | 'jailed' | 'releasing';
 
@@ -22,7 +22,7 @@ export interface LawState {
   /** В розыске. */
   wanted: boolean;
   phase: LawPhase;
-  /** Кто разбирается (сотрудник ГО или игрок-ГО). */
+  /** Кто разбирается (сотрудник ВС или игрок-ВС). */
   handler: Character | null;
   /** Причина: что заметили. */
   reason: Violation | null;
@@ -37,15 +37,15 @@ export interface LawState {
   jailUntil: number;
   /** Мозг, который был до ареста (у игрока — null). */
   savedBrain: Brain | null;
-  /** До этого времени — «только что украл»: увидевший ГО задерживает за кражу. */
+  /** До этого времени — «только что украл»: увидевший ВС задерживает за кражу. */
   crimeUntil?: number;
-  /** До этого времени — участник бунта: увидевший ГО задерживает (нарушение 'riot'). */
+  /** До этого времени — участник бунта: увидевший ВС задерживает (нарушение 'riot'). */
   riotUntil?: number;
 }
 
 /**
  * Личина в маскировке (Character.cover): под кого одет — фракция, ранг, профессия, имя на подписи.
- * Партизан — гражданин или рабочий ГСР; спецагент — убитый (с его тела) или OTA (шкаф казармы).
+ * Партизан — гражданин или рабочий ТС; спецагент — убитый (с его тела) или OTA (шкаф казармы).
  */
 export interface Cover {
   faction: FactionId;
@@ -71,9 +71,9 @@ export interface CharacterInit {
 export class Character {
   readonly id: number;
   faction: FactionId;
-  /** Ранг во фракции (у ГО и повстанцев от него зависит цвет). */
+  /** Ранг во фракции (у ВС и повстанцев от него зависит цвет). */
   rank = 0;
-  /** Отряд ГО (MPF, GRID, MEDIC, OBS, TECH). */
+  /** Отряд ВС (MPF, GRID, MEDIC, OBS, TECH). */
   division: DivisionId | null = null;
   /** Профессия (config/professions.ts): повар, курьер, вор, медик сопротивления… */
   profession: ProfessionId | null = null;
@@ -127,7 +127,7 @@ export class Character {
   maxHealth: number = CHARACTER.maxHealth;
   /** Токены. */
   money: number = CHARACTER.startMoney;
-  /** Лояльность к Альянсу (очки; уровни — config/loyalty.ts). */
+  /** Лояльность к Протекторату (очки; уровни — config/loyalty.ts). */
   loyalty = 0;
   /** Семья (номер в FamilySystem) или -1. */
   family = -1;
@@ -135,7 +135,7 @@ export class Character {
   gang = -1;
   /** Кого охраняет (охрана и подопечный друг друга не толкают — physics). */
   guarding: Character | null = null;
-  /** Ведомый патрульной группы ГО — его ведущий (друг другу не помеха). */
+  /** Ведомый патрульной группы ВС — его ведущий (друг другу не помеха). */
   squadLead: Character | null = null;
   /** Курит (уличная жизнь) — огонёк и дымок у пешки. */
   smoking = false;
@@ -213,7 +213,7 @@ export class Character {
   /** Когда последний раз ранили и кто. */
   lastHurt = -1e9;
   lastAttacker: Character | null = null;
-  /** Напал на Альянс (стрелял по ГО/OTA) — ГО стреляет без предупреждения. */
+  /** Напал на Протекторат (стрелял по ВС/OTA) — ВС стреляет без предупреждения. */
   hostile = false;
   /** Для игрока: когда возродится (после гибели). */
   respawnAt = 0;

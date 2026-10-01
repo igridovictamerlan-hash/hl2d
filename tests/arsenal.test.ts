@@ -44,7 +44,7 @@ function worker(sim: Sim, profession: 'loader' | 'armorer', at = sim.arsenal.wai
 
 const onPad = (sim: Sim) => sim.arsenal.crates.filter((c) => sim.arsenal.onPad(c.x, c.y)).length;
 
-describe('склад Альянса 2.0', () => {
+describe('склад Протектората 2.0', () => {
   test('генератор: склад с крыльцом 32×42, квадратное крыльцо, вход один — с крыльца на улицу', () => {
     for (const seed of [12345, 7919, 2024]) {
       const map = generateCity(seed);
@@ -132,7 +132,7 @@ describe('склад Альянса 2.0', () => {
     expect(A.fill('hall').used).toBe(hall0 - 1);
   });
 
-  test('возрождение: ГО города выходит с пистолетом и сам идёт за табельным к окну; часовой КПП — от Цитадели', { timeout: 120_000 }, () => {
+  test('возрождение: ВС города выходит с пистолетом и сам идёт за табельным к окну; часовой КПП — от ГЭС', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     const A = sim.arsenal;
     quartermaster(sim);
@@ -156,7 +156,7 @@ describe('склад Альянса 2.0', () => {
     expect(guard.inventory.count('ammo_556')).toBe(g0);
   });
 
-  test('пункты боепитания: в проходных КПП и в Нексусе; часовой пополняется у своего', () => {
+  test('пункты боепитания: в проходных КПП и в Управе; часовой пополняется у своего', () => {
     const sim = makeSim(12345);
     const A = sim.arsenal;
     expect(A.points.filter((p) => p.front >= 0).length).toBe(sim.war.fronts.length);
@@ -175,7 +175,7 @@ describe('склад Альянса 2.0', () => {
     expect(p.kits).toBe(k0 - 1);
   });
 
-  test('конвой ГО: экипаж берёт ящики со стеллажей, строится на крыльце, колонной несёт на пункт и возвращается', { timeout: 180_000 }, () => {
+  test('конвой ВС: экипаж берёт ящики со стеллажей, строится на крыльце, колонной несёт на пункт и возвращается', { timeout: 180_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     const A = sim.arsenal;
@@ -183,7 +183,7 @@ describe('склад Альянса 2.0', () => {
       const post = A.crewSpots[k % A.crewSpots.length];
       return spawnRole(sim.ctx, cp('convoy', 'su3', { post, facing: 0 }), post)!;
     });
-    // Пункт Нексуса почти пуст — конвой туда первым.
+    // Пункт Управы почти пуст — конвой туда первым.
     const nx = A.nexusPoint!;
     nx.kits = 2;
     const hall0 = A.fill('hall').used;
@@ -207,13 +207,13 @@ describe('склад Альянса 2.0', () => {
     expect(until(sim, 90, () => crew.every((c) => (c.brain as CpBrain).fsm.current === 'guard'))).toBe(true);
   });
 
-  test('ГО города: мало патронов — к ближайшему из окна склада и пункта Нексуса; OTA резерва — к пункту Нексуса', { timeout: 120_000 }, () => {
+  test('ВС города: мало патронов — к ближайшему из окна склада и пункта Управы; OTA резерва — к пункту Управы', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     const A = sim.arsenal;
     const nx = A.nexusPoint!;
     quartermaster(sim);
     run(sim, 1);
-    // У самого Нексуса — к пункту Нексуса.
+    // У самого Управы — к пункту Управы.
     const pat = spawnRole(sim.ctx, cp('patrol', 'pcu1'), { x: nx.x + 30, y: nx.y })!;
     pat.inventory.remove('ammo_smg', pat.inventory.count('ammo_smg'));
     expect(A.supplyFor(pat)?.point).toBe(nx);
@@ -387,7 +387,7 @@ describe('склад Альянса 2.0', () => {
     expect(done).toBe(true);
   });
 
-  test('спецагент в форме ГО «по наряду» получает гранаты у окна — в описи, не недостача', () => {
+  test('спецагент в форме ВС «по наряду» получает гранаты у окна — в описи, не недостача', () => {
     const sim = makeSim(12345);
     const A = sim.arsenal;
     quartermaster(sim);

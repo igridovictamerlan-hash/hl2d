@@ -28,27 +28,27 @@ const coverNear: Character[] = [];
 
 /** Связь сопротивления: дело на складе сделано. */
 const DEPOT_DONE: Record<DepotAct, string> = {
-  steal: 'со склада Альянса унесён ящик — ГО недосчитается.',
-  taint: 'в ящик патронов на площадке склада подмешан брак — у ГО будут осечки.',
-  bomb: 'заряд у зала склада Альянса заложен — рванёт через 20 секунд.',
+  steal: 'со склада Протектората унесён ящик — ВС недосчитается.',
+  taint: 'в ящик патронов на площадке склада подмешан брак — у ВС будут осечки.',
+  bomb: 'заряд у зала склада Протектората заложен — рванёт через 20 секунд.',
   beacon: 'маяк площадки склада испорчен — борт не сядет.',
 };
 
 /**
  * Боец убежища сопротивления в канализации.
  *  base — бродит по убежищу, защищает его;
- *  sabotage — через люк к узлу Альянса, возится INSURGENCY.sabotageTime с, уходит;
- *  arm — через люк к бандиту, отдать ствол (он пойдёт на ГО — чужими руками), назад; огня не открывает;
- *  jailbreak — под личиной через люк в Нексус к занятой камере или клетке, выбить дверь, у двери
+ *  sabotage — через люк к узлу Протектората, возится INSURGENCY.sabotageTime с, уходит;
+ *  arm — через люк к бандиту, отдать ствол (он пойдёт на ВС — чужими руками), назад; огня не открывает;
+ *  jailbreak — под личиной через люк в Управу к занятой камере или клетке, выбить дверь, у двери
  *    оставить растяжку (прикрыть побег) и уйти;
- *  mine — поставить растяжку (на свежем теле ГО, у ворот Нексуса, у выхода проходной, на пути патруля);
- *  depot — в робе грузчика на склад Альянса: унести ящик, подмешать брак, заложить заряд, испортить маяк;
- *  ambush — группой в засаду на пути конвоя ГО: ждут под личиной, колонна близко — наперерез и огонь,
+ *  mine — поставить растяжку (на свежем теле ВС, у ворот Управы, у выхода проходной, на пути патруля);
+ *  depot — в робе грузчика на склад Протектората: унести ящик, подмешать брак, заложить заряд, испортить маяк;
+ *  ambush — группой в засаду на пути конвоя ВС: ждут под личиной, колонна близко — наперерез и огонь,
  *    брошенные ящики — забрать, потом к люку;
- *  cover — второй в группе: прикрытие у камер (взлом) или дозор у узла (саботаж: видит ГО — «шухер»);
+ *  cover — второй в группе: прикрытие у камер (взлом) или дозор у узла (саботаж: видит ВС — «шухер»);
  *  stash — с добычей на свою явку в городе: спрятать в тайник (Housing), потом к люку;
  *  fence — через люк на явку забрать краденое, отнести барыге (выручка подполью, заказ банде), назад;
- *  prison — штурм тюрьмы Альянса всей группой (ai/PrisonAssault): сбор под личиной у ворот, по
+ *  prison — штурм тюрьмы Протектората всей группой (ai/PrisonAssault): сбор под личиной у ворот, по
  *    сигналу — огонь и двери камер;
  *  return — к ближайшему люку и вниз, в убежище (раненый — сразу сюда).
  */
@@ -57,14 +57,14 @@ export class UndergroundBrain implements Brain {
   readonly gunner: Gunner;
   readonly travel = new HatchTravel();
   mode: OpMode = 'base';
-  /** Цель операции: узел Альянса или бандит, которому несут ствол. */
+  /** Цель операции: узел Протектората или бандит, которому несут ствол. */
   node: RepairSpot | null = null;
   prey: Character | null = null;
   /** Взлом: камера; минирование: куда ставить; ставит растяжку — ждёт и уходит. */
   cell: Cell | null = null;
   spot: Vec2 | null = null;
   private planting = false;
-  /** Дело на складе Альянса. */
+  /** Дело на складе Протектората. */
   depotAct: DepotAct | null = null;
   private jailWait = 0;
   private work = 0;
@@ -127,7 +127,7 @@ export class UndergroundBrain implements Brain {
     this.travel.start(self, ctx, this.mover, { x: bandit.x, y: bandit.y });
   }
 
-  /** Взломать камеру КПЗ или клетку (партизан под личиной идёт через люк прямо в Нексус). */
+  /** Взломать камеру КПЗ или клетку (партизан под личиной идёт через люк прямо в Управу). */
   startJailbreak(self: Character, ctx: AiContext, cell: Cell): void {
     this.mode = 'jailbreak';
     this.cell = cell;
@@ -147,7 +147,7 @@ export class UndergroundBrain implements Brain {
     this.travel.start(self, ctx, this.mover, spot);
   }
 
-  /** Дело на складе Альянса (через люк и город, в робе грузчика). */
+  /** Дело на складе Протектората (через люк и город, в робе грузчика). */
   startDepot(self: Character, ctx: AiContext, act: DepotAct, spot: Vec2): void {
     this.mode = 'depot';
     this.depotAct = act;
@@ -480,7 +480,7 @@ export class UndergroundBrain implements Brain {
         this.updateCover(self, ctx, dt, group, fighting);
         break;
       case 'outing': {
-        // Вылазка скрытная: заметил ГО и по нему не стреляли — не выдаёт себя, уходит вниз.
+        // Вылазка скрытная: заметил ВС и по нему не стреляли — не выдаёт себя, уходит вниз.
         const hurt = now - self.lastHurt < INSURGENCY.returnFireFor;
         this.gunner.holdFire = !hurt;
         if (fighting && this.gunner.target && !hurt) {
@@ -504,7 +504,7 @@ export class UndergroundBrain implements Brain {
         // Уходит: под личиной (и разведчик с вылазки) — огня не открывает, пока не ранят; раскрытый —
         // отстреливается на ходу.
         this.gunner.holdFire = (this.fromOuting || self.disguised) && now - self.lastHurt >= INSURGENCY.returnFireFor;
-        // Под личиной не бежит (бег — нарушение для ГО): быстрым шагом.
+        // Под личиной не бежит (бег — нарушение для ВС): быстрым шагом.
         this.mover.speed = self.disguised ? CHARACTER.walkSpeed * PARTISANS.briskWalk : CHARACTER.runSpeed * 0.75;
         const st = this.travel.update(self, ctx, this.mover, dt);
         if (st === 'arrived' || (st === 'failed' && ctx.map.levelAt(self.x, self.y) === 'sewer')) {
@@ -520,7 +520,7 @@ export class UndergroundBrain implements Brain {
   }
 
   /**
-   * Засада на конвой ГО: ждать на месте под личиной (не дольше ambush.wait с); колонна на марше ближе
+   * Засада на конвой ВС: ждать на месте под личиной (не дольше ambush.wait с); колонна на марше ближе
    * intercept — наперерез к ведущему; ближе engage и на виду — сигнал группе и огонь; после сигнала —
    * бой до fight с, брошенные конвоем ящики — забрать; конвоя нет и ящиков рядом нет — к люку.
    */
@@ -668,7 +668,7 @@ export class UndergroundBrain implements Brain {
 
   /**
    * Прикрытие (взлом) или дозор (саботаж): встать у своего места и смотреть по сторонам. Дозорный видит
-   * ГО ближе group.watch — «шухер», группа уходит. Ведущий закончил (ушёл, погиб) — и сам к люку.
+   * ВС ближе group.watch — «шухер», группа уходит. Ведущий закончил (ушёл, погиб) — и сам к люку.
    */
   private updateCover(self: Character, ctx: AiContext, dt: number, g: UndergroundGroup | null, fighting: boolean): void {
     const lead = g?.lead ?? null;

@@ -12,7 +12,7 @@ export type MoveStatus = 'idle' | 'pending' | 'moving' | 'arrived' | 'failed';
 
 const near: Character[] = [];
 
-/** Приоритет в узком проходе: игрок > OTA > ГО > ГСР > граждане. */
+/** Приоритет в узком проходе: игрок > OTA > ВС > ТС > граждане. */
 const priority = (c: Character) => (c.isPlayer ? 100 : FACTIONS[c.faction].yieldPriority);
 
 /**

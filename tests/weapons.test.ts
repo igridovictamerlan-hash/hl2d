@@ -144,7 +144,7 @@ describe('оружие: конус разброса как в Foxhole', () => {
 });
 
 describe('ИИ и оружие', () => {
-  test('ГО с дубинкой при виде вооружённого врага достаёт огнестрел; пустой ствол — на запасной', () => {
+  test('ВС с дубинкой при виде вооружённого врага достаёт огнестрел; пустой ствол — на запасной', () => {
     const sim = makeSim(12345);
     const cp = shooterOnPlaza(sim, 'cp', 'stunstick');
     expect(sim.combat.bestWeapon(cp, 200)).toBe('usp');
@@ -159,7 +159,7 @@ describe('ИИ и оружие', () => {
 });
 
 describe('граница', () => {
-  test('армия из лагеря: большинство идёт на КПП главы, собирается по 5+ и идёт на капт; во время капта ГО не подкрепляют', { timeout: 120_000 }, () => {
+  test('армия из лагеря: большинство идёт на КПП главы, собирается по 5+ и идёт на капт; во время капта ВС не подкрепляют', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
     const active = sim.war.fronts.map(() => 0);
@@ -195,7 +195,7 @@ describe('граница', () => {
 });
 
 describe('глаз на спине нет', () => {
-  test('ГО не видит стрелка за спиной, пока тот не выстрелит; после попадания поворачивается и отвечает', { timeout: 60_000 }, () => {
+  test('ВС не видит стрелка за спиной, пока тот не выстрелит; после попадания поворачивается и отвечает', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const p = poiWorld(sim.ctx, 'plaza_center')!;
     const cp = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x, p.y);
@@ -212,7 +212,7 @@ describe('глаз на спине нет', () => {
       (cp.brain as CpBrain).update(cp, sim.ctx, 1 / 60);
     }
     expect((cp.brain as CpBrain).gunner.target).toBeNull();
-    // Выстрел в спину: ГО не знает сразу, где стрелок, — через реакцию поворачивается и находит цель.
+    // Выстрел в спину: ВС не знает сразу, где стрелок, — через реакцию поворачивается и находит цель.
     sim.combat.damage(cp, 10, r);
     let found = -1;
     for (let t = 0; t < 180 && found < 0; t++) {
@@ -220,7 +220,7 @@ describe('глаз на спине нет', () => {
       (cp.brain as CpBrain).update(cp, sim.ctx, 1 / 60);
       if ((cp.brain as CpBrain).gunner.target === r) found = t / 60;
     }
-    console.log(`ГО нашёл стрелка через ${found.toFixed(2)} с`);
+    console.log(`ВС нашёл стрелка через ${found.toFixed(2)} с`);
     expect(found).toBeGreaterThan(0.3);
     expect(found).toBeLessThan(3);
   });

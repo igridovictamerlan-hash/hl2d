@@ -3,7 +3,7 @@ import type { WarSystem, AlertCode } from '../systems/WarSystem';
 const NAMES: Record<AlertCode, string> = { green: 'ЗЕЛЁНЫЙ', yellow: 'ЖЁЛТЫЙ', red: 'КРАСНЫЙ' };
 
 /**
- * Терминал кодов тревоги в кабинете Администратора: 1 — код жёлтый, 2 — код красный, 3 — отбой
+ * Терминал кодов тревоги в кабинете Коменданта: 1 — код жёлтый, 2 — код красный, 3 — отбой
  * (зелёный). Показывает текущий код и включён ли он с терминала (тогда держится до отмены).
  */
 export class CodePanel {
@@ -45,7 +45,7 @@ export class CodePanel {
     this.el.innerHTML = `
       <div class="check-head">ТЕРМИНАЛ АДМИНИСТРАЦИИ · КОДЫ ТРЕВОГИ</div>
       <div>Сейчас: <span class="code-now code-${w.code}">КОД ${NAMES[w.code]}</span>${manual}</div>
-      <div class="code-hint">Жёлтый — усиленные проверки CID. Красный — комендантский час, раздача закрыта, OTA выходит из Цитадели.</div>
+      <div class="code-hint">Жёлтый — усиленные проверки CID. Красный — комендантский час, раздача закрыта, Легион держит Управу.</div>
       <div class="check-actions">
         <button data-c="yellow"><kbd>1</kbd> Код жёлтый</button>
         <button data-c="red"><kbd>2</kbd> Код красный</button>

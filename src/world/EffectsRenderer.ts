@@ -90,7 +90,7 @@ export class EffectsRenderer {
         ctx.fillRect((q.x - v.left) * s - 5 * s, (q.y - v.top) * s - 1 * s, 10 * s, 2 * s);
       }
     }
-    // Щитки: целый — серый, сломанный — мигает. Узлы Альянса — панель с огоньком / искрами.
+    // Щитки: целый — серый, сломанный — мигает. Узлы Протектората — панель с огоньком / искрами.
     for (const r of economy.repairs) {
       const x = (r.x - v.left) * s;
       const y = (r.y - v.top) * s;
@@ -897,7 +897,7 @@ export class EffectsRenderer {
       }
       ctx.globalAlpha = 1;
     }
-    // Тела, которые сжигает крематор.
+    // Тела, которые сжигает санитар.
     for (const k of combat.corpses) {
       if (!k.burning) continue;
       const x = (k.x - v.left) * s;
@@ -912,7 +912,7 @@ export class EffectsRenderer {
     }
   }
 
-  /** Сканеры Альянса: тень на земле, пятно света, парящий корпус с линзой, вспышка при «фото». */
+  /** Сканеры Протектората: тень на земле, пятно света, парящий корпус с линзой, вспышка при «фото». */
   /** Разметка точек D на полу камер тамбура: имя точки цветом того, кто её держит. */
   drawPoints(ctx: CanvasRenderingContext2D, v: View, war: WarSystem, now: number): void {
     const s = v.scale;

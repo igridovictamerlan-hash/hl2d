@@ -89,7 +89,7 @@ describe('постоянный состав', () => {
     expect(back[1]).toBeTruthy();
     expect(zoneKind(sim, back[0]!.x, back[0]!.y)).toBe('rebel_camp');
     expect(back[1]!.brain).toBeInstanceOf(CitizenBrain);
-    // Новых персонажей сверх состава не появилось (крематор выходит сам — не в счёт).
+    // Новых персонажей сверх состава не появилось (санитар выходит сам — не в счёт).
     expect(sim.entities.list.filter((c) => c.alive && c.profession !== 'cremator').length).toBeLessThanOrEqual(total);
     expect(sim.roster.respawned).toBe(2);
   });
@@ -135,8 +135,8 @@ describe('командование сопротивления', () => {
   });
 });
 
-describe('выборы Администратора', () => {
-  test('Администратор погиб — выборы среди лоялистов, победитель занимает кабинет', { timeout: 120_000 }, () => {
+describe('выборы Коменданта', () => {
+  test('Комендант погиб — выборы среди лоялистов, победитель занимает кабинет', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 30);
     sim.war.command.paused = true;
@@ -239,7 +239,7 @@ describe('проходная КПП', () => {
       for (const a of f.points[1].floor) {
         for (const b of city) expect(lineOfSight(map, nav.worldX(a), nav.worldY(a), nav.worldX(b), nav.worldY(b))).toBe(false);
       }
-      // Из Цитадели к постам КПП — через проходную.
+      // Из ГЭС к постам КПП — через проходную.
       expect(astar.find(nexus, f.points[1].floor[0])).not.toBeNull();
     }
   });
@@ -269,7 +269,7 @@ describe('проходная КПП', () => {
 });
 
 describe('прорыв и уличная жизнь', () => {
-  test('КПП прорван — глава ведёт армию на следующий; ГО и OTA возвращаются не сразу', () => {
+  test('КПП прорван — глава ведёт армию на следующий; ВС и OTA возвращаются не сразу', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     run(sim, 6);
@@ -342,7 +342,7 @@ describe('штурм звеньями и терминал кодов', () => {
     expect(close).toBeLessThanOrEqual(1);
   });
 
-  test('терминал Администратора: жёлтый и красный держатся до отбоя; жителю доступа нет', { timeout: 120_000 }, () => {
+  test('терминал Коменданта: жёлтый и красный держатся до отбоя; жителю доступа нет', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     expect(sim.map.poisOf('code_terminal')).toHaveLength(1);
@@ -372,11 +372,11 @@ describe('штурм звеньями и терминал кодов', () => {
   });
 });
 
-describe('штурм Нексуса', () => {
-  test('все точки D у повстанцев — волна из внутреннего двора доходит до Нексуса', { timeout: 600_000 }, () => {
+describe('штурм Управы', () => {
+  test('все точки D у повстанцев — волна из внутреннего двора доходит до Управы', { timeout: 600_000 }, () => {
     // Исход штурма зависит от того, сколько армии успело к КПП и как лёг бой (ранения смертельны,
-    // кровотечение), — смотрим шесть сидов: до Нексуса доходят в половине. Захват в мобилизованном
-    // Нексусе (там весь силовой блок) — редкость; сам захват — в тесте ниже.
+    // кровотечение), — смотрим шесть сидов: до Управы доходят в половине. Захват в мобилизованном
+    // Управе (там весь силовой блок) — редкость; сам захват — в тесте ниже.
     let ok = 0;
     for (const seed of [12345, 777, 4242, 99, 2024, 31337]) {
       const sim = makeSim(seed);
@@ -390,7 +390,7 @@ describe('штурм Нексуса', () => {
         f.capture = null;
       }
       // Точки взяты — гарнизоны дворов (часовые и медики) перебиты, как при настоящем капте;
-      // иначе при красном коде они живыми уходят на оборону Нексуса.
+      // иначе при красном коде они живыми уходят на оборону Управы.
       for (const c of sim.entities.list) {
         const k = c.role?.kind;
         if (c.alive && (k === 'guard' || k === 'medic')) sim.combat.damage(c, 99999, null, null, true);
@@ -408,19 +408,19 @@ describe('штурм Нексуса', () => {
         progress = Math.max(progress, sim.war.nexus.progress);
         return sim.war.stats.nexusFalls > 0;
       });
-      console.log(`сид ${seed}, штурм Нексуса: ${JSON.stringify(sim.war.stats)}, в Нексусе максимум ${inside}, захват ${progress.toFixed(0)} с, защитников ${sim.war.nexus.defenders}`);
+      console.log(`сид ${seed}, штурм Управы: ${JSON.stringify(sim.war.stats)}, в Управе максимум ${inside}, захват ${progress.toFixed(0)} с, защитников ${sim.war.nexus.defenders}`);
       expect(wave).toBe(true);
-      // Красный код — мобилизация: ГО с постов обороняют Нексус; штурм отбит — код снова не красный.
+      // Красный код — мобилизация: ВС с постов обороняют Управа; штурм отбит — код снова не красный.
       expect(red).toBe(true);
       expect(rallied).toBe(true);
       if (sim.war.code !== 'red') expect(sim.war.code).toBe('yellow');
-      // Прорвавшиеся не топчутся у проходной — доходят до Нексуса.
+      // Прорвавшиеся не топчутся у проходной — доходят до Управы.
       if (inside >= WAR.nexus.minAttackers) ok++;
     }
     expect(ok).toBeGreaterThanOrEqual(3);
   });
 
-  test('штурмующих в Нексусе не меньше защитников — захват копится, выбили — убывает', () => {
+  test('штурмующих в Управе не меньше защитников — захват копится, выбили — убывает', () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     const men: Character[] = [];
@@ -439,7 +439,7 @@ describe('штурм Нексуса', () => {
     expect(sim.war.nexus.progress).toBeLessThan(p);
   });
 
-  test('Нексус взят и Администратор мёртв — победа восстания, армия в лагерь, отбой, новая карта', () => {
+  test('Управа взят и Комендант мёртв — победа восстания, армия в лагерь, отбой, новая карта', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     for (const f of sim.war.fronts) {
@@ -450,7 +450,7 @@ describe('штурм Нексуса', () => {
     const r = spawnRole(sim.ctx, armySpec('rebel_soldier', 'rebel_raider', 0), { x: sim.nav.worldX(a), y: sim.nav.worldY(a) })!;
     (r.brain as RebelBrain).storm();
     sim.war.nexus.fallen = true;
-    // Нексус взят, но Администратор жив — ещё не победа.
+    // Управа взят, но Комендант жив — ещё не победа.
     sim.step();
     expect(sim.war.stats.victories).toBe(0);
     let restarted = false;

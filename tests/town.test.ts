@@ -40,7 +40,7 @@ describe('городок с домиками', () => {
     }
   });
 
-  test('Нексус: 7 камер, казарма ГО, комната OTA, канцелярия, кабинет с терминалом', () => {
+  test('Управа: 7 камер, казарма ВС, комната OTA, канцелярия, кабинет с терминалом', () => {
     const sim = makeSim(12345);
     const { map } = sim;
     expect(map.poisOf('cell').length).toBeGreaterThanOrEqual(7);
@@ -54,7 +54,7 @@ describe('городок с домиками', () => {
     expect(sim.ctx.labor.desks.length).toBe(6);
   });
 
-  test('OTA ждёт в своей комнате; ГО возрождается в казарме', { timeout: 60_000 }, () => {
+  test('OTA ждёт в своей комнате; ВС возрождается в казарме', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     const o = spawnRole(sim.ctx, { kind: 'ota', faction: 'ota', profession: 'ota_alpha', division: null, rank: 0, kit: 'ota_alpha' })!;
@@ -65,7 +65,7 @@ describe('городок с домиками', () => {
     expect(Math.min(...spots.map((s) => Math.hypot(o.x - (s.x + 0.5) * ts, o.y - (s.y + 0.5) * ts)))).toBeLessThan(40);
   });
 
-  test('лоялист ходит в канцелярию Нексуса, работает с бумагами и получает плату', { timeout: 360_000 }, () => {
+  test('лоялист ходит в канцелярию Управы, работает с бумагами и получает плату', { timeout: 360_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;
@@ -82,7 +82,7 @@ describe('городок с домиками', () => {
     // Бумаги — с шансом при каждом решении (и не во время раздачи): ждём, пока выберет.
     run(sim, 600, () => b.job?.kind === 'paper');
     expect(b.job?.kind).toBe('paper');
-    // Дошёл до стола в Нексусе и получил плату за отчёт.
+    // Дошёл до стола в Управе и получил плату за отчёт.
     const loyalty = c.loyalty;
     // Раздача может прервать работу (сперва паёк — тоже токены) — ждём именно оплату его бумаг.
     let paid = 0;
@@ -99,7 +99,7 @@ describe('городок с домиками', () => {
   });
 });
 
-describe('Нексус: общая камера, лоялисты, проспект', () => {
+describe('Управа: общая камера, лоялисты, проспект', () => {
   test('общая камера вмещает нескольких граждан, повстанцев — в тюрьму; дверь заперта, пока там сидят', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const { law, entities, ctx } = sim;
@@ -107,13 +107,13 @@ describe('Нексус: общая камера, лоялисты, проспе�
     expect(common).toBeTruthy();
     expect(common.slots.length).toBeGreaterThanOrEqual(6);
     expect(law.cells.filter((c) => !c.common && !c.prison)).toHaveLength(7);
-    // Тюрьма Альянса — для повстанцев.
+    // Тюрьма Протектората — для повстанцев.
     expect(law.cells.filter((c) => c.prison)).toHaveLength(8);
     const cp = createCharacter(entities, ctx.rng, 'cp', common.frontX, common.frontY - 40);
     const partisan = createCharacter(entities, ctx.rng, 'rebel', common.frontX, common.frontY);
     partisan.profession = 'partisan';
     const prisoners = [0, 1, 2, 3].map((k) => createCharacter(entities, ctx.rng, 'citizen', common.frontX + (k - 1.5) * 30, common.frontY + 20));
-    // Граждан — в общую камеру; партизана и солдата армии — в тюрьму Альянса.
+    // Граждан — в общую камеру; партизана и солдата армии — в тюрьму Протектората.
     expect(law.freeCell(cp.x, cp.y, partisan)?.prison).toBe(true);
     partisan.alive = false;
     for (const p of prisoners) expect(law.freeCell(cp.x, cp.y, p)?.common).toBe(true);
@@ -306,9 +306,9 @@ describe('убранство комнат', () => {
     expect(Math.min(bed.w, bed.h)).toBeGreaterThanOrEqual(20);
     // Пешка ≈ 16×28 px — кровать длиннее пешки.
     expect(Math.max(bed.w, bed.h)).toBeGreaterThanOrEqual(30);
-    // В Нексусе — койки казармы, столы канцелярии, шкафчики OTA; в общежитиях — стол для карт.
+    // В Управе — койки казармы, столы канцелярии, шкафчики OTA; в общежитиях — стол для карт.
     expect(items.filter((f) => f.kind === 'cot')).toHaveLength(map.poisOf('bunk').length);
-    // Столы: канцелярия Нексуса, стол главы ГСР и стойка найма в штабе ГСР.
+    // Столы: канцелярия Управы, стол главы ТС и стойка найма в штабе ТС.
     expect(items.filter((f) => f.kind === 'desk')).toHaveLength(map.poisOf('clerk_desk').length + map.poisOf('cwu_head_desk').length + map.poisOf('cwu_hire').length);
     expect(items.filter((f) => f.kind === 'card_table')).toHaveLength(map.poisOf('dorm_table').length);
     console.log(`обстановка: ${items.length} предметов в ${homes.length} комнатах, кроватей ${beds}, полок ${shelves}`);

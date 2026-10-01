@@ -22,7 +22,7 @@ export interface MapViewHost {
   /** Банды: районы цветом, общаги; барыга — чёрный рынок. */
   readonly gangs?: GangSystem;
   readonly fence?: Fence;
-  /** Тюрьма Альянса: маркер у ворот (мигает, пока армия идёт выручать своих). */
+  /** Тюрьма Протектората: маркер у ворот (мигает, пока армия идёт выручать своих). */
   readonly prison?: PrisonSystem | null;
   readonly law?: LawSystem;
 }
@@ -35,8 +35,8 @@ import { GANGS } from '../config/gangs';
 /**
  * Мини-карта (правый верхний угол) и большая карта уровня (M). Город известен целиком,
  * канализация открывается по мере исследования (повстанцам — сразу). Люки в городе видны
- * повстанцам и тем, кто их уже находил. Маркеры: КПП (бой, капт, захвачен), Нексус, раздача,
- * магазин, узлы Альянса (сломанные — красные), точка тревоги, свои (ГО — ГО, повстанцы — повстанцы).
+ * повстанцам и тем, кто их уже находил. Маркеры: КПП (бой, капт, захвачен), Управа, раздача,
+ * магазин, узлы Протектората (сломанные — красные), точка тревоги, свои (ВС — ВС, повстанцы — повстанцы).
  */
 export class MapView {
   private readonly mini: HTMLCanvasElement;
@@ -87,14 +87,14 @@ export class MapView {
       [C.player, 'вы'],
       [C.fight, 'КПП: бой'],
       [C.capture, 'КПП: капт / захвачен'],
-      [C.nexus, 'Нексус'],
+      [C.nexus, 'Управа'],
       [C.ration, 'раздача и столовая'],
-      [C.shop, 'магазин ГСР'],
-      [C.cwuHq, 'штаб ГСР'],
-      [C.arsenal, 'склад Альянса'],
-      [C.prison, 'тюрьма Альянса'],
+      [C.shop, 'магазин ТС'],
+      [C.cwuHq, 'штаб ТС'],
+      [C.arsenal, 'склад Протектората'],
+      [C.prison, 'тюрьма Протектората'],
       [C.hatch, 'люк'],
-      [C.nodeBroken, 'узел Альянса выведен из строя'],
+      [C.nodeBroken, 'узел Протектората выведен из строя'],
       [C.alarm, 'тревога'],
       [MINIMAP.waypoint.color, 'ваша метка'],
       [C.scene, 'место происшествия (оцепление)'],
@@ -397,7 +397,7 @@ export class MapView {
     const H = Math.floor(r.h * k0);
     const ctx = this.fit(this.bigCanvas, W, H);
     this.legend.style.maxWidth = `${W}px`;
-    (this.big.querySelector('[data-title]') as HTMLElement).textContent = `${level === 'sewer' ? 'КАРТА · КАНАЛИЗАЦИЯ' : 'КАРТА · СИТИ-17'}${this.zoom > 1 ? ` · ×${this.zoom.toFixed(1)}` : ''}`;
+    (this.big.querySelector('[data-title]') as HTMLElement).textContent = `${level === 'sewer' ? 'КАРТА · КАНАЛИЗАЦИЯ' : 'КАРТА · ВЕРХНЕРЕЧЬЕ'}${this.zoom > 1 ? ` · ×${this.zoom.toFixed(1)}` : ''}`;
     const ts = host.map.tileSize;
     // Вид: масштаб zoom, центр — выбранный или игрок; не выходит за уровень.
     const k = k0 * this.zoom;
@@ -534,7 +534,7 @@ export class MapView {
       if (insurgency.market && known(insurgency.market.x, insurgency.market.y)) dot(insurgency.market.x, insurgency.market.y, 3, C.market);
       void r;
     }
-    // Свои: ГО видит сотрудников Альянса, повстанец — повстанцев (на своём уровне).
+    // Свои: ВС видит сотрудников Протектората, повстанец — повстанцев (на своём уровне).
     const auth = FACTIONS[player.faction].authority;
     for (const c of host.entities.list) {
       if (c === player || !c.alive || map.levelAt(c.x, c.y) !== level) continue;

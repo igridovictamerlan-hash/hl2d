@@ -209,13 +209,13 @@ export class Game {
       (a) => this.render(a),
     );
     window.addEventListener('resize', () => this.resize());
-    // Игрок избран Администратором — новая роль (сохраняется).
+    // Игрок избран Комендантом — новая роль (сохраняется).
     this.bus.on('elected', ({ who }) => {
       if (who !== this.player) return;
       this.role = { faction: 'admin', rank: 0, division: null, profession: null };
       this.save();
     });
-    // Победа восстания (Нексус взят, Администратор мёртв): через паузу — новый город, роль прежняя.
+    // Победа восстания (Управа взят, Комендант мёртв): через паузу — новый город, роль прежняя.
     // Перезапуск — в начале следующего тика, не посреди обновления систем.
     this.bus.on('restart', () => {
       this.restartPending = true;
@@ -227,11 +227,11 @@ export class Game {
       this.bus.emit('announce', { text: 'Вы примкнули к сопротивлению' });
       this.save();
     });
-    // Игрока приняли в штабе ГСР — рабочий ГСР (сохраняется).
+    // Игрока приняли в штабе ТС — рабочий ТС (сохраняется).
     this.bus.on('hired', ({ who, profession }) => {
       if (who !== this.player) return;
       this.role = { faction: 'cwu', rank: 0, division: null, profession };
-      this.bus.emit('announce', { text: 'Вы приняты в ГСР' });
+      this.bus.emit('announce', { text: 'Вы приняты в ТС' });
       this.save();
     });
     // Esc: закрыть открытую панель или открыть меню паузы (перехват до остальных обработчиков).
@@ -376,7 +376,7 @@ export class Game {
 
   /** Выбор роли из меню. */
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null = null, profession: ProfessionId | null = null, name: string | null = null): void {
-    // Имя из меню роли — для всех, кроме ГО (у ГО позывной назначается).
+    // Имя из меню роли — для всех, кроме ВС (у ВС позывной назначается).
     if (name && faction !== 'cp') this.civilName = name.trim();
     const prof = profession && PROFESSIONS[profession]?.faction === faction ? profession : DEFAULT_PROFESSION[faction] ?? null;
     this.role = { faction, rank, division: faction === 'cp' ? cpGroup(rank) : division, profession: prof };
@@ -426,7 +426,7 @@ export class Game {
       hasCid: true, wanted: faction === 'rebel' && !underground, phase: 'none', handler: null, reason: null,
       cell: -1, jailUntil: 0, savedBrain: null, lastCheck: this.law.now,
     });
-    // Подпольщик и спецагент выходят под личиной горожанина или ГСР.
+    // Подпольщик и спецагент выходят под личиной горожанина или ТС.
     if (underground) this.insurgency.giveCover(p);
     const spot = roleSpawn(this.ai, faction, p.profession);
     // Глава восстания один: выбрал игрок — NPC-глава становится ветераном.
@@ -549,7 +549,7 @@ export class Game {
     return out.join('\n');
   }
 
-  /** Склад Альянса (для строки HUD). */
+  /** Склад Протектората (для строки HUD). */
   get arsenal(): ArsenalSystem | null {
     return this.ai?.arsenal ?? null;
   }
@@ -620,7 +620,7 @@ export class Game {
     this.bus.emit('log', { text: `Игра продолжена (сохранение от ${when}). Новая игра — у терминала найма или в меню роли.`, kind: 'system' });
   }
 
-  /** Меню роли: имя, под которым игрок живёт в городе (у ГО — гражданское имя до службы). */
+  /** Меню роли: имя, под которым игрок живёт в городе (у ВС — гражданское имя до службы). */
   currentName(): string {
     return this.civilName || (this.player && this.player.faction !== 'cp' ? this.player.name : '');
   }
@@ -776,8 +776,8 @@ export class Game {
     this.mapRenderer.refresh(x, y);
   }
 
-  /** Решение игрока-ГО по проверке CID (панель или клавиши 1/2/3). */
-  /** Терминал кодов тревоги в кабинете Администратора. */
+  /** Решение игрока-ВС по проверке CID (панель или клавиши 1/2/3). */
+  /** Терминал кодов тревоги в кабинете Коменданта. */
   setAlertCode(code: AlertCode): void {
     const err = this.war.setCode(code, this.player);
     if (err) this.bus.emit('log', { text: err, kind: 'system' });
@@ -850,7 +850,7 @@ export class Game {
   }
 
   /**
-   * «Отряд на отряд»: город пустеет (жители, ГО, армия, подполье уходят; война и подполье стоят),
+   * «Отряд на отряд»: город пустеет (жители, ВС, армия, подполье уходят; война и подполье стоят),
    * два отряда сходятся на пограничном КПП, игрок — в своём. Игра в этом режиме не сохраняется.
    */
   startArena(side: ArenaSide): void {
@@ -929,7 +929,7 @@ export class Game {
     this.ai.brawls.update(dt);
     this.ai.arsenal.update(dt);
     this.ai.prison.update();
-    // Красный код (штурм Нексуса) — возрождения нет ни у кого, игрока тоже.
+    // Красный код (штурм Управы) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
     this.finishTick(dt);

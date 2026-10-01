@@ -55,7 +55,7 @@ function clearGuards(sim: Sim): void {
   for (const c of [...duty(sim, 'jailer'), ...duty(sim, 'warden')]) sim.combat.damage(c, 99999, null, null, true);
 }
 
-describe('тюрьма Альянса', () => {
+describe('тюрьма Протектората', () => {
   test('здание: 8 камер с решётками, посты, ворота; охрана SU.GUARD и третий инспектор', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
@@ -78,7 +78,7 @@ describe('тюрьма Альянса', () => {
     expect(warden).toHaveLength(1);
     // Третий инспектор: два в штабе и начальник тюрьмы.
     expect(sim.entities.list.filter((c) => c.faction === 'cp' && c.rank === CP_UNIT.insp)).toHaveLength(3);
-    // Тюрьма — отдельно от Нексуса.
+    // Тюрьма — отдельно от Управы.
     const nx = sim.map.poisOf('nexus_gate')[0];
     const ts = sim.map.tileSize;
     expect(Math.hypot(gate.x - (nx.x + 0.5) * ts, gate.y - (nx.y + 0.5) * ts)).toBeGreaterThan(40 * ts);
@@ -107,7 +107,7 @@ describe('тюрьма Альянса', () => {
     expect(sim.law.freeCell(citizen.x, citizen.y, citizen)?.prison ?? false).toBe(false);
   });
 
-  test('ГО ведёт задержанного повстанца через город в тюрьму', { timeout: 120_000 }, () => {
+  test('ВС ведёт задержанного повстанца через город в тюрьму', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
     sim.war.command.paused = true;
@@ -159,7 +159,7 @@ describe('тюрьма Альянса', () => {
     expect(['return', 'stash', 'base']).toContain((p1.brain as UndergroundBrain).mode);
   });
 
-  test('армии на воле мало — волна выручает своих из тюрьмы, потом снова на Нексус', { timeout: 180_000 }, () => {
+  test('армии на воле мало — волна выручает своих из тюрьмы, потом снова на Управу', { timeout: 180_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
     sim.war.command.paused = true;

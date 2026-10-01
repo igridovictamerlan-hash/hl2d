@@ -7,9 +7,9 @@ import { LOYALTY } from '../config/loyalty';
 import { poiWorld } from './Population';
 
 /**
- * Штаб силового блока: построения PCU.OFC на плацу Нексуса (раз в formation.every с при зелёном
+ * Штаб силового блока: построения PCU.OFC на плацу Управы (раз в formation.every с при зелёном
  * коде), охрана SU.GUARD по очереди (инспекторы всегда под охраной, остальные охранники раз в
- * rotateEvery с переходят к следующей цели — глава, Администратор, лоялисты), выходы главы CMD.EPU
+ * rotateEvery с переходят к следующей цели — глава, Комендант, лоялисты), выходы главы CMD.EPU
  * к площади со всей охраной и инспекторами. Охранников меньше, чем целей, — иначе город не взять.
  */
 export class SecuritySystem {
@@ -31,7 +31,7 @@ export class SecuritySystem {
     return this.time;
   }
 
-  /** Юниты ГО с данной службой (живые, с мозгом ГО). */
+  /** Юниты ВС с данной службой (живые, с мозгом ВС). */
   units(duty: CpDuty): Character[] {
     return this.ctx.entities.list.filter((c) => c.alive && c.brain instanceof CpBrain && c.brain.duty === duty);
   }
@@ -76,7 +76,7 @@ export class SecuritySystem {
     this.startFormation();
   }
 
-  /** Построение: офицер и до max свободных юнитов PCU — на плац Нексуса. */
+  /** Построение: офицер и до max свободных юнитов PCU — на плац Управы. */
   startFormation(): boolean {
     const F = SECURITY.formation;
     const ctx = this.ctx;
@@ -103,7 +103,7 @@ export class SecuritySystem {
     });
     (officer.brain as CpBrain).joinFormation({ x: yard.x, y: top - F.front, facing: Math.PI / 2 });
     officer.say(ctx.rng.pick(SECURITY.lines.formationCall), ctx.law.now, 3);
-    ctx.law.log(`${officer.name}: построение юнитов PCU на плацу Нексуса.`, 'radio');
+    ctx.law.log(`${officer.name}: построение юнитов PCU на плацу Управы.`, 'radio');
     this.formation = { officer, members: free, since: this.time, standUntil: 0, nextLine: 0 };
     this.stats.formations++;
     return true;
@@ -117,7 +117,7 @@ export class SecuritySystem {
     this.formation = null;
   }
 
-  /** Цели охраны: инспекторы (всегда), затем глава, Администратор, лоялисты. */
+  /** Цели охраны: инспекторы (всегда), затем глава, Комендант, лоялисты. */
   private targets(): { always: Character[]; rotating: Character[] } {
     const ctx = this.ctx;
     const always = this.units('inspector');
@@ -178,7 +178,7 @@ export class SecuritySystem {
     const epu = this.units('epu')[0];
     const plaza = poiWorld(ctx, 'plaza_center');
     if (!epu || !plaza || this.units('bodyguard').length === 0) return;
-    // Из Нексуса — только с охраной и инспекторами.
+    // Из Управы — только с охраной и инспекторами.
     this.tourSpot = plaza;
     this.tourUntil = this.time + T.time + 40;
     (epu.brain as CpBrain).nextDuty();

@@ -40,7 +40,7 @@ import { Gunner } from '../Gunner';
 import { followColumn, watchSector } from '../Tactics';
 import type { Gang } from '../../systems/Gangs';
 
-/** Работа по профессии (ГСР, вортигонт, отброс общества). */
+/** Работа по профессии (ТС, поднадзорный, отброс общества). */
 type Job =
   | { kind: 'dispense' }
   | { kind: 'repair'; spot: RepairSpot }
@@ -51,7 +51,7 @@ type Job =
   | { kind: 'office'; until: number }
   | { kind: 'hire'; until: number }
   | { kind: 'deliver'; carry: boolean }
-  /** Курьер: коробка из штаба ГСР в лавку, ларёк или столовую. */
+  /** Курьер: коробка из штаба ТС в лавку, ларёк или столовую. */
   | { kind: 'supply'; target: SupplyTarget; carry: boolean }
   /** Продавец за прилавком своей лавки, повар столовой у котла. */
   | { kind: 'vend'; shop: StreetShop; until: number; nextLine: number }
@@ -67,12 +67,12 @@ type Job =
   | { kind: 'haul'; task: HaulTask; carry: boolean; until: number; done?: boolean; fails?: number }
   | { kind: 'armory'; task: ArmorerTask; stage: 'pick' | 'bench' | 'drop'; until: number; t: number; done?: boolean; fails?: number };
 
-/** Чем отличаются гражданин, рабочий ГСР и повстанец в поведении «на улице». */
+/** Чем отличаются гражданин, рабочий ТС и повстанец в поведении «на улице». */
 export interface StreetProfile {
   /** Шанс пойти в «свою» зону вместо случайной точки. */
   favouriteChance: number;
   favourite: ZoneKind[];
-  /** Повстанцы уходят подальше, завидев ГО. */
+  /** Повстанцы уходят подальше, завидев ВС. */
   avoidCp: boolean;
 }
 
@@ -90,8 +90,8 @@ const near2: Character[] = [];
 const SELF_FACING = new Set(['brawl', 'crew', 'stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice', 'canteen', 'shopping']);
 
 /**
- * Житель города (гражданин, ГСР, повстанец): стоит → идёт → стоит. Иногда нарушает:
- * бежит или лезет в запретную зону. По приказу ГО останавливается (или убегает — решает
+ * Житель города (гражданин, ТС, повстанец): стоит → идёт → стоит. Иногда нарушает:
+ * бежит или лезет в запретную зону. По приказу ВС останавливается (или убегает — решает
  * LawSystem). Работа, очереди и рационы — этап 3.
  */
 export class CitizenBrain implements Brain {
@@ -127,7 +127,7 @@ export class CitizenBrain implements Brain {
   shopGo: StreetShop | null = null;
   board: NoticeBoard | null = null;
   stayUntil = 0;
-  /** На какое обращение Администратора уже решали, идти ли. */
+  /** На какое обращение Коменданта уже решали, идти ли. */
   heardBroadcast = 0;
   /** Остановился оглядеться: до какого времени, куда смотрит, куда шёл. */
   glanceUntil = 0;
@@ -191,7 +191,7 @@ export class CitizenBrain implements Brain {
     this.self = self;
     this.ctx = ctx;
     const phase = self.law.phase;
-    // Банда: стычка с чужими (или с ГО, раз напал) — бой поверх любого занятия.
+    // Банда: стычка с чужими (или с ВС, раз напал) — бой поверх любого занятия.
     if (self.gang >= 0 && phase === 'none' && this.gangFight(dt)) return;
     // Ведёт своих по городу: отстали — ждёт (решения не принимаются, пока стоит).
     if (this.fsm.current !== 'brawl' && (this.escort.length || (self.gang >= 0 && phase === 'none')) && this.crewTick(dt)) {
@@ -200,7 +200,7 @@ export class CitizenBrain implements Brain {
     }
     const cur = this.fsm.current;
     if ((phase === 'ordered' || phase === 'checking') && cur === 'crew') {
-      // Ведомого проверяет ГО — стоит, но из пары не уходит (ведущий ждёт).
+      // Ведомого проверяет ВС — стоит, но из пары не уходит (ведущий ждёт).
       this.mover.stop();
       this.mover.update(self, ctx, dt);
       const h = self.law.handler;
@@ -243,7 +243,7 @@ export class CitizenBrain implements Brain {
   }
 
   /**
-   * Втянуть в бунт: бегать вокруг center и кричать лозунги до until (для ГО — нарушение 'riot').
+   * Втянуть в бунт: бегать вокруг center и кричать лозунги до until (для ВС — нарушение 'riot').
    * Занятых делом, задержанных и лоялистов не втягивает.
    */
   startRiot(self: Character, center: Vec2, until: number): boolean {
@@ -258,7 +258,7 @@ export class CitizenBrain implements Brain {
   }
 
   /**
-   * Боец банды: Gunner ищет врагов (бойцы чужой банды в стычке, ГО — если сам напал). Бой — стоять и
+   * Боец банды: Gunner ищет врагов (бойцы чужой банды в стычке, ВС — если сам напал). Бой — стоять и
    * стрелять (далеко — подойти); кончился — ствол в карман, снова своими делами. true — сейчас в бою.
    */
   private gangFight(dt: number): boolean {
@@ -293,13 +293,13 @@ export class CitizenBrain implements Brain {
     return true;
   }
 
-  /** Житель, у которого есть уличная жизнь (не вортигонт, не на работе). */
+  /** Житель, у которого есть уличная жизнь (не поднадзорный, не на работе). */
   get street(): boolean {
     const f = this.self.faction;
     return (f === 'citizen' || f === 'cwu' || f === 'rebel') && !this.job;
   }
 
-  /** Обращение Администратора: жители поблизости идут на площадь послушать. */
+  /** Обращение Коменданта: жители поблизости идут на площадь послушать. */
   private checkBroadcast(): void {
     const st = this.ctx.street;
     const cur = this.fsm.current;
@@ -383,7 +383,7 @@ export class CitizenBrain implements Brain {
     // Скамейки — только при зелёном коде; родня — если есть семья; карты — в общежитиях.
     const bench = ctx.war.code === 'green' && st.benches.length ? W.bench * m('bench') : 0;
     const family = this.self.family >= 0 ? W.family * m('family') : 0;
-    // Рабочим ГСР засиживаться за картами некогда.
+    // Рабочим ТС засиживаться за картами некогда.
     const cards = st.tables.length && this.self.faction !== 'cwu' ? W.cards * m('cards') : 0;
     const notice = st.boards.length ? W.notice * m('notice') : 0;
     // По лавкам проспекта — при зелёном коде и если лавка неподалёку.
@@ -471,7 +471,7 @@ export class CitizenBrain implements Brain {
     }
   }
 
-  /** Повстанец: заметил ГО рядом — уходит в сторону (не бегом, чтобы не привлечь внимание). */
+  /** Повстанец: заметил ВС рядом — уходит в сторону (не бегом, чтобы не привлечь внимание). */
   private watchForCp(dt: number): void {
     this.cpCheck -= dt;
     if (this.cpCheck > 0) return;
@@ -541,7 +541,7 @@ export class CitizenBrain implements Brain {
   }
 
   /**
-   * Распорядок: пора спать (горожане, ГСР, вортигонты без дома — нет; бандиты и воры — днём). Не в паре
+   * Распорядок: пора спать (горожане, ТС, поднадзорные без дома — нет; бандиты и воры — днём). Не в паре
    * банды по городу, не в розыске, не грузчик и не оружейник склада (склад работает круглые сутки).
    */
   bedtime(): boolean {
@@ -575,7 +575,7 @@ export class CitizenBrain implements Brain {
       this.consideredCycle = eco.cycle;
       if (ctx.rng.chance(ECONOMY.rations.npcJoinChance) && this.pairedFor(eco.window)) return 'queue';
     }
-    // Горожанин с едой проголодался — поесть за столом в общей столовой (не при красном коде; у ГСР
+    // Горожанин с едой проголодался — поесть за столом в общей столовой (не при красном коде; у ТС
     // своя столовая в штабе).
     const hustler = self.profession === 'thief' || self.profession === 'bandit' || self.gang >= 0;
     if (self.faction === 'citizen' && !hustler && ctx.war.code !== 'red' && ctx.shops?.wantsMeal(self) && ctx.rng.chance(ctx.shops.foodOf(self) ? ARBAT.meal.chance : ARBAT.meal.soupChance)) return 'canteen';
@@ -585,14 +585,14 @@ export class CitizenBrain implements Brain {
 
   /**
    * Работа по профессии: повар — раздача и прилавок; фасовщик — завод; курьер — коробки с завода
-   * к будке; уборщик — поломки и мусор; медик ГСР — раненые рядом; вортигонт — мусор;
+   * к будке; уборщик — поломки и мусор; медик ТС — раненые рядом; поднадзорный — мусор;
    * отброс общества — порыться в мусоре.
    */
   private pickJob(): Job | null {
     const { ctx, self } = this;
     const eco = ctx.economy;
     const labor = ctx.labor;
-    // Лоялист — бумажная работа для Администратора в канцелярии Нексуса (за столом, за плату).
+    // Лоялист — бумажная работа для Коменданта в канцелярии Управы (за столом, за плату).
     const PW = LABOR.paperwork;
     // Идёт раздача, а паёк не получен — сначала очередь.
     const rationsFirst = eco.open && !eco.hasBeenServed(self);
@@ -601,7 +601,7 @@ export class CitizenBrain implements Brain {
       const desk = labor.claimDesk(self);
       if (desk) return { kind: 'paper', desk, until: ctx.law.now + ctx.rng.range(PW.time[0], PW.time[1]), nextPay: ctx.law.now + PW.payEvery };
     }
-    // Штаб ГСР: гражданин идёт устраиваться (если есть места), рабочий — на перерыв.
+    // Штаб ТС: гражданин идёт устраиваться (если есть места), рабочий — на перерыв.
     const hq = ctx.cwuHq;
     if (hq?.present && !ctx.war.curfew && !rationsFirst && awake) {
       const H = CWU_HQ;
@@ -632,7 +632,7 @@ export class CitizenBrain implements Brain {
         return { kind: 'rest', spot: g.hq, until: ctx.law.now + ctx.rng.range(40, 80), lines: GANGS.lines.boss };
       }
       case 'cwu_head': {
-        // Глава ГСР: к стойке, если ждут соискатели; иначе кабинет или обход штаба.
+        // Глава ТС: к стойке, если ждут соискатели; иначе кабинет или обход штаба.
         if (!hq?.present) return null;
         if (hq.queue.length) return { kind: 'hire', until: ctx.law.now + 60 };
         const H = CWU_HQ.head;
@@ -643,7 +643,7 @@ export class CitizenBrain implements Brain {
       }
       case 'cook': {
         if (eco.open && (!eco.dispenser || eco.dispenser === self) && eco.claimDispenser(self)) return { kind: 'dispense' };
-        // Магазин ГСР на проспекте — со своим продавцом: повар только на раздаче.
+        // Магазин ТС на проспекте — со своим продавцом: повар только на раздаче.
         if (eco.shopCounter && !ctx.shops?.staffed.length && ctx.rng.chance(0.5)) {
           const busy = ctx.entities.near(eco.shopCounter.x, eco.shopCounter.y, 40).some((o) => o.profession === 'cook' && o !== self);
           if (!busy) return { kind: 'clerk', until: ctx.law.now + ctx.rng.range(40, 80) };
@@ -656,7 +656,7 @@ export class CitizenBrain implements Brain {
         return st ? { kind: 'pack', until: ctx.law.now + ctx.rng.range(40, 90), station: st, belt: st.belt } : null;
       }
       case 'loader': {
-        // Склад Альянса: маяк, ящики с крыльца — по местам, расходный стеллаж у окна, конвой на КПП.
+        // Склад Протектората: маяк, ящики с крыльца — по местам, расходный стеллаж у окна, конвой на КПП.
         // Нечего — борт на подлёте: ждать на крыльце у двери; иначе — в бытовке за столом.
         const A = ctx.arsenal;
         if (!A?.present || ctx.war.code === 'red') return null;
@@ -728,7 +728,7 @@ export class CitizenBrain implements Brain {
         return best && (self.inventory.has('bandage') || self.inventory.has('medkit')) ? { kind: 'heal', patient: best, repath: 0 } : null;
       }
       case 'thief': {
-        // Ночью воры выходят чаще: прохожих меньше, ГО видно хуже.
+        // Ночью воры выходят чаще: прохожих меньше, ВС видно хуже.
         if (!ctx.rng.chance(CRIME.npc.chance * (ctx.routine.night ? ROUTINE.night.thiefMul : 1)) || this.cpInSight(250)) return null;
         let victim: Character | null = null;
         let bestD = Infinity;
@@ -743,7 +743,7 @@ export class CitizenBrain implements Brain {
         return victim ? { kind: 'pickpocket', victim, left: CRIME.pickpocket.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0 } : null;
       }
       case 'bandit': {
-        // Тело ГО со стволом, не оцепленное и без ГО рядом, — обобрать (оружие Альянса дорогого стоит).
+        // Тело ВС со стволом, не оцепленное и без ВС рядом, — обобрать (оружие Протектората дорогого стоит).
         // (Случайность — только если тело есть: иначе не сдвигать общий поток rng.)
         {
           let best: Corpse | null = null;
@@ -764,7 +764,7 @@ export class CitizenBrain implements Brain {
           const v = this.loneCp();
           if (v && ctx.rng.chance(CRIME.shank.chance) && this.pairedFor(v)) return { kind: 'shank', victim: v, until: ctx.law.now + CRIME.shank.giveUp, repath: 0 };
         }
-        // Гоп-стоп: жертва в подворотне, ГО рядом не видно.
+        // Гоп-стоп: жертва в подворотне, ВС рядом не видно.
         // Ночью и на своём районе гоп-стоп чаще: чужак на районе — законная добыча.
         const g = ctx.gangs?.of(self);
         const turfMul = g && ctx.gangs.inTurf(g, self.x, self.y) ? GANGS.turf.robMul : 1;
@@ -790,7 +790,7 @@ export class CitizenBrain implements Brain {
     return null;
   }
 
-  /** Патрульный ГО в городе без напарников рядом (для удара ножом в спину). */
+  /** Патрульный ВС в городе без напарников рядом (для удара ножом в спину). */
   private loneCp(): Character | null {
     const { ctx, self } = this;
     const S = CRIME.shank;
@@ -815,7 +815,7 @@ export class CitizenBrain implements Brain {
     return best;
   }
 
-  /** Видит ли сотрудника Альянса поблизости (вор не идёт на дело при свидетелях). */
+  /** Видит ли сотрудника Протектората поблизости (вор не идёт на дело при свидетелях). */
   cpInSight(r: number): boolean {
     for (const o of this.ctx.entities.near(this.self.x, this.self.y, r, near)) {
       if (FACTIONS[o.faction].authority && o.alive && this.ctx.law.canSee(this.self, o)) return true;
@@ -1050,7 +1050,7 @@ export class CitizenBrain implements Brain {
       return false;
     }
     const P = GANGS.pairs;
-    // Ведомого проверяет ГО — ждать его.
+    // Ведомого проверяет ВС — ждать его.
     const held = this.escort.find((o) => o.law.phase === 'ordered' || o.law.phase === 'checking');
     if (held && this.waitGoal < 0 && this.mover.goal >= 0) {
       this.waitGoal = this.mover.goal;
@@ -1181,7 +1181,7 @@ const WALK: State<CitizenBrain> = {
   },
 };
 
-/** ГО приказал стоять или проверяет документы. */
+/** ВС приказал стоять или проверяет документы. */
 const STOPPED: State<CitizenBrain> = {
   name: 'stopped',
   enter(b) {
@@ -1193,7 +1193,7 @@ const STOPPED: State<CitizenBrain> = {
   },
 };
 
-/** Убегает от ГО. Когда LawSystem снимает погоню — назад в idle. */
+/** Убегает от ВС. Когда LawSystem снимает погоню — назад в idle. */
 const FLEE: State<CitizenBrain> = {
   name: 'flee',
   enter(b) {
@@ -1249,7 +1249,7 @@ const QUEUE: State<CitizenBrain> = {
   },
 };
 
-/** Сходить в магазин ГСР и купить еды. */
+/** Сходить в магазин ТС и купить еды. */
 const SHOP: State<CitizenBrain> = {
   name: 'shop',
   enter(b) {
@@ -1260,7 +1260,7 @@ const SHOP: State<CitizenBrain> = {
     const st = b.mover.status;
     if (st === 'failed' || st === 'idle') return 'idle';
     if (st !== 'arrived') return;
-    // Магазин ГСР на проспекте — лавка с продавцом и товаром из штаба.
+    // Магазин ТС на проспекте — лавка с продавцом и товаром из штаба.
     const street = b.ctx.shops?.shopAt(b.self, 40);
     if (street) {
       const why = b.ctx.shops.refusal(street);
@@ -1279,7 +1279,7 @@ const SHOP: State<CitizenBrain> = {
   },
 };
 
-/** Работа ГСР. */
+/** Работа ТС. */
 const WORK: State<CitizenBrain> = {
   name: 'work',
   enter(b) {
@@ -1321,11 +1321,11 @@ const WORK: State<CitizenBrain> = {
       b.goToPoint(job.victim);
     }
     else if (job.kind === 'paper') {
-      // В Нексус жителю обычно не нужно (избегает), в канцелярию — можно.
+      // В Управу жителю обычно не нужно (избегает), в канцелярию — можно.
       b.mover.avoidZones = undefined;
       b.goToPoint(job.desk);
     } else if (job.kind === 'haul' || job.kind === 'armory') {
-      // На склад Альянса жителю нельзя — рабочему склада можно.
+      // На склад Протектората жителю нельзя — рабочему склада можно.
       b.mover.avoidZones = undefined;
       const to = job.kind === 'haul' ? haulTarget(b, job) : armoryTarget(b, job);
       if (to) b.goToPoint(to);
@@ -1408,7 +1408,7 @@ const WORK: State<CitizenBrain> = {
           if (now >= job.nextPay) {
             job.nextPay = now + LABOR.paperwork.payEvery;
             labor.payPaperwork(b.self);
-            if (b.ctx.rng.chance(0.4)) b.self.say(b.ctx.rng.pick(['Форма 7-Б… подпись…', 'Рапорт о лояльности квартала.', 'Отчёт для Администратора готов.', 'Штамп. Следующий.']), now, 2.5);
+            if (b.ctx.rng.chance(0.4)) b.self.say(b.ctx.rng.pick(['Форма 7-Б… подпись…', 'Рапорт о лояльности квартала.', 'Отчёт для Коменданта готов.', 'Штамп. Следующий.']), now, 2.5);
           }
         } else if (st === 'idle' || st === 'arrived') b.goToPoint(d);
         return;
@@ -1425,7 +1425,7 @@ const WORK: State<CitizenBrain> = {
       }
       case 'office':
       case 'hire': {
-        // Глава ГСР: за столом в кабинете или у стойки найма напротив соискателя.
+        // Глава ТС: за столом в кабинете или у стойки найма напротив соискателя.
         const hq = b.ctx.cwuHq;
         const now = b.ctx.law.now;
         if (job.kind === 'office' && hq.queue.length) {
@@ -1446,7 +1446,7 @@ const WORK: State<CitizenBrain> = {
         return;
       }
       case 'apply': {
-        // Соискатель: в очереди у стойки найма; приняли — он уже рабочий ГСР.
+        // Соискатель: в очереди у стойки найма; приняли — он уже рабочий ТС.
         const hq = b.ctx.cwuHq;
         if (b.self.faction !== 'citizen') {
           b.job = null;
@@ -1495,7 +1495,7 @@ const WORK: State<CitizenBrain> = {
         return;
       }
       case 'supply': {
-        // Коробка из штаба ГСР: склад цеха → лавка (ларёк, столовая), где товара меньше всего.
+        // Коробка из штаба ТС: склад цеха → лавка (ларёк, столовая), где товара меньше всего.
         const shops = b.ctx.shops;
         const to = job.carry ? shops.dropOf(job.target) : labor.factoryStore;
         if (!to) return done();
@@ -1734,7 +1734,7 @@ const WORK: State<CitizenBrain> = {
         return;
       }
       case 'loot': {
-        // Обобрать тело ГО: оцепили, тело убрали, ГО рядом или долго — бросить.
+        // Обобрать тело ВС: оцепили, тело убрали, ВС рядом или долго — бросить.
         const k = job.corpse;
         if (!b.ctx.combat.corpses.includes(k) || b.ctx.war.scenes.sealed(k) || b.ctx.law.now > job.until || b.cpInSight(200)) return done();
         if (Math.hypot(k.x - b.self.x, k.y - b.self.y) > 22) {
@@ -1775,7 +1775,7 @@ const WORK: State<CitizenBrain> = {
     }
   },
   exit(b) {
-    // Ушёл с работы (тревога, приказ ГО, паника) — снять брони; коробку курьер держит при себе.
+    // Ушёл с работы (тревога, приказ ВС, паника) — снять брони; коробку курьер держит при себе.
     const job = b.job;
     if (job?.kind === 'dispense') b.ctx.economy.releaseDispenser(b.self);
     if (job?.kind === 'repair' && job.spot.worker === b.self) job.spot.worker = null;
@@ -1964,7 +1964,7 @@ const CHAT: State<CitizenBrain> = {
     if (now >= b.chatUntil) b.endChat(ctx.rng.chance(C.strollChance));
   },
   exit(b) {
-    // Прервали (проверка ГО, стрельба) — собеседник тоже расходится.
+    // Прервали (проверка ВС, стрельба) — собеседник тоже расходится.
     const p = b.partner;
     if (!p) return;
     const now = b.ctx.law.now;
@@ -2259,7 +2259,7 @@ const CANTEEN: State<CitizenBrain> = {
     b.seat = null;
     b.stayUntil = 0;
     b.soupFirst = false;
-    // Не доел (ГО, стрельба) — миска остаётся на столе.
+    // Не доел (ВС, стрельба) — миска остаётся на столе.
     b.self.soupBowl = false;
   },
 };
@@ -2293,7 +2293,7 @@ const SHOPPING: State<CitizenBrain> = {
     faceTowards(self, s.look.x, s.look.y, dt);
     if (now >= b.stayUntil) {
       const L = ARBAT.lines;
-      // Закрыто (продавца нет) или полки пусты (коробку из штаба ГСР не донесли).
+      // Закрыто (продавца нет) или полки пусты (коробку из штаба ТС не донесли).
       const why = ctx.shops.refusal(s);
       if (why) {
         if (why === 'closed') ctx.shops.stats.closed++;
@@ -2398,7 +2398,7 @@ const NOTICE: State<CitizenBrain> = {
   },
 };
 
-/** Слушать обращение Администратора на площади. */
+/** Слушать обращение Коменданта на площади. */
 const LISTEN: State<CitizenBrain> = {
   name: 'listen',
   enter(b) {

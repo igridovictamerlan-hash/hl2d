@@ -21,10 +21,10 @@ import { addWastes } from './wastes';
 
 /**
  * Генератор переулочного города. Порядок шагов:
- *  1. План: магистрали, линии решётки, углы запретной зоны и промзоны, площадь, Нексус.
+ *  1. План: магистрали, линии решётки, углы запретной зоны и промзоны, площадь, Управа.
  *  2. Решётка с дрожанием → лабиринт «растущее дерево» от магистралей + петли.
  *  3. Вырезание переулков (Z-изломы), магистралей, чистка «шипов».
- *  4. Зоны, штампы (площадь, Нексус, кольцо запретной зоны), выходы из штампов.
+ *  4. Зоны, штампы (площадь, Управа, кольцо запретной зоны), выходы из штампов.
  *  5. Дворы-колодцы, подъезды/арки, тупики, заводские дворы.
  *  6. Связность (flood fill по якорям 2×2 + тоннели), метрики, проверка.
  *  7. Канализация справа от города (sewers.ts), связанная с ним люками.
@@ -268,7 +268,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
 
   const nexusRows = rotateTemplate(NEXUS_TEMPLATE, layout.nexusRot);
   const nexus = stampTemplate(g, nexusRows, layout.nexus.x, layout.nexus.y, (ch) => (ch === 'c' || ch === 'C' || ch === 'D' ? zCells : zNexus), pois);
-  // Проспект изгибается — между фасадом Нексуса и асфальтом площадка, а не обрезки застройки.
+  // Проспект изгибается — между фасадом Управы и асфальтом площадка, а не обрезки застройки.
   fillForecourt(g, layout.hAvenue, layout.nexus, zHAv);
   for (const exit of nexus.exits) {
     const isGate = exit.tiles.some((t) => g.get(t.x, t.y) === T.GATE);
@@ -309,7 +309,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     streets.villas.forEach((p, k) => stampBuilding(faceTemplate(VILLA_TEMPLATE, p.face), p.rect, z, 'villa', k));
   }
 
-  // Штаб ГСР на главном проспекте: цех фасовки, отдых, столовая, кабинет главы, приёмная найма.
+  // Штаб ТС на главном проспекте: цех фасовки, отдых, столовая, кабинет главы, приёмная найма.
   if (layout.cwuHq) {
     const p = layout.cwuHq;
     const z = addZone('cwu_hq', ZONE_NAMES.cwuHq, null);
@@ -328,7 +328,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     pois.push({ type: 'cwu_hq', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
   }
 
-  // Склад Альянса на окраине: зал хранения, площадка корабля, кабинет кладовщика, караулка, мастерская.
+  // Склад Протектората на окраине: зал хранения, площадка корабля, кабинет кладовщика, караулка, мастерская.
   if (streets.arsenal) {
     const p = streets.arsenal;
     const z = addZone('arsenal', ZONE_NAMES.arsenal, null);
@@ -354,7 +354,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     pois.push({ type: 'arsenal', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
   }
 
-  // Тюрьма Альянса: блок камер, шлюз с оружейной и допросной, караулка, кабинет, приёмная, изъятое,
+  // Тюрьма Протектората: блок камер, шлюз с оружейной и допросной, караулка, кабинет, приёмная, изъятое,
   // двор-площадка с маяками; подъезд — улицей.
   if (streets.prison) {
     const p = streets.prison;
@@ -422,7 +422,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const cps = layout.checkpoints.map((c) => c.rect);
   const kiosks = placeAvenueDecor(g, decor, layout.hAvenue, pois, 0, Math.min(...cps.map((r) => r.x + r.w)), Math.max(...cps.map((r) => r.x)) - 1);
   if (layout.vAvenue) placeAvenueDecor(g, decor, layout.vAvenue, pois, kiosks);
-  // Магазин ГСР не встал в ряд домов — комната в застройке неподалёку от площади.
+  // Магазин ТС не встал в ряд домов — комната в застройке неподалёку от площади.
   if (!pois.some((p) => p.type === 'shop_counter')) stampShop(g, rng.fork(9), pc.x, pc.y, zShop, pois);
 
   // 5. Детали застройки.
@@ -464,5 +464,5 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     components: conn.finalComponents,
   };
 
-  return new GameMap(W, H, WORLD.tileSize, g.tiles, g.zones, zones, pois, seed, `Сити-17 · seed ${seed}`, stats);
+  return new GameMap(W, H, WORLD.tileSize, g.tiles, g.zones, zones, pois, seed, `Верхнеречье · seed ${seed}`, stats);
 }

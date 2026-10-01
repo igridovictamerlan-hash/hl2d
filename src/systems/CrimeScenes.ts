@@ -10,7 +10,7 @@ import { CpBrain } from '../ai/brains/CpBrain';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 import { ExamineBrain } from '../ai/brains/ExamineBrain';
 
-/** Вид места преступления: убит сотрудник ГО или гражданский. */
+/** Вид места преступления: убит сотрудник ВС или гражданский. */
 export type SceneKind = 'cp' | 'civil';
 
 /**
@@ -38,7 +38,7 @@ export interface CrimeScene {
   /** Клетки у края оцепления изнутри (здесь встаёт охрана). */
   edge: Vec2[];
   lines: CordonLine[];
-  /** Мирных не пускают внутрь: только если лежит убитый ГО с оружием (иначе проходят — меньше толкучки). */
+  /** Мирных не пускают внутрь: только если лежит убитый ВС с оружием (иначе проходят — меньше толкучки). */
   block: boolean;
   since: number;
   /** Тело осмотрено следователем / медиком. Оба — оцепление снимут через holdAfter с. */
@@ -51,12 +51,12 @@ export interface CrimeScene {
 }
 
 /**
- * Места преступления (CRIME.scene): Альянс нашёл тело в городе — убитого ГО или гражданского.
+ * Места преступления (CRIME.scene): Протекторат нашёл тело в городе — убитого ВС или гражданского.
  * Проходы вокруг перекрывают: узкие — лентой от стены до стены, широкие — переносными барьерами.
  * Идут следователь SU.01 (осмотр тела, убийца — в розыск) и медик SU.02 (с блокнотом осматривает
- * тело и накрывает его белой простынёй); к телу ГО — ещё офицер PCU.OFC или инспектор SU.INSP
+ * тело и накрывает его белой простынёй); к телу ВС — ещё офицер PCU.OFC или инспектор SU.INSP
  * (охраняет оцепление). За ленту не пускают мирных, тело не обыскать. Снимают через holdAfter с
- * после осмотра (или maxTime с, или тело увезли); накрытое тело потом забирает крематор. При
+ * после осмотра (или maxTime с, или тело увезли); накрытое тело потом забирает санитар. При
  * красном коде оцеплений нет.
  */
 export class CrimeScenes {
@@ -100,7 +100,7 @@ export class CrimeScenes {
     return s;
   }
 
-  /** Ещё одно тело в зоне: граница заново, осмотр — и его; убит ГО — зона «ГО» (с офицером). */
+  /** Ещё одно тело в зоне: граница заново, осмотр — и его; убит ВС — зона «ВС» (с офицером). */
   private addBody(s: CrimeScene, corpse: Corpse, kind: SceneKind): void {
     s.bodies.push(corpse);
     this.stats.merged++;
@@ -140,7 +140,7 @@ export class CrimeScenes {
     this.updateBlock(s);
   }
 
-  /** Не пускают, только пока в зоне лежит убитый ГО с оружием (есть что стащить). */
+  /** Не пускают, только пока в зоне лежит убитый ВС с оружием (есть что стащить). */
   private updateBlock(s: CrimeScene): void {
     s.block = s.bodies.some((k) => k.faction === 'cp' && CrimeScenes.armed(k) && this.ctx.combat.corpses.includes(k));
   }
@@ -321,7 +321,7 @@ export class CrimeScenes {
     return s.cells.has(Math.floor(y / ts) * this.ctx.map.width + Math.floor(x / ts));
   }
 
-  /** Свободный ГО нужного вида, ближайший к месту. */
+  /** Свободный ВС нужного вида, ближайший к месту. */
   private nearest(s: CrimeScene, ok: (c: Character, b: CpBrain) => boolean): Character | null {
     let best: Character | null = null;
     let bestD: number = CRIME.scene.seek;
@@ -342,7 +342,7 @@ export class CrimeScenes {
     return best;
   }
 
-  /** Отправить следователя SU.01, медика SU.02 и (к телу ГО) офицера PCU.OFC или SU.INSP. */
+  /** Отправить следователя SU.01, медика SU.02 и (к телу ВС) офицера PCU.OFC или SU.INSP. */
   private dispatch(s: CrimeScene): void {
     this.sendInvestigator(s);
     this.sendMedic(s);
@@ -365,7 +365,7 @@ export class CrimeScenes {
 
   /**
    * Медик: SU.02, пока на местах происшествий их меньше CRIME.scene.suMedicMax (и свободный есть), иначе
-   * медик ГСР (свой мозг — ExamineBrain, потом назад к работе).
+   * медик ТС (свой мозг — ExamineBrain, потом назад к работе).
    */
   private sendMedic(s: CrimeScene): void {
     const busy = this.list.filter((o) => !o.closed && o.medic?.alive && o.medic.faction === 'cp').length;
@@ -392,7 +392,7 @@ export class CrimeScenes {
       best.brain = new ExamineBrain(s, best.brain);
       this.stats.cwuMedics++;
     } else {
-      // Медика ГСР нет — всё же SU.02, если есть.
+      // Медика ТС нет — всё же SU.02, если есть.
       const any = this.nearest(s, (c) => c.rank === CP_UNIT.su2);
       if (!any) return;
       s.medic = any;
@@ -421,20 +421,20 @@ export class CrimeScenes {
     this.stats.examined++;
   }
 
-  /** Накрыть тело белой простынёй: лежит, пока его не заберёт крематор. */
+  /** Накрыть тело белой простынёй: лежит, пока его не заберёт санитар. */
   cover(corpse: Corpse): void {
     if (corpse.covered) return;
     corpse.covered = true;
     corpse.until = Math.max(corpse.until, this.ctx.combat.now + CRIME.scene.coveredKeep);
   }
 
-  /** Тело под оцеплением — обыскать его может только сотрудник Альянса. */
+  /** Тело под оцеплением — обыскать его может только сотрудник Протектората. */
   sealed(corpse: Corpse, who: Character | null = null): boolean {
     if (who && FACTIONS[who.faction].authority) return false;
     return !!corpse.covered || this.list.some((s) => !s.closed && s.bodies.includes(corpse));
   }
 
-  /** Тело под оцеплением (крематору ждать, пока его не снимут). */
+  /** Тело под оцеплением (санитару ждать, пока его не снимут). */
   awaiting(corpse: Corpse): boolean {
     return this.list.some((s) => !s.closed && s.bodies.includes(corpse));
   }
@@ -503,11 +503,11 @@ export class CrimeScenes {
         s.medic = null;
         this.sendMedic(s);
       }
-      // Лежит убитый ГО с оружием — мирных за ограждение не пускают (выталкивает к ближайшему месту
+      // Лежит убитый ВС с оружием — мирных за ограждение не пускают (выталкивает к ближайшему месту
       // снаружи); иначе проходят под лентой и между козлами — меньше толкучки.
       if (!s.block || !s.outside.length) continue;
       for (const c of entities.near(s.x, s.y, s.r + c0, near)) {
-        // Лента держит мирных (горожане, ГСР, вортигонты); вооружённых повстанцев она не остановит.
+        // Лента держит мирных (горожане, ТС, поднадзорные); вооружённых повстанцев она не остановит.
         if (!c.alive || c === s.medic || !CORDONED.has(c.faction) || c.law.phase !== 'none' || !this.inScene(s, c.x, c.y)) continue;
         let best = s.outside[0];
         let bd = Infinity;
