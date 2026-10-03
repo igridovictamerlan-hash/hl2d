@@ -484,8 +484,10 @@ describe('прочёсывание по тревоге', () => {
     sim.ctx.insurgency.paused = true;
     const p = poiWorld(sim.ctx, 'plaza_center')!;
     sim.war.raiseAlarm(p.x, p.y, 'проверка');
-    run(sim, 25);
-    const hunters = sim.entities.list.filter((c) => c.alive && c.brain instanceof CpBrain && c.brain.fsm.current === 'hunt' && c.brain.huntSpot >= 0);
+    // Прочёсывание — пока группы не отвлеклись на задержания (ведущий с задержанным уводит своих).
+    const searching = () => sim.entities.list.filter((c) => c.alive && c.brain instanceof CpBrain && c.brain.fsm.current === 'hunt' && c.brain.huntSpot >= 0);
+    run(sim, 25, () => sim.ctx.time > 4 && searching().length >= 4);
+    const hunters = searching();
     expect(hunters.length).toBeGreaterThanOrEqual(4);
     const spots = hunters.map((c) => (c.brain as CpBrain).huntSpot).map((a) => ({ x: sim.nav.worldX(a), y: sim.nav.worldY(a) }));
     let close = 0;

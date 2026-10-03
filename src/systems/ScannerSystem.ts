@@ -69,7 +69,8 @@ export class ScannerSystem {
       const y = nav.worldY(a);
       if (Math.hypot(x - s.owner.x, y - s.owner.y) > R || map.levelAt(x, y) !== 'city') continue;
       const kind = map.zoneAtWorld(x, y)?.kind;
-      if (kind === 'outlands' || kind === 'wasteland' || kind === 'rebel_camp' || kind === 'nexus') continue;
+      // Фронт (КПП и пустошь) — не дело сканера: он смотрит за городом.
+      if (kind === 'outlands' || kind === 'wasteland' || kind === 'rebel_camp' || kind === 'nexus' || kind === 'checkpoint') continue;
       s.tx = x;
       s.ty = y;
       return;
@@ -90,9 +91,13 @@ export class ScannerSystem {
   private scan(s: Scanner): void {
     const S = CP_UNITS.scanner;
     const { ctx } = this;
+    // Повстанцы и вооружённые за один проход — одна тревога на группу, а не строка на каждого.
+    let found: Character | null = null;
+    let rebels = 0;
+    let armed = 0;
     for (const c of ctx.entities.near(s.x, s.y, S.sight, near)) {
       const kind = this.suspicious(c);
-      if (!kind || ctx.map.levelAt(c.x, c.y) !== 'city') continue;
+      if (!kind || ctx.map.levelAt(c.x, c.y) !== 'city' || ctx.map.zoneAtWorld(c.x, c.y)?.kind === 'checkpoint') continue;
       if (this.now - (s.reported.get(c) ?? -1e9) < S.reportEvery) continue;
       s.reported.set(c, this.now);
       s.flashUntil = this.now + S.flash;
@@ -101,7 +106,9 @@ export class ScannerSystem {
       if (kind === 'rebel' || kind === 'armed') {
         ctx.war.operatives.add(c);
         ctx.war.lastKnown.set(c, { x: c.x, y: c.y });
-        ctx.war.raiseAlarm(c.x, c.y, kind === 'rebel' ? 'сканер засёк повстанца' : 'сканер засёк вооружённого');
+        found ??= c;
+        if (kind === 'rebel') rebels++;
+        else armed++;
       } else {
         // Разыскиваемого — ближайший свободный патрульный.
         const cp = ctx.entities.list
@@ -111,6 +118,10 @@ export class ScannerSystem {
         ctx.bus.emit('log', { text: `Сканер ${s.owner.name}: в розыске — ${c.isPlayer ? 'ВЫ' : c.name}, ${zone}.`, kind: 'radio' });
       }
       if (c.isPlayer) ctx.bus.emit('log', { text: 'Над вами сканер Протектората — вас сфотографировали!', kind: 'law' });
+    }
+    if (found) {
+      const what = rebels ? (rebels + armed > 1 ? `сканер засёк повстанцев (${rebels + armed})` : 'сканер засёк повстанца') : armed > 1 ? `сканер засёк вооружённых (${armed})` : 'сканер засёк вооружённого';
+      ctx.war.raiseAlarm(found.x, found.y, what);
     }
   }
 

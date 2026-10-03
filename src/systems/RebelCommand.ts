@@ -1,3 +1,4 @@
+import { ECONOMY } from '../config/economy';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { RebelBrain } from '../ai/brains/RebelBrain';
@@ -246,6 +247,7 @@ export class RebelCommand {
       if (b.mode !== 'camp') continue;
       if (this.ctx.map.zoneAtWorld(c.x, c.y)?.kind === 'rebel_camp') {
         c.health = Math.min(c.maxHealth, c.health + COMMAND.campHeal * dt);
+        this.ctx.economy.feed(c, ECONOMY.meals.camp, dt);
         if (!b.restocked) {
           this.ctx.economy.refillAmmo(c, COMMAND.campMags);
           b.restocked = true;

@@ -258,6 +258,16 @@ export class EconomySystem {
   }
 
   /** Съесть/использовать предмет. */
+  /** Поесть «на месте» (котёл лагеря, запасы схрона): сытость +perSec в секунду, до максимума. */
+  feed(c: Character, perSec: number, dt: number): void {
+    c.hunger = Math.min(ECONOMY.hunger.max, c.hunger + perSec * dt);
+  }
+
+  /** Есть ли у персонажа еда в инвентаре. */
+  hasFood(c: Character): boolean {
+    return c.inventory.slots.some((s) => !!ITEMS[s.id].food);
+  }
+
   use(c: Character, id: ItemId): boolean {
     const def = ITEMS[id];
     // Поддельная CID: «чистая» карта, розыск снят.
@@ -436,6 +446,12 @@ export class EconomySystem {
         if (c.faction === 'cp') pay = S.cp + S.cpPerRank * cpUnit(c.rank).command;
         else if (c.faction === 'admin') pay = S.admin;
         else if (c.faction === 'cwu' && this.worked.has(c.id)) pay = S.cwu + (c.profession === 'cwu_head' ? CWU_HQ.head.salaryBonus : 0);
+        // Довольствие: кому положено и у кого нет еды — паёк (рабочему ТС — если работал).
+        const food = ECONOMY.meals.allowance[c.faction];
+        if (food && c.hunger < ECONOMY.meals.below && !this.hasFood(c) && (c.faction !== 'cwu' || this.worked.has(c.id))) {
+          c.inventory.add(food, 1);
+          if (c.isPlayer) this.bus.emit('log', { text: `Довольствие: ${ITEMS[food].name.toLowerCase()}.`, kind: 'world' });
+        }
         if (pay <= 0) continue;
         c.money += pay;
         if (c.isPlayer) this.bus.emit('log', { text: `Зарплата: +${pay} токенов.`, kind: 'world' });

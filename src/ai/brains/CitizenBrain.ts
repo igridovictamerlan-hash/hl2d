@@ -87,6 +87,8 @@ const near: Character[] = [];
 const near2: Character[] = [];
 
 /** Состояния, в которых мозг сам решает, куда смотреть (не «по ходу движения»). */
+/** Досуг, который голод прерывает (работу, сон, очередь и дела — нет). */
+const LEISURE: ReadonlySet<string> = new Set(['walk', 'idle', 'home', 'bench', 'barrel', 'smoke', 'notice', 'listen', 'cards', 'chat']);
 const SELF_FACING = new Set(['brawl', 'crew', 'stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice', 'canteen', 'shopping']);
 
 /**
@@ -143,6 +145,8 @@ export class CitizenBrain implements Brain {
   sleeping = false;
   /** Распорядок: идёт домой спать до утра; была ли смена на прошлом решении. */
   nightSleep = false;
+  /** Раз в секунду: не пора ли бросить досуг и пойти поесть. */
+  private hungerCheck = 0;
   wasOnShift = true;
   /** Драка: перестроить путь к противнику через… */
   brawlRepath = 0;
@@ -231,6 +235,13 @@ export class CitizenBrain implements Brain {
           this.job = { kind: 'dispense' };
           this.fsm.change('work');
         }
+      } else if ((this.hungerCheck -= dt) <= 0) {
+        // Голод отвлекает от досуга (не от работы и не от сна): бросить и решить заново — за едой.
+        this.hungerCheck = 1;
+        if (LEISURE.has(cur) && !this.nightSleep && this.starving()) {
+          this.idleLeft = 0.1;
+          this.fsm.change('idle');
+        }
       }
     }
     if (this.profile.avoidCp && (cur === 'walk' || cur === 'idle')) this.watchForCp(dt);
@@ -291,6 +302,12 @@ export class CitizenBrain implements Brain {
     this.mover.update(self, ctx, dt);
     if (!g.look(self, ctx, dt)) faceMovement(self, ctx, dt);
     return true;
+  }
+
+  /** Голоден и нечего съесть (поднадзорных кормит Протекторат; при красном коде — не до еды). */
+  starving(): boolean {
+    const { self, ctx } = this;
+    return self.faction !== 'vort' && self.hunger < ECONOMY.meals.seekBelow && !ctx.economy.hasFood(self) && ctx.war.code !== 'red';
   }
 
   /** Житель, у которого есть уличная жизнь (не поднадзорный, не на работе). */
@@ -561,6 +578,16 @@ export class CitizenBrain implements Brain {
       this.nightSleep = true;
       if (ctx.rng.chance(0.35)) self.say(ctx.rng.pick(ROUTINE.lines.bed), ctx.law.now, 2);
       return 'home';
+    }
+    // Голод важнее дел: без еды и голоднее seekBelow — в очередь за пайком, в столовую за супом или в лавку.
+    if (this.starving()) {
+      if (eco.open && !eco.hasBeenServed(self) && self.faction !== 'rebel' && this.pairedFor(eco.window)) {
+        this.consideredCycle = eco.cycle;
+        return 'queue';
+      }
+      const hustler = self.profession === 'thief' || self.profession === 'bandit' || self.gang >= 0;
+      if (self.faction === 'citizen' && !hustler && ctx.shops?.wantsMeal(self)) return 'canteen';
+      if (eco.shopCounter && self.money >= (ITEMS.bread.price ?? 6) && this.pairedFor(eco.shopCounter)) return 'shop';
     }
     const job = this.pickJob();
     if (job) {

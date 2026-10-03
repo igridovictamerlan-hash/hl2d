@@ -7,7 +7,8 @@ import type { Convoy } from './Arsenal';
 import { Inventory } from '../entities/Inventory';
 import { ROUTINE } from '../config/routine';
 import { GANGS, FENCE, type GangDef } from '../config/gangs';
-import { WEAPONS, type ItemId, type WeaponId } from '../config/items';
+import { ITEMS, WEAPONS, type ItemId, type WeaponId } from '../config/items';
+import { ECONOMY } from '../config/economy';
 import { lineOfSight } from '../world/visibility';
 import { spawnRole } from './Roster';
 import { GangOpBrain } from '../ai/brains/GangOpBrain';
@@ -303,6 +304,12 @@ export class GangSystem {
   private armAtHq(g: Gang): void {
     for (const c of this.members(g)) {
       if (c.isPlayer || Math.hypot(c.x - g.hq.x, c.y - g.hq.y) > GANGS.armReach) continue;
+      // Кормёжка в общаге — за счёт общака.
+      const M = GANGS.meal;
+      if (c.hunger < M.below && g.bank >= M.cost && !this.ctx.economy.hasFood(c)) {
+        g.bank -= M.cost;
+        c.hunger = Math.min(ECONOMY.hunger.max, c.hunger + (ITEMS[M.item].food ?? 0));
+      }
       const rank = (id: string) => {
         const i = GANGS.arms.indexOf(id as WeaponId);
         return i < 0 ? GANGS.arms.length : i;

@@ -1,3 +1,4 @@
+import { ECONOMY } from '../config/economy';
 import type { Character } from '../entities/Character';
 import type { Dwelling } from './Housing';
 import type { AiContext } from '../ai/AiContext';
@@ -991,6 +992,7 @@ export class InsurgencySystem {
       if (c.brain instanceof UndergroundBrain && c.brain.mode === 'base' && ctx.map.levelAt(c.x, c.y) === 'sewer') {
         const need = PARTISANS.cacheGrenades - c.inventory.count('grenade');
         if (need > 0) c.inventory.add('grenade', need);
+        ctx.economy.feed(c, ECONOMY.meals.cache, dt);
       }
       // Раскрытый или в розыске — в схроне новые документы и личина (иначе в город его не выпустить).
       // Документы делают не сразу: PARTISANS.newPapers с в схроне.
@@ -1005,8 +1007,9 @@ export class InsurgencySystem {
         }
       } else this.papers.delete(c);
     }
-    // Спецагент в схроне — новые документы: снова чист и под личиной.
+    // Спецагент в схроне — новые документы: снова чист и под личиной; там же и поесть.
     for (const ag of this.agents) {
+      if (ctx.map.levelAt(ag.x, ag.y) === 'sewer' && (ag.brain as AgentBrain | null)?.mode === 'base') ctx.economy.feed(ag, ECONOMY.meals.cache, dt);
       if (!ag.isPlayer && (!ag.disguised || ag.law.wanted) && ag.law.phase === 'none' && ctx.map.levelAt(ag.x, ag.y) === 'sewer' && (ag.brain as AgentBrain | null)?.mode === 'base') {
         ag.law.wanted = false;
         ag.hostile = false;

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
     "test": "vitest run",
     "test:watch": "vitest",
-    "mapstats": "vitest run tests/mapstats.test.ts --reporter=verbose"
+    "mapstats": "vitest run tests/mapstats.test.ts --reporter=verbose",
+    "worldstats": "WORLDSTATS=1 vitest run tests/worldstats.test.ts --reporter=verbose --silent=false"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

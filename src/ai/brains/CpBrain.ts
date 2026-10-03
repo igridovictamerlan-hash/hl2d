@@ -845,7 +845,7 @@ const GUARD: State<CpBrain> = {
   update(b, dt) {
     if ((b.duty === 'sentry' || b.duty === 'jailer') && !b.raidPost && !b.rally) return sentry(b, dt);
     const p = postOf(b);
-    if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, p.x, p.y) < 12) {
+    if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, p.x, p.y) < LAW.postArrive) {
       b.mover.stop();
       turnTowards(b.self, b.rally ? b.rallyFacing : b.guardFacing, dt, 3);
     } else {
@@ -868,7 +868,7 @@ function sentry(b: CpBrain, dt: number): void {
   const post = b.guardPost!;
   const to = b.sentrySpot ?? post;
   const far = dist(b.self.x, b.self.y, post.x, post.y) > LAW.cpRunToPost;
-  if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, to.x, to.y) < 12) {
+  if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, to.x, to.y) < LAW.postArrive) {
     b.mover.stop();
     b.sentryLeft -= dt;
     if (b.sentrySpot) {

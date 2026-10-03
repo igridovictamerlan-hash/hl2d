@@ -44,6 +44,8 @@ export const GANGS = {
   /** Лучший ствол из общака — бойцу у общага (порядок — что лучше). */
   arms: ['ak74', 'm4a4', 'rebel_smg', 'mp7', 'spas12', 'revolver', 'usp', 'rebel_pistol'] as readonly WeaponId[],
   armReach: 90,
+  /** Боец у общака голоднее below ест за счёт общака: хлеб (item) за cost токенов. */
+  meal: { below: 45, item: 'bread' as ItemId, cost: 6 },
   /**
    * Вражда: боец видит бойца другой банды ближе see px — стычка на time с (стреляют друг в друга);
    * новая стычка между этими бандами — не раньше cooldown с после конца прошлой.
