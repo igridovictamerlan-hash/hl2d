@@ -125,7 +125,7 @@ describe('КПП', () => {
     }
     run(sim, 0.5);
     sim.war.startCapture(f);
-    run(sim, 3, () => f.owner === 'rebels');
+    run(sim, WAR.capture.secure + 30, () => f.owner === 'rebels');
     expect(f.owner).toBe('rebels');
     const gate = men.filter((r) => {
       const p = (r.brain as RebelBrain).post;
@@ -149,8 +149,10 @@ describe('КПП', () => {
       const r = spawnRole(sim.ctx, armySpec('rebel_soldier', 'rebel_soldier', 0), { x: sim.nav.worldX(a), y: sim.nav.worldY(a) })!;
       (r.brain as RebelBrain).march('gather');
     }
-    run(sim, WAR.ota.every + 1);
-    const posted = sim.war.ota.filter((o) => (o.brain as OtaBrain).mode === 'post');
+    // Выдвигаются сразу (повстанцев у КПП могут быстро перебить — тогда OTA снова уходят в резерв).
+    const postedNow = () => sim.war.ota.filter((o) => (o.brain as OtaBrain).mode === 'post');
+    run(sim, WAR.ota.every + 1, () => postedNow().length > 0);
+    const posted = postedNow();
     expect(posted.length).toBeGreaterThan(0);
     expect(posted.every((o) => (o.brain as OtaBrain).front === busy.index)).toBe(true);
     expect(sim.war.stats.otaDeployed).toBeGreaterThan(0);

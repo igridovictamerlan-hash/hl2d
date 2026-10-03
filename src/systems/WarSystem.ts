@@ -38,6 +38,10 @@ export interface Capture {
   since: number;
   until: number;
   rebelKills: number;
+  /** Сколько секунд подряд двор у повстанцев, а Протектората в нём нет (WAR.capture.secure). */
+  secured: number;
+  /** Повстанцы во дворе штурмуемой точки (на последнем тике). */
+  inside: number;
   cpKills: number;
   /** Гарнизон точки в начале капта: перебит — точка захвачена. */
   defenders: Character[];
@@ -146,11 +150,18 @@ export class WarSystem {
   private calm = 0;
   private scanTimer = 0;
   curfewSince = 0;
-  /** Все точки D у повстанцев — они выходят в город. */
+  /** Повстанцы рвутся в город (WAR.cityPushOn: прорван КПП или все точки D). */
   cityPush = false;
   /** Мобилизованные красным кодом ВС (CpBrain.rally) и места обороны Управы. */
   private mobilized = new Set<Character>();
   private rallySpots: Vec2[] | null = null;
+  /** Заслон у прорванного КПП (WAR.blockade): кто стоит и у какого КПП; места заслона. */
+  readonly blockaders = new Set<Character>();
+  /** Повстанцы у выхода из прорванного КПП (holdGate): прикрывают прорыв в город, на штурм не уходят. */
+  readonly gateGuards = new Set<Character>();
+  private blockadeFront = -1;
+  private blockSpots: Vec2[] = [];
+  private blockadeTimer = 0;
   private mobilizeTimer = 0;
   /** Подкрепления ВС с ГЭС на КПП (тесты отключают, чтобы они не шли через город). */
   reinforcements = true;
@@ -500,8 +511,21 @@ export class WarSystem {
     if (rebelKill) c.rebelKills++;
     else c.cpKills++;
     if (attacker.isPlayer) this.ctx.bus.emit('log', { text: `Капт ${f.name}: ваше убийство засчитано (${c.rebelKills} : ${c.cpKills}).`, kind: 'system' });
-    // Досрочная победа — только с перевесом (как в капте: у кого больше убийств).
-    if (c.rebelKills >= WAR.capture.killsToWin && c.rebelKills > c.cpKills) this.endCapture(f, true);
+    // Досрочная победа — только с перевесом (как в капте: у кого больше убийств) и если повстанцы
+    // уже во дворе точки: по счёту убийств из пустоши точку не взять.
+    if (c.rebelKills >= WAR.capture.killsToWin && c.rebelKills > c.cpKills && this.yardCount(f, c.point).rebels > 0) this.endCapture(f, true);
+  }
+
+  /** Кто во дворе точки k фронта f (боеспособные): повстанцы и Протекторат. */
+  private yardCount(f: Front, k: number): { rebels: number; alliance: number } {
+    let rebels = 0;
+    let alliance = 0;
+    for (const o of this.ctx.entities.list) {
+      if (!o.fit || this.sectionAt(f, o.x, o.y) !== k * 2) continue;
+      if (o.faction === 'rebel') rebels++;
+      else if (FACTIONS[o.faction].authority) alliance++;
+    }
+    return { rebels, alliance };
   }
 
   /** Начать капт очередной точки КПП (или принудительно — для тестов и отладки). */
@@ -518,9 +542,10 @@ export class WarSystem {
       const b = o.brain;
       if (o.alive && b instanceof OtaBrain && b.front === f.index && b.post && this.pointOfPost(f, b.post) === point) defenders.push(o);
     }
-    f.capture = { since: this.time, until: this.time + WAR.capture.duration, rebelKills: 0, cpKills: 0, defenders, point };
+    f.capture = { since: this.time, until: this.time + WAR.capture.duration, rebelKills: 0, cpKills: 0, defenders, point, secured: 0, inside: 0 };
     f.reinforceAt = f.medicAt = 0;
-    this.ctx.law.log(`${f.name}: КАПТ точки ${pt.name}! Повстанцы (${f.squad.length}) идут на захват. Подкреплений не будет — держать оборону!`, 'radio');
+    const help = WAR.capture.reinforce ? 'Резерв выдвигается — держать точку!' : 'Подкреплений не будет — держать оборону!';
+    this.ctx.law.log(`${f.name}: КАПТ точки ${pt.name}! Повстанцы (${f.squad.length}) идут на захват. ${help}`, 'radio');
     this.ctx.bus.emit('announce', { text: `Капт · ${f.name} · ${pt.name}` });
     // На внутренний двор идут и державшие внешний (на постах остаётся WAR.capture.keepOnHeld).
     let keep = point > 0 ? WAR.capture.keepOnHeld : 0;
@@ -599,6 +624,7 @@ export class WarSystem {
       const b = rebelBrain(r)!;
       if (k < Math.min(G.count, spots.length)) {
         b.orderHold(spots[k++], face);
+        this.gateGuards.add(r);
         this.stats.gateHolders++;
       }
     }
@@ -664,7 +690,7 @@ export class WarSystem {
     let best = 0;
     for (let i = 1; i < counts.length; i++) if (counts[i] > counts[best]) best = i;
     const f = this.fronts[best];
-    if (counts[best] < O.minRebels || f.capture) return;
+    if (counts[best] < O.minRebels || (f.capture && !WAR.capture.reinforce)) return;
     const k = f.held < f.points.length ? f.held : f.points.length - 1;
     const posts = f.points[k]?.posts.length ? f.points[k].posts : f.posts;
     if (!posts.length) return;
@@ -677,7 +703,7 @@ export class WarSystem {
         const b = o.brain;
         if (!o.alive || !(b instanceof OtaBrain)) return false;
         if (b.available) return true;
-        return b.mode === 'post' && b.front !== best && b.front >= 0 && counts[b.front] < O.minRebels && !this.fronts[b.front]?.capture;
+        return b.mode === 'post' && b.front !== best && b.front >= 0 && counts[b.front] < O.minRebels && !this.fronts[b.front]?.capture && !this.blockaders.has(o);
       })
       .sort((a, b) => Number((b.brain as OtaBrain).available) - Number((a.brain as OtaBrain).available));
     let sent = 0;
@@ -730,14 +756,130 @@ export class WarSystem {
     return this.ctx.entities.list.some((c) => c.alive && c.faction === 'admin');
   }
 
-  /** КПП прорван: все точки у повстанцев — к нему потянутся граждане (WAR.defect). */
+  /**
+   * КПП прорван: все точки у повстанцев — к нему потянутся граждане (WAR.defect). Повстанцы рвутся
+   * через него в город (WAR.cityPushOn 'breach'); по прежнему правилу ('all') армия идёт на следующий КПП.
+   */
   breach(f: Front): void {
     f.held = f.points.length;
     f.owner = 'rebels';
     this.defectIn = 0;
     this.defectLeft += WAR.defect.perBreach;
-    // Посты прорванного КПП держат захватившие; остальная армия — на следующий КПП.
-    if (this.fronts.some((o) => o.owner !== 'rebels')) this.command.pickTarget(`${f.name} прорван`);
+    if (WAR.cityPushOn === 'breach') this.command.target = f.index;
+    else if (this.fronts.some((o) => o.owner !== 'rebels')) this.command.pickTarget(`${f.name} прорван`);
+  }
+
+  /**
+   * Заслон (WAR.blockade): КПП прорван — патрули ВС (не с постов, ближайшие) и свободный резерв Легиона
+   * перекрывают выход из проходной в город. КПП отбит — заслон снимается.
+   */
+  private updateBlockade(): void {
+    const B = WAR.blockade;
+    const f = this.reinforcements ? (this.fronts.find((o) => o.owner === 'rebels') ?? null) : null;
+    if (!f) {
+      this.releaseBlockade();
+      return;
+    }
+    if (this.blockadeFront !== f.index) {
+      this.releaseBlockade();
+      this.blockadeFront = f.index;
+      this.blockSpots = this.blockadeSpots(f);
+      this.ctx.law.log(`Надзор: ${f.name} прорван — заслон у проходной! Патрули и Легион — перекрыть выход в город.`, 'radio');
+    }
+    for (const c of [...this.blockaders]) if (!c.alive) this.blockaders.delete(c);
+    const spots = this.blockSpots;
+    if (!spots.length) return;
+    const taken = new Set<Vec2>();
+    let cps = 0;
+    for (const c of this.blockaders) {
+      const b = c.brain;
+      if (b instanceof CpBrain && b.rally) {
+        taken.add(b.rally);
+        cps++;
+      } else if (b instanceof OtaBrain && b.post) taken.add(b.post);
+    }
+    const free = (): Vec2 | null => spots.find((s) => !taken.has(s)) ?? null;
+    const face = (s: Vec2) => Math.atan2(f.innerGate.y - s.y, f.innerGate.x - s.x);
+    // Часть резерва Легиона (B.ota): остальные отбивают КПП контрударами.
+    let otas = [...this.blockaders].filter((c) => c.brain instanceof OtaBrain).length;
+    for (const o of this.ota) {
+      if (otas >= B.ota) break;
+      const b = o.brain;
+      if (!o.alive || this.blockaders.has(o) || !(b instanceof OtaBrain) || (!b.available && b.mode !== 'home')) continue;
+      const s = free();
+      if (!s) break;
+      taken.add(s);
+      b.assignPost(-1, s, face(s));
+      this.blockaders.add(o);
+      otas++;
+    }
+    // Ближайшие патрули ВС (с постов не снимают: посты держат свои места, при красном коде — Управу).
+    if (cps >= B.cp) return;
+    const pool = this.ctx.entities.list.filter((c) => {
+      const b = c.brain;
+      if (!c.alive || c.isPlayer || this.blockaders.has(c) || c.law.phase !== 'none' || !(b instanceof CpBrain)) return false;
+      if (b.guardPost || b.medicStation || b.rally || (b.duty !== null && b.duty !== 'squad')) return false;
+      return this.ctx.map.levelAt(c.x, c.y) === 'city';
+    });
+    pool.sort((a, b) => Math.hypot(a.x - f.apron.x, a.y - f.apron.y) - Math.hypot(b.x - f.apron.x, b.y - f.apron.y));
+    for (const c of pool) {
+      if (cps >= B.cp) break;
+      const s = free();
+      if (!s) break;
+      taken.add(s);
+      const b = c.brain as CpBrain;
+      b.rally = s;
+      b.rallyFacing = face(s);
+      this.blockaders.add(c);
+      cps++;
+      if (b.fsm.current !== 'fight' && b.fsm.current !== 'retreat') b.fsm.change('guard');
+    }
+  }
+
+  /** Снять заслон: ВС — к своей службе, Легион — на ГЭС. */
+  private releaseBlockade(): void {
+    if (this.blockadeFront < 0 && !this.blockaders.size) return;
+    for (const c of this.blockaders) {
+      const b = c.brain;
+      if (b instanceof CpBrain && b.rally && !this.mobilized.has(c)) {
+        b.rally = null;
+        if (c.alive && b.fsm.current === 'guard') b.fsm.change(b.idleState);
+      } else if (b instanceof OtaBrain && b.mode === 'post' && b.front < 0) b.goHome();
+    }
+    this.blockaders.clear();
+    this.blockadeFront = -1;
+    this.blockSpots = [];
+  }
+
+  /**
+   * Места заслона: якоря города в radius[0]…radius[1] px от выхода из проходной, откуда виден выход,
+   * за углом (не меньше minWalls сплошных тайлов вокруг), не ближе spacing px друг к другу — ближние раньше.
+   */
+  private blockadeSpots(f: Front): Vec2[] {
+    const B = WAR.blockade;
+    const { map, nav } = this.ctx;
+    const ts = map.tileSize;
+    const cand: { p: Vec2; d: number }[] = [];
+    for (const a of nav.walkable) {
+      const x = nav.worldX(a);
+      const y = nav.worldY(a);
+      const d = Math.hypot(x - f.apron.x, y - f.apron.y);
+      if (d < B.radius[0] || d > B.radius[1] || !this.inCity(x, y)) continue;
+      if (!lineOfSight(map, x, y, f.apron.x, f.apron.y)) continue;
+      const tx = Math.floor(x / ts);
+      const ty = Math.floor(y / ts);
+      let walls = 0;
+      for (let dy = -2; dy <= 1; dy++) for (let dx = -2; dx <= 1; dx++) if (map.isSolid(tx + dx, ty + dy)) walls++;
+      if (walls < B.minWalls) continue;
+      cand.push({ p: { x, y }, d });
+    }
+    cand.sort((u, v) => u.d - v.d);
+    const out: Vec2[] = [];
+    for (const c of cand) {
+      if (out.every((o) => Math.hypot(o.x - c.p.x, o.y - c.p.y) >= B.spacing)) out.push(c.p);
+      if (out.length >= B.cp + 8) break;
+    }
+    return out;
   }
 
   /**
@@ -758,17 +900,15 @@ export class WarSystem {
       // во дворе — точка взята сразу, без ожидания таймера.
       // Тяжелораненые (лежат) — уже не бойцы ни с той, ни с другой стороны.
       const attackers = f.squad.filter((r) => r.fit && rebelBrain(r)?.mode === 'capture').length;
-      let inside = 0;
-      let alliance = 0;
-      for (const o of list) {
-        if (!o.fit || this.sectionAt(f, o.x, o.y) !== c.point * 2) continue;
-        if (o.faction === 'rebel') inside++;
-        else if (FACTIONS[o.faction].authority) alliance++;
-      }
+      const { rebels: inside, alliance } = this.yardCount(f, c.point);
+      c.inside = inside;
+      // Двор удержан: гарнизон перебит, Протектората во дворе нет, повстанцы там — secure с подряд
+      // (успели подойти подкрепления — счёт сначала).
       const wiped = inside > 0 && alliance === 0 && c.defenders.every((d) => !d.fit);
-      if (wiped) this.endCapture(f, true);
+      c.secured = wiped ? c.secured + dt : 0;
+      if (c.secured >= W.secure) this.endCapture(f, true);
       else if (attackers === 0 && this.time - c.since > 2) this.endCapture(f, false);
-      else if (this.time >= c.until) this.endCapture(f, c.rebelKills >= W.minKills && c.rebelKills > c.cpKills);
+      else if (this.time >= c.until) this.endCapture(f, inside > 0 && inside >= alliance && c.rebelKills >= W.minKills && c.rebelKills > c.cpKills);
       return;
     }
     if (f.held === 0) return;
@@ -1133,26 +1273,37 @@ export class WarSystem {
    * WAR.holdKeep бойцов на каждом КПП, идут на прорыв (прорвавшиеся → красный код).
    */
   private updateCityPush(): void {
-    const all = this.fronts.length > 0 && this.fronts.every((f) => f.held >= f.points.length);
-    if (!all) {
+    const breached = this.fronts.filter((f) => f.held >= f.points.length);
+    const on = WAR.cityPushOn === 'all' ? this.fronts.length > 0 && breached.length === this.fronts.length : breached.length > 0;
+    if (!on) {
       this.cityPush = false;
       return;
     }
     if (!this.cityPush) {
       this.cityPush = true;
-      // Повстанцы выходят в город — OTA с КПП уходят держать ГЭС.
-      for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
-      const names = this.fronts.flatMap((f) => f.points.map((p) => p.name)).join(', ');
-      this.ctx.law.log(`Надзор: все точки ${names} в руках повстанцев — сопротивление выходит в город!`, 'radio');
-      this.ctx.bus.emit('announce', { text: 'Все точки D у повстанцев · выход в город' });
+      // Повстанцы рвутся в город — Легион с КПП уходит держать ГЭС (кроме заслона у прорыва).
+      for (const o of this.ota) if (!this.blockaders.has(o)) (o.brain as OtaBrain | null)?.goHome();
+      if (WAR.cityPushOn === 'all') {
+        const names = this.fronts.flatMap((f) => f.points.map((p) => p.name)).join(', ');
+        this.ctx.law.log(`Надзор: все точки ${names} в руках повстанцев — сопротивление выходит в город!`, 'radio');
+        this.ctx.bus.emit('announce', { text: 'Все точки D у повстанцев · выход в город' });
+      } else {
+        const names = breached.map((f) => f.name).join(', ');
+        this.ctx.law.log(`Надзор: ${names} прорван — повстанцы рвутся в город!`, 'radio');
+        this.ctx.bus.emit('announce', { text: `Прорыв · повстанцы рвутся в город` });
+      }
     }
-    // Красный код — мобилизация: на КПП остаётся rebelKeep, остальные — на Управу.
+    // Красный код — мобилизация: на КПП остаётся rebelKeep, остальные — на Управу. Рвутся в город
+    // через прорванные КПП (по прежнему правилу — со всех).
     const holdKeep = this.code === 'red' ? WAR.mobilize.rebelKeep : WAR.holdKeep;
-    for (const f of this.fronts) {
+    for (const c of [...this.gateGuards]) if (!c.fit || rebelBrain(c)?.mode !== 'hold') this.gateGuards.delete(c);
+    for (const f of WAR.cityPushOn === 'all' ? this.fronts : breached) {
       let keep = holdKeep;
       for (const r of f.squad) {
         const b = rebelBrain(r);
         if (!b || b.mode === 'assault' || b.mode === 'retreat') continue;
+        // Стрелки у выхода прикрывают прорыв (при красном коде и они — на штурм).
+        if (b.mode === 'hold' && this.code !== 'red' && this.gateGuards.has(r)) continue;
         if (b.mode === 'hold' && keep > 0) {
           keep--;
           continue;
@@ -1281,6 +1432,11 @@ export class WarSystem {
       this.mobilizeTimer = WAR.mobilize.every;
       this.updateMobilize();
     }
+    this.blockadeTimer -= dt;
+    if (this.blockadeTimer <= 0) {
+      this.blockadeTimer = WAR.blockade.every;
+      this.updateBlockade();
+    }
     this.corpseScan -= dt;
     if (this.corpseScan <= 0) {
       this.corpseScan = ALARM.corpseScan;
@@ -1291,10 +1447,12 @@ export class WarSystem {
       this.restartAt = -1;
       this.ctx.bus.emit('restart', {});
     }
-    // Все точки D у повстанцев — выход в город (до проверки прорвавшихся: они сразу штурмуют Управа).
+    // Прорыв в город (WAR.cityPushOn) — до проверки прорвавшихся: они сразу штурмуют Управу.
     this.updateCityPush();
     for (const f of this.fronts) {
-      // Прорыв в город: боец в штурме (все точки D взяты, forceAssault) вышел за КПП.
+      // В город рвутся через прорванный КПП (по прежнему правилу 'all' — через любой).
+      const pushHere = this.cityPush && (WAR.cityPushOn === 'all' || f.owner === 'rebels');
+      // Прорыв в город: боец в штурме (КПП прорван, forceAssault) вышел за КПП.
       for (const r of [...f.squad]) {
         const b = r.brain;
         const kind = map.zoneAtWorld(r.x, r.y)?.kind;
@@ -1306,16 +1464,16 @@ export class WarSystem {
           f.squad.splice(f.squad.indexOf(r), 1);
           continue;
         }
-        if (b.mode !== 'assault' && !this.cityPush) continue;
+        if (b.mode !== 'assault' && !pushHere) continue;
         f.squad.splice(f.squad.indexOf(r), 1);
         if (b.mode === 'storm' || b.mode === 'infiltrate') continue;
         this.infiltrators.add(r);
         this.lastKnown.set(r, { x: r.x, y: r.y });
-        // Все точки D наши — не прятаться, а штурмовать Управа.
-        if (this.cityPush) b.storm();
+        // КПП прорван — не прятаться, а штурмовать Управу.
+        if (pushHere) b.storm();
         else b.infiltrate();
-        // Красный код — только штурм Управы (КПП прорваны, повстанцы в городе).
-        if (this.cityPush && this.code !== 'red') this.declareRed(f.name, 'КПП прорван, повстанцы штурмуют Управу');
+        // Красный код — только штурм Управы (КПП прорван, повстанцы в городе).
+        if (pushHere && this.code !== 'red') this.declareRed(f.name, 'КПП прорван, повстанцы штурмуют Управу');
       }
       this.updateCapture(f, dt);
       if (!f.assaultAnnounced && f.squad.some((r) => rebelBrain(r)?.mode === 'assault')) {

@@ -46,6 +46,11 @@ describe('штаб ТС', () => {
     const head = hq.head!;
     expect(head).toBeTruthy();
     const cwuBefore = sim.entities.list.filter((c) => c.faction === 'cwu').length;
+    // Рабочие ТС гибнут (налёты банд, шальные пули) — не в счёт найма.
+    let cwuDied = 0;
+    sim.combat.deathListeners.push((c) => {
+      if (c.faction === 'cwu') cwuDied++;
+    });
     let headInHq = 0;
     let samples = 0;
     let packerAtLine = 0;
@@ -60,7 +65,7 @@ describe('штаб ТС', () => {
     console.log(`штаб ТС: ${JSON.stringify(hq.stats)}, ТС ${cwuBefore} → ${cwuAfter}, глава в штабе ${Math.round((headInHq / samples) * 100)}%, фасуют у конвейера ${packerAtLine} с, коробок ${sim.labor.stats.packed}`);
     expect(headInHq / samples).toBeGreaterThan(0.6);
     expect(hq.stats.hired).toBeGreaterThanOrEqual(1);
-    expect(cwuAfter).toBeGreaterThan(cwuBefore);
+    expect(cwuAfter + cwuDied).toBeGreaterThan(cwuBefore);
     // Принятый — рабочий ТС с профессией из списка нужных и ролью для возрождения.
     const hired = sim.entities.list.filter((c) => c.faction === 'cwu' && c.role?.faction === 'cwu' && c.profession && c.profession in CWU_HQ.hire.needs);
     expect(hired.length).toBeGreaterThan(0);

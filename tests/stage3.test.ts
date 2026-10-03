@@ -190,6 +190,8 @@ describe('война на границе', () => {
   test('у КПП идёт перестрелка, есть потери, ВС получает подкрепления', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
+    // Наступление сразу (без него армия ждёт ночи в лагере).
+    sim.war.command.launchOffensive();
     run(sim, 150);
     console.log(`выстрелов: ${sim.combat.shotsFired}, попаданий: ${sim.combat.hits}, убитых: ${sim.combat.kills}`);
     expect(sim.combat.shotsFired).toBeGreaterThan(200);

@@ -110,6 +110,7 @@ describe('живой мир', () => {
   test('на КПП летят гранаты: у повстанцев и ВС они есть и идут в дело', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
+    sim.war.command.launchOffensive();
     for (let t = 0; t < 180 * 60; t++) sim.step();
     console.log(`гранат брошено за 3 мин: ${sim.combat.grenadesThrown}`);
     expect(sim.combat.grenadesThrown).toBeGreaterThan(3);

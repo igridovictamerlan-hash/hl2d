@@ -4,6 +4,7 @@ import type { Vec2 } from '../core/math';
 import type { DivisionId, FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { ROSTER } from '../config/roster';
+import { WAR } from '../config/war';
 import { createCharacter } from '../entities/factory';
 import { equipKit, poiWorld } from './Population';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
@@ -286,9 +287,9 @@ export class RosterSystem {
         q.at = this.time + 2;
         continue;
       }
-      // Во время капта часовые и медики этого КПП ждут на ГЭС.
+      // Во время капта часовые и медики этого КПП ждут на ГЭС (если подкрепления в капте запрещены).
       const f = q.spec.front !== undefined ? this.ctx.war.fronts[q.spec.front] : null;
-      if (f?.capture && (q.spec.kind === 'guard' || q.spec.kind === 'medic')) {
+      if (f?.capture && !WAR.capture.reinforce && (q.spec.kind === 'guard' || q.spec.kind === 'medic')) {
         q.at = this.time + 2;
         continue;
       }

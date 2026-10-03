@@ -98,7 +98,8 @@ describe('постоянный состав', () => {
     expect(back[1]!.brain).toBeInstanceOf(CitizenBrain);
     // Новых персонажей сверх состава не появилось (санитар выходит сам — не в счёт).
     expect(sim.entities.list.filter((c) => c.alive && c.profession !== 'cremator').length).toBeLessThanOrEqual(total);
-    expect(sim.roster.respawned).toBe(2);
+    // Вернулись оба (бойцы банд за это время могли подраться и тоже вернуться — не в счёт).
+    expect(sim.roster.respawned).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -107,17 +108,46 @@ describe('командование сопротивления', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     const cmd = sim.war.command;
-    run(sim, 70);
+    // Между наступлениями армия в лагере (к КПП ходит разведка); наступление — сразу, не дожидаясь ночи.
+    run(sim, 6);
+    expect(cmd.offensive).toBeNull();
+    cmd.launchOffensive();
+    run(sim, 3);
     expect(cmd.stats.retargets).toBeGreaterThanOrEqual(1);
     const target = sim.war.fronts[cmd.target];
-    const atTarget = cmd.army.filter((c) => (c.brain as RebelBrain).front === target.index && sim.war.frontAt(c.x, c.y) === target);
+    // Отвлекающая группа — COMMAND.diversion бойцов на второй КПП, остальные — на КПП главы.
     const other = cmd.army.filter((c) => c.brain instanceof RebelBrain && c.brain.front !== target.index);
+    expect(other.length).toBe(COMMAND.diversion);
+    expect(other.every((c) => (c.brain as RebelBrain).mode === 'raid')).toBe(true);
+    run(sim, 61);
+    const atTarget = cmd.army.filter((c) => (c.brain as RebelBrain).front === target.index && sim.war.frontAt(c.x, c.y) === target);
     console.log(`у КПП главы: ${atTarget.length}, отвлекают: ${other.length}`);
     expect(atTarget.length).toBeGreaterThanOrEqual(8);
-    // Отвлекающая группа — COMMAND.diversion бойцов (кто-то из них мог уже погибнуть в бою).
-    expect(other.length).toBeLessThanOrEqual(COMMAND.diversion);
-    expect(other.length).toBeGreaterThanOrEqual(COMMAND.diversion - 1);
     expect(other.length).toBeLessThan(cmd.army.length / 2);
+  });
+
+  test('наступление: между ними армия в лагере (к КПП — разведка); половина выбыла — отход в лагерь', { timeout: 120_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 10);
+    const cmd = sim.war.command;
+    run(sim, 20);
+    expect(cmd.offensive).toBeNull();
+    expect(cmd.army.filter((c) => (c.brain as RebelBrain).mode !== 'camp').length).toBeLessThanOrEqual(COMMAND.scouts);
+    cmd.launchOffensive(0);
+    run(sim, 2);
+    const o = cmd.offensive!;
+    expect(o).not.toBeNull();
+    expect(o.committed.size).toBeGreaterThanOrEqual(WAR.offensive.minReady);
+    expect([...o.committed].every((c) => ['gather', 'raid'].includes((c.brain as RebelBrain).mode))).toBe(true);
+    // Выбыла доля breakLoss наступавших — наступление сорвано, остальные отходят; следующее — не сразу.
+    const men = [...o.committed].filter((c) => !c.isPlayer && c !== cmd.leader);
+    for (const c of men.slice(0, Math.ceil(o.committed.size * WAR.offensive.breakLoss))) sim.combat.kill(c, null);
+    run(sim, 2);
+    expect(cmd.offensive).toBeNull();
+    expect(cmd.stats.broken).toBe(1);
+    expect(cmd.nextOffensive).toBeGreaterThan(cmd.now + WAR.offensive.interval[0] - 5);
+    const alive = cmd.army.filter((c) => c.alive);
+    expect(alive.every((c) => ['retreat', 'camp'].includes((c.brain as RebelBrain).mode))).toBe(true);
   });
 
   test('клич главы: бойцы рядом идут за ним на штурм', { timeout: 60_000 }, () => {
@@ -276,13 +306,29 @@ describe('проходная КПП', () => {
 });
 
 describe('прорыв и уличная жизнь', () => {
-  test('КПП прорван — глава ведёт армию на следующий; ВС и OTA возвращаются не сразу', () => {
+  test('КПП прорван — армия рвётся в город через него, Протекторат ставит заслон; ВС и OTA возвращаются не сразу', () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     run(sim, 6);
     const first = sim.war.command.target;
-    sim.war.breach(sim.war.fronts[first]);
-    expect(sim.war.command.target).not.toBe(first);
+    const f = sim.war.fronts[first];
+    f.retakeAt = Infinity;
+    sim.war.breach(f);
+    expect(sim.war.command.target).toBe(first);
+    run(sim, 3);
+    expect(sim.war.cityPush).toBe(true);
+    // Заслон у выхода из проходной: патрули ВС с местом в городе рядом с выходом.
+    const block = [...sim.war.blockaders].filter((c) => c.brain instanceof CpBrain && c.brain.rally);
+    expect(block.length).toBeGreaterThanOrEqual(3);
+    for (const c of block) {
+      const p = (c.brain as CpBrain).rally!;
+      expect(Math.hypot(p.x - f.apron.x, p.y - f.apron.y)).toBeLessThanOrEqual(WAR.blockade.radius[1]);
+    }
+    // КПП отбит — заслон снимается.
+    f.held = 0;
+    f.owner = 'combine';
+    run(sim, WAR.blockade.every + 1);
+    expect(sim.war.blockaders.size).toBe(0);
     expect(ROSTER.respawn.guard).toBeGreaterThanOrEqual(60);
     expect(ROSTER.respawn.ota).toBeGreaterThan(ROSTER.respawn.guard);
   });
@@ -390,7 +436,7 @@ describe('штурм Управы', () => {
       spawnPopulation(sim.ctx, 45);
       // Проверяем саму волну: OTA не выдвигаются к КПП и не отбивают точки (иначе исход решает бой у КПП).
       sim.war.reinforcements = false;
-      run(sim, 90);
+      run(sim, 5);
       for (const f of sim.war.fronts) {
         f.held = f.points.length;
         f.owner = 'rebels';
@@ -402,6 +448,8 @@ describe('штурм Управы', () => {
         const k = c.role?.kind;
         if (c.alive && (k === 'guard' || k === 'medic')) sim.combat.damage(c, 99999, null, null, true);
       }
+      // Наступление сразу (не ждём ночи): армия из лагеря идёт через прорванные КПП в город.
+      sim.war.command.launchOffensive();
       let wave = false;
       let inside = 0;
       let progress = 0;

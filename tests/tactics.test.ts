@@ -347,6 +347,13 @@ describe('тактика ИИ', () => {
   test('живой город: в перестрелках — укрытия, колонны звеньев, раненых поднимают', { timeout: 180_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 10);
+    // Внешний двор западного КПП уже у повстанцев (гарнизон перебит): наступление сразу идёт на
+    // внутренний — звенья проходят шорт и лонг колонной.
+    const f = sim.war.fronts[0];
+    f.held = 1;
+    f.retakeAt = Infinity;
+    for (const c of sim.entities.list) if (c.alive && c.role?.kind === 'guard' && sim.war.sectionAt(f, c.x, c.y) === 0) sim.combat.damage(c, 99999, null, null, true);
+    sim.war.command.launchOffensive(0);
     const seen = new Set<string>();
     for (let t = 0; t < 240 * 60; t++) {
       sim.step();

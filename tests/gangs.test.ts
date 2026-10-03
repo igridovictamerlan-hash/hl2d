@@ -108,7 +108,8 @@ describe('банды', () => {
     expect(buy.done).toBe(true);
     expect(g.stats.buys).toBe(1);
     expect(F.stats.gangBuys).toBe(1);
-    expect(g.stash.slots.filter((s) => GANGS.arms.includes(s.id as never)).reduce((n, s) => n + s.qty, 0)).toBe(guns + 1);
+    // Купленный ствол в общаке (вернувшийся боец мог заодно сдать лишний — снятый с тела).
+    expect(g.stash.slots.filter((s) => GANGS.arms.includes(s.id as never)).reduce((n, s) => n + s.qty, 0)).toBeGreaterThanOrEqual(guns + 1);
   });
 
   test('удар по ВС: бойцы достают стволы у патрульного, враги Протектората, в розыске', { timeout: 120_000 }, () => {

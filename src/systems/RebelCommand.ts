@@ -10,6 +10,15 @@ import { armySpec, equipKit } from './Population';
 import { WAR } from '../config/war';
 import type { Front } from './WarSystem';
 
+/** Идущее наступление: с какого времени, на какой КПП, кто ушёл из лагеря. */
+export interface Offensive {
+  since: number;
+  front: number;
+  committed: Set<Character>;
+  /** Повстанцы уже рвались в город (прорыв КПП) — наступление кончится, когда выход в город закроют. */
+  pushed: boolean;
+}
+
 /** Идущий клич главы: кто кричал, до какого времени, на каком фронте. */
 export interface Rally {
   leader: Character;
@@ -19,10 +28,13 @@ export interface Rally {
 
 /**
  * Командование сопротивления. Армия (постоянный состав: глава, ветераны, солдаты, пиротехник,
- * подрывник и спецотряд HYDRA) живёт в лагере в пустоши и ходит к КПП тропой. Глава выбирает, какой
- * КПП штурмовать: большинство идёт туда, отвлекающая группа (COMMAND.diversion бойцов) — на второй.
- * Игрок-глава выбирает сам: армия идёт на тот КПП, у которого он. Раненые и без патронов уходят в
- * лагерь, лечатся и возвращаются. Клич главы — бойцы рядом на время идут за ним на штурм.
+ * подрывник и спецотряд HYDRA) живёт в лагере в пустоши и ходит к КПП тропой. Город в осаде: армия
+ * не лезет на КПП без конца, а готовит **наступления** (WAR.offensive) — между ними лечится и
+ * пополняется в лагере, к КПП ходит разведка (COMMAND.scouts). Наступление — ночью, когда готовых
+ * бойцов хватает: глава выбирает КПП, большинство идёт туда, отвлекающая группа (COMMAND.diversion) —
+ * на второй. Потеряли долю breakLoss ушедших или наступление затянулось — отход в лагерь (держащие
+ * захваченные посты остаются). Игрок-глава ведёт сам: наступление — когда он у КПП. Раненые и без
+ * патронов уходят в лагерь. Клич главы — бойцы рядом на время идут за ним на штурм.
  */
 export class RebelCommand {
   readonly army: Character[] = [];
@@ -36,8 +48,14 @@ export class RebelCommand {
   private fails = 0;
   private rallyReady = 0;
   private readonly diversion = new Set<Character>();
-  /** Сколько раз глава менял цель и кричал клич (для тестов и отладки). */
-  readonly stats = { retargets: 0, rallies: 0 };
+  /** Разведка между наступлениями: перестрелка с постами с пустоши. */
+  private readonly scouts = new Set<Character>();
+  /** Идущее наступление (null — подготовка: армия в лагере). */
+  offensive: Offensive | null = null;
+  /** Следующее наступление — не раньше (время командования). */
+  nextOffensive: number = WAR.offensive.firstAfter;
+  /** Сколько раз глава менял цель, кричал клич, наступал и отходил (для тестов и отладки). */
+  readonly stats = { retargets: 0, rallies: 0, offensives: 0, broken: 0 };
 
   constructor(private readonly ctx: AiContext) {}
 
@@ -90,15 +108,16 @@ export class RebelCommand {
     if (b instanceof RebelBrain) b.setFront(this.frontFor(c));
   }
 
-  /** Куда идёт боец: отвлекающая группа — на второй КПП, остальные — на цель главы. */
+  /** Куда идёт боец: отвлекающая группа (в наступление) — на второй КПП, остальные и разведка — на цель главы. */
   frontFor(c: Character): number {
     const n = this.ctx.war.fronts.length;
-    return this.diversion.has(c) && n > 1 ? (this.target + 1) % n : this.target;
+    return this.offensive && this.diversion.has(c) && n > 1 ? (this.target + 1) % n : this.target;
   }
 
-  /** Кто в отвлекающей группе: первые ветераны и солдаты по порядку в составе. */
+  /** Кто в отвлекающей группе: первые ветераны и солдаты по порядку в составе; разведка — первые солдаты. */
   private pickDiversion(): void {
     this.diversion.clear();
+    this.scouts.clear();
     const alive = this.army.filter((c) => c.alive && (c.profession === 'veteran' || c.profession === 'rebel_soldier'));
     const vet = alive.find((c) => c.profession === 'veteran');
     if (vet) this.diversion.add(vet);
@@ -106,6 +125,105 @@ export class RebelCommand {
       if (this.diversion.size >= COMMAND.diversion) break;
       if (c.profession === 'rebel_soldier') this.diversion.add(c);
     }
+    for (const c of alive) {
+      if (this.scouts.size >= COMMAND.scouts) break;
+      if (c.profession === 'rebel_soldier') this.scouts.add(c);
+    }
+  }
+
+  /** Готов идти в наступление: в лагере, здоров. */
+  private ready(c: Character): boolean {
+    const b = c.brain;
+    return c.alive && !c.isPlayer && b instanceof RebelBrain && b.mode === 'camp' && c.health >= c.maxHealth * COMMAND.readyHealth;
+  }
+
+  /** Выбыл из наступления: убит, лежит, задержан или ушёл в лагерь. */
+  private out(c: Character): boolean {
+    if (!c.alive || c.downed || c.law.phase !== 'none') return true;
+    const b = c.brain;
+    return !(b instanceof RebelBrain) || b.mode === 'retreat' || b.mode === 'camp';
+  }
+
+  /** Подходящий час для наступления: ночь и рассвет (WAR.offensive.hours). */
+  private nightHour(): boolean {
+    const [a, b] = WAR.offensive.hours;
+    const h = this.ctx.routine?.hour() ?? 0;
+    return a <= b ? h >= a && h < b : h >= a || h < b;
+  }
+
+  /** Начать наступление (тесты и отладка — сразу, без ожидания ночи и готовности). */
+  launchOffensive(front: number | null = null): void {
+    if (this.offensive) return;
+    this.started = true;
+    if (front !== null) this.target = front;
+    else this.pickTarget();
+    this.offensive = { since: this.time, front: this.target, committed: new Set(), pushed: false };
+    this.stats.offensives++;
+    const f = this.ctx.war.fronts[this.target];
+    if (!f) return;
+    const who = this.leader?.name ?? 'Штаб';
+    this.ctx.insurgency.radio(`${who}: наступление! Все на ${f.name}!`);
+    this.ctx.law.log(`Надзор: в пустоши движение — повстанцы идут на ${f.name}. Гарнизону — к бою.`, 'radio');
+    this.ctx.bus.emit('announce', { text: `Наступление повстанцев · ${f.name}` });
+  }
+
+  /**
+   * Наступление кончилось: отход в лагерь (кроме державших захваченные посты и прорвавшихся в город),
+   * следующее — через WAR.offensive.interval.
+   */
+  private endOffensive(reason: string, broken: boolean): void {
+    const o = this.offensive;
+    if (!o) return;
+    this.offensive = null;
+    const I = WAR.offensive.interval;
+    this.nextOffensive = this.time + this.ctx.rng.range(I[0], I[1]);
+    if (broken) this.stats.broken++;
+    for (const c of this.army) {
+      const b = c.brain;
+      if (!(b instanceof RebelBrain) || c.isPlayer) continue;
+      if (b.mode === 'gather' || b.mode === 'raid' || b.mode === 'capture' || b.mode === 'assault') b.withdraw();
+    }
+    const f = this.ctx.war.fronts[o.front];
+    this.ctx.insurgency.radio(`${this.leader?.name ?? 'Штаб'}: отходим в лагерь — ${reason}.`);
+    if (f) this.ctx.law.log(`Надзор: повстанцы отходят от ${f.name} (${reason}).`, 'radio');
+  }
+
+  /** Подготовка → наступление → отход (WAR.offensive). */
+  private updateOffensive(): void {
+    const O = WAR.offensive;
+    const war = this.ctx.war;
+    const leader = this.leader;
+    const o = this.offensive;
+    if (!o) {
+      if (!this.started || this.paused) return;
+      // Игрок-глава ведёт сам: пришёл к КПП — наступление.
+      if (leader?.isPlayer) {
+        const f = war.frontAt(leader.x, leader.y);
+        if (f) this.launchOffensive(f.index);
+        return;
+      }
+      if (this.time < this.nextOffensive) return;
+      if (!this.nightHour() && this.time < this.nextOffensive + O.maxWait) return;
+      if (this.army.filter((c) => this.ready(c)).length < O.minReady) return;
+      this.launchOffensive();
+      return;
+    }
+    if (war.cityPush) {
+      o.pushed = true;
+      return;
+    }
+    if (o.pushed) {
+      this.endOffensive('прорыв в город отбит', true);
+      return;
+    }
+    const committed = [...o.committed];
+    const lost = committed.filter((c) => this.out(c)).length;
+    if (committed.length >= COMMAND.diversion + 2 && lost >= committed.length * O.breakLoss) {
+      this.endOffensive(`потеряли ${lost} из ${committed.length}`, true);
+      return;
+    }
+    const capturing = war.fronts.some((f) => f.capture);
+    if (!leader?.isPlayer && this.time - o.since >= O.maxTime && !capturing) this.endOffensive('штурм выдохся', false);
   }
 
   /**
@@ -228,6 +346,8 @@ export class RebelCommand {
       this.pickTarget();
       this.started = true;
     }
+    this.pickDiversion();
+    this.updateOffensive();
     // Игрок-глава: цель — КПП, у которого он.
     const leader = this.leader;
     if (leader?.isPlayer) {
@@ -237,8 +357,7 @@ export class RebelCommand {
         this.ctx.insurgency.radio(`Армия идёт за вами на ${f.name}.`);
       }
     }
-    this.pickDiversion();
-    // Лагерь: лечение и патроны; готовые — в путь к своему КПП.
+    // Лагерь: лечение и патроны; готовые — в наступление (или в разведку между наступлениями).
     for (const c of this.army) {
       const b = c.brain;
       if (!(b instanceof RebelBrain)) continue;
@@ -253,7 +372,11 @@ export class RebelCommand {
           b.restocked = true;
         }
       }
-      if (this.started && !this.paused && c.health >= c.maxHealth * COMMAND.readyHealth) b.march(this.diversion.has(c) ? 'raid' : 'gather');
+      if (!this.started || this.paused || c.health < c.maxHealth * COMMAND.readyHealth) continue;
+      if (this.offensive) {
+        b.march(this.diversion.has(c) ? 'raid' : 'gather');
+        this.offensive.committed.add(c);
+      } else if (this.scouts.has(c)) b.march('raid');
     }
     // Отряды фронтов — бойцы армии, идущие туда или уже там (не в лагере, не на отходе и не прорвавшиеся
     // в город: иначе прорвавшийся снова попадал в отряд и каждый тик заново получал приказ — стоял на месте).

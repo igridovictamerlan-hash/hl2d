@@ -3,7 +3,7 @@ import type { Character } from '../entities/Character';
 import type { AiContext } from './AiContext';
 import type { PathRequest } from './PathService';
 import { findYieldSpot, type YieldSpot } from './yieldSearch';
-import { circleHitsSolid } from '../world/collision';
+import { circleHitsSolid, segmentClear } from '../world/collision';
 import { AI } from '../config/ai';
 import { FACTIONS } from '../config/factions';
 import { clamp, dist, lerp, pointPolylineDist, type Vec2 } from '../core/math';
@@ -163,9 +163,10 @@ export class Mover {
         this.wp++;
         continue;
       }
-      // Проскочили точку (например, оттолкнули) — берём следующую.
+      // Проскочили точку (например, оттолкнули) — берём следующую, если первые шаги к ней не в стену:
+      // иначе, оттолкнутый вбок у поворота, упирался в угол стены и стоял (глава с охраной на тропе).
       const q = path[this.wp + 1];
-      if (d < 24 && (self.x - p.x) * (q.x - p.x) + (self.y - p.y) * (q.y - p.y) > 0) {
+      if (d < 24 && (self.x - p.x) * (q.x - p.x) + (self.y - p.y) * (q.y - p.y) > 0 && this.openToward(self, q, ctx)) {
         this.wp++;
         continue;
       }
@@ -214,6 +215,13 @@ export class Mover {
       if (++this.repaths > M.maxRepaths) this.status = 'failed';
       else this.requestPath(self, ctx);
     }
+  }
+
+  /** Первые AI.move.skipCheck px прямо к точке — не в стену (тонким кругом: у стены идти можно). */
+  private openToward(self: Character, q: Vec2, ctx: AiContext): boolean {
+    const d = dist(self.x, self.y, q.x, q.y);
+    const k = Math.min(1, AI.move.skipCheck / (d || 1));
+    return segmentClear(ctx.map, self.x, self.y, self.x + (q.x - self.x) * k, self.y + (q.y - self.y) * k, self.radius * 0.5);
   }
 
   /** Объезд: встречного прямо по курсу обходим справа, остальных — в сторону от них. */

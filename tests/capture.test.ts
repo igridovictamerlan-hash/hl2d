@@ -15,6 +15,13 @@ import { ROSTER } from '../src/config/roster';
 
 type Sim = ReturnType<typeof makeSim>;
 
+/** Повстанец во дворе точки k фронта f: по счёту убийств точку берут, только если повстанцы во дворе. */
+function rebelInYard(sim: Sim, f: Sim['war']['fronts'][number], k: number) {
+  const floor = f.points[k].floor;
+  const a = floor[Math.floor(floor.length / 2)];
+  return createCharacter(sim.entities, sim.ctx.rng, 'rebel', sim.nav.worldX(a), sim.nav.worldY(a));
+}
+
 /** Убийство a → b в коридоре КПП фронта f. */
 function killInCorridor(sim: Sim, f: Sim['war']['fronts'][number], killerFaction: 'rebel' | 'cp') {
   const a = f.corridor[Math.floor(f.corridor.length / 2)];
@@ -55,6 +62,7 @@ describe('капт КПП', () => {
     expect(f.held).toBe(0);
     expect(f.capture!.rebelKills).toBe(WAR.capture.killsToWin - 1);
     expect(f.capture!.cpKills).toBe(1);
+    rebelInYard(sim, f, 0);
     killInCorridor(sim, f, 'rebel');
     expect(f.held).toBe(1);
     expect(f.owner).toBe('combine');
@@ -66,6 +74,7 @@ describe('капт КПП', () => {
     // Вторая точка — D4: КПП прорван.
     sim.war.startCapture(f);
     expect(f.capture!.point).toBe(1);
+    rebelInYard(sim, f, 1);
     for (let k = 0; k < WAR.capture.killsToWin; k++) killInCorridor(sim, f, 'rebel');
     expect(f.held).toBe(2);
     expect(f.owner).toBe('rebels');
@@ -110,6 +119,7 @@ describe('капт КПП', () => {
     f.squad.push(r);
     expect(() => {
       sim.war.startCapture(f);
+      rebelInYard(sim, f, 0);
       for (let k = 0; k < WAR.capture.killsToWin; k++) killInCorridor(sim, f, 'rebel');
     }).not.toThrow();
     expect(f.held).toBe(1);
@@ -134,13 +144,18 @@ describe('капт КПП', () => {
     }
     sim.war.startCapture(f);
     expect(f.capture!.defenders.length).toBeGreaterThan(0);
-    // Убиваем гарнизон без стрельбы — и ждём: новых ВС на КПП быть не должно.
+    // Убиваем гарнизон без стрельбы и ждём: повстанцы входят во двор и держат его WAR.capture.secure с.
     // Гарнизон D3 — часовые двух постов внешней камеры.
     expect(f.capture!.defenders.every((d) => sim.war.pointOfPost(f, (d.brain as CpBrain).guardPost!) === 0)).toBe(true);
     for (const d of f.capture!.defenders) sim.combat.damage(d, 1000, null);
-    // Гарнизона нет — точка берётся, как только штурмующие войдут во двор (без ожидания таймера).
-    for (let t = 0; t < 90 * 60 && f.capture; t++) sim.step();
+    // Гарнизона нет — точка берётся, когда штурмующие удержат двор secure с (без ожидания таймера).
+    let secured = 0;
+    for (let t = 0; t < 90 * 60 && f.capture; t++) {
+      sim.step();
+      secured = Math.max(secured, f.capture?.secured ?? secured);
+    }
     expect(f.held).toBe(1);
+    expect(secured).toBeGreaterThan(WAR.capture.secure - 0.5);
     expect(sim.war.now).toBeLessThan(WAR.capture.duration);
   });
 
@@ -202,7 +217,7 @@ describe('капт КПП', () => {
     expect(sim.entities.list.some((c) => c.faction === 'citizen' && c.brain instanceof CitizenBrain)).toBe(true);
   });
 
-  test('все точки D у повстанцев — они выходят в город (красный код)', { timeout: 120_000 }, () => {
+  test('КПП прорван — повстанцы рвутся в город через него (красный код), второй КПП не трогают', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     for (const f of sim.war.fronts) {
       f.retakeAt = Infinity;
@@ -216,21 +231,20 @@ describe('капт КПП', () => {
         f.squad.push(r);
       }
     }
-    // Одна точка ещё у Протектората — в город никто не идёт.
-    sim.war.fronts[0].held = 2;
-    sim.war.fronts[0].owner = 'rebels';
+    // Ни один КПП не прорван (одна точка взята) — в город никто не идёт.
+    sim.war.fronts[0].held = 1;
     sim.war.fronts[1].held = 1;
     sim.step();
     expect(sim.war.cityPush).toBe(false);
-    sim.war.fronts[1].held = 2;
-    sim.war.fronts[1].owner = 'rebels';
+    // Западный прорван — рвутся в город через него; на восточном держат свою точку.
+    sim.war.fronts[0].held = 2;
+    sim.war.fronts[0].owner = 'rebels';
     sim.step();
     expect(sim.war.cityPush).toBe(true);
-    for (const f of sim.war.fronts) {
-      const modes = f.squad.map((r) => (r.brain as RebelBrain).mode);
-      expect(modes.filter((m) => m === 'hold').length).toBe(WAR.holdKeep);
-      expect(modes.filter((m) => m === 'assault').length).toBe(2);
-    }
+    const modes = (f: Sim['war']['fronts'][number]) => f.squad.map((r) => (r.brain as RebelBrain).mode);
+    expect(modes(sim.war.fronts[0]).filter((m) => m === 'hold').length).toBe(WAR.holdKeep);
+    expect(modes(sim.war.fronts[0]).filter((m) => m === 'assault').length).toBe(2);
+    expect(modes(sim.war.fronts[1]).filter((m) => m === 'assault').length).toBe(0);
     // Сначала сбор волны во внутреннем дворе (до WAR.nexus.stageMax), потом — в город.
     for (let t = 0; t < 150 * 60 && sim.war.code !== 'red'; t++) sim.step();
     expect(sim.war.code).toBe('red');
