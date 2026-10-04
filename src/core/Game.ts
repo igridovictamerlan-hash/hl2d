@@ -1027,7 +1027,8 @@ export class Game {
     if (!sewer) this.arsenalView.drawShip(ctx, v, this.ai.arsenal, this.law.now);
     this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);
     this.effects.drawProgress(ctx, v, this.player, this.playerCtl.progress);
-    this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll);
+    const hover = this.input.mouseInside && !this.wheel.open;
+    this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll, this.player, hover ? this.input.mouseX * dpr : null, hover ? this.input.mouseY * dpr : null);
     this.debug.draw(ctx, v, this.entities.list, this.nav, this.player, alpha, dpr);
     if (this.vignette) {
       ctx.fillStyle = this.vignette;

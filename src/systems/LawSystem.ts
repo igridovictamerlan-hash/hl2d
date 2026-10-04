@@ -274,10 +274,12 @@ export class LawSystem {
     if (!target.isPlayer) {
       // Подпольщик под личиной не бежит: бег выдал бы его. Лоялист (не в розыске) — тоже: ему незачем.
       const loyal = target.faction === 'citizen' && target.loyalty >= LOYALTY.uniform.min && !law.wanted;
-      const flee = target.disguised || loyal ? 0 : LAW.npc.fleeChance[target.profession ?? ''] ?? LAW.npc.fleeChance[target.faction] ?? 0.1;
-      // Под личиной — поддельная CID: «без документов» он не бежит.
-      const guilty = !loyal && !target.disguised && (law.wanted || !law.hasCid);
-      if (this.rng.chance(guilty ? Math.max(flee, 0.5) : flee)) this.startFlee(target);
+      // Бежит тот, кому есть что скрывать (под личиной — поддельная CID: «без документов» он не бежит).
+      const guilty = !target.disguised && (law.wanted || !law.hasCid || (law.crimeUntil ?? -1) > this.time || (law.riotUntil ?? -1) > this.time || reason === 'weapon' || reason === 'rebel' || reason === 'theft');
+      const table = guilty ? LAW.npc.fleeChance : LAW.npc.fleeCalm;
+      const base = table[target.profession ?? ''] ?? table[target.faction] ?? 0.05;
+      const flee = target.disguised || (loyal && !guilty) ? 0 : base * (target.loyalty < 0 ? LAW.npc.lowLoyaltyMul : 1);
+      if (this.rng.chance(Math.min(1, flee))) this.startFlee(target);
       else target.say(this.rng.pick(LINES.comply), this.time, 2);
     }
   }
@@ -400,6 +402,11 @@ export class LawSystem {
     if (target.faction === 'rebel') {
       target.disguised = false;
       target.cover = null;
+    }
+    // В наручниках ствол не держат.
+    if (target.weapon) {
+      target.mags[target.weapon] = target.mag;
+      target.weapon = null;
     }
     // В наручниках не упирается: конвоир и прохожие легко отталкивают.
     target.mass = PRISONER_MASS;
@@ -578,6 +585,9 @@ export class LawSystem {
               law.jailUntil = this.time + (c.isPlayer ? LAW.jailTime.player : LAW.jailTime.npc);
               law.wanted = false;
               law.hasCid = true;
+              // Оружие, патроны и гранаты изымают и после срока не возвращают (раньше бандит выходил из
+              // ворот Управы со стволом в руках — и его тут же задерживали снова, по кругу).
+              this.confiscate(c);
               this.log(`${who(c, true)} помещён в ${cell.common ? 'общую камеру' : 'КПЗ'} на ${Math.round(law.jailUntil - this.time)} с`, 'law');
             }
           } else if (this.time - law.since > 25) {
@@ -600,11 +610,11 @@ export class LawSystem {
             law.phase = 'releasing';
             law.since = this.time;
             law.cell = -1;
-            if (cell?.prison) {
-              // Отсидевший в тюрьме (только игрок): изъятое оружие не вернут, остальное — да.
-              this.returnEvidence(c, false);
-              if (this.prisonGate) this.releaseSpot.set(c, this.prisonGate);
-            }
+            // Отсидел — документы в порядке: какое-то время его не проверяют (LAW.releasedGrace).
+            if (!cell?.prison) law.lastCheck = this.time + LAW.releasedGrace - LAW.recheckCooldown;
+            // Отсидевшему изъятое оружие не вернут, остальное — да.
+            this.returnEvidence(c, false);
+            if (cell?.prison && this.prisonGate) this.releaseSpot.set(c, this.prisonGate);
             this.log(`${who(c, true)} отбыл срок и отпущен`, 'law');
             if (c.isPlayer) {
               this.restoreBrain(c);

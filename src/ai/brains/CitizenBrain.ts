@@ -576,6 +576,11 @@ export class CitizenBrain implements Brain {
     // Распорядок: пора спать — домой, в кровать (до утра).
     if (this.bedtime()) {
       this.nightSleep = true;
+      // Ужин перед сном — тем, что есть с собой.
+      if (self.hunger < ECONOMY.hunger.supperBelow) {
+        const food = self.inventory.slots.find((s) => ITEMS[s.id].food);
+        if (food) eco.use(self, food.id);
+      }
       if (ctx.rng.chance(0.35)) self.say(ctx.rng.pick(ROUTINE.lines.bed), ctx.law.now, 2);
       return 'home';
     }
@@ -2150,6 +2155,7 @@ const HOME: State<CitizenBrain> = {
         // Ночью — до утра (свой час подъёма), а не на пару минут.
         const wake = b.nightSleep ? ctx.routine.untilWake(self) : 0;
         b.stayUntil = now + (wake > 0 ? wake + ctx.rng.range(0, 15) : ctx.rng.range(lo, hi));
+        self.asleep = b.sleeping;
         if (b.sleeping) ctx.housing.stats.sleeps++;
         if (ctx.rng.chance(0.3)) self.say(ctx.rng.pick(b.sleeping ? H.lines.sleep : H.lines.home), now, 2);
       }
@@ -2173,6 +2179,7 @@ const HOME: State<CitizenBrain> = {
   exit(b) {
     b.sleeping = false;
     b.nightSleep = false;
+    b.self.asleep = false;
   },
 };
 

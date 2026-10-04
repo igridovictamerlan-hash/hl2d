@@ -50,9 +50,12 @@ function nearGate(sim: Sim, k = 0): { x: number; y: number } {
   return a >= 0 ? { x: sim.nav.worldX(a), y: sim.nav.worldY(a) } : g;
 }
 
-/** Снять охрану тюрьмы (проверяется сам штурм, а не исход боя). */
+/**
+ * Снять охрану тюрьмы (проверяется сам штурм, а не исход боя): без тел — иначе на убитых ВС поднимается
+ * тревога, сбегаются патрули и исход решает бой с ними.
+ */
 function clearGuards(sim: Sim): void {
-  for (const c of [...duty(sim, 'jailer'), ...duty(sim, 'warden')]) sim.combat.damage(c, 99999, null, null, true);
+  for (const c of [...duty(sim, 'jailer'), ...duty(sim, 'warden')]) sim.entities.remove(c);
 }
 
 describe('тюрьма Протектората', () => {

@@ -418,7 +418,10 @@ export class EconomySystem {
     const H = ECONOMY.hunger;
     for (const c of this.entities.list) {
       if (!c.alive) continue;
-      c.hunger = Math.max(0, c.hunger - H.decayPerSec * dt);
+      c.hunger = Math.max(0, c.hunger - H.decayPerSec * (c.asleep && c.law.phase === 'none' ? H.sleepMul : 1) * dt);
+      // Баланда: сидящих в КПЗ и тюрьме кормят (раньше пленные подпольщики сидели с нулевой сытостью).
+      const J = ECONOMY.meals.jail;
+      if (c.law.phase === 'jailed' && c.hunger < J.floor) c.hunger = Math.min(J.floor, c.hunger + J.rate * dt);
       if (c.hunger <= 0) c.health = Math.max(1, c.health - H.starveDamage * dt);
       // NPC сам перевязывается, если есть чем.
       if (!c.isPlayer && c.health < c.maxHealth * 0.45) {

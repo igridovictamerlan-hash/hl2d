@@ -981,6 +981,12 @@ export class InsurgencySystem {
     this.ctx.law.log('Штурм лагеря окончен: силы Протектората возвращаются на посты.', 'radio');
   }
 
+  /** Сухпаёк с собой из схрона — до PARTISANS.cacheFood пайков. */
+  private packFood(c: Character): void {
+    const need = PARTISANS.cacheFood - c.inventory.count('ration');
+    if (need > 0) c.inventory.add('ration', need);
+  }
+
   update(dt: number): void {
     this.time += dt;
     const { ctx } = this;
@@ -993,6 +999,7 @@ export class InsurgencySystem {
         const need = PARTISANS.cacheGrenades - c.inventory.count('grenade');
         if (need > 0) c.inventory.add('grenade', need);
         ctx.economy.feed(c, ECONOMY.meals.cache, dt);
+        this.packFood(c);
       }
       // Раскрытый или в розыске — в схроне новые документы и личина (иначе в город его не выпустить).
       // Документы делают не сразу: PARTISANS.newPapers с в схроне.
@@ -1009,7 +1016,10 @@ export class InsurgencySystem {
     }
     // Спецагент в схроне — новые документы: снова чист и под личиной; там же и поесть.
     for (const ag of this.agents) {
-      if (ctx.map.levelAt(ag.x, ag.y) === 'sewer' && (ag.brain as AgentBrain | null)?.mode === 'base') ctx.economy.feed(ag, ECONOMY.meals.cache, dt);
+      if (ctx.map.levelAt(ag.x, ag.y) === 'sewer' && (ag.brain as AgentBrain | null)?.mode === 'base') {
+        ctx.economy.feed(ag, ECONOMY.meals.cache, dt);
+        this.packFood(ag);
+      }
       if (!ag.isPlayer && (!ag.disguised || ag.law.wanted) && ag.law.phase === 'none' && ctx.map.levelAt(ag.x, ag.y) === 'sewer' && (ag.brain as AgentBrain | null)?.mode === 'base') {
         ag.law.wanted = false;
         ag.hostile = false;

@@ -148,6 +148,8 @@ export class Character {
   readonly inventory = new Inventory(ECONOMY.inventorySlots);
   /** Сытость 0..100. */
   hunger: number = ECONOMY.hunger.max;
+  /** Спит (в кровати): сытость тает медленнее (ECONOMY.hunger.sleepMul). */
+  asleep = false;
   /** Оружие в руках (предмет из инвентаря) или null. */
   weapon: WeaponId | null = null;
   /** Надетое снаряжение (шлем, бронежилет, рюкзак) — не в ячейках инвентаря (systems/Gear). */

@@ -12,7 +12,8 @@ export const AI = {
     cpPerCheckpoint: 5, rebels: 0, admin: 1,
     /** ТС по профессиям (config/professions.ts): повара на раздаче, фасовщик, курьер, уборщики, медик. */
     // Продавцы лавок и повар столовой — по числу мест на карте (Population, ARBAT.staff).
-    cwuProfessions: ['cook', 'cook', 'packer', 'packer', 'courier', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic', 'loader', 'cwu_medic', 'cwu_medic', 'loader', 'loader', 'armorer'] as const,
+    // Курьеров четверо: трое не успевали возить коробки и в будку раздачи, и в лавки со столовой (к утру будка пустела).
+    cwuProfessions: ['cook', 'cook', 'packer', 'packer', 'courier', 'courier', 'courier', 'courier', 'janitor', 'janitor', 'cwu_medic', 'loader', 'cwu_medic', 'cwu_medic', 'loader', 'loader', 'armorer'] as const,
     /** Доля воров и отбросов среди граждан. */
     thiefShare: 0.16,
     outcastShare: 0.1,

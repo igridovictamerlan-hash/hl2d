@@ -18,28 +18,29 @@ import { apparentFaction, displayName } from './cover';
 import { CROUCH, DOWNED } from '../config/tactics';
 import type { PawnLook } from './PawnRenderer';
 
-/** Подпись роли: ВС и повстанцы — с рангом, жители — с номером CID. */
+/**
+ * Подпись роли над пешкой — коротко: юнит у ВС («PCU.03»), юнит у армии («Ветеран»), профессия или
+ * сторона у остальных («Бандит», «ТС», «Гражданин»); задержанный — «задержан», сидящий — «в КПЗ».
+ * Номер CID, семья и банда — только в подробной подписи под курсором (labelDetail).
+ */
 export function roleLabel(c: Character): string {
-  // Партизан в маскировке подписан по личине: гражданин, рабочий ТС, сотрудник ВС или OTA.
+  let s: string;
+  // Партизан в маскировке подписан по личине: гражданин, рабочий ТС, сотрудник ВС.
   if (c.disguised) {
     const cv = c.cover;
-    if (!cv || cv.faction === 'citizen') return `${FACTIONS.citizen.role} · #${c.cid}`;
-    const cr = rankOf(cv.faction, cv.rank);
-    const cp = cv.profession ? PROFESSIONS[cv.profession] : null;
-    if (cv.faction === 'cp' && cr) return `${FACTIONS.cp.role} · ${cr.short}`;
-    return cp ? cp.name : `${FACTIONS[cv.faction].role} · #${c.cid}`;
+    const cr = cv ? rankOf(cv.faction, cv.rank) : null;
+    const cp = cv?.profession ? PROFESSIONS[cv.profession] : null;
+    s = !cv || cv.faction === 'citizen' ? FACTIONS.citizen.role : cv.faction === 'cp' && cr ? cr.short : cp && cp.id !== DEFAULT_PROFESSION[cv.faction] ? cp.name : FACTIONS[cv.faction].role;
+  } else {
+    const r = rankOf(c.faction, c.rank);
+    const prof = c.profession ? PROFESSIONS[c.profession] : null;
+    // Сопротивление: юнит и есть роль; ВС — юнит («ВС» уже в позывном); остальные — профессия или сторона.
+    s = c.faction === 'rebel' && r ? r.name : c.faction === 'cp' && r ? r.short : prof && prof.id !== DEFAULT_PROFESSION[c.faction] ? prof.name : FACTIONS[c.faction].role;
   }
-  const f = FACTIONS[c.faction];
-  const r = rankOf(c.faction, c.rank);
-  const prof = c.profession ? PROFESSIONS[c.profession] : null;
-  // Профессия вместо названия фракции там, где она своя (не «Гражданин»/«Солдат»).
-  const role = prof && prof.id !== DEFAULT_PROFESSION[c.faction] ? prof.name : f.role;
-  // Сопротивление: юнит и есть роль («Ветеран», «Сержант HYDRA»).
-  let s = c.faction === 'rebel' && r ? r.name : r ? `${role} · ${r.short}` : c.faction === 'admin' || c.faction === 'vort' ? role : `${role} · #${c.cid}`;
   const phase = c.law.phase;
-  if (phase === 'cuffed' || phase === 'entering') s += ' · задержан';
+  if (phase === 'cuffed' || phase === 'entering') return 'задержан';
   // Бессрочно сидят только в тюрьме Протектората (повстанцы).
-  else if (phase === 'jailed') s += c.law.jailUntil === Infinity ? ' · в тюрьме' : ' · в КПЗ';
+  if (phase === 'jailed') return c.law.jailUntil === Infinity ? 'в тюрьме' : 'в КПЗ';
   return s;
 }
 
@@ -198,40 +199,126 @@ export class EntityRenderer {
 
 
 
-  drawLabels(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, dpr: number, now: number, showAll: boolean): void {
+  /**
+   * Подписи и реплики — коротко и без каши в толпе (RENDER.entity.labels): под ногами имя и роль,
+   * над головой реплика. Порядок важности: игрок, под курсором (ещё строка подробностей — CID, семья
+   * или банда), тяжелораненый, говорящий, дальше — кто ближе к игроку. Подпись, налезающая на уже
+   * поставленную, сокращается до имени или не рисуется; реплик на экране не больше maxBubbles.
+   * Камера отдалена — роли (меньше roleZoom) и имена (меньше nameZoom) остаются только у важных.
+   * hoverX/hoverY — курсор в пикселях холста (null — нет).
+   */
+  drawLabels(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, dpr: number, now: number, showAll: boolean, player: Character | null = null, hoverX: number | null = null, hoverY: number | null = null): void {
     const s = v.scale;
     const E = RENDER.entity;
+    const L = E.labels;
+    const zoom = s / dpr;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.lineJoin = 'round';
+    // Кто под курсором: ближайший к нему в hoverRadius px мира.
+    let hovered: Character | null = null;
+    let hoverD = L.hoverRadius * s;
+    const cand = labelCand;
+    cand.length = 0;
+    const px = player ? player.x : v.left + v.width / s / 2;
+    const py = player ? player.y : v.top + v.height / s / 2;
     for (const c of list) {
       if (!c.alive || (!c.visible && !showAll)) continue;
       const x = (lerp(c.prevX, c.x, alpha) - v.left) * s;
       const cy = (lerp(c.prevY, c.y, alpha) - v.top) * s;
-      // Как в RimWorld: имя под ногами, роль под именем; реплика — над головой.
-      const feet = cy + PAWN.body.bottom * s * PAWN.scale;
       if (x < -200 || cy < -80 || x > v.width + 200 || cy > v.height + 80) continue;
-      const f = FACTIONS[c.faction];
-      const r = rankOf(c.faction, c.rank);
+      if (hoverX !== null && hoverY !== null) {
+        const d = Math.hypot(hoverX - x, hoverY - cy);
+        if (d < hoverD) {
+          hoverD = d;
+          hovered = c;
+        }
+      }
+      const speaking = !!c.speech && c.speech.until > now;
+      let score = -Math.hypot(c.x - px, c.y - py);
+      if (c === player) score += 1e6;
+      if (c.downed) score += 5e3;
+      if (speaking) score += 3e3;
+      cand.push({ c, x, cy, score, speaking });
+    }
+    for (const e of cand) if (e.c === hovered) e.score += 1e5;
+    cand.sort((a, b) => b.score - a.score);
+    const placed = labelRects;
+    placed.length = 0;
+    const pad = L.pad * dpr;
+    const free = (x0: number, y0: number, x1: number, y1: number): boolean => {
+      for (const r of placed) if (x0 < r.x1 + pad && x1 > r.x0 - pad && y0 < r.y1 + pad && y1 > r.y0 - pad) return false;
+      return true;
+    };
+    const nameFont = scaleFont(E.nameFont, dpr);
+    const roleFont = scaleFont(E.roleFont, dpr);
+    // Сперва реплики (важнее подписей): не налезают друг на друга, не больше maxBubbles; рисуются поверх подписей.
+    const said = labelBubbles;
+    said.length = 0;
+    for (const { c, x, cy, speaking } of cand) {
+      if (!speaking || said.length >= L.maxBubbles) continue;
+      const key = c === player || c === hovered || c.downed;
+      if (!key && zoom < L.nameZoom) continue;
+      const top = cy + (PAWN.head.y - PAWN.head.r) * s * PAWN.scale - 6 * dpr;
+      const w = textWidth(ctx, c.speech!.text, E.speechFont, dpr) + 12 * dpr;
+      const h = 17 * dpr;
+      if (!key && !free(x - w / 2, top - h + 4 * dpr, x + w / 2, top + 4 * dpr)) continue;
+      placed.push({ x0: x - w / 2, y0: top - h + 4 * dpr, x1: x + w / 2, y1: top + 4 * dpr });
+      said.push({ c, x, y: top });
+    }
+    for (const { c, x, cy } of cand) {
+      const key = c === player || c === hovered || c.downed;
       ctx.globalAlpha = c.visible ? 1 : 0.5;
+      if (!key && zoom < L.nameZoom) continue;
+      // Как в RimWorld: имя под ногами, роль под именем.
+      const ny = cy + PAWN.body.bottom * s * PAWN.scale + 12 * dpr;
+      const name = displayName(c);
+      const nw = textWidth(ctx, name, E.nameFont, dpr);
+      const wantRole = key || zoom >= L.roleZoom;
+      const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
+      const role = !wantRole ? '' : c.downed ? `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : roleLabel(c);
+      const rw = role ? textWidth(ctx, role, E.roleFont, dpr) : 0;
+      const detail = c === hovered && c !== player ? labelDetail(c, this.families, gang) : '';
+      const dw = detail ? textWidth(ctx, detail, E.roleFont, dpr) : 0;
+      const lines = 1 + (role ? 1 : 0) + (detail ? 1 : 0);
+      const w = Math.max(nw, rw, dw);
+      const y0 = ny - 10 * dpr;
+      let showRole = !!role;
+      let showDetail = !!detail;
+      if (!key && !free(x - w / 2, y0, x + w / 2, y0 + lines * 10 * dpr + 2 * dpr)) {
+        // Тесно: только имя, а если и ему негде — ничего.
+        if (!free(x - nw / 2, y0, x + nw / 2, ny + 2 * dpr)) continue;
+        showRole = false;
+        showDetail = false;
+      }
+      const n = 1 + (showRole ? 1 : 0) + (showDetail ? 1 : 0);
+      placed.push({ x0: x - (showRole || showDetail ? w : nw) / 2, y0, x1: x + (showRole || showDetail ? w : nw) / 2, y1: y0 + n * 10 * dpr + 2 * dpr });
+      const r = rankOf(c.faction, c.rank);
       ctx.lineWidth = 3 * dpr;
       ctx.strokeStyle = E.labelShadow;
-      ctx.font = scaleFont(E.nameFont, dpr);
-      const ny = feet + 12 * dpr;
-      const shown = displayName(c);
-      ctx.strokeText(shown, x, ny);
+      ctx.font = nameFont;
+      ctx.strokeText(name, x, ny);
       // Ники сопротивления: армия — жёлтые, глава и HYDRA — красные (партизан в маскировке — как все).
       ctx.fillStyle = c.faction === 'rebel' && !c.disguised && r ? r.color : c.isPlayer ? E.playerNameColor : E.nameColor;
-      ctx.fillText(shown, x, ny);
-      ctx.font = scaleFont(E.roleFont, dpr);
-      const fam = !c.disguised ? this.families?.of(c) ?? null : null;
-      const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
-      const role = c.downed ? `тяжело ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : gang ? `${roleLabel(c)} · ${gang.def.name}` : fam ? `${roleLabel(c)} · ${familyTitle(fam.surname)}` : roleLabel(c);
-      ctx.strokeText(role, x, ny + 10 * dpr);
-      ctx.fillStyle = c.downed ? RENDER.entity.downed.label : gang ? gang.def.color : isLoyalistUniform(c) ? LOYALTY.uniform.label : r ? r.color : f.label;
-      ctx.fillText(role, x, ny + 10 * dpr);
-      const top = cy + (PAWN.head.y - PAWN.head.r) * s * PAWN.scale;
-      if (c.speech && c.speech.until > now) this.bubble(ctx, c.speech.text, x, top - 6 * dpr, dpr);
+      ctx.fillText(name, x, ny);
+      ctx.font = roleFont;
+      let ly = ny;
+      if (showRole) {
+        ly += 10 * dpr;
+        ctx.strokeText(role, x, ly);
+        ctx.fillStyle = c.downed ? E.downed.label : gang ? gang.def.color : isLoyalistUniform(c) ? LOYALTY.uniform.label : r ? r.color : FACTIONS[c.faction].label;
+        ctx.fillText(role, x, ly);
+      }
+      if (showDetail) {
+        ly += 10 * dpr;
+        ctx.strokeText(detail, x, ly);
+        ctx.fillStyle = L.detailColor;
+        ctx.fillText(detail, x, ly);
+      }
+    }
+    for (const b of said) {
+      ctx.globalAlpha = b.c.visible ? 1 : 0.5;
+      this.bubble(ctx, b.c.speech!.text, b.x, b.y, dpr);
     }
     ctx.globalAlpha = 1;
   }
@@ -248,6 +335,32 @@ export class EntityRenderer {
 }
 
 const drawOrder: { c: Character; x: number; y: number }[] = [];
+const labelCand: { c: Character; x: number; cy: number; score: number; speaking: boolean }[] = [];
+const labelRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
+const labelBubbles: { c: Character; x: number; y: number }[] = [];
+
+/** Подробности под курсором: CID (у жителей), семья или банда. */
+function labelDetail(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>): string {
+  if (c.downed) return '';
+  const cid = c.faction === 'citizen' || c.faction === 'cwu' || c.disguised ? `#${c.cid}` : '';
+  const fam = !c.disguised ? families?.of(c) ?? null : null;
+  const extra = gang ? `«${gang.def.name}»` : fam ? familyTitle(fam.surname) : '';
+  return cid && extra ? `${cid} · ${extra}` : cid || extra;
+}
+
+const widthCache = new Map<string, number>();
+/** Ширина текста (кэш по шрифту и строке: в толпе одни и те же имена и роли каждый кадр). */
+function textWidth(ctx: CanvasRenderingContext2D, text: string, font: string, dpr: number): number {
+  const key = font + dpr + text;
+  let w = widthCache.get(key);
+  if (w === undefined) {
+    if (widthCache.size > 4000) widthCache.clear();
+    ctx.font = scaleFont(font, dpr);
+    w = ctx.measureText(text).width;
+    widthCache.set(key, w);
+  }
+  return w;
+}
 
 type PawnLookLite = Parameters<typeof bootColor>[0];
 

@@ -1,3 +1,4 @@
+import { FACTIONS } from '../config/factions';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
@@ -72,6 +73,8 @@ export class GangSystem {
   private armTimer = 0;
   /** Стычки между бандами: пара → до какого времени (и когда можно снова). */
   private feuds = new Map<string, { until: number; next: number }>();
+  /** Когда пара банд последний раз перебранивалась (без стрельбы). */
+  private readonly barked = new Map<string, number>();
   paused = false;
   readonly stats = { feuds: 0, ops: 0 };
 
@@ -292,10 +295,34 @@ export class GangSystem {
         if (b.gang < 0 || b.gang === a.gang || !b.fit || b.law.phase !== 'none') continue;
         if (this.feuding(a.gang, b.gang)) break;
         if (!lineOfSight(ctx.map, a.x, a.y, b.x, b.y)) continue;
-        this.startFeud(a, b);
+        // Стреляют за свой район и не на глазах у ВС; иначе — перебранка.
+        const home = this.inTurf(this.gangs[a.gang], a.x, a.y) || this.inTurf(this.gangs[b.gang], b.x, b.y);
+        if (home && !this.copsWatching(a, b)) this.startFeud(a, b);
+        else this.standoff(a, b);
         break;
       }
     }
+  }
+
+  /** ВС рядом и видит кого-то из двоих — стрелять при них банды не станут. */
+  private copsWatching(a: Character, b: Character): boolean {
+    const F = GANGS.feud;
+    for (const c of this.ctx.entities.near(a.x, a.y, F.cops, near)) {
+      if (!c.fit || c.isPlayer || !FACTIONS[c.faction].authority) continue;
+      if (lineOfSight(this.ctx.map, c.x, c.y, a.x, a.y) || lineOfSight(this.ctx.map, c.x, c.y, b.x, b.y)) return true;
+    }
+    return false;
+  }
+
+  /** Перебранка вместо стрельбы (не чаще barkEvery с на пару банд). */
+  private standoff(a: Character, b: Character): void {
+    const key = a.gang < b.gang ? `${a.gang}:${b.gang}` : `${b.gang}:${a.gang}`;
+    const t = this.barked.get(key) ?? -1e9;
+    if (this.time - t < GANGS.feud.barkEvery) return;
+    this.barked.set(key, this.time);
+    const now = this.ctx.law.now;
+    a.say(this.ctx.rng.pick(GANGS.lines.standoff), now, 2.5);
+    b.say(this.ctx.rng.pick(GANGS.lines.standoff), now + 0.7, 2.5);
   }
 
   // ——— Общак ———

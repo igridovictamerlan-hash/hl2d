@@ -27,6 +27,8 @@ export const LAW = {
   checkpointCheckChance: 0.5,
   /** Не проверять одного и того же чаще. */
   recheckCooldown: 90,
+  /** Отсидевшего (выпущен из КПЗ с документами) не проверяют ещё столько секунд — иначе снова задерживали. */
+  releasedGrace: 240,
 
   /** С какого расстояния ВС говорит с задержанным и проверяет. */
   talkDistance: 40,
@@ -74,9 +76,15 @@ export const LAW = {
   npc: {
     noCidChance: 0.08,
     wantedChance: 0.04,
-    /** Шанс, что NPC побежит, когда ВС приказал стоять. */
-    // Грузчик и оружейник склада на службе, с документами — не бегут.
-    fleeChance: { citizen: 0.12, cwu: 0.05, rebel: 0.8, thief: 0.3, bandit: 0.3, fugitive: 0.85, loader: 0, armorer: 0 } as Record<string, number>,
+    /**
+     * Шанс, что NPC побежит, когда ВС приказал стоять: fleeChance — есть что скрывать (в розыске, без
+     * CID, только что украл, ствол в руках, бунт), fleeCalm — документы в порядке. Отсидевший получает
+     * документы и розыск снят — бежит редко (раньше «беглеца» задерживали каждую минуту по кругу).
+     * Неблагонадёжный (лояльность ниже 0) — × lowLoyaltyMul. Грузчик и оружейник склада на службе — не бегут.
+     */
+    fleeChance: { citizen: 0.5, cwu: 0.3, rebel: 0.8, thief: 0.6, bandit: 0.6, gang_boss: 0.6, fugitive: 0.85, loader: 0, armorer: 0 } as Record<string, number>,
+    fleeCalm: { citizen: 0.02, cwu: 0.01, rebel: 0.8, thief: 0.06, bandit: 0.08, gang_boss: 0.05, fugitive: 0.05, outcast: 0.04, loader: 0, armorer: 0 } as Record<string, number>,
+    lowLoyaltyMul: 2,
     /** Шанс нарушить при выборе новой цели: зайти в запретную зону / побежать. */
     trespassChance: { citizen: 0.03, cwu: 0.01, rebel: 0.12 } as Record<string, number>,
     runChance: { citizen: 0.06, cwu: 0.03, rebel: 0.15 } as Record<string, number>,
