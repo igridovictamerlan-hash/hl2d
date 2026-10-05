@@ -9,6 +9,7 @@ import { canSeeCircle } from '../world/visibility';
 import { adjustLoyalty } from './Loyalty';
 import { LOYALTY } from '../config/loyalty';
 import { ERRANDS } from '../config/errands';
+import { STAFFING } from '../config/staffing';
 import { LAW, VIOLATION_NAMES, type Violation } from '../config/law';
 import { VISION } from '../config/vision';
 import { loyalistPerk } from './Loyalty';
@@ -217,6 +218,10 @@ export class LawSystem {
   onContraband: (c: Character) => void = () => {};
   /** Задаёт Game: паникует ли персонаж (бег от стрельбы — не нарушение). */
   panicking: (c: Character) => boolean = () => false;
+  /** Заслуги юнита ВС (Staffing.merit). */
+  merit: (c: Character, pts: number) => void = () => {};
+  /** Без пропуска на режимном объекте (Access.trespassing) — нарушение «запретная зона». */
+  trespass: (c: Character) => boolean = () => false;
 
   /** Нарушение, которое observer видит прямо сейчас, или null. */
   observe(observer: Character, target: Character): Violation | null {
@@ -240,6 +245,8 @@ export class LawSystem {
     if (zk === 'arsenal' && apparentFaction(target) === 'citizen') return 'restricted';
     // В тюрьму посторонним нельзя никому.
     if (zk === 'prison' && target.law.phase === 'none') return 'restricted';
+    // Режимный объект без пропуска (вошёл, пока вахты не было).
+    if (this.trespass(target)) return 'restricted';
     if (this.curfewCheck(target)) return 'curfew';
     // Лоялистам бегать разрешено.
     if (target.moveSpeed > LAW.runSpeed && !this.panicking(target) && !loyalistPerk(target, 'run')) return 'running';
@@ -335,6 +342,8 @@ export class LawSystem {
   }
 
   apply(handler: Character, target: Character, verdict: Verdict): void {
+    // Заслуги проверявшего (Staffing): задержание, штраф, проверка.
+    this.merit(handler, verdict.kind === 'arrest' ? STAFFING.merit.arrest : verdict.kind === 'fine' ? STAFFING.merit.fine : STAFFING.merit.check);
     if (verdict.kind === 'arrest') {
       this.arrest(handler, target, verdict.reason);
       return;

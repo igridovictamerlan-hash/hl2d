@@ -108,6 +108,7 @@ export const ECONOMY = {
       { id: 'bandage', qty: 2, price: 8 },
       { id: 'lockpick', qty: 2, price: 14 },
       { id: 'fake_cid', qty: 1, price: 60 },
+      { id: 'forged_pass', qty: 1, price: 45 },
       // Снаряжение: надевается в инвентаре (Tab).
       { id: 'helmet', qty: 1, price: 60 },
       { id: 'vest', qty: 1, price: 70 },

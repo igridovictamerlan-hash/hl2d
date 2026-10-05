@@ -27,6 +27,7 @@ export type ItemId =
   | 'ammo_338'
   | 'ammo_rocket'
   | 'fake_cid'
+  | 'forged_pass'
   | GrenadeId
   | 'lockpick'
   | GearId
@@ -264,6 +265,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   smoke_grenade: { id: 'smoke_grenade', name: 'Дымовая граната', desc: 'Дымовая завеса: сквозь неё не видно (пули летят).', kind: 'misc', stack: 3 },
   fire_grenade: { id: 'fire_grenade', name: 'Зажигательная граната', desc: 'Пламя на земле: кто в нём — горит.', kind: 'misc', stack: 3 },
   fake_cid: { id: 'fake_cid', name: 'Поддельная CID', desc: 'С чёрного рынка: «чистая» карта — снимает розыск (повстанца в лицо всё равно узнают).', kind: 'misc', stack: 1 },
+  forged_pass: { id: 'forged_pass', name: 'Пропуск в Управу (липа)', desc: 'С чёрного рынка: вахта Управы пропустит, но может присмотреться — раскроют, задержат за подделку.', kind: 'misc', stack: 1 },
   toolkit: { id: 'toolkit', name: 'Набор инструментов', desc: 'Для ремонта (ТС).', kind: 'tool', stack: 1, price: 20 },
   ammo_pistol: { id: 'ammo_pistol', name: 'Патроны 9 мм', desc: 'Для пистолетов.', kind: 'ammo', stack: 120, ammo: 'pistol' },
   ammo_smg: { id: 'ammo_smg', name: 'Патроны 4.6 мм', desc: 'Для MP7.', kind: 'ammo', stack: 180, ammo: 'smg' },
@@ -314,6 +316,10 @@ export const KITS: Record<string, [ItemId, number][]> = {
   cp_su_medic: [['mp7', 1], ['ammo_smg', 90], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 3], ['bandage', 4], ['smoke_grenade', 1]],
   /** Охрана, инспектор, глава силового блока: MP7 и пистолет. */
   cp_qm: [['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['bandage', 1]],
+  /** Курсант академии: учебный пистолет (в кобуре, достаёт на огневом рубеже), бинт. */
+  cadet: [['usp', 1], ['ammo_pistol', 24], ['bandage', 1]],
+  /** Инструктор академии: дубинка, пистолет, MP7. */
+  cp_instr: [['stunstick', 1], ['usp', 1], ['ammo_pistol', 36], ['mp7', 1], ['ammo_smg', 60], ['bandage', 1]],
   cp_guard: [['mp7', 1], ['ammo_smg', 120], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 1]],
   /** OTA.ALPHA и OTA.KING: импульсная винтовка AR2, пистолет, гранаты. */
   ota_alpha: [['ar2', 1], ['ammo_ar2', 120], ['usp', 1], ['ammo_pistol', 36], ['grenade', 2], ['bandage', 1]],

@@ -3,6 +3,7 @@ import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
 import { CpBrain, type CpDuty } from '../ai/brains/CpBrain';
 import { SECURITY } from '../config/security';
+import { STAFFING } from '../config/staffing';
 import { LOYALTY } from '../config/loyalty';
 import { poiWorld } from './Population';
 
@@ -113,6 +114,8 @@ export class SecuritySystem {
     const f = this.formation;
     if (!f) return;
     if (dismiss && f.officer.alive) f.officer.say(this.ctx.rng.pick(SECURITY.lines.dismiss), this.ctx.law.now, 3);
+    // Отстоял построение — в зачёт службы.
+    if (dismiss) for (const m of f.members) if (m.alive) this.ctx.staffing?.merit(m, STAFFING.merit.formation);
     for (const m of [...f.members, f.officer]) if (m.brain instanceof CpBrain) m.brain.leaveFormation();
     this.formation = null;
   }

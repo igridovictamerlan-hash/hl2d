@@ -6,6 +6,7 @@ import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { CP_UNIT, cpUnit, cpHas } from '../src/config/factions';
 import { ROSTER } from '../src/config/roster';
 import { SECURITY } from '../src/config/security';
+import { ACADEMY } from '../src/config/academy';
 import { createCharacter } from '../src/entities/factory';
 import type { Character } from '../src/entities/Character';
 
@@ -43,9 +44,9 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(by('pcu3')[0].inventory.has('usp')).toBe(true);
     expect(by('pcu1')[0].inventory.has('mp7')).toBe(true);
     expect(by('su3')[0].inventory.has('m4a4')).toBe(true);
-    // RCT: у ворот Управы, в проходных КПП и в людных местах; на постах КПП — только SU.03.
+    // RCT: у ворот Управы, в проходных КПП, в людных местах и на вахте академии; на постах КПП — только SU.03.
     const rct = by('rct');
-    expect(rct.length).toBe(ROSTER.cp.nexusPosts + ROSTER.cp.publicPosts + sim.war.fronts.reduce((n, f) => n + f.gatePosts.length, 0));
+    expect(rct.length).toBe(ROSTER.cp.nexusPosts + ROSTER.cp.publicPosts + sim.war.fronts.reduce((n, f) => n + f.gatePosts.length, 0) + (sim.academy.present ? ACADEMY.vakhta : 0));
     const gate = poiWorld(sim.ctx, 'nexus_gate')!;
     expect(rct.some((c) => Math.hypot(c.x - gate.x, c.y - gate.y) < 100)).toBe(true);
     for (const f of sim.war.fronts) for (const p of f.posts) expect(cps(sim).some((c) => c.rank === CP_UNIT.su3 && brain(c).guardPost === p)).toBe(true);

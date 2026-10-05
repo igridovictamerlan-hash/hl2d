@@ -1,5 +1,6 @@
 import { ROSTER } from '../src/config/roster';
 import { PRISON } from '../src/config/prison';
+import { ACADEMY } from '../src/config/academy';
 import { ARSENAL } from '../src/config/arsenal';
 import { AI } from '../src/config/ai';
 import { describe, expect, test } from 'vitest';
@@ -158,7 +159,9 @@ describe('живой город со всеми фракциями', () => {
     const depot = sim.arsenal.present ? 1 + ARSENAL.guards + ARSENAL.convoy.crew : 0;
     // Тюрьма Протектората — охрана SU.GUARD и начальник (третий SU.INSP).
     const prison = sim.ctx.prison.present ? PRISON.guards + 1 : 0;
-    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison);
+    // Академия ВС — вахтёры RCT и инструкторы.
+    const academy = sim.academy.present ? ACADEMY.vakhta + ACADEMY.instructors : 0;
+    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison + academy);
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['pcu', 'su', 'cmd']) expect(divisions.has(d as never)).toBe(true);
     // Армия в лагере + HYDRA + подпольщики и спецагент в схроне.

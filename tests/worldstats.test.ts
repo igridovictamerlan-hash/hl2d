@@ -3,6 +3,7 @@ import { makeSim } from './simHarness';
 import { spawnPopulation } from '../src/systems/Population';
 import { AI } from '../src/config/ai';
 import type { Character } from '../src/entities/Character';
+import { cpUnit } from '../src/config/factions';
 
 /**
  * Аудит живого мира (npm run worldstats; MINUTES — сколько игровых минут, SEED — карта): город целиком,
@@ -18,6 +19,7 @@ function group(c: { faction: string; profession: string | null; gang?: number })
   if (c.profession === 'cremator') return 'санитар';
   if (c.faction === 'citizen') return c.profession === 'thief' ? 'вор' : 'горожанин';
   if (c.faction === 'rebel') return c.profession === 'partisan' || c.profession === 'spec_agent' ? 'подполье' : 'армия';
+  if (c.faction === 'cp' && (c as { cadet?: unknown }).cadet) return 'курсант';
   return c.faction;
 }
 
@@ -29,6 +31,7 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   const sim = makeSim(Number(process.env.SEED ?? 12345));
   sim.ctx.routine.enabled = true;
   sim.ctx.brawls.enabled = true;
+  sim.academy.recruiting = true;
   spawnPopulation(sim.ctx, AI.citizens);
   const out: string[] = [];
   const start = new Map<string, number>();
@@ -117,6 +120,7 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
         `   деньги: ${top(money, 20)}`,
         `   сытость (ср.): ${hung}; голодают (0): ${starving}; паёк на раздаче ${sim.economy.rationStock}`,
         `   барыга: ${sim.ctx.fence.wares.slots.length} позиций, ${sim.ctx.fence.money} ток.; общак: ${sim.ctx.gangs.gangs.map((g) => g.bank).join('/')}`,
+        `   штат ВС: ${Math.round(sim.staffing.staffed * 100)}% (${sim.staffing.slots.filter((x) => x.holder).length}/${sim.staffing.slots.length}), вакансий RCT ${sim.staffing.vacancies('rct').length}, резерв ${sim.staffing.reserve.length}; курсантов ${sim.academy.cadets.length}, заявителей ${sim.academy.applicants.size}; граждан ${sim.entities.list.filter((c) => c.alive && c.faction === 'citizen').length}`,
       );
     }
   }
@@ -137,5 +141,9 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Война: ${JSON.stringify(sim.war.stats)}; места преступлений: ${JSON.stringify(sim.war.scenes.stats)}`);
   out.push(`Труд: ${JSON.stringify(sim.labor.stats)}; склад: ${JSON.stringify(sim.arsenal.stats)}`);
   out.push(`Барыга: ${JSON.stringify(sim.ctx.fence.stats)}`);
+  const vac: Record<string, number> = {};
+  for (const s of sim.staffing.vacancies()) vac[cpUnit(s.spec.rank).short] = (vac[cpUnit(s.spec.rank).short] ?? 0) + 1;
+  out.push(`Вакансии ВС по юнитам: ${JSON.stringify(vac)}`);
+  out.push(`Штат ВС: ${JSON.stringify(sim.staffing.stats)}; академия: ${JSON.stringify(sim.academy.stats)}; пропуска: ${JSON.stringify(sim.access.stats)}; приехало жителей ${sim.roster.arrived}`);
   console.log(out.join('\n'));
 });

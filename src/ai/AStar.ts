@@ -8,6 +8,8 @@ export interface PathOptions {
   avoidCost?: number;
   /** Доп. стоимость входа в якорь (например, обход стоящего персонажа). */
   extraCost?: (anchor: number) => number;
+  /** Закрытые якоря (режимный объект без пропуска): снаружи в них не входят, изнутри — выходят. */
+  blocked?: (anchor: number) => boolean;
   maxNodes?: number;
 }
 
@@ -49,6 +51,8 @@ export class AStar {
     const avoid = opts.avoidZones;
     const avoidCost = opts.avoidCost ?? AI.avoidZoneCost;
     const extra = opts.extraCost;
+    const blocked = opts.blocked;
+    if (blocked && blocked(goal) && !blocked(start)) return null;
     const maxNodes = opts.maxNodes ?? AI.pathMaxNodes;
     const heur = (i: number) => {
       const x = i % w;
@@ -74,6 +78,7 @@ export class AStar {
       }
       const cx = cur % w;
       const cy = (cur - cx) / w;
+      const inside = !!blocked && blocked(cur);
       for (let k = 0; k < 8; k++) {
         const nx = cx + DX[k];
         const ny = cy + DY[k];
@@ -82,6 +87,7 @@ export class AStar {
         if (k >= 4 && (!nav.isWalkable(cx + DX[k], cy) || !nav.isWalkable(cx, cy + DY[k]))) continue;
         const n = ny * w + nx;
         if (this.closed[n] === gen) continue;
+        if (blocked && !inside && blocked(n)) continue;
         let step = (k >= 4 ? SQRT2 : 1) * nav.cost[n];
         if (avoid && n !== goal && avoid.has(nav.zone[n])) step *= avoidCost;
         if (extra) step += extra(n);

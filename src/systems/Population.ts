@@ -1,5 +1,6 @@
 import { ARSENAL } from '../config/arsenal';
 import { PRISON } from '../config/prison';
+import { ACADEMY } from '../config/academy';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { FactionId } from '../config/factions';
@@ -86,7 +87,7 @@ export function armyKit(profession: ProfessionId): string {
  */
 export function spawnPopulation(ctx: AiContext, citizens: number): void {
   const P = AI.population;
-  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison']);
+  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   // Силовой блок — постоянный состав: не нашлось места у точки — появляется там же, где при возрождении.
@@ -156,16 +157,27 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const rank = CP_UNIT[unit];
     return { kind, faction: 'cp', profession: null, division: cpUnit(rank).group, rank, kit: cpUnit(rank).kit, ...extra };
   };
-  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'arsenal', 'prison']);
+  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'arsenal', 'prison', 'academy']);
   const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
   // RCT.PCU на постах: у ворот Управы (лицом наружу) и в людных местах — площадь и улицы.
   const inside = zoneIds(ctx, ['nexus', 'cells']);
   // Нет места у самой точки — чуть дальше, в крайнем случае у площади: состав постов всегда полный.
   const postSpot = (p: { x: number; y: number }, r0: number, r1: number, avoid: ReadonlySet<number>) =>
     freeSpot(ctx, p, r0, r1, avoid, 28) ?? freeSpot(ctx, p, r0, r1 * 3, avoid, 20) ?? freeSpot(ctx, plaza, 2, 30, cityAvoid, 16);
+  // RCT у ворот Управы — вахтёры (пропускной режим: внутрь — по пропуску).
   for (let k = 0; k < C.nexusPosts; k++) {
     const at = postSpot(nexus, 2, 4, inside);
-    if (at) put(cpSpec('post', 'rct', { post: at, facing: Math.atan2(at.y - nexus.y, at.x - nexus.x) }), at);
+    if (at) put(cpSpec('post', 'rct', { post: at, facing: Math.atan2(at.y - nexus.y, at.x - nexus.x), access: 'nexus' }), at);
+  }
+  // Академия ВС: вахтёры RCT у турникета, инструкторы PCU.INS (начальник курса — за столом).
+  const acad = ctx.academy;
+  if (acad?.present) {
+    for (const p of acad.posts.slice(0, ACADEMY.vakhta)) {
+      const post = { x: p.x, y: p.y };
+      put(cpSpec('post', 'rct', { post, facing: p.facing, access: 'academy' }), freeSpot(ctx, post, 0, 1, none0, 16) ?? post);
+    }
+    const desk = acad.desk ?? acad.placCenter;
+    for (let k = 0; k < ACADEMY.instructors && desk; k++) put(cpSpec('instructor', 'instr'), freeSpot(ctx, desk, 0, 3, none0, 20) ?? desk);
   }
   for (let k = 0; k < C.publicPosts; k++) {
     const onPlaza = k % 2 === 0;
@@ -214,7 +226,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     put(cpSpec('qm', 'qm', { post: seat, facing: face }), seat);
     for (const p of ars.posts.slice(0, ARSENAL.guards)) {
       const post = { x: p.x, y: p.y };
-      put(cpSpec('depot', 'guard', { post, facing: p.facing }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);
+      put(cpSpec('depot', 'guard', { post, facing: p.facing, access: 'depot' }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);
     }
     // Экипаж конвоя — в караулке склада, у каждого своё место.
     const C = ARSENAL.convoy;
@@ -228,7 +240,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   if (pr?.present) {
     for (const p of pr.posts.slice(0, PRISON.guards)) {
       const post = { x: p.x, y: p.y };
-      put(cpSpec('jailer', PRISON.guardUnit, { post, facing: p.facing }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);
+      put(cpSpec('jailer', PRISON.guardUnit, { post, facing: p.facing, access: 'prison' }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);
     }
     const desk = pr.desk ?? pr.center;
     if (desk) put(cpSpec('warden', PRISON.wardenUnit), freeSpot(ctx, desk, 0, 2, none, 16) ?? desk);
@@ -279,6 +291,8 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   settleAll(ctx);
   // Штаб ТС: сколько граждан было (город не пустеет от найма — CWU_HQ.hire.minCitizenShare).
   if (ctx.cwuHq) ctx.cwuHq.citizensAtStart = ctx.entities.list.filter((c) => c.faction === 'citizen').length;
+  // Приток жителей: граждан меньше, чем было в начале (ушли в академию, в ТС, к повстанцам) — приезжают новые.
+  if (ctx.roster) ctx.roster.baseline = ctx.entities.list.filter((c) => !c.isPlayer && c.faction === 'citizen' && c.role?.kind === 'citizen').length;
 }
 
 /** Место работы жителя (дом ищется поближе к нему) или null. */
@@ -343,7 +357,7 @@ export function roleSpawn(ctx: AiContext, faction: FactionId, profession: Profes
     spot = freeSpot(ctx, poiWorld(ctx, 'rebel_camp')!, 0, 6, none, 30);
   } else if (faction === 'rebel') {
     // Подальше от Управы, в жилых кварталах.
-    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp', 'arsenal', 'prison']);
+    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
     const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
     for (let k = 0; k < 20 && !spot; k++) {
       const s = freeSpot(ctx, { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 }, 20, 110, avoid);

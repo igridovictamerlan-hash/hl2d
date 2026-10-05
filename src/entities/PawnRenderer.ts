@@ -124,8 +124,8 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
     else reconBody(ctx, d, O, trim, acc);
     accBody(ctx, d, O, trim, acc);
     if (O.head === 'helmet') marineHelmet(ctx, d, O, trim, hx);
-    else if (O.head === 'beret') {
-      // Глава восстания: броня как у OTA, но без шлема — лицо, короткая стрижка, красный берет.
+    else if (O.head === 'beret' || O.head === 'cadet') {
+      // Глава восстания: броня как у OTA, но без шлема — лицо, короткая стрижка, красный берет; курсант — пилотка.
       headPath(ctx, d, hx);
       ctx.fillStyle = skin;
       ctx.fill();
@@ -139,7 +139,9 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
       stroke(ctx, PAWN.outlineWidth);
       if (d !== 'N') face(ctx, d, hx);
       frontHair(ctx, d, 'short', hair, hx);
-      beret(ctx, d, O.beret as string, hx);
+      // Курсант академии — лицо открыто, пилотка.
+      if (O.head === 'cadet') cap(ctx, d, O.cap as string, hx);
+      else beret(ctx, d, O.beret as string, hx);
     }
     else if (O.head === 'recon') reconHelmet(ctx, d, O, trim, hx);
     else {

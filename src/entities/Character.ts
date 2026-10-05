@@ -7,6 +7,8 @@ import { Inventory } from './Inventory';
 import { CHARACTER } from '../config/entities';
 import type { Brain } from '../ai/Brain';
 import type { Violation } from '../config/law';
+import type { CadetRecord } from '../config/academy';
+import type { AccessSite } from '../config/access';
 
 /**
  * Этапы разбирательства с законом:
@@ -223,6 +225,19 @@ export class Character {
   role: RoleSpec | null = null;
   /** До какого времени в панике (бег от стрельбы — не нарушение). */
   panicUntil = 0;
+  /**
+   * Служба ВС (systems/Staffing.ts): заслуги (баллы за задержания, штрафы, бой…) и с какого времени
+   * служит (с игры) — по ним повышают на свободную должность.
+   */
+  merit = 0;
+  serviceSince = 0;
+  /** Курсант академии: баллы по предметам и точность в тире (systems/Academy.ts). */
+  cadet: CadetRecord | null = null;
+  /** Пропуска на режимные объекты (systems/Access.ts); forged — поддельные. */
+  passes: AccessSite[] = [];
+  forged: AccessSite[] = [];
+  /** Где был в прошлый тик (режимный объект или null) — Access пропускает внутрь только по пропуску. */
+  accessAt: AccessSite | null | undefined = undefined;
 
   /** Лежит тяжело раненый (жив, но не боец). */
   get downed(): boolean {

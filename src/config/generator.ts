@@ -161,6 +161,13 @@ export const GENERATOR = {
    * второй проход: склад ближе в relax раз, проезд длиннее в relax раз.
    */
   prison: { tries: 2500, nexusIdeal: 85, arsenalMin: 70, relax: 2, road: { width: 4, apron: 3, maxLen: 80, reach: 60, penalty: 0.6 } },
+  /**
+   * Академия ВС (ACADEMY_TEMPLATE) — на своём генераторе после тюрьмы: из tries мест у улицы от проспекта (не
+   * дальше road.reach) — где до Управы ближе всего к nexusIdeal тайлов (выпускники идут служить в Управу), а
+   * до склада и тюрьмы не ближе apart; не нашлось — проходы с ослабленными условиями (relax: по очереди
+   * множители — склад и тюрьма ближе, проезд длиннее).
+   */
+  academy: { tries: 2500, nexusIdeal: 70, apart: 50, relax: [1, 2, 3.5] as const, road: { width: 4, apron: 3, maxLen: 90, reach: 60, penalty: 0.6 } },
 
   restricted: {
     size: [38, 44] as const,

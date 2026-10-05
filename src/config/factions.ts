@@ -33,7 +33,7 @@ export interface FactionDef {
 }
 
 /** Юниты силового блока: PCU — городская полиция, SU — спецотряд, CMD — командование. */
-export type CpUnitId = 'rct' | 'pcu3' | 'pcu2' | 'pcu1' | 'ofc' | 'su3' | 'su2' | 'su1' | 'guard' | 'insp' | 'epu' | 'qm';
+export type CpUnitId = 'rct' | 'pcu3' | 'pcu2' | 'pcu1' | 'ofc' | 'su3' | 'su2' | 'su1' | 'guard' | 'insp' | 'epu' | 'qm' | 'cdt' | 'instr';
 
 /**
  * Умения юнита: investigate — сканирует тела и находит убийц, проверка CID быстрее, штрафы выше;
@@ -62,7 +62,8 @@ export interface CpUnitDef extends RankDef {
  *  Коменданта и лоялистов (охраняют по очереди); SU.INSP — инспектор (2 на город).
  *  CMD.EPU — глава силового блока: с Комендантом, из Управы — только с охраной.
  *  SU.QM — кладовщик склада Протектората (опись, выдача боекомплекта у окна); в конце списка, чтобы номера
- *  прежних юнитов в сохранениях не сдвинулись.
+ *  прежних юнитов в сохранениях не сдвинулись. Так же в конце — академия: курсант (лоялист на учёбе: строй,
+ *  тир, класс; экзамен — и RCT.PCU) и инструктор PCU.INS (ведёт занятия).
  */
 const CP_RANKS: readonly CpUnitDef[] = [
   { id: 'rct', unit: 'rct', name: 'Рекрут (RCT.PCU)', short: 'RCT.PCU', color: '#a9dcff', outline: '#4f86ad', group: 'pcu', hp: 75, kit: 'cp', command: 0, skills: [], desc: 'Стоит на посту у входов в КПП и Управу, в людных местах; дубинка и пистолет.' },
@@ -77,6 +78,8 @@ const CP_RANKS: readonly CpUnitDef[] = [
   { id: 'insp', unit: 'insp', name: 'Инспектор (SU.INSP)', short: 'SU.INSP', color: '#2f7fa0', outline: '#143c4d', group: 'su', hp: 140, kit: 'cp_guard', command: 5, skills: ['investigate'], desc: 'Надзор за SU и работой ТС, указания офицерам. Всегда с охраной.' },
   { id: 'epu', unit: 'epu', name: 'Глава силового блока (CMD.EPU)', short: 'CMD.EPU', color: '#d9b24a', outline: '#6e5516', group: 'cmd', hp: 200, kit: 'cp_guard', command: 6, skills: [], desc: 'Командует всеми. Сидит с Комендантом, из Управы — только с охраной.' },
   { id: 'qm', unit: 'qm', name: 'Кладовщик (SU.QM)', short: 'SU.QM', color: '#7fae7a', outline: '#3a5a36', group: 'su', hp: 110, kit: 'cp_qm', command: 1, skills: [], desc: 'Ведёт склад Протектората на окраине: опись, выдача боекомплекта ВС у окна (E). Пистолет.' },
+  { id: 'cdt', unit: 'cdt', name: 'Курсант академии', short: 'Курсант', color: '#cfe6f7', outline: '#6d8ea8', group: 'pcu', hp: 70, kit: 'cadet', command: 0, skills: [], desc: 'Учится в Академии ВС: построения, строевая, тир, занятия в классе. Сдал экзамен — RCT.PCU.' },
+  { id: 'instr', unit: 'instr', name: 'Инструктор академии (PCU.INS)', short: 'PCU.INS', color: '#3b7fc0', outline: '#1d4670', group: 'pcu', hp: 130, kit: 'cp_instr', command: 3, skills: [], desc: 'Ведёт курсантов: построения на плацу, строевая, стрельбы в тире, занятия, экзамен.' },
 ];
 
 /** Номер юнита (Character.rank) по id. */

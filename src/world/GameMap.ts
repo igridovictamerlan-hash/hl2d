@@ -20,7 +20,8 @@ export type ZoneKind =
   | 'cwu_hq'
   | 'arsenal'
   | 'canteen'
-  | 'prison';
+  | 'prison'
+  | 'academy';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -141,7 +142,33 @@ export type PoiType =
   | 'canteen_serve'
   | 'cafe_table'
   | 'kiosk'
-  | 'planter';
+  | 'planter'
+  | 'academy'
+  | 'academy_target'
+  | 'academy_line'
+  | 'academy_lane'
+  | 'academy_head_desk'
+  | 'academy_locker'
+  | 'academy_board'
+  | 'academy_lectern'
+  | 'academy_desk'
+  | 'academy_flag'
+  | 'academy_obstacle'
+  | 'academy_bunk'
+  | 'academy_bunk_tile'
+  | 'academy_table'
+  | 'academy_rail'
+  | 'academy_turnstile'
+  | 'academy_counter'
+  | 'academy_post'
+  | 'academy_range'
+  | 'academy_office'
+  | 'academy_class'
+  | 'academy_plac'
+  | 'academy_barracks'
+  | 'academy_mess'
+  | 'academy_vakhta'
+  | 'academy_lobby';
 
 /** Чем занят дом в ряду вдоль улицы (POI facade). */
 export type FacadeUse = 'house' | 'shop' | 'cafe' | 'canteen';

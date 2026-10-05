@@ -106,6 +106,54 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   '?': T.BUNKER,
   '!': T.BARRIER,
   '>': T.BUNKER,
+  // Академия ВС: тир, класс, кубрик, столовая, кабинет, вахта — пол; плац — бетон; рубеж, парты, койки,
+  // шкафы, столы, ограждение и стойка вахты, полоса препятствий и флагшток — мебель-укрытие; доска — на стене.
+  'и': T.INTERIOR,
+  'ш': T.INTERIOR,
+  'ч': T.BARRIER,
+  'ж': T.INTERIOR,
+  'э': T.INTERIOR,
+  'Э': T.BARRIER,
+  'щ': T.BARRIER,
+  'л': T.INTERIOR,
+  'Д': T.METAL,
+  'Л': T.INTERIOR,
+  'з': T.BARRIER,
+  'п': T.BUNKER,
+  'ф': T.BARRIER,
+  'б': T.BARRIER,
+  'г': T.INTERIOR,
+  'ц': T.BARRIER,
+  'Ц': T.BARRIER,
+  'ы': T.INTERIOR,
+  'Ы': T.BARRIER,
+  'В': T.INTERIOR,
+  'в': T.INTERIOR,
+  'ь': T.BARRIER,
+  'т': T.INTERIOR,
+  'Я': T.BARRIER,
+  'я': T.INTERIOR,
+};
+
+/** Точки интереса академии по символам шаблона (ACADEMY_TEMPLATE). */
+const ACADEMY_POIS: Record<string, Poi['type']> = {
+  'ш': 'academy_target',
+  'ч': 'academy_line',
+  'ж': 'academy_lane',
+  'Э': 'academy_head_desk',
+  'щ': 'academy_locker',
+  'Д': 'academy_board',
+  'Л': 'academy_lectern',
+  'з': 'academy_desk',
+  'ф': 'academy_flag',
+  'б': 'academy_obstacle',
+  'ц': 'academy_bunk',
+  'Ц': 'academy_bunk_tile',
+  'Ы': 'academy_table',
+  'ь': 'academy_rail',
+  'т': 'academy_turnstile',
+  'Я': 'academy_counter',
+  'я': 'academy_post',
 };
 
 /** Точки интереса тюрьмы по символам шаблона (PRISON_TEMPLATE). */
@@ -161,7 +209,8 @@ export interface StampResult {
   /**
    * Помещения по символам: штаб ТС — l отдых, n столовая, e кабинет, a приёмная, p цех; склад —
    * s зал, j гранатный отсек, N мастерская, f выдача, e контора, 1 бытовка, z караулка, Y крыльцо;
-   * тюрьма — 6 камеры, 0 караулка, 9 кабинет, & изъятое, 8 двор, < шлюз, ( оружейная, $ допросная, @ приёмная.
+   * тюрьма — 6 камеры, 0 караулка, 9 кабинет, & изъятое, 8 двор, < шлюз, ( оружейная, $ допросная, @ приёмная;
+   * академия — и тир, э кабинет, л класс, п плац, г кубрик, ы столовая, В вахта, в вестибюль.
    */
   areas: Record<string, Rect[]>;
 }
@@ -200,7 +249,7 @@ export function stampTemplate(
       if (ch === 'u') pois.push({ type: 'cwu_store', x: x0 + x, y: y0 + y });
       if (ch === 'H') pois.push({ type: 'cwu_head_desk', x: x0 + x, y: y0 + y });
       if (ch === 'J') pois.push({ type: 'cwu_hire', x: x0 + x, y: y0 + y });
-      const ap = ARSENAL_POIS[ch] ?? PRISON_POIS[ch];
+      const ap = ARSENAL_POIS[ch] ?? PRISON_POIS[ch] ?? ACADEMY_POIS[ch];
       if (ap) pois.push({ type: ap, x: x0 + x, y: y0 + y });
     }
   }
@@ -236,7 +285,7 @@ export function stampTemplate(
   const rooms = regions('r');
   const commons = regions('m');
   const areas: Record<string, Rect[]> = {};
-  for (const mark of 'lneapsfzNYj1609&8<($@') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
+  for (const mark of 'lneapsfzNYj1609&8<($@иэлпгыВв') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];

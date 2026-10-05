@@ -162,6 +162,16 @@ function cidCard(c: C2, fake: boolean): void {
 }
 I.cid = (c) => cidCard(c, false);
 I.fake_cid = (c) => cidCard(c, true);
+/** Пропуск в Управу: картонка с полосой Протектората и печатью «липа» (подпись от руки). */
+I.forged_pass = (c) => {
+  shp(c, '#d8cfa8', () => c.roundRect(-24, -18, 48, 36, 3));
+  fl(c, '#3a5a8a', () => c.rect(-22, -16, 44, 7));
+  txt(c, 'ПРОПУСК', 0, -12.5, 6, '#f5f5f5', 'center', 900);
+  for (const y of [-3, 3, 9]) ln(c, [[-18, y], [18, y]], 2, '#8a7d5a');
+  c.save(); c.rotate(-0.3);
+  rrect(c, -2, 4, 22, 11, 2, null, '#b8342a', 2);
+  c.restore();
+};
 I.toolkit = (c) => {
   shp(c, '#2b2d31', () => { c.moveTo(-10, -12); c.lineTo(-10, -20); c.lineTo(10, -20); c.lineTo(10, -12); c.lineTo(6, -12); c.lineTo(6, -16); c.lineTo(-6, -16); c.lineTo(-6, -12); c.closePath(); }, 2.5);
   shp(c, '#c43a2a', () => c.roundRect(-26, -12, 52, 34, 3));

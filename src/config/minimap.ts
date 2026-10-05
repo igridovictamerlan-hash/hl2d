@@ -56,6 +56,8 @@ export const MINIMAP = {
     arsenal: '#8fb88a',
     /** Тюрьма Протектората. */
     prison: '#c8a2e8',
+    /** Академия ВС (у вахты). */
+    academy: '#7fc8f0',
     hatch: '#b8b0a0',
     node: '#6ec2ff',
     nodeBroken: '#ff6a3a',

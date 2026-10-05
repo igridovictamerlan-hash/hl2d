@@ -1,9 +1,11 @@
 import type { AiContext } from '../ai/AiContext';
+import type { Brain } from '../ai/Brain';
 import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
 import type { DivisionId, FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { ROSTER } from '../config/roster';
+import { AI } from '../config/ai';
 import { WAR } from '../config/war';
 import { createCharacter } from '../entities/factory';
 import { equipKit, poiWorld } from './Population';
@@ -16,6 +18,8 @@ import { UndergroundBrain } from '../ai/brains/UndergroundBrain';
 import { PostBrain } from '../ai/brains/PostBrain';
 import { AgentBrain } from '../ai/brains/AgentBrain';
 import { randomAnchorAround, randomAnchorInZone } from '../ai/destinations';
+import type { AccessSite } from '../config/access';
+import { CadetBrain } from '../ai/brains/CadetBrain';
 
 /** Вид роли — от него зависят спавн, мозг и время возрождения. */
 export type RoleKind =
@@ -31,7 +35,9 @@ export type RoleKind =
   /** Тюрьма Протектората: охрана SU.GUARD на постах и начальник — третий инспектор SU.INSP. */
   | 'jailer' | 'warden'
   /** Боец или авторитет банды (живут в общаге банды). */
-  | 'gang';
+  | 'gang'
+  /** Академия ВС: курсант, инструктор, выпускник в резерве (дневальный академии). */
+  | 'cadet' | 'instructor' | 'reserve';
 
 /**
  * Роль персонажа в постоянном составе (как игрок на сервере): кто он, с каким набором, и — у
@@ -60,6 +66,8 @@ export interface RoleSpec {
   /** Патрульная группа ВС: номер и ведущий ли. */
   squad?: number;
   lead?: boolean;
+  /** Вахтёр режимного объекта (Access): какой объект охраняет. */
+  access?: AccessSite;
 }
 
 /** Здоровье роли: ВС — по юниту, сопротивление — по юниту из профессии, остальные — ROSTER.hp. */
@@ -102,6 +110,8 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'convoy':
     case 'jailer':
     case 'warden':
+    case 'instructor':
+    case 'reserve':
     case 'epu': {
       // ВС — из казармы Управы (нары), нет казармы — у ворот.
       const n = ctx.map.poisOf('bunk').length;
@@ -123,6 +133,10 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'trader': {
       const t = ctx.fence?.spot ?? poiWorld(ctx, 'trader');
       return t ? spotNear(ctx, t, 0) : null;
+    }
+    case 'cadet': {
+      const k = ctx.academy?.barracks;
+      return k ? spotNear(ctx, k, 3) : inZone(ctx, 'academy');
     }
     case 'cwu': {
       const plaza = poiWorld(ctx, 'plaza_center');
@@ -157,97 +171,135 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   // Грузчики и оружейник склада Протектората — с допуском: документы всегда в порядке.
   if (spec.profession === 'loader' || spec.profession === 'armorer') c.law.hasCid = true;
   c.role = { ...spec, name: c.name };
+  c.brain = brainFor(ctx, c, spec);
+  // Силовой блок — в штатное расписание (должность; погиб — вакансия, её займёт младший по званию).
+  if (spec.faction === 'cp') ctx.staffing?.adopt(c);
+  return c;
+}
+
+/**
+ * Мозг по роли (и побочные дела: OTA — в резерв войны, армия — в командование, подполье — в схрон).
+ * Вызывается при появлении и при назначении на новую должность (Staffing).
+ */
+export function brainFor(ctx: AiContext, c: Character, spec: RoleSpec): Brain {
+  let brain: Brain;
   switch (spec.kind) {
     case 'patrol':
     case 'tech':
-      c.brain = new CpBrain(c, ctx);
+      brain = new CpBrain(c, ctx);
       break;
     case 'post':
-      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'post' });
+      brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'post' });
       break;
     case 'depot':
-      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'sentry' });
+      brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'sentry' });
       break;
     case 'convoy':
-      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'convoy' });
+      brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'convoy' });
       break;
     case 'jailer':
-      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'jailer' });
+      brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'jailer' });
       break;
     case 'warden':
-      c.brain = new CpBrain(c, ctx, { duty: 'warden' });
+      brain = new CpBrain(c, ctx, { duty: 'warden' });
       break;
     case 'qm':
-      c.brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'qm' });
+      brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'qm' });
       break;
     case 'squad':
-      c.brain = new CpBrain(c, ctx, { duty: 'squad', squad: spec.squad, lead: spec.lead });
+      brain = new CpBrain(c, ctx, { duty: 'squad', squad: spec.squad, lead: spec.lead });
       break;
     case 'officer':
     case 'inspector':
     case 'bodyguard':
     case 'epu':
-      c.brain = new CpBrain(c, ctx, { duty: spec.kind });
+    case 'instructor':
+      brain = new CpBrain(c, ctx, { duty: spec.kind });
+      break;
+    case 'reserve':
+      brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'post' });
+      break;
+    case 'cadet':
+      brain = new CadetBrain(c, ctx);
       break;
     case 'guard':
     case 'gate':
-      c.brain = new CpBrain(c, ctx, { front: spec.front, post: spec.post, facing: spec.facing });
+      brain = new CpBrain(c, ctx, { front: spec.front, post: spec.post, facing: spec.facing });
       break;
     case 'medic':
-      c.brain = new CpBrain(c, ctx, { front: spec.front, medicStation: spec.station });
+      brain = new CpBrain(c, ctx, { front: spec.front, medicStation: spec.station });
       break;
     case 'ota':
-      c.brain = new OtaBrain(c, ctx);
-      ctx.war.ota.push(c);
+      brain = c.brain = new OtaBrain(c, ctx);
+      if (!ctx.war.ota.includes(c)) ctx.war.ota.push(c);
       break;
     case 'army':
     case 'leader':
     case 'hydra':
-      c.brain = new RebelBrain(c, ctx, ctx.war.command.target, Infinity);
-      (c.brain as RebelBrain).toCamp();
+      brain = c.brain = new RebelBrain(c, ctx, ctx.war.command.target, Infinity);
+      (brain as RebelBrain).toCamp();
       ctx.war.command.join(c);
       break;
     case 'partisan':
-      c.brain = new UndergroundBrain(c, ctx);
+      brain = c.brain = new UndergroundBrain(c, ctx);
       ctx.insurgency.adopt(c);
       break;
     case 'agent':
-      c.brain = new AgentBrain(c, ctx);
+      brain = c.brain = new AgentBrain(c, ctx);
       ctx.insurgency.adoptAgent(c);
       break;
     case 'trader': {
       const counter = ctx.insurgency.market;
-      c.brain = new PostBrain({ x: c.x, y: c.y }, counter ? Math.atan2(counter.y - c.y, counter.x - c.x) : 0);
+      brain = new PostBrain({ x: c.x, y: c.y }, counter ? Math.atan2(counter.y - c.y, counter.x - c.x) : 0);
       ctx.insurgency.trader = c;
       if (ctx.fence) ctx.fence.trader = c;
       break;
     }
     case 'admin': {
-      c.brain = new PostBrain({ x: c.x, y: c.y }, c.facing);
+      brain = new PostBrain({ x: c.x, y: c.y }, c.facing);
       break;
     }
     default:
-      c.brain = new CitizenBrain(c, ctx);
+      brain = new CitizenBrain(c, ctx);
   }
+  return brain;
+}
+
+/** Новый житель города (приток): гражданин в жилом квартале, со своим домом. */
+export function newcomer(ctx: AiContext): Character | null {
+  const P = AI.population;
+  const loyal = ctx.rng.chance(P.loyalistShare);
+  const loyalty = Math.round(loyal ? ctx.rng.range(P.loyalistLoyalty[0], P.loyalistLoyalty[1]) : ctx.rng.range(0, 30));
+  const spec: RoleSpec = { kind: 'citizen', faction: 'citizen', profession: 'citizen', division: null, rank: 0, kit: 'citizen', loyalty };
+  const c = spawnRole(ctx, spec);
+  if (!c) return null;
+  c.loyalty = loyalty;
+  const d = ctx.housing?.house(c, null);
+  if (d && c.role) c.role.home = c.home;
   return c;
 }
 
 /** Время возрождения роли, с. */
 function respawnDelay(spec: RoleSpec): number {
   const R = ROSTER.respawn;
-  return spec.kind === 'admin' ? Infinity : R[spec.kind] ?? R.citizen;
+  return spec.kind === 'admin' ? Infinity : (R as Record<string, number>)[spec.kind] ?? R.citizen;
 }
 
 /**
  * Постоянный состав: погибший NPC (с ролью) появляется снова через ROSTER.respawn секунд на спавне
- * своей стороны. Комендант не возрождается — его место занимает победитель выборов. Часовые КПП,
- * где идёт капт, ждут на ГЭС его конца (во время капта подкреплений нет).
+ * своей стороны. Комендант не возрождается — его место занимает победитель выборов. Силовой блок (ВС,
+ * курсанты) не возрождается — должности занимают по штатному расписанию (Staffing), RCT — выпускники
+ * академии. Город пополняется новыми жителями (inflow), когда граждан меньше, чем было в начале.
  */
 export class RosterSystem {
   private readonly queue: { spec: RoleSpec; at: number }[] = [];
   private time = 0;
   /** Сколько возрождений было (для тестов и отладки). */
   respawned = 0;
+  /** Сколько граждан было при заселении (приток держит их число) и сколько приехало новых. */
+  baseline = 0;
+  arrived = 0;
+  private nextInflow: number = ROSTER.inflow.every;
   /** Без возрождений (тесты). */
   paused = false;
 
@@ -265,10 +317,22 @@ export class RosterSystem {
   }
 
   private onDeath(c: Character): void {
-    if (c.isPlayer || !c.role) return;
+    // Силовой блок не возрождается: должность пустеет, её занимают по штатному расписанию (Staffing).
+    if (c.isPlayer || !c.role || c.faction === 'cp') return;
     const spec: RoleSpec = { ...c.role, name: c.name, loyalty: c.loyalty };
     const delay = respawnDelay(spec);
     if (Number.isFinite(delay)) this.queue.push({ spec, at: this.time + delay });
+  }
+
+  /** Граждан меньше, чем было, — приезжает новый житель. */
+  private inflow(): void {
+    if (this.baseline <= 0) return;
+    const now = this.ctx.entities.list.filter((c) => c.alive && !c.isPlayer && c.faction === 'citizen' && c.role?.kind === 'citizen').length + this.pending('citizen');
+    if (now >= this.baseline) return;
+    const c = newcomer(this.ctx);
+    if (!c) return;
+    this.arrived++;
+    this.ctx.law.log(`В город по распределению прибыл новый житель: ${c.name}.`, 'world');
   }
 
   update(dt: number): void {
@@ -276,6 +340,10 @@ export class RosterSystem {
     if (this.paused) return;
     // Красный код (штурм Управы): никто не возрождается — ни ВС, ни OTA, ни повстанцы, ни жители.
     if (this.ctx.war.code === 'red') return;
+    if (this.time >= this.nextInflow) {
+      this.nextInflow = this.time + ROSTER.inflow.every;
+      this.inflow();
+    }
     for (let i = this.queue.length - 1; i >= 0; i--) {
       const q = this.queue[i];
       if (this.time < q.at) continue;

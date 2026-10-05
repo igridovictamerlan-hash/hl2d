@@ -70,6 +70,11 @@ describe('банды', () => {
     const k = sim.nav.nearestWalkable(x + 90, y, 1);
     place(a, x, y);
     place(b, sim.nav.worldX(k), sim.nav.worldY(k));
+    // Лицом друг к другу; второй стоит (иначе может уйти за угол, не заметив первого).
+    a.facing = Math.atan2(b.y - a.y, b.x - a.x);
+    b.facing = a.facing + Math.PI;
+    b.brain = null;
+    b.wantX = b.wantY = 0;
     sim.entities.rebuildHash();
     const shots = sim.combat.shotsFired;
     for (let t = 0; t < 20 * 60 && sim.combat.shotsFired === shots; t++) sim.step();

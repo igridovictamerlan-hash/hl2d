@@ -101,6 +101,10 @@ export const PAWN = {
     insp: { style: 'recon', head: 'peaked', acc: 'coat epaulettes scanner', accMaybe: '', armor: '#3b434d', coat: '#1f2328' },
     epu: { style: 'marine', head: 'helmet', acc: 'cape epaulettes bigPads', accMaybe: '', base: '#1b1d21', armor: '#2b2e33', helmet: '#26292e', belt: '#141518', trim: '#d9b24a', visor: '#0d0f12', shine: '#e8c870', eye: '#ffcf4a', eyes: 1, cape: '#6e1414' },
     qm: { style: 'recon', head: 'recon', acc: 'scanner pouches', accMaybe: 'lamp', armor: '#55604f' },
+    /** Курсант — форменная рубашка без брони, лицо открыто, пилотка (head 'cadet'). */
+    cdt: { style: 'flak', head: 'cadet', vest: false, acc: 'band', accMaybe: '', cap: '#2c3f57' },
+    /** Инструктор — фуражка, шевроны и погоны, рация. */
+    instr: { style: 'flak', head: 'peaked', acc: 'chevrons epaulettes radio', accMaybe: 'pouches', flak: '#45505e' },
   } as Record<CpUnitId, Record<string, string | boolean | number>>,
   /** Доля юнитов с необязательным аксессуаром (accMaybe). */
   accChance: 0.5,

@@ -14,7 +14,7 @@ import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked, carveAccessRoad } from './stamps';
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
+import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, ACADEMY_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
@@ -84,6 +84,10 @@ export function validateMap(map: GameMap): string[] {
     ['prison', 1], ['prison_cell', 8], ['prison_post', 7], ['prison_desk', 1], ['prison_office', 1], ['prison_guardroom', 1], ['prison_evidence', 1], ['prison_yard', 1],
     ['prison_armory', 1], ['prison_rack', 6], ['prison_ammo', 4], ['prison_armory_door', 2], ['prison_interrogation', 1], ['prison_reception', 1], ['prison_sally', 1],
     ['prison_counter', 2], ['prison_intake', 1], ['prison_beacon', 2], ['prison_mast', 4], ['prison_drop', 4],
+    ['academy', 1], ['academy_target', 3], ['academy_lane', 3], ['academy_desk', 8], ['academy_lectern', 1], ['academy_board', 3],
+    ['academy_bunk', 7], ['academy_post', 2], ['academy_turnstile', 3], ['academy_head_desk', 1], ['academy_table', 2],
+    ['academy_range', 1], ['academy_plac', 1], ['academy_class', 1], ['academy_barracks', 1], ['academy_mess', 1],
+    ['academy_office', 1], ['academy_vakhta', 1], ['academy_lobby', 1],
     ['canteen', 1], ['canteen_table', 2], ['kiosk', 2], ['facade', 40], ['vendor_spot', 4],
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
@@ -379,6 +383,31 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     area('@', 'prison_reception');
     area('<', 'prison_sally');
     pois.push({ type: 'prison', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h });
+  }
+
+  // Академия ВС: вахта с турникетом, плац, тир, класс, кубрик, столовая, кабинет; подъезд — улицей.
+  if (streets.academy) {
+    const p = streets.academy;
+    const z = addZone('academy', ZONE_NAMES.academy, null);
+    const res = stampTemplate(g, faceTemplate(ACADEMY_TEMPLATE, p.face), p.rect.x, p.rect.y, () => z, pois);
+    const A = G.academy;
+    const road = addZone('avenue', ZONE_NAMES.academyRoad, null);
+    roadTargets.add(zPlaza);
+    if (!carveAccessRoad(g, p.rect, p.face, A.road.width, A.road.apron, A.road.maxLen, road, (i) => roadTargets.has(g.zones[i]))) {
+      for (const exit of res.exits) if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
+    }
+    const area = (mark: string, type: Poi['type']) => {
+      for (const r of res.areas[mark] ?? []) pois.push({ type, x: r.x, y: r.y, w: r.w, h: r.h });
+    };
+    area('и', 'academy_range');
+    area('э', 'academy_office');
+    area('л', 'academy_class');
+    area('п', 'academy_plac');
+    area('г', 'academy_barracks');
+    area('ы', 'academy_mess');
+    area('В', 'academy_vakhta');
+    area('в', 'academy_lobby');
+    pois.push({ type: 'academy', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h, face: p.face });
   }
 
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);

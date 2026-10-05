@@ -20,9 +20,13 @@ interface FacadeLook {
 const DECOR_WOOD = 1;
 const DECOR_KIOSK = 2;
 const DECOR_PLANTER = 3;
-/** Мебель тюрьмы (BARRIER): под ней пол, саму мебель рисует PrisonRenderer. */
+/** Мебель тюрьмы и академии (BARRIER): под ней пол, саму мебель рисуют PrisonRenderer и AcademyRenderer. */
 const DECOR_FLOOR = 4;
-const PRISON_FURNITURE = ['prison_rack', 'prison_ammo', 'prison_cot', 'prison_table', 'prison_locker', 'prison_counter', 'prison_bench', 'prison_itable', 'prison_desk', 'prison_shelf'] as const;
+const PRISON_FURNITURE = [
+  'prison_rack', 'prison_ammo', 'prison_cot', 'prison_table', 'prison_locker', 'prison_counter', 'prison_bench', 'prison_itable', 'prison_desk', 'prison_shelf',
+  // Академия ВС: рубеж тира, парты, койки, шкафчики, столы, ограждение и стойка вахты, стол начальника (AcademyRenderer).
+  'academy_line', 'academy_desk', 'academy_bunk', 'academy_bunk_tile', 'academy_locker', 'academy_table', 'academy_rail', 'academy_counter', 'academy_head_desk',
+] as const;
 
 /**
  * Цвет HSL → '#rrggbb'. Цвета тайлов считаются один раз при загрузке, а разбираются браузером при

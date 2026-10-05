@@ -108,6 +108,14 @@ export const LIGHTING = {
     trader: { color: [255, 190, 110], radius: 90, power: 0.8, night: false, flicker: 0.1 },
     // Тюрьма Протектората: двор и коридор — холодные прожекторы у постов, караулка и допросная — лампы.
     prison_post: { color: [210, 228, 255], radius: 120, power: 0.85, night: true, bloom: true },
+    // Академия ВС: класс, кубрик, столовая и кабинет — тёплые лампы; тир и вахта — холодный свет.
+    academy_class: { color: [255, 215, 160], radius: 90, power: 0.8, night: true, bloom: true },
+    academy_barracks: { color: [255, 205, 150], radius: 80, power: 0.7, night: true },
+    academy_mess: { color: [255, 210, 150], radius: 80, power: 0.75, night: true },
+    academy_office: { color: [255, 205, 140], radius: 70, power: 0.8, night: true, bloom: true },
+    academy_range: { color: [220, 232, 255], radius: 130, power: 0.8, night: true },
+    academy_vakhta: { color: [215, 230, 255], radius: 90, power: 0.85, night: true, bloom: true },
+    academy_lobby: { color: [215, 230, 255], radius: 70, power: 0.6, night: true },
     prison_office: { color: [255, 205, 140], radius: 80, power: 0.8, night: true, bloom: true },
     prison_guardroom: { color: [255, 200, 130], radius: 70, power: 0.8, night: true, bloom: true },
     prison_evidence: { color: [215, 230, 255], radius: 60, power: 0.6, night: true },

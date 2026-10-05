@@ -23,6 +23,7 @@ import type { TrashPile } from '../systems/LaborSystem';
 import { GRENADE_KINDS, isMedic, type Corpse } from '../systems/CombatSystem';
 import { LABOR } from '../config/labor';
 import { CWU_HQ } from '../config/cwuHq';
+import { ACADEMY } from '../config/academy';
 import { CRIME } from '../config/crime';
 import { CP_UNITS } from '../config/cpUnits';
 import { ARSENAL } from '../config/arsenal';
@@ -621,6 +622,15 @@ export class PlayerController {
       const g = ctx.gangs?.of(p);
       if (g && ctx.gangs.lootToStash(g, p, REACH + 6)) return this.say(`Ящик с конвоя — в общак «${g.def.name}».`, 'world');
       if (ctx.insurgency.lootCrate(p, REACH + 6)) return this.say('Ящик с конвоя — ваш: патроны или гранаты в подсумок.', 'world');
+    }
+    // Академия ВС: гражданин у стойки вахты — подать заявление (нужна лояльность).
+    const acad = ctx.academy;
+    if (acad?.present && acad.counter && p.faction === 'citizen' && (d(acad.counter) < ACADEMY.recruit.reach + 12 || (acad.applyAt && d(acad.applyAt) < ACADEMY.recruit.reach))) {
+      if (p.loyalty < ACADEMY.recruit.minLoyalty && !(acad.urgent() && p.loyalty >= ACADEMY.recruit.urgentLoyalty)) return this.say(`Дежурный: «Лояльность ${p.loyalty} — мало. Приходите, когда будет от ${ACADEMY.recruit.minLoyalty}».`, 'world');
+      if (p.law.wanted || !p.law.hasCid) return this.say('Дежурный: «С такими документами — не к нам».', 'world');
+      if (acad.cadets.length >= ACADEMY.recruit.capacity) return this.say('Дежурный: «Курс набран. Приходите позже».', 'world');
+      acad.enroll(p);
+      return;
     }
     // Штаб ТС: гражданин у стойки найма — устроиться (глава оформляет туда, где не хватает рук).
     const hq = ctx.cwuHq;

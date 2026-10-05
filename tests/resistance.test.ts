@@ -302,6 +302,8 @@ describe('подполье: взлом и растяжки', () => {
     // Без налётов банд: стрельба в городе поднимает тревогу, проверки чаще — тест про взлом, а не про это.
     sim.ctx.gangs.paused = true;
     expect(sim.insurgency.occupiedCell()).toBe(cell);
+    // Тест про взлом, а не про вахту: «липу» у подпольщика могут раскрыть у ворот Управы — даём настоящий пропуск.
+    free.passes.push('nexus');
     const op = sim.insurgency.startOperation('jailbreak');
     expect(op?.kind).toBe('jailbreak');
     expect(op?.team[0]).toBe(free);

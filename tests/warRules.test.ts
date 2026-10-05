@@ -1,5 +1,6 @@
 import { CRIME } from '../src/config/crime';
 import { describe, expect, test } from 'vitest';
+import { ZONE_NAMES } from '../src/config/names';
 import { makeSim } from './simHarness';
 import { spawnPopulation, poiWorld, armySpec, armyKit } from '../src/systems/Population';
 import type { Character } from '../src/entities/Character';
@@ -165,6 +166,8 @@ describe('мобилизация красного кода', () => {
     spawnPopulation(sim.ctx, 10);
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
+    // Подполье в стороне: покушение спецагента на Коменданта — не про мобилизацию.
+    sim.insurgency.paused = true;
     const admin = sim.entities.list.find((c) => c.faction === 'admin')!;
     const cp = (pred: (b: CpBrain) => boolean) => sim.entities.list.filter((c) => c.alive && c.brain instanceof CpBrain && pred(c.brain));
     const kpp = cp((b) => b.front >= 0);
@@ -335,6 +338,14 @@ describe('место преступления', () => {
     let alley: { x: number; y: number } | null = null;
     let wide: { x: number; y: number } | null = null;
     const ts = sim.map.tileSize;
+    // Прямой переулок без боковых ответвлений в радиусе оцепления: берём первый, где оцепление — две линии.
+    const body0 = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] });
+    const straight = (p: { x: number; y: number }) => {
+      const s = sim.war.scenes.open(body0(p), 'civil');
+      const ok = !!s && s.lines.length === 2;
+      sim.war.scenes.closeAll();
+      return ok;
+    };
     for (let i = 0; i < sim.map.tiles.length && !(alley && wide); i++) {
       const tx = i % W;
       const ty = (i - tx) / W;
@@ -344,9 +355,10 @@ describe('место преступления', () => {
         let ok = true;
         for (let d = -6; d <= 6 && ok; d++) for (let e = -1; e <= 1; e++) if (sim.map.isSolid(tx + e, ty + d) || sim.map.tileAt(tx + e, ty + d) === T.DOOR) ok = false;
         for (let d = -6; d <= 6 && ok; d++) if (!sim.map.isSolid(tx - 2, ty + d) || !sim.map.isSolid(tx + 2, ty + d)) ok = false;
-        if (ok) alley = { x: (tx + 0.5) * ts, y: (ty + 0.5) * ts };
+        if (ok && straight({ x: (tx + 0.5) * ts, y: (ty + 0.5) * ts })) alley = { x: (tx + 0.5) * ts, y: (ty + 0.5) * ts };
       }
-      if (!wide && kind === 'avenue') {
+      // Широкая улица — главный проспект (не подъезды к складу, тюрьме, академии).
+      if (!wide && kind === 'avenue' && (ZONE_NAMES.avenue as readonly string[]).includes(sim.map.zoneAtTile(tx, ty)!.name)) {
         let open = 0;
         for (let d = -6; d <= 6; d++) if (!sim.map.isSolid(tx + d, ty) && !sim.map.isSolid(tx, ty + d)) open++;
         if (open === 13) wide = { x: (tx + 0.5) * ts, y: (ty + 0.5) * ts };

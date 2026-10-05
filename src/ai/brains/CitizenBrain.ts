@@ -177,7 +177,7 @@ export class CitizenBrain implements Brain {
     const [smin, smax] = CHARACTER.npcWalkSpeed;
     this.walkSpeed = ctx.rng.range(smin, smax);
     this.mover = new Mover(this.walkSpeed);
-    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison']);
+    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
@@ -223,7 +223,8 @@ export class CitizenBrain implements Brain {
       const shot = self.panicUntil < now ? ctx.combat.heardShot(self, 220, 0.4) : null;
       // Грузчик с ящиком в конвое на КПП от выстрелов не разбегается — там всегда стреляют.
       // Бандиты от стрельбы не разбегаются (у них свой бой — gangFight), иначе пара распадается.
-      if (shot && self.faction !== 'rebel' && self.gang < 0) {
+      // Стрельбы в тире академии — учебные: от них не разбегаются.
+      if (shot && !shot.shooter?.cadet && self.faction !== 'rebel' && self.gang < 0) {
         // Стрельба рядом — бежать прочь.
         self.panicUntil = now + ctx.rng.range(4, 6);
         this.panicFrom = { x: shot.x, y: shot.y };

@@ -95,7 +95,8 @@ describe('постоянный состав', () => {
     expect(back[0]).toBeTruthy();
     expect(back[1]).toBeTruthy();
     expect(spawnedIn).toBe('rebel_camp');
-    expect(back[1]!.brain).toBeInstanceOf(CitizenBrain);
+    // Горожанин — снова горожанин (мог и попасть на проверку: тогда прежний мозг ждёт в law.savedBrain).
+    expect(back[1]!.brain instanceof CitizenBrain || back[1]!.law.savedBrain instanceof CitizenBrain).toBe(true);
     // Новых персонажей сверх состава не появилось (санитар выходит сам — не в счёт).
     expect(sim.entities.list.filter((c) => c.alive && c.profession !== 'cremator').length).toBeLessThanOrEqual(total);
     // Вернулись оба (бойцы банд за это время могли подраться и тоже вернуться — не в счёт).
@@ -281,7 +282,7 @@ describe('проходная КПП', () => {
     }
   });
 
-  test('в проходной стоят RCT и возвращаются после гибели', { timeout: 60_000 }, () => {
+  test('в проходной стоят RCT; погибший не возвращается — пост занимает выпускник академии', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;
@@ -298,10 +299,19 @@ describe('проходная КПП', () => {
       expect(Math.hypot(c.x - post.x, c.y - post.y)).toBeLessThan(40);
     }
     const name = rct[0].name;
+    const post = (rct[0].brain as CpBrain).guardPost!;
     sim.combat.damage(rct[0], 1000, null);
     run(sim, ROSTER.respawn.gate + 1);
-    const back = sim.entities.list.find((c) => c.alive && c.name === name);
-    expect(back?.role?.kind).toBe('gate');
+    // ВС не возрождаются: должность пустует, пока нет выпускника.
+    expect(sim.entities.list.some((c) => c.alive && c.name === name)).toBe(false);
+    expect(sim.staffing.vacancies('rct').some((v) => v.spec.kind === 'gate')).toBe(true);
+    // Присяга курсанта — он встаёт на пост проходной.
+    const cit = sim.entities.list.find((c) => c.alive && c.faction === 'citizen' && !c.isPlayer && c.profession === 'citizen')!;
+    sim.academy.enroll(cit);
+    cit.cadet!.passed = true;
+    sim.academy.graduate(cit);
+    expect(cit.role?.kind).toBe('gate');
+    expect((cit.brain as CpBrain).guardPost).toEqual(post);
   });
 });
 

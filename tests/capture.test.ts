@@ -9,9 +9,9 @@ import { PrisonerBrain } from '../src/ai/brains/PrisonerBrain';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { DefectorBrain } from '../src/ai/brains/DefectorBrain';
-import { spawnPopulation } from '../src/systems/Population';
+import { spawnPopulation, poiWorld } from '../src/systems/Population';
+import { STAFFING } from '../src/config/staffing';
 import { spawnRole } from '../src/systems/Roster';
-import { ROSTER } from '../src/config/roster';
 
 type Sim = ReturnType<typeof makeSim>;
 
@@ -175,22 +175,25 @@ describe('капт КПП', () => {
     expect(reinforcements).toBe(0);
   });
 
-  test('часовой КПП погиб — возрождается в казарме Управы и бежит на свой пост', { timeout: 90_000 }, () => {
+  test('часовой КПП погиб — не возрождается: на пост переводят сотрудника PCU, он бежит туда', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     const f = sim.war.fronts[0];
     const post = f.points[1].posts[0];
     const spec = { kind: 'guard' as const, faction: 'cp' as const, profession: null, division: 'su' as const, rank: CP_UNIT.su3, kit: 'cp_su', front: 0, post, facing: 0 };
     const g0 = spawnRole(sim.ctx, spec, post)!;
+    // Кандидат на перевод — патрульный PCU.02 у Управы.
+    const nexus = poiWorld(sim.ctx, 'nexus_gate')!;
+    const p2 = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: 'pcu', rank: CP_UNIT.pcu2, kit: 'cp' }, nexus)!;
+    p2.merit = STAFFING.minScore.su3 + 1;
     sim.combat.damage(g0, 1000, null);
-    for (let t = 0; t < (ROSTER.respawn.guard + 1) * 60; t++) sim.step();
+    for (let t = 0; t < (STAFFING.wait + STAFFING.every * 3) * 60; t++) sim.step();
+    // Прежний часовой не вернулся, на его посту — переведённый.
+    expect(sim.entities.list.some((c) => c.alive && c.name === g0.name)).toBe(false);
     const g = sim.entities.list.find((c) => c.alive && c.brain instanceof CpBrain && c.brain.guardPost === post)!;
-    expect(g).toBeTruthy();
-    expect(g.name).toBe(g0.name);
-    // Появился в казарме Управы (у нар) и уже бежит оттуда.
-    const ts = sim.map.tileSize;
-    const bunkD = Math.min(...sim.map.poisOf('bunk').map((b) => Math.hypot(g.x - (b.x + 0.5) * ts, g.y - (b.y + 0.5) * ts)));
-    expect(bunkD).toBeLessThan(260);
-    for (let t = 0; t < 90 * 60 && Math.hypot(g.x - post.x, g.y - post.y) > 30; t++) sim.step();
+    expect(g).toBe(p2);
+    expect(g.rank).toBe(CP_UNIT.su3);
+    expect(g.inventory.has('m4a4')).toBe(true);
+    for (let t = 0; t < 150 * 60 && Math.hypot(g.x - post.x, g.y - post.y) > 30; t++) sim.step();
     expect(Math.hypot(g.x - post.x, g.y - post.y)).toBeLessThan(30);
   });
 

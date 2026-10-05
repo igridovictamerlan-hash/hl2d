@@ -8,7 +8,7 @@ import { RENDER } from '../config/render';
 import { SUPPRESS } from '../config/tactics';
 import { VISION } from '../config/vision';
 import { CHARACTER } from '../config/entities';
-import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, cpUnit, rebelUnitOf } from '../config/factions';
+import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, cpUnit, rebelUnitOf, CP_UNIT } from '../config/factions';
 import { hasLoyalty, loyaltyTier } from '../systems/Loyalty';
 import { displayName } from '../entities/cover';
 import type { IdCardInfo } from '../ui/GameMenu';
@@ -55,6 +55,10 @@ import { SecuritySystem } from '../systems/Security';
 import { CwuHqSystem } from '../systems/CwuHq';
 import { ArsenalSystem } from '../systems/Arsenal';
 import { PrisonSystem } from '../systems/Prison';
+import { AcademySystem } from '../systems/Academy';
+import { Staffing } from '../systems/Staffing';
+import { Access } from '../systems/Access';
+import { serviceHint } from '../systems/Staffing';
 import { StreetShops } from '../systems/StreetShops';
 import { Housing } from '../systems/Housing';
 import { Fence } from '../systems/Fence';
@@ -64,6 +68,7 @@ import { Brawls } from '../systems/Brawls';
 import { GangSystem } from '../systems/Gangs';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { PrisonRenderer } from '../world/PrisonRenderer';
+import { AcademyRenderer } from '../world/AcademyRenderer';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
 import { StreetLifeSystem } from '../systems/StreetLife';
@@ -147,6 +152,7 @@ export class Game {
   private readonly ambience = new Ambience();
   private readonly arsenalView = new ArsenalRenderer();
   private readonly prisonView = new PrisonRenderer();
+  private readonly academyView = new AcademyRenderer();
   private readonly aim = new AimRenderer();
   /** Частицы боя, тряска экрана, маркер попадания (только отрисовка). */
   private readonly particles = new Particles();
@@ -225,6 +231,27 @@ export class Game {
       if (who !== this.player) return;
       this.role = { faction: 'rebel', rank: 0, division: null, profession: 'rebel_soldier' };
       this.bus.emit('announce', { text: 'Вы примкнули к сопротивлению' });
+      this.save();
+    });
+    // Служба ВС: повышение (Staffing), зачисление в академию и присяга (Academy) — роль игрока следом.
+    this.bus.on('promoted', ({ rank, post }) => {
+      if (!this.role || this.role.faction !== 'cp') return;
+      this.role = { ...this.role, rank, division: cpGroup(rank) };
+      this.bus.emit('announce', { text: `Приказ: вы — ${cpUnit(rank).short}` });
+      this.bus.emit('log', { text: `Повышение: ${cpUnit(rank).name} — ${post}.`, kind: 'system' });
+      this.save();
+    });
+    this.bus.on('enlisted', ({ who }) => {
+      if (who !== this.player) return;
+      this.role = { faction: 'cp', rank: CP_UNIT.cdt, division: 'pcu', profession: null };
+      this.bus.emit('announce', { text: 'Вы зачислены курсантом Академии ВС' });
+      this.bus.emit('log', { text: 'Академия: ходите на занятия по распорядку (строка вверху подскажет, где и что). Набрали баллы — экзамен, сдали — присяга и служба RCT.', kind: 'system' });
+      this.save();
+    });
+    this.bus.on('graduated', ({ who, rank, name }) => {
+      if (who !== this.player) return;
+      this.role = { faction: 'cp', rank, division: cpGroup(rank), profession: null };
+      this.bus.emit('announce', { text: `Присяга принята: ${cpUnit(rank).short} ${name}` });
       this.save();
     });
     // Игрока приняли в штабе ТС — рабочий ТС (сохраняется).
@@ -306,6 +333,9 @@ export class Game {
       routine: null as unknown as Routine,
       errands: null as unknown as Errands,
       brawls: null as unknown as Brawls,
+      academy: null as unknown as AcademySystem,
+      staffing: null as unknown as Staffing,
+      access: null as unknown as Access,
     };
     this.ai.routine = new Routine(this.ai);
     this.ai.errands = new Errands(this.ai);
@@ -330,6 +360,9 @@ export class Game {
     this.ai.fence = new Fence(this.ai);
     this.ai.gangs = new GangSystem(this.ai);
     this.ai.brawls = new Brawls(this.ai);
+    this.ai.staffing = new Staffing(this.ai);
+    this.ai.academy = new AcademySystem(this.ai);
+    this.ai.access = new Access(this.ai);
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
@@ -342,6 +375,8 @@ export class Game {
     this.chat = new ChatSystem(this.ai);
     this.law.curfewCheck = (c) => this.war.curfewViolation(c);
     this.law.panicking = (c) => c.panicUntil > this.law.now;
+    this.law.trespass = (c) => this.ai.access.trespassing(c);
+    this.law.merit = (c, pts) => this.ai.staffing.merit(c, pts);
     this.law.onContraband = (c) => this.ai.errands.found(c);
     this.entities.clear();
     resetCids();
@@ -419,7 +454,14 @@ export class Game {
     // Партизан выходит в маскировке, без оружия в руках.
     const underground = p.profession === 'partisan' || p.profession === 'spec_agent';
     if (underground) this.combat.equip(p, null);
-    p.name = faction === 'cp' ? nameFor(this.rng, 'cp') : this.civilName || randomName(this.rng);
+    // Курсант академии — под своим именем (позывной дают на присяге), остальные ВС — с позывным.
+    const cadet = faction === 'cp' && p.rank === CP_UNIT.cdt;
+    p.name = faction === 'cp' && !cadet ? nameFor(this.rng, 'cp') : this.civilName || randomName(this.rng);
+    p.cadet = cadet ? { drill: 0, fitness: 0, theory: 0, fire: 0, accuracy: 0, shots: 0, hits: 0, since: this.law.now, passed: false, exams: 0 } : null;
+    // Служба ВС — с нуля; прежняя должность (если игрок её занимал) свободна.
+    this.ai.staffing?.vacate(p);
+    p.merit = 0;
+    p.serviceSince = this.law.now;
     p.money = CHARACTER.roleMoney[faction] ?? CHARACTER.startMoney;
     p.brain = null;
     Object.assign(law, {
@@ -428,7 +470,8 @@ export class Game {
     });
     // Подпольщик и спецагент выходят под личиной горожанина или ТС.
     if (underground) this.insurgency.giveCover(p);
-    const spot = roleSpawn(this.ai, faction, p.profession);
+    const barracks = cadet ? this.ai.academy?.barracks : null;
+    const spot = barracks ?? roleSpawn(this.ai, faction, p.profession);
     // Глава восстания один: выбрал игрок — NPC-глава становится ветераном.
     if (faction === 'rebel' && p.profession === 'rebel_leader') this.war.command.demoteNpcLeader();
     const hp = roleHp(faction, p.rank, p.profession);
@@ -546,6 +589,10 @@ export class Game {
       out.push(`Поручение${a.secret ? ' (тайное — не попадитесь на проверке)' : ''}: ${a.name}, ${a.zone} · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`);
     }
     if (ai.routine.night && ai.errands.canTake(this.player)) out.push('Ночь: на улицах проверяют чаще, на районах банд грабят');
+    const p = this.player;
+    const cadet = ai.academy?.hint(p);
+    if (cadet) out.push(cadet.text);
+    else if (p.faction === 'cp' && ai.staffing) out.push(serviceHint(p, ai.staffing));
     return out.join('\n');
   }
 
@@ -734,6 +781,16 @@ export class Game {
   /** Возрождение игрока после гибели: прежняя роль, штраф к токенам. */
   private respawn(): void {
     const p = this.player;
+    // Силовой блок не возрождается: погибший ВС (и курсант) — в городе появляется новый житель.
+    if (this.role?.faction === 'cp') {
+      this.civilName = randomName(this.rng);
+      this.role = { faction: 'citizen', rank: 0, division: null, profession: DEFAULT_PROFESSION.citizen ?? null };
+      this.applyRole('citizen', 0, null, true, this.role.profession ?? null);
+      this.bus.emit('announce', { text: 'Ваш юнит погиб. ВС не возрождаются — вы новый житель города' });
+      this.bus.emit('log', { text: 'Силовой блок не возрождается: должность займёт младший по званию. Вы — новый гражданин. Хотите снова служить — академия ВС (нужна лояльность).', kind: 'system' });
+      this.save();
+      return;
+    }
     const money = Math.floor(p.money * (1 - ECONOMY.deathTokenLoss));
     const r = this.role ?? { faction: 'citizen' as FactionId, rank: 0, division: null };
     this.applyRole(r.faction, r.rank, r.division, false);
@@ -904,6 +961,7 @@ export class Game {
     updateNpcs(this.ai, dt);
     this.doors.update(this.entities, dt);
     stepPhysics(this.entities, this.map, dt);
+    this.ai.access.update();
     this.law.update(dt, this.player);
     this.economy.update(dt);
     this.combat.update(dt);
@@ -929,6 +987,8 @@ export class Game {
     this.ai.brawls.update(dt);
     this.ai.arsenal.update(dt);
     this.ai.prison.update();
+    this.ai.staffing.update();
+    this.ai.academy.update(dt);
     // Красный код (штурм Управы) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
@@ -996,6 +1056,7 @@ export class Game {
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
     this.arsenalView.drawGround(ctx, v, this.ai.arsenal, this.map.tileSize, this.law.now);
     this.prisonView.drawGround(ctx, v, this.ai.prison, this.law.cells, this.map, this.law.evidence.size, this.law.now);
+    this.academyView.drawGround(ctx, v, this.ai.academy, this.map, this.law.now);
     drawFurnitureList(ctx, v, this.furnishings);
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);

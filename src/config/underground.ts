@@ -34,7 +34,7 @@ export const INSURGENCY = {
   /** Тайник убежища: патронов до стольких магазинов к каждому стволу. */
   cacheMags: 4,
   /** Разведка и цели операций — не у Управы и КПП (в кварталах). */
-  ambushAvoidZones: ['nexus', 'cells', 'checkpoint', 'outlands', 'restricted', 'wasteland', 'rebel_camp', 'prison'] as const,
+  ambushAvoidZones: ['nexus', 'cells', 'checkpoint', 'outlands', 'restricted', 'wasteland', 'rebel_camp', 'prison', 'academy'] as const,
   /** Бойцы убежища бродят в пределах… */
   baseWander: [2, 7] as const,
 } as const;
@@ -107,7 +107,7 @@ export const PARTISANS = {
    * Куда под личиной горожанина не пойти ставить растяжку (там это нарушение режима — задержат у входа):
    * патрульный в этих зонах (охрана склада и тюрьмы, гарнизоны) — не цель, место в них — не место.
    */
-  mineAvoid: ['nexus', 'cells', 'arsenal', 'prison', 'restricted', 'checkpoint', 'outlands', 'wasteland'] as const,
+  mineAvoid: ['nexus', 'cells', 'arsenal', 'prison', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'academy'] as const,
   /**
    * Оружие бандиту: партизан через люк идёт к бандиту, передаёт ствол и патроны (reach — вплотную) —
    * бандит на hired с идёт бить ВС чужими руками (HiredGunBrain): ищет патрульного не дальше seek,

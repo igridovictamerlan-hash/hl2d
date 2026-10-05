@@ -1,4 +1,5 @@
 import type { Character } from '../entities/Character';
+import { STAFFING } from '../config/staffing';
 import type { AiContext } from '../ai/AiContext';
 import { CRIME } from '../config/crime';
 import { FACTIONS } from '../config/factions';
@@ -110,6 +111,8 @@ export class CrimeSystem {
     if (!k) return `Скан тела: ${corpse.name} — причина смерти не установлена.`;
     if (FACTIONS[k.faction].authority) return `Скан тела: ${corpse.name} — ликвидирован сотрудником Протектората (${k.name}).`;
     k.law.wanted = true;
+    // Заслуга следователя: убийца найден.
+    this.ctx.staffing?.merit(obs, STAFFING.merit.investigate);
     if (k.alive) {
       this.ctx.war.operatives.add(k);
       this.ctx.war.lastKnown.set(k, { x: k.x, y: k.y });

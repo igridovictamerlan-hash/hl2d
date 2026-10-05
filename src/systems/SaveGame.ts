@@ -5,6 +5,7 @@ import type { Stack } from '../entities/Inventory';
 import type { ItemId, WeaponId, GearId, GearSlot } from '../config/items';
 import { capacityOf } from './Gear';
 import { ITEMS, WEAPONS } from '../config/items';
+import type { CadetRecord } from '../config/academy';
 import { FACTIONS } from '../config/factions';
 
 /**
@@ -35,6 +36,9 @@ export interface SaveData {
   pos: { x: number; y: number } | null;
   explored: string;
   hatches: number[];
+  /** Служба ВС: заслуги; курсант — баллы учёбы (нет в старых сохранениях). */
+  merit?: number;
+  cadet?: CadetRecord | null;
 }
 
 export function capturePlayer(
@@ -69,6 +73,8 @@ export function capturePlayer(
     pos: caught ? null : { x: Math.round(p.x), y: Math.round(p.y) },
     explored: encodeBits(knowledge.explored),
     hatches: [...knowledge.hatches],
+    merit: p.merit,
+    cadet: p.cadet ? { ...p.cadet } : null,
   };
 }
 
@@ -110,6 +116,9 @@ export function applyToPlayer(p: Character, d: SaveData): void {
   p.mag = p.weapon ? Math.max(0, Math.min(WEAPONS[p.weapon].magazine, d.mag)) : 0;
   p.law.hasCid = d.law?.hasCid ?? true;
   p.law.wanted = d.law?.wanted ?? false;
+  p.merit = Math.max(0, d.merit ?? 0);
+  // Курсант продолжает учёбу с теми же баллами.
+  if (p.cadet && d.cadet) p.cadet = { ...p.cadet, ...d.cadet, hits: d.cadet.hits ?? 0 };
 }
 
 /** Битовая маска → base64 и обратно. */

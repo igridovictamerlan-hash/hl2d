@@ -31,6 +31,9 @@ import type { StreetLifeSystem } from '../systems/StreetLife';
 import type { Routine } from '../systems/Routine';
 import type { Errands } from '../systems/Errands';
 import type { Brawls } from '../systems/Brawls';
+import type { AcademySystem } from '../systems/Academy';
+import type { Staffing } from '../systems/Staffing';
+import type { Access } from '../systems/Access';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -90,4 +93,10 @@ export interface AiContext {
   errands: Errands;
   /** Уличные драки на кулаках и «братва» банд. */
   brawls: Brawls;
+  /** Академия ВС: курсанты, занятия, набор лоялистов, присяга. */
+  academy: AcademySystem;
+  /** Штатное расписание силового блока: должности, вакансии, повышения. */
+  staffing: Staffing;
+  /** Пропускной режим режимных объектов (вахтёры). */
+  access: Access;
 }

@@ -4,7 +4,7 @@ import { GENERATOR } from '../../config/generator';
 import { T } from '../tiles';
 import type { GenGrid } from './GenGrid';
 import type { Lattice, LEdge } from './lattice';
-import { ARSENAL_TEMPLATE, DORM_TEMPLATE, PRISON_TEMPLATE, VILLA_TEMPLATE } from './templates';
+import { ACADEMY_TEMPLATE, ARSENAL_TEMPLATE, DORM_TEMPLATE, PRISON_TEMPLATE, VILLA_TEMPLATE } from './templates';
 
 /** Улица-артерия: рёбра и узлы решётки, по которым она идёт. */
 export interface Artery {
@@ -30,6 +30,8 @@ export interface StreetPlan {
   arsenal: Placement | null;
   /** Тюрьма Протектората (у улицы от проспекта, вдали от Управы и склада) или null. */
   prison: Placement | null;
+  /** Академия ВС (у улицы от проспекта, не у склада и тюрьмы) или null. */
+  academy: Placement | null;
 }
 
 /**
@@ -288,15 +290,55 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   }
   if (prison) taken.push(prison.rect);
 
+  // Академия ВС — так же, на своём генераторе (места остальных зданий не сдвигаются): у улицы от проспекта,
+  // не у склада и тюрьмы, на расстоянии от Управы около nexusIdeal.
+  const AC = GENERATOR.academy;
+  const crng = rng.fork(0xacad);
+  const cw = ACADEMY_TEMPLATE[0].length;
+  const ch = ACADEMY_TEMPLATE.length;
+  const others = [arsenal, prison].filter((p): p is Placement => !!p).map((p) => centre(p.rect));
+  let academy: Placement | null = null;
+  let academyScore = -Infinity;
+  for (const relax of AC.relax) {
+    for (let t = 0; t < AC.tries && rootedRects.length && avenueNodes.length; t++) {
+      const upright = crng.chance(0.5);
+      const w = upright ? cw : ch;
+      const h = upright ? ch : cw;
+      const rect: Rect = { x: crng.int(margin, mapW - margin - w), y: crng.int(margin, mapH - margin - h), w, h };
+      if (!fits(rect)) continue;
+      const c = centre(rect);
+      if (others.some((o) => Math.hypot(o.x - c.x, o.y - c.y) < AC.apart / relax)) continue;
+      let face: Placement['face'];
+      let road: number;
+      if (upright) {
+        face = rect.y + h / 2 < avY ? 'S' : 'N';
+        road = roadTo(rect.x + w / 2, face === 'S' ? rect.y + h : rect.y);
+      } else {
+        const east = roadTo(rect.x + w, rect.y + h / 2);
+        const west = roadTo(rect.x, rect.y + h / 2);
+        face = east <= west ? 'E' : 'W';
+        road = Math.min(east, west);
+      }
+      if (road > AC.road.reach * relax) continue;
+      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - AC.nexusIdeal) - road * AC.road.penalty;
+      if (score > academyScore) {
+        academy = { rect, face };
+        academyScore = score;
+      }
+    }
+    if (academy) break;
+  }
+  if (academy) taken.push(academy.rect);
+
   // Здания — пустоты решётки: лабиринт туда не заходит.
   const w = GENERATOR.alley.mainWidth;
-  for (const p of [...dorms, ...villas, ...(arsenal ? [arsenal] : []), ...(prison ? [prison] : [])]) {
+  for (const p of [...dorms, ...villas, ...(arsenal ? [arsenal] : []), ...(prison ? [prison] : []), ...(academy ? [academy] : [])]) {
     for (const nd of lat.nodes) if (rectsOverlap({ x: nd.x, y: nd.y, w, h: w }, p.rect, 2)) nd.region = 'void';
     lat.edges.forEach((e, id) => {
       if (!inArtery[id] && rectsOverlap(lat.edgeBounds(e), p.rect, 1)) e.valid = false;
     });
   }
-  return { arteries, dorms, villas, arsenal, prison };
+  return { arteries, dorms, villas, arsenal, prison, academy };
 }
 
 /** Асфальт артерий поверх вырезанных переулков. Возвращает прямоугольники каждой артерии. */

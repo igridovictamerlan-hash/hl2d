@@ -35,6 +35,9 @@ import { Errands } from '../src/systems/Errands';
 import { Brawls } from '../src/systems/Brawls';
 import { GangSystem } from '../src/systems/Gangs';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
+import { AcademySystem } from '../src/systems/Academy';
+import { Staffing } from '../src/systems/Staffing';
+import { Access } from '../src/systems/Access';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
 export function makeSim(seedOrMap: number | GameMap) {
@@ -86,6 +89,9 @@ export function makeSim(seedOrMap: number | GameMap) {
       routine: null as unknown as Routine,
       errands: null as unknown as Errands,
       brawls: null as unknown as Brawls,
+      academy: null as unknown as AcademySystem,
+      staffing: null as unknown as Staffing,
+      access: null as unknown as Access,
   };
   // Распорядок дня в тестах выключен (иначе ночью город спит) — у него свой тест.
   ctx.routine = new Routine(ctx, false);
@@ -120,16 +126,24 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.fence = new Fence(ctx);
   ctx.gangs = new GangSystem(ctx);
   ctx.brawls = new Brawls(ctx);
+  ctx.staffing = new Staffing(ctx);
+  ctx.academy = new AcademySystem(ctx);
+  // Набор в академию в тестах выключен (свой тест) — иначе лоялисты уходят учиться.
+  ctx.academy.recruiting = false;
+  ctx.access = new Access(ctx);
   // Случайные драки в тестах выключены (свой тест) — удары и братва работают.
   ctx.brawls.enabled = false;
   economy.onEmpty = () => labor.noticeEmpty();
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;
+  law.trespass = (c) => ctx.access.trespassing(c);
+  law.merit = (c, pts) => ctx.staffing.merit(c, pts);
   const step = (dt = 1 / 60) => {
     ctx.time += dt;
     updateNpcs(ctx, dt);
     doors.update(entities, dt);
     stepPhysics(entities, map, dt);
+    ctx.access.update();
     law.update(dt, null);
     economy.update(dt);
     combat.update(dt);
@@ -147,6 +161,8 @@ export function makeSim(seedOrMap: number | GameMap) {
     ctx.brawls.update(dt);
     arsenal.update(dt);
     prison.update();
+    ctx.staffing.update();
+    ctx.academy.update(dt);
   };
-  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison };
+  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access };
 }

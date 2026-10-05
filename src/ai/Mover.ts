@@ -61,6 +61,11 @@ export class Mover {
     this.requestPath(self, ctx);
   }
 
+  /** Путь устарел (например, вахта не пустила на объект) — перестроить к той же цели. */
+  replan(self: Character, ctx: AiContext): void {
+    if (this.goal >= 0 && this.status === 'moving') this.requestPath(self, ctx);
+  }
+
   stop(): void {
     this.req?.cancel();
     this.req = null;
@@ -85,7 +90,7 @@ export class Mover {
 
   private requestPath(self: Character, ctx: AiContext): void {
     this.req?.cancel();
-    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost });
+    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, blocked: ctx.access?.blockerFor(self) });
     this.status = 'pending';
     this.path = [];
     this.wp = 0;

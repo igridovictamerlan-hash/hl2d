@@ -30,6 +30,11 @@ export interface GameEvents {
   elected: { who: Character };
   /** Игрока приняли на работу в штабе ТС. */
   hired: { who: Character; profession: ProfessionId };
+  /** Игрока-ВС повысили (назначили) на должность (Staffing). */
+  promoted: { rank: number; post: string };
+  /** Игрока зачислили курсантом академии / он принял присягу (Academy). */
+  enlisted: { who: Character };
+  graduated: { who: Character; rank: number; name: string };
 }
 
 type Handler<T> = (payload: T) => void;

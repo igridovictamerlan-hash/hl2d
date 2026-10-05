@@ -33,6 +33,8 @@ import { CWU_HQ } from '../../config/cwuHq';
 import type { KppPoint } from '../../systems/Arsenal';
 
 const near: Character[] = [];
+/** Обход живого поста — в пределах зоны поста (проверка зоны — в postLife). */
+const NO_AVOID: ReadonlySet<number> = new Set();
 
 export interface CpOptions {
   /** Пост часового (КПП), px мира. */
@@ -48,17 +50,18 @@ export interface CpOptions {
    * epu — глава силового блока; qm — кладовщик склада (стоит у стола выдачи, за нарушителями не ходит);
    * sentry — охрана склада: пост, обход вокруг поста, у дверей не стоит; convoy — экипаж конвоя склада
    * (ждёт в караулке, по приказу склада носит ящики на пункты боепитания); jailer — охрана тюрьмы
-   * (как sentry, обход — внутри тюрьмы); warden — начальник тюрьмы SU.INSP (допрос у камеры, обход).
+   * (как sentry, обход — внутри тюрьмы); warden — начальник тюрьмы SU.INSP (допрос у камеры, обход);
+   * instructor — инструктор академии (место на занятии даёт AcademySystem.dutyFor).
    */
   duty?: CpDuty;
   squad?: number;
   lead?: boolean;
 }
 
-export type CpDuty = 'post' | 'squad' | 'officer' | 'inspector' | 'bodyguard' | 'epu' | 'qm' | 'sentry' | 'convoy' | 'jailer' | 'warden';
+export type CpDuty = 'post' | 'squad' | 'officer' | 'inspector' | 'bodyguard' | 'epu' | 'qm' | 'sentry' | 'convoy' | 'jailer' | 'warden' | 'instructor';
 
 /** Командование и охрана: за нарушителями не бегают, по тревоге не прочёсывают — при своём деле. */
-const STAFF: ReadonlySet<CpDuty> = new Set<CpDuty>(['inspector', 'epu', 'bodyguard', 'officer', 'warden']);
+const STAFF: ReadonlySet<CpDuty> = new Set<CpDuty>(['inspector', 'epu', 'bodyguard', 'officer', 'warden', 'instructor']);
 
 /** Место в строю построения (Security) — пока задано, юнит стоит в строю. */
 export interface FormationSlot {
@@ -165,6 +168,22 @@ export class CpBrain implements Brain {
   /** Охрана склада: точка обхода (null — на посту) и сколько ещё стоять. */
   sentrySpot: Vec2 | null = null;
   sentryLeft = 0;
+  /**
+   * Живой пост (postLife): что делает (стоит, обход, разговор с напарником), сколько ещё, куда смотрит,
+   * напарник и шаг разговора, когда окликал прохожего, тревога от выстрелов.
+   */
+  postMode: 'stand' | 'beat' | 'chat' = 'stand';
+  postT = 0;
+  postSpot: Vec2 | null = null;
+  postLook = 0;
+  postFace = 0;
+  postPartner: Character | null = null;
+  postTalk = -1;
+  postStep = 0;
+  postNext = 0;
+  greetAt = -1e9;
+  alertUntil = 0;
+  alertFace = 0;
 
   constructor(
     public self: Character,
@@ -180,7 +199,7 @@ export class CpBrain implements Brain {
     this.lead = opts.lead ?? false;
     // Городская полиция PCU на бойню у КПП не ходит: КПП держат SU и OTA.
     const pcu = self.faction === 'cp' && cpUnit(self.rank).group === 'pcu' && this.front < 0;
-    this.patrolAvoid = zoneIds(ctx, pcu ? ['outlands', 'wasteland', 'rebel_camp', 'checkpoint', 'arsenal', 'prison'] : ['outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison']);
+    this.patrolAvoid = zoneIds(ctx, pcu ? ['outlands', 'wasteland', 'rebel_camp', 'checkpoint', 'arsenal', 'prison', 'academy'] : ['outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
     this.mover = new Mover(LAW.cpWalkSpeed);
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
@@ -210,8 +229,9 @@ export class CpBrain implements Brain {
     // поднят на прочёсывание — расходятся и прочёсывают вместе с ним, каждый в своей точке.
     if (this.duty && STAFF.has(this.duty)) return false;
     const lead = this.duty === 'squad' && !this.lead ? this.leader() : null;
-    if (lead) {
-      if (!(lead.brain as CpBrain).shouldHunt()) return false;
+    const lb = lead?.brain;
+    if (lead && lb instanceof CpBrain && lb.lead && lead !== this.self) {
+      if (!lb.shouldHunt()) return false;
     }
     if (war.code === 'red') return true;
     const p = war.nearestKnown(this.self.x, this.self.y);
@@ -267,6 +287,11 @@ export class CpBrain implements Brain {
     this.mover.goTo(self, ctx, best);
   }
 
+  /** Живой пост: RCT на посту в городе, вахтёр, дневальный академии, RCT проходной КПП. */
+  get lively(): boolean {
+    return !!this.guardPost && !this.medicStation && (this.duty === 'post' || (this.front >= 0 && !this.duty && cpUnit(this.self.rank).unit === 'rct'));
+  }
+
   /** Может ли быть охраной (свободный патрульный). */
   get canGuard(): boolean {
     const cur = this.fsm.current;
@@ -317,7 +342,9 @@ export class CpBrain implements Brain {
   leader(): Character | null {
     if (this.duty !== 'squad' || this.lead) return null;
     const now = this.ctx.law.now;
-    if (now < this.leaderCheck && this.leaderCache?.alive) return this.leaderCache;
+    // Кэш — пока ведущий жив и всё ещё ведёт эту группу (после повышения у юнита другой мозг и должность).
+    const cb = this.leaderCache?.brain;
+    if (now < this.leaderCheck && this.leaderCache?.alive && cb instanceof CpBrain && cb.duty === 'squad' && cb.lead && cb.squad === this.squad) return this.leaderCache;
     this.leaderCheck = now + 1;
     this.leaderCache = null;
     for (const o of this.ctx.entities.list) {
@@ -362,6 +389,16 @@ export class CpBrain implements Brain {
     };
     this.dutyArrived = false;
     this.dutyLine = null;
+    if (this.duty === 'instructor') {
+      // Инструктор академии: место на текущем занятии (строй, тир, класс…) — от AcademySystem.
+      const d = ctx.academy?.dutyFor(self);
+      const spot = d?.spot ?? poiWorld(ctx, 'academy_head_desk');
+      this.dutySpot = spot ? { x: spot.x, y: spot.y } : null;
+      this.dutyFacing = d?.spot?.facing ?? 0;
+      this.dutyUntil = now + (d?.hold ?? 10);
+      this.repath = 0;
+      return;
+    }
     if (this.duty === 'inspector') {
       // Обход: повара на раздаче, канцелярия с лоялистами, завод ТС, площадь, плац.
       const places: [Vec2 | null, readonly string[]][] = [
@@ -577,7 +614,7 @@ export class CpBrain implements Brain {
   /** Осмотреться: раненые свои (HELIX), нарушения, иногда — проверка «для порядка». */
   private lookAround(): void {
     const { self, ctx } = this;
-    if (!this.guardPost && (!this.duty || this.duty === 'squad')) this.listenShots();
+    if ((!this.guardPost && (!this.duty || this.duty === 'squad')) || this.duty === 'post') this.listenShots();
     const law = ctx.law;
     const zone = ctx.map.zoneAtWorld(self.x, self.y);
     const atCheckpoint = zone?.kind === 'checkpoint';
@@ -844,6 +881,7 @@ const GUARD: State<CpBrain> = {
   },
   update(b, dt) {
     if ((b.duty === 'sentry' || b.duty === 'jailer') && !b.raidPost && !b.rally) return sentry(b, dt);
+    if (b.lively && !b.raidPost && !b.rally) return postLife(b, dt);
     const p = postOf(b);
     if (b.mover.status === 'arrived' || dist(b.self.x, b.self.y, p.x, p.y) < LAW.postArrive) {
       b.mover.stop();
@@ -898,6 +936,145 @@ function sentry(b: CpBrain, dt: number): void {
     const a = b.ctx.nav.nearestWalkable(q.x, q.y, 3);
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
   }
+}
+
+/**
+ * Живой пост (SECURITY.post): на посту не статуя — осматривается, провожает взглядом прохожих и окликает их,
+ * делает пару шагов обхода, переговаривается с напарником по соседнему посту, докладывает по рации,
+ * оборачивается на выстрелы. Нарушителей у поста по-прежнему задерживает (lookAround).
+ */
+function postLife(b: CpBrain, dt: number): void {
+  const P = SECURITY.post;
+  const L = SECURITY.lines;
+  const { self, ctx } = b;
+  const rng = ctx.rng;
+  const now = ctx.law.now;
+  const post = b.guardPost!;
+  // Выстрелы рядом — поворот на звук и окрик.
+  if (now >= b.alertUntil) {
+    const shot = ctx.combat.heardShot(self, P.hear, 0.3);
+    if (shot?.shooter && !FACTIONS[shot.shooter.faction].authority) {
+      b.alertUntil = now + P.alertTime;
+      b.alertFace = Math.atan2(shot.y - self.y, shot.x - self.x);
+      self.say(rng.pick(L.postShots), now, 2);
+      if (b.postMode === 'chat') endChat(b);
+    }
+  }
+  const to = b.postSpot ?? post;
+  const far = dist(self.x, self.y, post.x, post.y) > LAW.cpRunToPost;
+  if (dist(self.x, self.y, to.x, to.y) > LAW.postArrive) {
+    b.mover.speed = far ? LAW.cpRunSpeed : b.postSpot ? LAW.cpWalkSpeed * P.speed : LAW.cpWalkSpeed;
+    if (b.mover.status === 'failed') b.postSpot = null;
+    if (b.mover.status === 'failed' || b.mover.status === 'idle' || b.mover.status === 'arrived') {
+      const q = b.postSpot ?? post;
+      const a = ctx.nav.nearestWalkable(q.x, q.y, 3);
+      if (a >= 0) b.mover.goTo(self, ctx, a);
+    }
+    faceMovement(self, ctx, dt);
+    return;
+  }
+  b.mover.stop();
+  if (now < b.alertUntil) {
+    turnTowards(self, b.alertFace, dt, 5);
+    return;
+  }
+  b.postT -= dt;
+  // Разговор с напарником: реплики по очереди, лицом друг к другу.
+  if (b.postMode === 'chat') {
+    const o = b.postPartner;
+    const ob = o?.brain;
+    if (!o || !o.alive || !(ob instanceof CpBrain) || ob.postPartner !== self || ob.fsm.current !== 'guard' || b.postT <= 0) {
+      endChat(b);
+      return;
+    }
+    turnTowards(self, Math.atan2(o.y - self.y, o.x - self.x), dt, 4);
+    if (b.postTalk >= 0 && now >= b.postNext && b.postStep < 2) {
+      const pair = L.postTalk[b.postTalk];
+      (b.postStep === 0 ? self : o).say(pair[b.postStep], now, 3);
+      b.postStep++;
+      b.postNext = now + 3;
+    }
+    return;
+  }
+  // Взгляд гуляет вокруг направления поста; прохожего рядом — провожает и иногда окликает.
+  b.postLook -= dt;
+  if (b.postLook <= 0) {
+    b.postLook = rng.range(P.look[0], P.look[1]);
+    b.postFace = b.guardFacing + rng.range(-P.sway, P.sway);
+  }
+  let face = b.postSpot ? b.postFace + rng.range(-0.02, 0.02) : b.postFace;
+  let passer: Character | null = null;
+  let pd: number = P.watch;
+  for (const o of ctx.entities.near(self.x, self.y, P.watch, near)) {
+    if (o === self || !o.alive || o.moveSpeed < 20 || FACTIONS[o.faction].authority) continue;
+    const d = dist(self.x, self.y, o.x, o.y);
+    if (d < pd) {
+      pd = d;
+      passer = o;
+    }
+  }
+  if (passer) {
+    face = Math.atan2(passer.y - self.y, passer.x - self.x);
+    if (now - b.greetAt > P.greetEvery && rng.chance(P.greetChance * dt * 2)) {
+      b.greetAt = now;
+      self.say(rng.pick(L.postGreet), now, 2.5);
+      if (!passer.isPlayer && rng.chance(P.answerChance)) passer.say(rng.pick(L.postAnswer), now + 0.8, 2);
+    }
+  }
+  turnTowards(self, face, dt, passer ? 3 : 1.6);
+  if (b.postT > 0) return;
+  // Следующее занятие на посту.
+  if (b.postSpot) {
+    b.postSpot = null;
+    b.postMode = 'stand';
+    b.postT = rng.range(P.stand[0], P.stand[1]);
+    return;
+  }
+  const roll = rng.next();
+  if (roll < P.beatChance) {
+    const a = randomAnchorAround(post, ctx, 1, rng.int(P.beat[0], P.beat[1]), NO_AVOID);
+    if (a >= 0 && ctx.map.zoneAtWorld(ctx.nav.worldX(a), ctx.nav.worldY(a))?.id === ctx.map.zoneAtWorld(post.x, post.y)?.id) {
+      b.postSpot = { x: ctx.nav.worldX(a), y: ctx.nav.worldY(a) };
+      b.postMode = 'beat';
+      b.postT = rng.range(P.beatStay[0], P.beatStay[1]);
+      b.postFace = rng.range(0, Math.PI * 2);
+      return;
+    }
+  } else if (roll < P.beatChance + P.chatChance) {
+    for (const o of ctx.entities.near(self.x, self.y, P.chatRange, near)) {
+      const ob = o.brain;
+      if (o === self || !o.alive || !(ob instanceof CpBrain) || !ob.lively || ob.postMode !== 'stand' || ob.fsm.current !== 'guard' || now < ob.alertUntil) continue;
+      if (dist(self.x, self.y, o.x, o.y) > P.chatRange) continue;
+      const t = rng.range(P.chat[0], P.chat[1]);
+      b.postMode = ob.postMode = 'chat';
+      b.postPartner = o;
+      ob.postPartner = self;
+      b.postT = ob.postT = t;
+      b.postTalk = rng.int(0, L.postTalk.length - 1);
+      ob.postTalk = -1;
+      b.postStep = 0;
+      b.postNext = now + 0.5;
+      return;
+    }
+  } else if (roll < P.beatChance + P.chatChance + P.radioChance) {
+    self.say(rng.pick(L.postRadio), now, 3);
+  } else if (rng.chance(0.15)) self.say(rng.pick(L.postBored), now, 2);
+  b.postMode = 'stand';
+  b.postT = rng.range(P.stand[0], P.stand[1]);
+}
+
+/** Разговор на посту окончен (у обоих). */
+function endChat(b: CpBrain): void {
+  const o = b.postPartner;
+  const ob = o?.brain;
+  if (ob instanceof CpBrain && ob.postPartner === b.self) {
+    ob.postPartner = null;
+    if (ob.postMode === 'chat') ob.postMode = 'stand';
+    ob.postT = b.ctx.rng.range(SECURITY.post.stand[0], SECURITY.post.stand[1]);
+  }
+  b.postPartner = null;
+  b.postMode = 'stand';
+  b.postT = b.ctx.rng.range(SECURITY.post.stand[0], SECURITY.post.stand[1]);
 }
 
 /**
@@ -1460,7 +1637,7 @@ const DUTY: State<CpBrain> = {
         if (b.dutyLine) b.self.say(b.dutyLine, now, 3);
       }
       turnTowards(b.self, b.dutyFacing, dt, 2);
-      if (b.ctx.rng.chance(dt * 0.3)) b.dutyFacing = b.ctx.rng.range(0, Math.PI * 2);
+      if (b.duty !== 'instructor' && b.ctx.rng.chance(dt * 0.3)) b.dutyFacing = b.ctx.rng.range(0, Math.PI * 2);
     } else b.goToPoint(p, dt, 2);
     if (now >= b.dutyUntil) b.nextDuty();
   },
