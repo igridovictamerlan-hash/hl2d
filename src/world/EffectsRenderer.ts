@@ -162,14 +162,18 @@ export class EffectsRenderer {
     }
     ctx.globalAlpha = 1;
     // Тела.
+    const FALL = PAWN.anim.fall;
     for (const c of combat.corpses) {
       const x = (c.x - v.left) * s;
       const y = (c.y - v.top) * s;
       if (x < -30 || y < -30 || x > v.width + 30 || y > v.height + 30) continue;
       const col = colorsOf(c.faction, c.rank);
+      // Падение: в первые FALL.time с корпус заваливается от ступней, скользит по удару и чуть отскакивает.
+      const f = c.fell ? Math.max(0, Math.min(1, (combat.now - c.fell.at) / FALL.time)) : 1;
+      const e = 1 - (1 - f) * (1 - f) * (1 - f);
       ctx.fillStyle = E.blood;
       ctx.beginPath();
-      ctx.ellipse(x + 3 * s, y + 4 * s, 16 * s, 9 * s, 0.4, 0, Math.PI * 2);
+      ctx.ellipse(x + 3 * s, y + 4 * s, 16 * s * e, 9 * s * e, 0.4, 0, Math.PI * 2);
       ctx.fill();
       // Тело — пешка лежит на боку (повёрнута), чуть блеклая.
       const seed = lookSeed(c.name);
@@ -178,11 +182,15 @@ export class EffectsRenderer {
         this.drawSheet(ctx, x, y, s, seed);
         continue;
       }
+      const slide = c.fell && f < 1 ? FALL.slide * e * s : 0;
+      const ox = c.fell ? Math.cos(c.fell.ang) * slide : 0;
+      const oy = c.fell ? Math.sin(c.fell.ang) * slide * 0.6 : 0;
+      const pivot = (1 - e) * FALL.pivot * s;
       ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(seed % 2 ? Math.PI / 2 : -Math.PI / 2);
+      ctx.translate(x + ox, y + oy + pivot);
+      ctx.rotate((seed % 2 ? Math.PI / 2 : -Math.PI / 2) * (e + FALL.bounce * Math.sin(f * Math.PI)));
       ctx.globalAlpha = PAWN.corpseAlpha;
-      drawPawnCached(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession }, 0, -2 * s, s * PAWN.scale, 'S');
+      drawPawnCached(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession }, 0, -2 * s * e - pivot, s * PAWN.scale, 'S');
       ctx.restore();
       ctx.globalAlpha = 1;
       if (c.loot.length) {

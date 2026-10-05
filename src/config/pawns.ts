@@ -79,6 +79,20 @@ export const PAWN = {
     cards: { period: 2.6, lift: 0.4 },
     smoke: { period: 6.5, raise: 0.1, hold: 0.14, exhale: 0.2, start: 0.55 },
     talk: { rate: 6.5, amp: 2.6, raise: 1.5, bob: 0.5 },
+    /**
+     * Бой (entities/poses.ts): удар — замах назад (windup — доля времени), бросок вперёд, корпус подаётся
+     * на lunge px и наклоняется на lean; кулак выходит на reach px от rest; дубинка размахивается на sweep рад,
+     * нож — коротко (sweep). Бросок гранаты: рука назад на back px, отпускает на release доле времени, вперёд на fwd.
+     * Попадание: пешку отбрасывает на push px от удара и клонит на lean за time с. Хромота — шаг неровный (hard/soft —
+     * подскок на больной и здоровой ноге). Строевой шаг: ступни выше (lift), руки качаются на swing.
+     * Падение убитого: time с, скольжение slide px по удару, отскок bounce.
+     */
+    strike: { time: 0.3, windup: 0.3, lunge: 2.4, lean: 0.14, reach: 9, rest: 3.4, side: 4.6, club: 1.5, blade: 0.45 },
+    throw: { time: 0.42, release: 0.5, back: 5.5, fwd: 8, lean: 0.17 },
+    hurt: { time: 0.22, push: 2.6, lean: 0.15 },
+    limp: { lean: 0.075, hard: 1.9, soft: 0.45 },
+    march: { lift: 2.1, swing: 3.4, bob: 1.8 },
+    fall: { time: 0.38, slide: 6, bounce: 0.07, pivot: 12 },
   },
   /**
    * Одежда по фракциям. base — цвет одежды под бронёй (по умолчанию — цвет ранга),

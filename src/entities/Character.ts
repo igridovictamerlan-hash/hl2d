@@ -215,6 +215,15 @@ export class Character {
   lastZone: 'head' | 'torso' | 'arm' | 'leg' | 'blast' | null = null;
   /** Оглушён (дубинкой) до этого времени. */
   stunUntil = 0;
+  /** Только для отрисовки (entities/poses.ts): когда и куда бил (кулак, дубинка, нож), когда бросал гранату, откуда пришёл удар. */
+  strikeAt = -1e9;
+  strikeAng = 0;
+  strikeKind: '' | 'fist' | 'club' | 'blade' = '';
+  throwAt = -1e9;
+  throwAng = 0;
+  hurtAng = 0;
+  /** Строевой шаг (курсанты на плацу) — только отрисовка. */
+  marching = false;
   /** Множитель желаемой скорости (оглушение). Ставит CombatSystem, применяет физика. */
   speedMul = 1;
   /** Сколько секунд ещё проходит сквозь других NPC (разбор затора, Mover); игрока не проходит. */

@@ -24,9 +24,12 @@ export interface PawnAnim {
   lift: number;
   /** Рисовать ли ступни (сидящему и спящему — нет). */
   feet: boolean;
+  /** Сдвиг корпуса, px мира (выпад при ударе, отброс от попадания). */
+  dx: number;
+  dy: number;
 }
 
-export const anim: PawnAnim = { kind: 'stand', lean: 0, squash: 1, drop: 0, lift: 0, feet: true };
+export const anim: PawnAnim = { kind: 'stand', lean: 0, squash: 1, drop: 0, lift: 0, feet: true, dx: 0, dy: 0 };
 
 const TAU = Math.PI * 2;
 
@@ -54,7 +57,9 @@ export function animOf(c: Character, now: number, walking: boolean, aiming: bool
   a.drop = 0;
   a.lift = 0;
   a.feet = true;
-  if (walking) return a;
+  a.dx = 0;
+  a.dy = 0;
+  if (walking) return impulses(c, now, a);
   if (c.asleep) {
     const S = A.sleep;
     a.kind = 'sleep';
@@ -71,15 +76,78 @@ export function animOf(c: Character, now: number, walking: boolean, aiming: bool
     a.lean = Math.sin((now / S.period) * TAU + ph) * S.sway;
     a.feet = false;
     if (isTalking(c, now)) a.lift = Math.max(0, Math.sin(now * A.talk.rate * 0.7 + ph)) * A.talk.bob;
-    return a;
+    return impulses(c, now, a);
   }
-  if (aiming || c.crouch) return a;
+  if (aiming || c.crouch) return impulses(c, now, a);
   const I = A.idle;
   a.lean = Math.sin((now / I.period) * TAU + ph) * I.lean;
   a.squash = 1 + I.breathe * Math.sin((now / I.breathePeriod) * TAU + ph * 0.7);
   a.lift = (0.5 + 0.5 * Math.sin((now / I.breathePeriod) * TAU + ph * 0.7)) * I.bob;
   if (isTalking(c, now)) a.lift += Math.max(0, Math.sin(now * A.talk.rate * 0.7 + ph)) * A.talk.bob;
+  return impulses(c, now, a);
+}
+
+/** Ход удара 0..1 или -1, если не бьёт сейчас. */
+function strikeProgress(c: Character, now: number): number {
+  const p = (now - c.strikeAt) / PAWN.anim.strike.time;
+  return p >= 0 && p < 1 ? p : -1;
+}
+
+/** Выдвижение руки в ударе: от -1 (замах назад) через 0 до 1 (удар) и обратно. */
+function strikeExt(p: number): number {
+  const S = PAWN.anim.strike;
+  return p < S.windup ? -smooth(p / S.windup) * 0.5 : Math.sin(((p - S.windup) / (1 - S.windup)) * Math.PI);
+}
+
+/**
+ * Толчки боя поверх позы: удар (выпад и наклон в сторону удара), бросок гранаты (откинулся и подался вперёд),
+ * попадание (отброс от удара и наклон). Только сдвиг и наклон — тело то же.
+ */
+function impulses(c: Character, now: number, a: PawnAnim): PawnAnim {
+  const A = PAWN.anim;
+  const sp = strikeProgress(c, now);
+  if (sp >= 0) {
+    const S = A.strike;
+    const e = strikeExt(sp);
+    const k = c.strikeKind === 'blade' ? 1.3 : 1;
+    a.dx += Math.cos(c.strikeAng) * S.lunge * e * k;
+    a.dy += Math.sin(c.strikeAng) * S.lunge * e * 0.6 * k;
+    a.lean += Math.cos(c.strikeAng) * S.lean * e;
+  }
+  const tp = (now - c.throwAt) / A.throw.time;
+  if (tp >= 0 && tp < 1) {
+    const T = A.throw;
+    const e = tp < T.release ? -smooth(tp / T.release) : Math.sin(((tp - T.release) / (1 - T.release)) * Math.PI) * 0.8;
+    a.lean += Math.cos(c.throwAng) * T.lean * e;
+    a.dx += Math.cos(c.throwAng) * 1.4 * e;
+  }
+  const hp = (now - c.lastHurt) / A.hurt.time;
+  if (hp >= 0 && hp < 1) {
+    const H = A.hurt;
+    const k = (1 - hp) * (1 - hp);
+    a.dx += Math.cos(c.hurtAng) * H.push * k;
+    a.dy += Math.sin(c.hurtAng) * H.push * 0.6 * k;
+    a.lean += Math.cos(c.hurtAng) * H.lean * k;
+  }
   return a;
+}
+
+/**
+ * Угол ствола в ударе: дубинка размахивается дугой, нож колет коротко. 0 — не бьёт (или без оружия).
+ * Прибавляется к направлению удара вызывающим.
+ */
+export function strikeSweep(c: Character, now: number): number {
+  const sp = strikeProgress(c, now);
+  if (sp < 0 || c.strikeKind === 'fist' || c.strikeKind === '') return 0;
+  const S = PAWN.anim.strike;
+  const w = c.strikeKind === 'blade' ? S.blade : S.club;
+  const off = w * (2 * smooth(sp) - 1);
+  return Math.cos(c.strikeAng) < 0 ? -off : off;
+}
+
+/** Бьёт ли сейчас (для вызывающего: направление ствола — по удару). */
+export function isStriking(c: Character, now: number): boolean {
+  return strikeProgress(c, now) >= 0;
 }
 
 function smooth(t: number): number {
@@ -255,4 +323,52 @@ export function drawSleepZ(ctx: CanvasRenderingContext2D, c: Character, x: numbe
     ctx.stroke();
   }
   ctx.globalAlpha = c.visible ? 1 : 0.4;
+}
+
+/**
+ * Руки в бою и на плацу (поверх спрайта, оружие они не скрывают): кулак выходит в ударе (руки по очереди),
+ * бросок гранаты — рука назад и вперёд, строевой шаг — руки качаются в такт шагу (phase — фаза шага,
+ * sn — sin(phase) шага, 0 — не идёт).
+ */
+export function drawActionHands(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, x: number, y: number, ps: number, dir: PawnDir, now: number, sn: number): void {
+  const A = PAWN.anim;
+  const col = handColor(look);
+  const sp = strikeProgress(c, now);
+  if (sp >= 0 && c.strikeKind === 'fist') {
+    const S = A.strike;
+    const e = strikeExt(sp);
+    const r = S.rest + e * S.reach;
+    const side = (Math.floor(c.strikeAt * 7) + c.id) % 2 ? 1 : -1;
+    drawHand(ctx, x + (Math.cos(c.strikeAng) * r + side * S.side * 0.6) * ps, y + (Math.sin(c.strikeAng) * r * 0.6 + 1.5) * ps, ps, col);
+    drawHand(ctx, x - side * S.side * ps, y + 5.5 * ps, ps, col);
+  }
+  const tp = (now - c.throwAt) / A.throw.time;
+  if (tp >= 0 && tp < 1) {
+    const T = A.throw;
+    const ca = Math.cos(c.throwAng);
+    const sa = Math.sin(c.throwAng);
+    const back = smooth(Math.min(1, tp / T.release));
+    let hx: number;
+    let hy: number;
+    if (tp < T.release) {
+      hx = ca * -T.back * back + (1 - back) * 7;
+      hy = 4 - back * 7 + sa * -2 * back;
+    } else {
+      const f = smooth((tp - T.release) / (1 - T.release));
+      hx = ca * (-T.back + (T.back + T.fwd) * f);
+      hy = -3 + sa * 3 * f + f * 4;
+    }
+    drawHand(ctx, x + hx * ps, y + hy * ps, ps, col);
+  }
+  if (c.marching && dir !== 'N' && sn !== 0 && !c.weapon) {
+    const M = A.march;
+    const sw = sn * M.swing;
+    if (dir === 'S') {
+      drawHand(ctx, x - 7.6 * ps, y + (5.5 - sw) * ps, ps, col);
+      drawHand(ctx, x + 7.6 * ps, y + (5.5 + sw) * ps, ps, col);
+    } else {
+      const f = dir === 'W' ? -1 : 1;
+      drawHand(ctx, x + f * (1.5 + sw) * ps, y + 5 * ps, ps, col);
+    }
+  }
 }

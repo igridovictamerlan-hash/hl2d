@@ -11,7 +11,7 @@ import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
 import { bootColor, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
-import { animOf, drawBlanket, drawHandProps, drawSleepZ } from './poses';
+import { animOf, drawActionHands, drawBlanket, drawHandProps, drawSleepZ, isStriking, strikeSweep } from './poses';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
@@ -112,22 +112,27 @@ export class EntityRenderer {
       const amt = walking ? Math.min(1, speed / CHARACTER.walkSpeed) : 0;
       const phase = (c.stride / W.stride) * Math.PI;
       const sn = Math.sin(phase);
-      const bob = Math.abs(sn) * W.bob * amt + an.lift;
+      // Хромает — шаг неровный: подскок на одной ноге сильнее, корпус кренится; строевой шаг — чётче и выше.
+      const limping = walking && c.limpUntil > now;
+      const marching = walking && c.marching;
+      const bobMul = limping ? (sn > 0 ? PAWN.anim.limp.hard : PAWN.anim.limp.soft) : marching ? PAWN.anim.march.bob : 1;
+      const bob = Math.abs(sn) * W.bob * amt * bobMul + an.lift;
       const horiz = speed > 0 ? Math.abs(c.gaitVx) / speed : 0;
-      const lean = walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) : an.lean;
+      const lean = walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) + (limping ? sn * PAWN.anim.limp.lean : 0) + an.lean : an.lean;
       // Поворот вокруг точки у ног: ступни на земле, корпус наклоняется.
       const footY = W.foot.y * ps;
       const cs = Math.cos(lean);
       const si = Math.sin(lean);
       // Присел — ниже ростом (сжат по вертикали к ступням).
       const k = (c.crouch ? CROUCH.squash : 1) * an.squash;
-      ctx.setTransform(cs, si, -si * k, cs * k, gx, gy + footY + an.drop * ps);
+      ctx.setTransform(cs, si, -si * k, cs * k, gx + an.dx * ps, gy + footY + (an.drop + an.dy) * ps);
       // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
       const x = 0;
       const y = -footY - bob * ps;
-      if (an.feet) drawFeet(ctx, dir, look, ps, walking ? phase : null, amt);
+      if (an.feet) drawFeet(ctx, dir, look, ps, walking ? phase : null, amt, marching ? PAWN.anim.march.lift : 1);
       // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу.
-      const hold = pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
+      const striking = isStriking(c, now);
+      const hold = striking ? c.strikeAng + strikeSweep(c, now) : pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
       // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
       const hand = c.weapon ? handColor(look) : null;
       const armed = !!c.weapon && an.kind !== 'sleep';
@@ -137,6 +142,7 @@ export class EntityRenderer {
         drawBlanket(ctx, c, x, y, ps);
         drawSleepZ(ctx, c, x, y, ps, now);
       } else if (!drawHandProps(ctx, c, look, x, y, ps, dir, now) && armed && dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
+      if (an.kind !== 'sleep') drawActionHands(ctx, c, look, x, y, ps, dir, now, marching ? sn : 0);
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
         const bx = x + Math.cos(hold) * 6 * ps;
@@ -496,7 +502,7 @@ export function isLoyalistUniform(c: Character): boolean {
  * приподнята; в профиль — одна впереди, другая позади, выносится вперёд по фазе шага. phase —
  * фаза шага (null — стоит), amt — доля шага от скорости.
  */
-export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnLookLite, ps: number, phase: number | null, amt: number): void {
+export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnLookLite, ps: number, phase: number | null, amt: number, liftMul = 1): void {
   const F = PAWN.walk.foot;
   const sn = phase === null ? 0 : Math.sin(phase);
   const cs = phase === null ? 1 : Math.cos(phase);
@@ -508,7 +514,7 @@ export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnL
   for (let i = 0; i < 2; i++) {
     // Ступня 0 опорная в первом шаге (уходит назад), 1 — переносится вперёд и приподнята.
     const k = i === 0 ? 1 : -1;
-    const lift = Math.max(0, -k * sn) * F.lift * amt;
+    const lift = Math.max(0, -k * sn) * F.lift * amt * liftMul;
     const fx = side ? (phase === null ? (i === 0 ? 1.2 : -1.2) : k * cs * F.swing * amt) * fwd : (i === 0 ? -F.dx : F.dx);
     ctx.beginPath();
     ctx.ellipse(fx * ps, -lift * ps, F.rx * ps, F.ry * ps, 0, 0, Math.PI * 2);

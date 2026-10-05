@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { animOf, smokeCycle } from '../src/entities/poses';
+import { animOf, isStriking, smokeCycle, strikeSweep } from '../src/entities/poses';
 import { PAWN } from '../src/config/pawns';
 import { Character } from '../src/entities/Character';
 
@@ -74,5 +74,41 @@ describe('бытовые анимации пешек', () => {
     }
     expect(up).toBe(1);
     expect(exhaled).toBe(true);
+  });
+
+  it('удар: корпус подаётся в сторону удара и возвращается, дубинка размахивается дугой', () => {
+    const c = pawn();
+    c.strikeAt = 10;
+    c.strikeAng = 0;
+    c.strikeKind = 'club';
+    expect(isStriking(c, 9.9)).toBe(false);
+    expect(isStriking(c, 10.1)).toBe(true);
+    let far = 0;
+    for (let t = 10; t < 10.3; t += 0.01) far = Math.max(far, animOf(c, t, false, false).dx);
+    expect(far).toBeGreaterThan(1);
+    expect(animOf(c, 10.5, false, false).dx).toBeCloseTo(0, 5);
+    expect(strikeSweep(c, 10.01)).toBeLessThan(0);
+    expect(strikeSweep(c, 10.29)).toBeGreaterThan(0);
+    c.strikeKind = 'fist';
+    expect(strikeSweep(c, 10.15)).toBe(0);
+  });
+
+  it('попадание отбрасывает от удара и затихает', () => {
+    const c = pawn();
+    c.lastHurt = 5;
+    c.hurtAng = Math.PI;
+    const hit = animOf(c, 5.01, false, false);
+    expect(hit.dx).toBeLessThan(-1);
+    expect(animOf(c, 5.5, false, false).dx).toBeCloseTo(0, 5);
+  });
+
+  it('бросок гранаты: откидывается назад, потом подаётся вперёд', () => {
+    const c = pawn();
+    c.throwAt = 2;
+    c.throwAng = 0;
+    const early = animOf(c, 2.18, false, false).lean;
+    const late = animOf(c, 2.32, false, false).lean;
+    expect(early).toBeLessThan(late);
+    expect(Math.abs(animOf(c, 3, false, false).lean)).toBeLessThanOrEqual(PAWN.anim.idle.lean + 1e-9);
   });
 });
