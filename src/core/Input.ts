@@ -1,7 +1,8 @@
 import { CONTROLS, type Action } from '../config/controls';
 
 /**
- * Ввод: клавиши по KeyboardEvent.code (не зависит от раскладки), мышь относительно холста.
+ * Ввод: клавиши по KeyboardEvent.code (не зависит от раскладки), мышь относительно холста; на телефоне —
+ * сенсорный экран (ui/TouchControls) пишет сюда же: виртуальные клавиши, аналоговый шаг, «мышь»-прицел.
  * wasPressed() срабатывает один раз до конца тика логики (endTick).
  */
 export class Input {
@@ -17,6 +18,17 @@ export class Input {
   wheel = 0;
   /** Мышь над холстом (для курсора-прицела). */
   mouseInside = false;
+  /**
+   * Сенсорный режим (ui/TouchControls): аналоговый шаг со стика (moveX/moveY — направление × доля скорости,
+   * run — дотянул до края), виртуальные клавиши кнопок экрана, точка «касание мира» для подробностей о пешке.
+   */
+  touch = false;
+  moveX = 0;
+  moveY = 0;
+  moveRun = false;
+  inspect: { x: number; y: number; until: number } | null = null;
+  private vdown = new Set<Action>();
+  private vpressed = new Set<Action>();
 
   private readonly codeToAction = new Map<string, Action>();
 
@@ -31,9 +43,10 @@ export class Input {
       this.mouseDown = this.aimDown = false;
     });
     canvas.addEventListener('mousemove', this.onMouseMove);
-    canvas.addEventListener('mouseenter', () => (this.mouseInside = true));
-    canvas.addEventListener('mouseleave', () => (this.mouseInside = false));
+    canvas.addEventListener('mouseenter', () => !this.touch && (this.mouseInside = true));
+    canvas.addEventListener('mouseleave', () => !this.touch && (this.mouseInside = false));
     canvas.addEventListener('mousedown', (e) => {
+      if (this.touch) return;
       if (e.button === 2) {
         this.aimDown = true;
         return;
@@ -44,6 +57,7 @@ export class Input {
       canvas.focus();
     });
     window.addEventListener('mouseup', (e) => {
+      if (this.touch) return;
       if (e.button === 0) this.mouseDown = false;
       if (e.button === 2) this.aimDown = false;
     });
@@ -77,6 +91,8 @@ export class Input {
   };
 
   private onMouseMove = (e: MouseEvent) => {
+    // В сенсорном режиме «мышь» — это прицел со стика (TouchControls), не события браузера.
+    if (this.touch) return;
     const r = this.canvas.getBoundingClientRect();
     this.mouseX = e.clientX - r.left;
     this.mouseY = e.clientY - r.top;
@@ -93,23 +109,44 @@ export class Input {
   }
 
   isDown(action: Action): boolean {
+    if (this.vdown.has(action)) return true;
     for (const c of CONTROLS[action]) if (this.down.has(c)) return true;
     return false;
   }
 
   wasPressed(action: Action): boolean {
+    if (this.vpressed.has(action)) return true;
     for (const c of CONTROLS[action]) if (this.pressed.has(c)) return true;
     return false;
+  }
+
+  /** Виртуальная клавиша (кнопка сенсорного экрана) нажата / отпущена. */
+  press(action: Action): void {
+    if (!this.vdown.has(action)) this.vpressed.add(action);
+    this.vdown.add(action);
+  }
+
+  release(action: Action): void {
+    this.vdown.delete(action);
+  }
+
+  /** Короткое нажатие виртуальной клавиши: сработает на ближайшем тике. */
+  tap(action: Action): void {
+    this.vpressed.add(action);
   }
 
   /** Отпустить все клавиши (открыли чат, потеряли фокус). */
   releaseAll(): void {
     this.down.clear();
+    this.vdown.clear();
     this.mouseDown = this.aimDown = false;
+    this.moveX = this.moveY = 0;
+    this.moveRun = false;
   }
 
   endTick(): void {
     this.pressed.clear();
+    this.vpressed.clear();
     this.mousePressed = false;
     this.wheel = 0;
   }

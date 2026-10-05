@@ -65,6 +65,12 @@ export class InventoryPanel {
     this.el.hidden = true;
     this.cv = document.createElement('canvas');
     this.el.appendChild(this.cv);
+    // Закрыть — и мышью, и пальцем (на телефоне нет Tab).
+    const close = document.createElement('button');
+    close.className = 'inv-close';
+    close.textContent = '✕';
+    close.addEventListener('click', () => this.isOpen && this.toggle());
+    this.el.appendChild(close);
     parent.appendChild(this.el);
     this.ctx = this.cv.getContext('2d')!;
     this.cv.addEventListener('mousemove', (e) => {
@@ -82,16 +88,30 @@ export class InventoryPanel {
       this.hover = null;
       this.sig = '';
     });
-    this.cv.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
+    // Мышь и палец: координаты — из самого нажатия (у касания не было mousemove до него); подсказка — по
+    // тому, чего коснулись.
+    this.cv.style.touchAction = 'none';
+    this.cv.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const r = this.cv.getBoundingClientRect();
+      this.mx = (e.clientX - r.left) / this.scale;
+      this.my = (e.clientY - r.top) / this.scale;
       const h = this.hitAt(this.mx, this.my);
-      if (h?.click) {
-        h.click();
-        this.sig = '';
-      }
+      if (e.pointerType !== 'mouse') this.hover = h;
+      if (h?.click) h.click();
+      this.sig = '';
       e.preventDefault();
     });
     this.cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  /** Сенсорный режим (телефон): подсказки — «касание», а не «ЛКМ». */
+  private get touch(): boolean {
+    return document.body.classList.contains('touch');
+  }
+
+  private get press(): string {
+    return this.touch ? 'Касание' : 'ЛКМ';
   }
 
   private hitAt(x: number, y: number): Hit | null {
@@ -112,7 +132,7 @@ export class InventoryPanel {
   update(p: Character, combat: CombatSystem, look: PawnLook): void {
     if (!this.isOpen) return;
     const hoverKey = this.hover ? `${this.hover.x},${this.hover.y}` : '';
-    const sig = `${p.inventory.slots.map((s) => `${s.id}:${s.qty}`).join(',')}|${p.weapon}|${p.gear.head}|${p.gear.torso}|${p.gear.back}|${p.mag}|${p.grenadeKind}|${p.money}|${this.dir}|${hoverKey}|${look.seed}|${look.color}|${combat.reloading(p)}|${window.innerWidth}x${window.innerHeight}`;
+    const sig = `${p.inventory.slots.map((s) => `${s.id}:${s.qty}`).join(',')}|${p.weapon}|${p.gear.head}|${p.gear.torso}|${p.gear.back}|${p.mag}|${p.grenadeKind}|${p.money}|${this.dir}|${hoverKey}|${look.seed}|${look.color}|${combat.reloading(p)}|${window.innerWidth}x${window.innerHeight}|${this.touch}`;
     if (sig === this.sig) return;
     this.sig = sig;
     this.draw(p, combat, look);
@@ -145,7 +165,7 @@ export class InventoryPanel {
     const L = 16;
     const T = 40;
     text(ctx, 'ИНВЕНТАРЬ', L, 22, 15, C.text, 'left', 800);
-    text(ctx, 'Tab — закрыть', W - 16, 22, 11, C.textDim, 'right', 700);
+    text(ctx, this.touch ? '' : 'Tab — закрыть', W - 56, 22, 11, C.textDim, 'right', 700);
 
     // --- снаряжение: надетое (шлем, бронежилет, рюкзак — снимается) и форма роли (не снять) ---
     const role = roleArmor(p);
@@ -178,7 +198,7 @@ export class InventoryPanel {
         ctx.strokeStyle = C.equipped;
         ctx.strokeRect(x + 4, y + 4, S - 8, S - 8);
         const stat = g.capacity ? `+${g.capacity} ячейки` : `броня ${pct(g.head ?? g.torso ?? 0)}`;
-        this.hits.push({ x, y, w: S, h: S, title: `${ITEMS[on].name} (надето)`, desc: `${ITEMS[on].desc} ${stat[0].toUpperCase()}${stat.slice(1)}.`, act: 'ЛКМ — снять', click: () => this.host.takeOffGear(slot) });
+        this.hits.push({ x, y, w: S, h: S, title: `${ITEMS[on].name} (надето)`, desc: `${ITEMS[on].desc} ${stat[0].toUpperCase()}${stat.slice(1)}.`, act: `${this.press} — снять`, click: () => this.host.takeOffGear(slot) });
       } else if (uniform) {
         ctx.globalAlpha = 0.75;
         drawIcon(ctx, uniform, x + S / 2, y + S / 2 + 2, 0.85);
@@ -263,7 +283,7 @@ export class InventoryPanel {
         drawIcon(ctx, g, x + S / 2, ky + (S - 10) / 2 + 2, 0.7);
         badge(ctx, `×${n}`, x + S - 6, ky + S - 16);
       }
-      this.hits.push({ x, y: ky, w: S, h: S - 10, title: ITEMS[g].name, desc: ITEMS[g].desc, act: n ? (sel ? 'Выбрана для T' : 'ЛКМ — выбрать для T') : 'нет', click: n ? () => this.host.chooseGrenade(g) : undefined });
+      this.hits.push({ x, y: ky, w: S, h: S - 10, title: ITEMS[g].name, desc: ITEMS[g].desc, act: n ? (sel ? 'Выбрана для T' : `${this.press} — выбрать для T`) : 'нет', click: n ? () => this.host.chooseGrenade(g) : undefined });
     });
 
     // --- рюкзак: остальное (всего ячеек — вместе со стволами и гранатами) ---
@@ -288,13 +308,13 @@ export class InventoryPanel {
       let act = '';
       let click: (() => void) | undefined;
       if (def.food || def.heal || st.id === 'fake_cid') {
-        act = def.food ? 'ЛКМ — съесть' : 'ЛКМ — применить';
+        act = def.food ? `${this.press} — съесть` : `${this.press} — применить`;
         click = () => this.host.useItem(st.id);
       } else if (def.kind === 'weapon') {
-        act = 'ЛКМ — взять в руки';
+        act = `${this.press} — взять в руки`;
         click = () => this.host.equipItem(st.id as WeaponId);
       } else if (def.gear) {
-        act = 'ЛКМ — надеть';
+        act = `${this.press} — надеть`;
         click = () => this.host.wearGear(st.id as GearId);
       }
       this.hits.push({ x, y, w: S, h: S - 6, title: `${def.name}${st.qty > 1 ? ` ×${st.qty}` : ''}`, desc: def.kind === 'weapon' ? `${def.desc} ${weaponStats(WEAPONS[st.id as WeaponId])}` : def.desc, act, click });
@@ -313,8 +333,8 @@ export class InventoryPanel {
       lines.slice(0, Math.max(1, Math.floor((hh - 70) / 15))).forEach((l, i) => text(ctx, l, bx + 12, hy + 44 + i * 15, 11, C.text, 'left', 600));
       if (h.act) text(ctx, h.act, bx + 12, hy + hh - 16, 11, C.selected, 'left', 800);
     } else {
-      text(ctx, 'Наведите на предмет', bx + 12, hy + 22, 12, C.textDim, 'left', 700);
-      text(ctx, 'ЛКМ — съесть, применить, взять в руки', bx + 12, hy + 44, 11, C.textDim, 'left', 600);
+      text(ctx, this.touch ? 'Коснитесь предмета' : 'Наведите на предмет', bx + 12, hy + 22, 12, C.textDim, 'left', 700);
+      text(ctx, `${this.press} — съесть, применить, взять в руки`, bx + 12, hy + 44, 11, C.textDim, 'left', 600);
       text(ctx, 'Q зажать — колесо оружия', bx + 12, hy + 60, 11, C.textDim, 'left', 600);
     }
   }
@@ -342,7 +362,7 @@ export class InventoryPanel {
       ctx.strokeRect(x + 4, y + 4, w - 8, h - 8);
       text(ctx, 'в руках', x + 10, y + h - 12, 11, C.equipped, 'left', 800);
     }
-    this.hits.push({ x, y, w, h, title: wd.name, desc: `${ITEMS[id].desc} ${weaponStats(wd)}`, act: inHands ? 'ЛКМ — убрать' : 'ЛКМ — взять в руки', click: () => this.host.equipItem(inHands ? null : id) });
+    this.hits.push({ x, y, w, h, title: wd.name, desc: `${ITEMS[id].desc} ${weaponStats(wd)}`, act: inHands ? `${this.press} — убрать` : `${this.press} — взять в руки`, click: () => this.host.equipItem(inHands ? null : id) });
   }
 
   /** Бумажная ячейка с рамкой; ghost — эскиз пустого слота; sel — жёлтая рамка. */

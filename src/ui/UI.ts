@@ -26,6 +26,7 @@ import { MapView, type MapViewHost } from './MapView';
 import { GameMenu, type GameMenuHost } from './GameMenu';
 import type { WarSystem, AlertCode } from '../systems/WarSystem';
 import { GAME } from '../config/game';
+import { MENU_FIT } from '../config/menus';
 import { GRENADE_KINDS } from '../systems/CombatSystem';
 import type { SquadArena } from '../systems/SquadArena';
 import { ArenaBar } from './ArenaBar';
@@ -126,6 +127,13 @@ export class UI {
     this.help = new HelpBar(root);
     this.roles = new RoleMenu(root, (f, r, d, p, n) => host.chooseRole(f, r, d, p, n), () => host.newGame(), { current: () => host.currentName(), suggest: () => host.suggestName() });
     this.roles.blocked = () => this.menu.isOpen;
+    // Меню на маленьком экране — уменьшить, чтобы влезло (телефон горизонтально — ~0.6).
+    const fit = () => {
+      const z = Math.max(MENU_FIT.min, Math.min(1, window.innerWidth / MENU_FIT.width, window.innerHeight / MENU_FIT.height));
+      document.documentElement.style.setProperty('--menu-zoom', z.toFixed(3));
+    };
+    fit();
+    window.addEventListener('resize', fit);
     this.dev.toggle(); // панель карты по умолчанию свёрнута — F2
     bus.on('announce', ({ text }) => this.banner.show(text));
     bus.on('map:loaded', ({ source }) => {
@@ -143,15 +151,26 @@ export class UI {
   private placeLog(): void {
     const h = this.hud.el.offsetHeight;
     const chat = this.chat.isOpen;
-    if (h === this.hudHeight && chat === this.chatShown) return;
+    const touch = document.body.classList.contains('touch');
+    if (h === this.hudHeight && chat === this.chatShown && touch === this.touchShown) return;
     this.hudHeight = h;
     this.chatShown = chat;
-    this.chat.el.style.bottom = `${h + 24}px`;
-    this.log.el.style.bottom = `${h + 24 + (chat ? 46 : 4)}px`;
+    this.touchShown = touch;
+    if (touch) {
+      // Телефон: HUD сверху слева — журнал под ним, чат сверху по центру (над клавиатурой).
+      this.chat.el.style.bottom = '';
+      this.log.el.style.bottom = 'auto';
+      this.log.el.style.top = `${Math.round(this.hud.el.getBoundingClientRect().bottom + 6)}px`;
+    } else {
+      this.chat.el.style.bottom = `${h + 24}px`;
+      this.log.el.style.top = '';
+      this.log.el.style.bottom = `${h + 24 + (chat ? 46 : 4)}px`;
+    }
     this.log.expand(chat);
   }
 
   private chatShown = false;
+  private touchShown = false;
 
   setPaused(on: boolean): void {
     this.pauseEl.hidden = !on;

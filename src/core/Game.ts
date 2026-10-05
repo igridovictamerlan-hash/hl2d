@@ -1,6 +1,7 @@
 import { EventBus } from './EventBus';
 import { Camera, type View } from './Camera';
 import { Input } from './Input';
+import { TouchControls } from '../ui/TouchControls';
 import { GameLoop } from './GameLoop';
 import { Rng, randomSeed } from './rng';
 import { PlayerController } from './PlayerController';
@@ -103,6 +104,8 @@ export class Game {
   readonly bus = new EventBus();
   readonly camera = new Camera();
   readonly input: Input;
+  /** Сенсорное управление (телефон): стики и кнопки поверх холста. */
+  readonly touch: TouchControls;
   readonly entities = new EntityManager();
   readonly loop: GameLoop;
   readonly debug = new DebugOverlay();
@@ -209,6 +212,20 @@ export class Game {
       wheel: this.wheel,
       setSlow: (on) => (this.loop.timeScale = on ? HUD.wheel.slow : 1),
       setMarker: (x, y) => (this.ui.mapView.marker = { x, y, level: 'city' }),
+    });
+    this.touch = new TouchControls(uiRoot, {
+      input: this.input,
+      camera: this.camera,
+      canvas,
+      wheelOpen: () => this.wheel.open,
+      escape: () => this.escape(),
+      openChat: () => {
+        if (this.ui.chat.isOpen || this.ui.roles.isOpen || this.ui.menu.isOpen) return;
+        this.input.releaseAll();
+        this.ui.chat.open('');
+      },
+      busy: () => this.ui.menu.isOpen || this.ui.roles.isOpen || this.ui.inventory.isOpen || this.ui.mapView.bigOpen || this.ui.shop.isOpen || this.ui.chat.isOpen,
+      playing: () => !this.ui.menu.isOpen && !this.ui.roles.isOpen,
     });
     this.loop = new GameLoop(
       (dt) => this.update(dt),
@@ -503,7 +520,19 @@ export class Game {
 
   private onEscape(e: KeyboardEvent): void {
     if (e.code !== 'Escape') return;
+    this.escape(true);
+  }
+
+  /**
+   * Esc (и кнопка ☰ на телефоне): закрыть открытую панель, иначе меню паузы. key — нажата клавиша: у меню
+   * роли и большой карты свои обработчики Esc; с телефона их закрываем здесь.
+   */
+  escape(key = false): void {
     const ui = this.ui;
+    if (!key) {
+      if (ui.mapView.bigOpen) return ui.mapView.toggleBig(false);
+      if (ui.roles.isOpen) return;
+    }
     if (ui.chat.isOpen) return;
     if (ui.menu.isOpen) {
       ui.menu.back();
@@ -940,6 +969,7 @@ export class Game {
       this.save();
       return;
     }
+    this.touch.update(this.player, dt);
     // Пауза (P): мир стоит, отрисовка идёт.
     if (this.input.wasPressed('pause') && !this.ui.chat.isOpen) {
       this.paused = !this.paused;
@@ -957,6 +987,8 @@ export class Game {
     }
     this.time += dt;
     this.ai.time = this.time;
+    // Телефон: стики и кнопки → Input (шаг, прицел, огонь) — до управления игроком.
+    this.touch.tick(this.player, this.combat.now);
     this.playerCtl.update(this.player, this.ai, dt);
     updateNpcs(this.ai, dt);
     this.doors.update(this.entities, dt);
@@ -1088,8 +1120,12 @@ export class Game {
     if (!sewer) this.arsenalView.drawShip(ctx, v, this.ai.arsenal, this.law.now);
     this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);
     this.effects.drawProgress(ctx, v, this.player, this.playerCtl.progress);
+    // Подробности о пешке — под курсором; на телефоне — там, где коснулись мира (TOUCH.inspect с).
     const hover = this.input.mouseInside && !this.wheel.open;
-    this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll, this.player, hover ? this.input.mouseX * dpr : null, hover ? this.input.mouseY * dpr : null);
+    const insp = !hover && this.input.inspect && this.input.inspect.until > performance.now() / 1000 ? this.input.inspect : null;
+    const hx = hover ? this.input.mouseX * dpr : insp ? (insp.x - v.left) * v.scale : null;
+    const hy = hover ? this.input.mouseY * dpr : insp ? (insp.y - v.top) * v.scale : null;
+    this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll, this.player, hx, hy);
     this.debug.draw(ctx, v, this.entities.list, this.nav, this.player, alpha, dpr);
     if (this.vignette) {
       ctx.fillStyle = this.vignette;

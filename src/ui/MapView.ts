@@ -74,11 +74,12 @@ export class MapView {
     this.big = document.createElement('div');
     this.big.className = 'bigmap';
     this.big.hidden = true;
-    this.big.innerHTML = `<div class="bigmap-box panel"><div class="inv-head"><span data-title>КАРТА</span><span class="bigmap-hint">колесо — масштаб · тянуть — сдвиг · ЛКМ — метка · ПКМ — снять · M / Esc — закрыть</span></div><canvas></canvas><div class="bigmap-legend"></div></div>`;
+    this.big.innerHTML = `<div class="bigmap-box panel"><div class="inv-head"><span data-title>КАРТА</span><span class="bigmap-hint">колесо — масштаб · тянуть — сдвиг · ЛКМ — метка · ПКМ — снять · M / Esc — закрыть</span><button class="bigmap-close" data-close>✕</button></div><canvas></canvas><div class="bigmap-legend"></div></div>`;
     this.bigCanvas = this.big.querySelector('canvas')!;
     this.legend = this.big.querySelector('.bigmap-legend')!;
     parent.appendChild(this.big);
     this.big.addEventListener('click', (e) => e.target === this.big && this.toggleBig(false));
+    this.big.querySelector('[data-close]')!.addEventListener('click', () => this.toggleBig(false));
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Escape' && this.bigOpen) this.toggleBig(false);
     });
@@ -118,59 +119,102 @@ export class MapView {
     this.drag = null;
   }
 
-  /** Мышь на большой карте: колесо — масштаб к курсору, тянуть — сдвиг, клик — метка, ПКМ — снять. */
+  /**
+   * Большая карта, мышь и пальцы: колесо или щипок — масштаб к точке, тянуть — сдвиг, клик (касание) —
+   * метка; ПКМ или касание по своей метке — снять.
+   */
   private bindMouse(): void {
     const B = MINIMAP.big;
     const cv = this.bigCanvas;
-    const tileAt = (e: MouseEvent) => {
-      const v = this.view!;
+    cv.style.touchAction = 'none';
+    const local = (x: number, y: number) => {
       const r = cv.getBoundingClientRect();
-      return { x: v.x0 + (e.clientX - r.left) / v.k, y: v.y0 + (e.clientY - r.top) / v.k };
+      return { x: x - r.left, y: y - r.top, w: r.width, h: r.height };
+    };
+    const tileAt = (x: number, y: number) => {
+      const v = this.view!;
+      const l = local(x, y);
+      return { x: v.x0 + l.x / v.k, y: v.y0 + l.y / v.k };
+    };
+    /** Новый масштаб z, точка мира под (x, y) экрана остаётся на месте. */
+    const zoomAt = (z: number, x: number, y: number, at = tileAt(x, y)) => {
+      if (!this.view) return;
+      z = Math.max(1, Math.min(B.maxZoom, z));
+      const v = this.view;
+      const k1 = (v.k / this.zoom) * z;
+      const l = local(x, y);
+      this.zoom = z;
+      this.cx = at.x - l.x / k1 + l.w / 2 / k1;
+      this.cy = at.y - l.y / k1 + l.h / 2 / k1;
     };
     cv.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
-        if (!this.view) return;
-        const before = tileAt(e);
-        const z = Math.max(1, Math.min(B.maxZoom, this.zoom * (e.deltaY < 0 ? B.step : 1 / B.step)));
-        if (z === this.zoom) return;
-        // Точка под курсором остаётся на месте.
-        const v = this.view;
-        const k1 = (v.k / this.zoom) * z;
-        const r = cv.getBoundingClientRect();
-        const mx = e.clientX - r.left;
-        const my = e.clientY - r.top;
-        this.zoom = z;
-        this.cx = before.x - mx / k1 + r.width / 2 / k1;
-        this.cy = before.y - my / k1 + r.height / 2 / k1;
+        if (this.view) zoomAt(this.zoom * (e.deltaY < 0 ? B.step : 1 / B.step), e.clientX, e.clientY);
       },
       { passive: false },
     );
-    cv.addEventListener('mousedown', (e) => {
-      if (e.button !== 0 || !this.view) return;
-      const v = this.view;
-      const r = cv.getBoundingClientRect();
-      this.drag = { sx: e.clientX, sy: e.clientY, cx: v.x0 + r.width / 2 / v.k, cy: v.y0 + r.height / 2 / v.k, moved: false };
+    const pts = new Map<number, { x: number; y: number }>();
+    let pinch: { d0: number; z0: number; at: { x: number; y: number } } | null = null;
+    const mid = () => {
+      const [a, b] = [...pts.values()];
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+    };
+    cv.addEventListener('pointerdown', (e) => {
+      if ((e.pointerType === 'mouse' && e.button !== 0) || !this.view) return;
+      cv.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 1) {
+        const v = this.view;
+        const l = local(e.clientX, e.clientY);
+        this.drag = { sx: e.clientX, sy: e.clientY, cx: v.x0 + l.w / 2 / v.k, cy: v.y0 + l.h / 2 / v.k, moved: false };
+      } else if (pts.size === 2) {
+        // Второй палец — щипок: масштаб к середине между пальцами, метку не ставим.
+        const m = mid();
+        pinch = { d0: Math.max(1, m.d), z0: this.zoom, at: tileAt(m.x, m.y) };
+        if (this.drag) this.drag.moved = true;
+      }
     });
-    window.addEventListener('mousemove', (e) => {
+    cv.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId) || !this.view) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size >= 2) {
+        const m = mid();
+        zoomAt(pinch.z0 * (m.d / pinch.d0), m.x, m.y, pinch.at);
+        return;
+      }
       const d = this.drag;
-      if (!d || !this.view) return;
+      if (!d) return;
       const dx = e.clientX - d.sx;
       const dy = e.clientY - d.sy;
-      if (!d.moved && Math.hypot(dx, dy) < B.drag) return;
+      if (!d.moved && Math.hypot(dx, dy) < (e.pointerType === 'mouse' ? B.drag : B.dragTouch)) return;
       d.moved = true;
       this.cx = d.cx - dx / this.view.k;
       this.cy = d.cy - dy / this.view.k;
     });
-    window.addEventListener('mouseup', (e) => {
+    const up = (e: PointerEvent) => {
+      if (!pts.delete(e.pointerId)) return;
+      if (pinch) {
+        if (pts.size < 2) pinch = null;
+        if (pts.size === 0) this.drag = null;
+        return;
+      }
       const d = this.drag;
       this.drag = null;
-      if (!d || d.moved || e.button !== 0 || !this.view || !this.map) return;
-      const t = tileAt(e);
+      if (!d || d.moved || e.type !== 'pointerup' || !this.view || !this.map) return;
+      const t = tileAt(e.clientX, e.clientY);
       const ts = this.map.tileSize;
+      // Касание по своей метке — снять (на телефоне нет ПКМ).
+      const m = this.marker;
+      if (e.pointerType !== 'mouse' && m && m.level === this.view.level && Math.hypot(m.x / ts - t.x, m.y / ts - t.y) * this.view.k < B.unpin) {
+        this.marker = null;
+        return;
+      }
       this.marker = { x: t.x * ts, y: t.y * ts, level: this.view.level };
-    });
+    };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
     cv.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       this.marker = null;
@@ -391,8 +435,10 @@ export class MapView {
 
   private drawBig(host: MapViewHost, level: Level): void {
     const r = this.levelRect(level);
-    const maxW = Math.min(window.innerWidth - 80, 900);
-    const maxH = Math.min(window.innerHeight - 170, 900);
+    // На телефоне подсказки и легенды нет — карта на весь экран.
+    const touch = document.body.classList.contains('touch');
+    const maxW = Math.min(window.innerWidth - (touch ? 28 : 80), 900);
+    const maxH = Math.min(window.innerHeight - (touch ? 60 : 170), 900);
     const k0 = Math.min(maxW / r.w, maxH / r.h);
     const W = Math.floor(r.w * k0);
     const H = Math.floor(r.h * k0);

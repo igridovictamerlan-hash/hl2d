@@ -1,4 +1,5 @@
 import { CONTROLS_GROUPS } from './HelpBar';
+import { TOUCH_HELP } from '../config/touch';
 import { ID_CARD, INTRO } from '../config/menus';
 
 /** Вводную о городе показываем сами один раз (дальше — пункт меню). */
@@ -323,7 +324,7 @@ export class GameMenu {
       heading = 'ВВОДНАЯ ПРИЛОЖЕНА · ОЗНАКОМЬТЕСЬ';
     } else if (this.screen === 'controls') {
       memo.innerHTML = `<header><b>${ID_CARD.controlsTitle}</b><span>приложение к форме 17</span></header>
-        <div class="idc-memo-cols">${CONTROLS_GROUPS.map(([title, rows]) => `<section><h4>${esc(title)}</h4>${rows.map(([k, v]) => `<div><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`).join('')}</section>`).join('')}</div>
+        <div class="idc-memo-cols">${(document.body.classList.contains('touch') ? TOUCH_HELP : CONTROLS_GROUPS).map(([title, rows]) => `<section><h4>${esc(title)}</h4>${rows.map(([k, v]) => `<div><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`).join('')}</section>`).join('')}</div>
         <nav class="idc-menu"><button type="button" class="idc-item primary" data-act="back"><span class="box"></span><span class="lbl">${L.back}</span><kbd>1</kbd></button></nav>`;
       items = [{ act: 'back', label: L.back, primary: true }];
       heading = 'ПАМЯТКА ПРИЛОЖЕНА · ОЗНАКОМЬТЕСЬ';

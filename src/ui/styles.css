@@ -289,7 +289,7 @@ kbd {
   padding: 10px 12px;
   font-size: 13px;
 }
-.inventory { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); line-height: 0; }
+.inventory { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); line-height: 0; pointer-events: auto; }
 .inventory canvas { display: block; }
 .inv-head { display: flex; justify-content: space-between; align-items: center; color: var(--hud); letter-spacing: 0.14em; margin-bottom: 8px; }
 .inv-list { display: flex; flex-direction: column; gap: 6px; }

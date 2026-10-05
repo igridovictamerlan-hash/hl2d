@@ -106,4 +106,12 @@ export class Camera {
       y: this.y + (sy - this.cssHeight / 2) / this.zoom,
     };
   }
+
+  /** Мир → экран (CSS px относительно холста): обратное к screenToWorld (прицел со стика телефона). */
+  worldToScreen(wx: number, wy: number): { x: number; y: number } {
+    return {
+      x: (wx - this.x) * this.zoom + this.cssWidth / 2,
+      y: (wy - this.y) * this.zoom + this.cssHeight / 2,
+    };
+  }
 }

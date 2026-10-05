@@ -21,6 +21,12 @@ export interface RoleCardDef {
   accent: string;
 }
 
+/**
+ * Меню на маленьком экране (телефон, узкое окно): удостоверение, памятка и карточки сторон уменьшаются
+ * (CSS zoom, --menu-zoom), чтобы влезть в окно не меньше width × height px.
+ */
+export const MENU_FIT = { width: 1000, height: 640, min: 0.45 } as const;
+
 export const ROLE_MENU = {
   title: 'КЕМ ВЫ БУДЕТЕ В ГОРОДЕ?',
   hint: 'роль можно сменить у терминала найма на площади',

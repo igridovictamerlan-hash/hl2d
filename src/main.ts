@@ -1,6 +1,7 @@
 import './ui/fonts.css';
 import './ui/styles.css';
 import './ui/menus.css';
+import './ui/touch.css';
 import { Game } from './core/Game';
 import { AI } from './config/ai';
 import { fetchMap } from './world/mapIO';
@@ -12,6 +13,7 @@ import { fetchMap } from './world/mapIO';
  *   ?npcs=40    — число NPC-граждан
  *   ?debug=1    — сразу включить отладку ИИ
  *   ?mode=squad — экспериментальный режим «отряд на отряд» (&side=combine — за Протекторат)
+ *   ?touch=1    — сенсорное управление и с мышью (на телефоне включается само при первом касании)
  * Без ?seed и ?map игра продолжается из сохранения в браузере (если есть).
  */
 const params = new URLSearchParams(location.search);
@@ -40,6 +42,10 @@ async function boot(): Promise<void> {
     game.ui.dev.message(`Не удалось загрузить карту: ${(e as Error).message}`, true);
   }
   if (params.has('debug')) game.debug.enabled = true;
+  if (params.get('touch') === '1') {
+    game.touch.forced = true;
+    game.touch.enable(true);
+  }
   // ?mode=squad — сразу «отряд на отряд» (side=combine — за Протекторат); иначе главное меню поверх
   // уже созданного города (он живёт за ним, пока меню открыто — на паузе).
   if (params.get('mode') === 'squad') game.startArena(params.get('side') === 'combine' ? 'combine' : 'rebel');

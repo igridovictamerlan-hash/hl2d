@@ -1,0 +1,212 @@
+/*
+ * Сенсорное управление (ui/TouchControls.ts): стик шага слева, стик прицела и кнопки справа внизу, панель
+ * сверху. body.touch — раскладка интерфейса под телефон в альбомной ориентации.
+ */
+body.touch {
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+body.touch #game { touch-action: none; cursor: default; }
+
+/* Корень без z-index (не своё наложение): стики и кнопки — над HUD, под панелями. */
+.touch-pad {
+  --t-gap: max(14px, env(safe-area-inset-right));
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-pad .t-btn,
+.touch-pad .t-aim {
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Стик шага — появляется там, где коснулись. */
+.t-move {
+  position: fixed;
+  z-index: 5;
+  width: 116px;
+  height: 116px;
+  margin: -58px 0 0 -58px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 204, 120, 0.35);
+  background: radial-gradient(circle, rgba(24, 17, 12, 0.15), rgba(24, 17, 12, 0.4));
+}
+.t-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 50px;
+  height: 50px;
+  margin: -25px 0 0 -25px;
+  border-radius: 50%;
+  background: rgba(255, 204, 120, 0.42);
+  border: 2px solid rgba(255, 222, 170, 0.75);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* Стик прицела: тянуть — прицел, до кольца — огонь. */
+.t-aim {
+  position: absolute;
+  z-index: 5;
+  right: var(--t-gap);
+  bottom: 18px;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 204, 120, 0.45);
+  background: radial-gradient(circle, rgba(24, 17, 12, 0.2), rgba(24, 17, 12, 0.5));
+}
+.t-aim .t-ring { position: absolute; inset: 9px; border-radius: 50%; border: 2px dashed rgba(255, 91, 74, 0.5); }
+.t-aim .t-knob { width: 54px; height: 54px; margin: -27px 0 0 -27px; background: rgba(255, 120, 90, 0.45); border-color: rgba(255, 190, 160, 0.8); }
+.t-aim span { position: absolute; left: 0; right: 0; bottom: -2px; text-align: center; font-size: 10px; letter-spacing: 0.1em; color: rgba(255, 204, 120, 0.7); text-transform: uppercase; pointer-events: none; }
+.t-aim.fire { border-color: #ff5b4a; box-shadow: 0 0 14px rgba(255, 70, 50, 0.6); }
+
+/* Кнопки */
+.t-btn {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 204, 120, 0.45);
+  background: rgba(24, 17, 12, 0.62);
+  color: var(--hud);
+  font: 600 10px/1.05 var(--font);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.t-btn b { font-size: 15px; line-height: 1; color: var(--text); }
+.t-btn span { max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-btn.on { background: rgba(255, 204, 120, 0.4); color: #1b1309; border-color: #ffd89a; }
+.t-btn.on b { color: #1b1309; }
+.t-btn.big { width: 66px; height: 66px; }
+.t-btn.big b { font-size: 20px; }
+.t-btn.small { width: 56px; height: 56px; }
+.t-btn.small span { font-size: 9.5px; letter-spacing: -0.01em; }
+.t-btn.empty { opacity: 0.45; }
+
+/* Дуга кнопок у стика прицела (отступы — от правого нижнего угла). */
+.t-cluster { position: absolute; z-index: 5; right: 0; bottom: 0; }
+.t-interact   { right: calc(var(--t-gap) + 134px); bottom: 12px; }
+.t-reload     { right: calc(var(--t-gap) + 128px); bottom: 90px; }
+.t-nextWeapon { right: calc(var(--t-gap) + 78px); bottom: 150px; }
+.t-grenade    { right: calc(var(--t-gap) + 10px); bottom: 156px; }
+.t-crouch     { right: calc(var(--t-gap) + 212px); bottom: 14px; }
+.t-bandage    { right: calc(var(--t-gap) + 196px); bottom: 80px; }
+.t-roleF      { right: calc(var(--t-gap) + 184px); bottom: 146px; }
+.t-roleG      { right: calc(var(--t-gap) + 132px); bottom: 204px; }
+
+/* Панель сверху и «ещё» */
+.t-top {
+  position: absolute;
+  z-index: 7;
+  top: 6px;
+  right: calc(var(--t-gap) + 112px);
+  display: flex;
+  gap: 5px;
+}
+.t-btn.top {
+  position: static;
+  height: 36px;
+  min-width: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+.t-more {
+  position: absolute;
+  z-index: 7;
+  top: 48px;
+  right: calc(var(--t-gap) + 112px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  gap: 5px;
+  padding: 6px;
+  border-radius: 8px;
+  background: rgba(18, 13, 9, 0.88);
+  border: 1px solid var(--panel-border);
+  pointer-events: auto;
+}
+.t-btn.wide {
+  position: static;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 8px;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.t-btn.wide b { font-size: 12px; min-width: 14px; color: var(--hud-dim); }
+
+/* Поверх игры меню или панель — стики и кнопки прячутся (у рюкзака, карты и магазина свой ✕). */
+.touch-pad.busy > :not(.t-rotate) { display: none; }
+.touch-pad.menu > :not(.t-rotate) { display: none !important; }
+
+/* Портретная ориентация — подсказка повернуть телефон. */
+.t-rotate { display: none; }
+@media (orientation: portrait) {
+  .t-rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(11, 8, 6, 0.94);
+    color: var(--hud);
+    font-size: 18px;
+    letter-spacing: 0.06em;
+    text-align: center;
+    padding: 24px;
+    pointer-events: auto;
+  }
+  .t-rotate div { font-size: 54px; animation: t-turn 2.4s ease-in-out infinite; }
+}
+@keyframes t-turn { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+
+/* Интерфейс в сенсорном режиме: HUD и журнал — наверх слева, мини-карта меньше, подсказки клавиш и
+   панель генератора убраны, полосы — короче. */
+body.touch .hud { top: 24px; bottom: auto; left: max(8px, env(safe-area-inset-left)); transform: scale(0.74); transform-origin: top left; max-width: 380px; }
+body.touch .hud-ration { max-width: 360px; }
+body.touch .event-log { left: max(8px, env(safe-area-inset-left)); width: min(360px, 38vw); font-size: 11px; }
+body.touch .chat-box { top: 8px; bottom: auto !important; left: 50%; transform: translateX(-50%); width: min(460px, 60vw); z-index: 8; }
+body.touch .minimap { top: 24px; right: max(14px, env(safe-area-inset-right)); width: 104px !important; height: 104px !important; }
+body.touch .help-chip, body.touch .help, body.touch .dev { display: none !important; }
+body.touch .alert-bar { padding: 2px 10px; font-size: 11px; }
+body.touch .capture-bar { top: 48px; }
+body.touch .check-panel { top: 48px; bottom: auto; }
+body.touch .check-panel button { min-height: 36px; }
+body.touch .bigmap-hint { display: none; }
+body.touch .bigmap-legend { display: none; }
+body.touch .pause-overlay small { display: none; }
+
+/* Большая карта: кнопка закрыть (и на телефоне, где нет Esc и M). */
+.bigmap-close { position: absolute; right: 8px; top: 6px; width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--panel-border); background: rgba(0, 0, 0, 0.35); color: var(--hud); font-size: 15px; cursor: pointer; }
+body.touch .bigmap-close { width: 40px; height: 40px; font-size: 18px; }
+body.touch .bigmap-box { padding: 6px 8px; }
+.bigmap .inv-head { padding-right: 40px; min-height: 30px; }
+/* Палец увели далеко за край стика шага — бег. */
+.t-move.run { border-color: #ff9a4a; }
+.t-move.run .t-knob { background: rgba(255, 140, 60, 0.6); border-color: #ffc590; }
+
+/* Рюкзак: кнопка закрыть (как у карты). */
+.inv-close { position: absolute; right: 8px; top: 6px; z-index: 1; width: 30px; height: 30px; border-radius: 6px; border: 2px solid #5a4d33; background: rgba(60, 50, 30, 0.25); color: #3a2f1e; font: 700 15px/1 var(--font); cursor: pointer; line-height: normal; }
+body.touch .inv-close { width: 40px; height: 40px; font-size: 18px; }
+
+/* Горит полоса тревоги (код жёлтый/красный) — панель сверху ниже неё. */
+body.touch .alert-bar:not([hidden]) ~ .touch-pad .t-top { top: 24px; }
+body.touch .alert-bar:not([hidden]) ~ .touch-pad .t-more { top: 66px; }

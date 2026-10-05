@@ -154,13 +154,7 @@ export class PlayerController {
       this.reset();
       p.aiming = false;
       p.crouch = false;
-      let mx = (i.isDown('right') ? 1 : 0) - (i.isDown('left') ? 1 : 0);
-      let my = (i.isDown('down') ? 1 : 0) - (i.isDown('up') ? 1 : 0);
-      const len = Math.hypot(mx, my);
-      if (len > 0) {
-        mx /= len;
-        my /= len;
-      }
+      const { mx, my, len } = this.moveDir(i);
       p.wantX = mx * CHARACTER.walkSpeed;
       p.wantY = my * CHARACTER.walkSpeed;
       if (len > 0) p.facing = Math.atan2(my, mx);
@@ -185,21 +179,15 @@ export class PlayerController {
       if (!p.brain) p.wantX = p.wantY = 0;
       p.aiming = false;
     } else {
-      let mx = (i.isDown('right') ? 1 : 0) - (i.isDown('left') ? 1 : 0);
-      let my = (i.isDown('down') ? 1 : 0) - (i.isDown('up') ? 1 : 0);
-      const len = Math.hypot(mx, my);
-      if (len > 0) {
-        mx /= len;
-        my /= len;
-      }
+      const { mx, my, len, k } = this.moveDir(i);
       // Прицеливание (ПКМ): медленный шаг, бег невозможен; конус сужается.
       const aw = p.weapon ? WEAPONS[p.weapon] : null;
       p.aiming = i.aimDown && !!aw && aw.mode !== 'melee';
       // C — присесть; побежал — встал.
       if (i.wasPressed('crouch')) p.crouch = !p.crouch;
-      const run = i.isDown('run') && len > 0 && !p.aiming;
+      const run = (i.isDown('run') || i.moveRun) && len > 0 && !p.aiming;
       if (run) p.crouch = false;
-      const speed = p.aiming ? CHARACTER.walkSpeed * aw!.aimMove : run ? CHARACTER.runSpeed : CHARACTER.walkSpeed;
+      const speed = (p.aiming ? CHARACTER.walkSpeed * aw!.aimMove : run ? CHARACTER.runSpeed : CHARACTER.walkSpeed) * (run ? 1 : k);
       p.wantX = mx * speed;
       p.wantY = my * speed;
       // Пока открыто колесо оружия, мышь выбирает сектор, а не взгляд.
@@ -229,7 +217,7 @@ export class PlayerController {
         this.hooks.setSlow(false);
         this.applyWheel(p, ctx, wheel.close());
       } else this.cycleWeapon(p, ctx);
-    }
+    } else if (i.wasPressed('nextWeapon')) this.cycleWeapon(p, ctx); // нажали и отпустили между тиками (быстрое касание)
     if (wheel.open) {
       wheel.aim(i.mouseX - i.width / 2, i.mouseY - i.height / 2);
       if (i.wheel) wheel.scroll(i.wheel);
@@ -341,6 +329,27 @@ export class PlayerController {
         if (o !== p && o.law.handler === p && o.law.phase === 'fleeing') ctx.law.arrest(p, o, 'resisting');
       }
     }
+  }
+
+  /**
+   * Куда идти: клавиши (WASD) или стик сенсорного экрана (Input.moveX/moveY — направление × доля скорости).
+   * mx, my — единичное направление, len > 0 — идёт, k — множитель скорости (стик чуть тронут — медленный шаг).
+   */
+  private moveDir(i: Input): { mx: number; my: number; len: number; k: number } {
+    let mx = (i.isDown('right') ? 1 : 0) - (i.isDown('left') ? 1 : 0);
+    let my = (i.isDown('down') ? 1 : 0) - (i.isDown('up') ? 1 : 0);
+    let k = 1;
+    if (mx === 0 && my === 0 && (i.moveX !== 0 || i.moveY !== 0)) {
+      mx = i.moveX;
+      my = i.moveY;
+      k = Math.min(1, Math.hypot(mx, my));
+    }
+    const len = Math.hypot(mx, my);
+    if (len > 0) {
+      mx /= len;
+      my /= len;
+    }
+    return { mx, my, len, k };
   }
 
   /** Ближайший лежащий тяжелораненый в досягаемости (кроме себя) или null. */
