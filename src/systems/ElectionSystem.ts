@@ -60,6 +60,7 @@ export class ElectionSystem {
     const list = candidates.map((c, i) => `${i + 1}) ${c.isPlayer ? 'ВЫ' : c.name} (лояльность ${c.loyalty})`).join(', ');
     this.log(`Протекторат: Комендант города погиб. Выборы нового Коменданта среди лоялистов: ${list}. Голосуйте: /голос номер.`);
     this.ctx.bus.emit('announce', { text: 'Выборы Коменданта' });
+    this.ctx.talk?.event('election', 0, 0, { big: true });
     return this.current;
   }
 

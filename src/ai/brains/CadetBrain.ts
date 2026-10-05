@@ -64,7 +64,11 @@ export class CadetBrain implements Brain {
       case 'go': {
         this.path = null;
         this.doing = t.act === 'sleep' ? 'сон' : t.act === 'eat' ? 'обед' : t.act === 'sit' ? 'класс' : A.session === 'formation' ? 'строй' : A.session === 'range' ? 'ждёт смену' : 'личное время';
-        if (this.reach(self, ctx, t.spot, dt, 10)) face = t.spot.facing;
+        if (this.reach(self, ctx, t.spot, dt, 10)) {
+          face = t.spot.facing;
+          // На обеде и в личное время — разговоры (экзамен, тир, инструктор, дом).
+          if ((A.session === 'meal' || A.session === 'free') && t.act !== 'sleep') ctx.talk?.chatNear(self, 'cadet', dt, (o) => !!o.cadet);
+        }
         break;
       }
       case 'lead':

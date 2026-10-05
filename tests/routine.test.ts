@@ -107,6 +107,7 @@ describe('распорядок дня', () => {
     }
     expect(hostile).toBe(true);
     expect(g.law.wanted).toBe(true);
-    expect(sim.log.some((l) => l.includes('стрельба в городе'))).toBe(true);
+    // Тревога — в эфир: происшествие у рации (или строка журнала, если рации нет).
+    expect(sim.log.some((l) => l.includes('стрельба в городе')) || sim.ctx.radio.incidents.some((i) => i.what.includes('стрельба в городе'))).toBe(true);
   });
 });

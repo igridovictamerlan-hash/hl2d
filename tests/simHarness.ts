@@ -1,4 +1,5 @@
 import { resetCids } from '../src/entities/factory';
+import { resetPhrases } from '../src/systems/phrases';
 import { generateCity } from '../src/world/generator/CityGenerator';
 import { NavGrid } from '../src/world/NavGrid';
 import { EntityManager } from '../src/entities/EntityManager';
@@ -38,11 +39,14 @@ import { StreetLifeSystem } from '../src/systems/StreetLife';
 import { AcademySystem } from '../src/systems/Academy';
 import { Staffing } from '../src/systems/Staffing';
 import { Access } from '../src/systems/Access';
+import { Radio } from '../src/systems/Radio';
+import { Talk } from '../src/systems/Talk';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
 export function makeSim(seedOrMap: number | GameMap) {
   // Номера CID — общий набор модуля: без сброса случайность теста зависит от предыдущих тестов.
   resetCids();
+  resetPhrases();
   const map = typeof seedOrMap === 'number' ? generateCity(seedOrMap) : seedOrMap;
   const nav = new NavGrid(map);
   const entities = new EntityManager();
@@ -92,6 +96,8 @@ export function makeSim(seedOrMap: number | GameMap) {
       academy: null as unknown as AcademySystem,
       staffing: null as unknown as Staffing,
       access: null as unknown as Access,
+      radio: null as unknown as Radio,
+      talk: null as unknown as Talk,
   };
   // Распорядок дня в тестах выключен (иначе ночью город спит) — у него свой тест.
   ctx.routine = new Routine(ctx, false);
@@ -131,6 +137,8 @@ export function makeSim(seedOrMap: number | GameMap) {
   // Набор в академию в тестах выключен (свой тест) — иначе лоялисты уходят учиться.
   ctx.academy.recruiting = false;
   ctx.access = new Access(ctx);
+  ctx.talk = new Talk(ctx);
+  ctx.radio = new Radio(ctx);
   // Случайные драки в тестах выключены (свой тест) — удары и братва работают.
   ctx.brawls.enabled = false;
   economy.onEmpty = () => labor.noticeEmpty();
@@ -163,6 +171,8 @@ export function makeSim(seedOrMap: number | GameMap) {
     prison.update();
     ctx.staffing.update();
     ctx.academy.update(dt);
+    ctx.radio.update(dt);
+    ctx.talk.update();
   };
   return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access };
 }

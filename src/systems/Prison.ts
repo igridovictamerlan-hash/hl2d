@@ -352,7 +352,7 @@ export class PrisonSystem {
     if (this.armoryDoor) ctx.doors.open(this.armoryDoor);
     ctx.law.log(`Тюрьма Протектората: дверь оружейной выбита${by.isPlayer ? ' — вами' : ''}! Беглые разбирают стволы.`, 'radio');
     const d = this.armoryDoorTiles[0];
-    if (d) ctx.war.raiseAlarm(d.x, d.y, 'взлом оружейной тюрьмы');
+    if (d) ctx.war.raiseAlarm(d.x, d.y, 'взлом оружейной тюрьмы', false, { kind: 'prison', suspect: by });
   }
 
   /**

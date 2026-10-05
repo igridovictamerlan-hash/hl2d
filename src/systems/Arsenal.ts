@@ -688,7 +688,7 @@ export class ArsenalSystem {
         s.phase = 'leave';
         this.stats.aborted++;
         ctx.law.log('Склад Протектората: маяк крыльца не отвечает — борт ушёл без разгрузки. Рейс сорван.', 'radio');
-        if (this.pad) ctx.war.raiseAlarm(this.pad.x, this.pad.y, 'срыв поставки на склад', false);
+        if (this.pad) ctx.war.raiseAlarm(this.pad.x, this.pad.y, 'срыв поставки на склад', false, { kind: 'depot' });
       } else {
         s.phase = 'hover';
         this.dropContainer();
@@ -1626,7 +1626,7 @@ export class ArsenalSystem {
       this.ledger.ammo--;
       this.stats.caught++;
       this.ctx.law.log(`Оружейник ${c.name}: в ящике патронов брак — партия списана. Кто-то копался в ящиках!`, 'radio');
-      if (this.hall) this.ctx.war.raiseAlarm(this.hall.x, this.hall.y, 'брак в патронах на складе Протектората', false);
+      if (this.hall) this.ctx.war.raiseAlarm(this.hall.x, this.hall.y, 'брак в патронах на складе Протектората', false, { kind: 'depot' });
     }
     return true;
   }
@@ -1870,7 +1870,7 @@ export class ArsenalSystem {
       this.stats.shortages++;
       this.lockdownUntil = this.time + ARSENAL.inspect.lockdown;
       ctx.law.log(`${by.name}: недостача на складе Протектората — ${short} ед. Выдача закрыта, склад под проверкой!`, 'radio');
-      if (this.hall) ctx.war.raiseAlarm(this.hall.x, this.hall.y, 'недостача на складе Протектората', false);
+      if (this.hall) ctx.war.raiseAlarm(this.hall.x, this.hall.y, 'недостача на складе Протектората', false, { kind: 'depot' });
       by.say('Недостача! Кто подписывал накладные?', ctx.law.now, 3);
     } else {
       ctx.law.log(`${by.name} проверил опись склада Протектората: всё сходится.`, 'radio');
@@ -2003,7 +2003,7 @@ export class ArsenalSystem {
       this.ledger.ammo = Math.max(0, this.ledger.ammo - 1);
     }
     ctx.law.log('Взрыв на складе Протектората! Часть запасов уничтожена, пожар.', 'radio');
-    ctx.war.raiseAlarm(b.x, b.y, 'взрыв на складе Протектората', false);
+    ctx.war.raiseAlarm(b.x, b.y, 'взрыв на складе Протектората', false, { kind: 'depot' });
   }
 
   /** Спецагент в форме Протектората «по наряду»: гранаты у окна (кладовщик записывает — это не кража). */
@@ -2069,7 +2069,7 @@ export class ArsenalSystem {
     if (ok && act !== 'bomb' && this.watched(by.x, by.y, by) && ctx.rng.chance(ARSENAL.ops.caught)) {
       ctx.combat.reveal(by, 'пойманы на складе Протектората');
       by.law.wanted = true;
-      ctx.war.raiseAlarm(by.x, by.y, 'диверсия на складе Протектората', false);
+      ctx.war.raiseAlarm(by.x, by.y, 'диверсия на складе Протектората', false, { kind: 'depot' });
     }
     return ok;
   }

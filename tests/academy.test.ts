@@ -354,7 +354,8 @@ describe('пропуска и вахтёры', () => {
     cadets(sim, 3);
     expect(count()).toBe(n0 - 3);
     run(sim, 30 * 4 + 2);
-    expect(count()).toBe(n0);
+    // Погибший в живом мире житель ждёт возрождения — приток считает и его.
+    expect(count() + sim.roster.pending('citizen')).toBe(n0);
     expect(sim.roster.arrived).toBe(3);
   });
 });

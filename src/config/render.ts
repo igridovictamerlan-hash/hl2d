@@ -117,6 +117,18 @@ export const RENDER = {
     speechFont: '500 11px "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     speechBg: 'rgba(12,14,16,0.82)',
     speechText: '#f1eee4',
+    /**
+     * Облачко реплики: длиннее maxWidth px — перенос, не больше maxLines строк (лишнее — «…»), строка lineH px,
+     * поля pad px, хвостик tail px. Рация (radio — юнит говорит в рацию): тёмно-зелёное, рамка и значок
+     * рации; Надзор из рации (dispatch): тёмно-синее, сверху бирка tag.
+     */
+    bubble: {
+      maxWidth: 240, maxLines: 3, lineH: 13, pad: 4, tail: 4,
+      radio: { bg: 'rgba(14,32,26,0.9)', text: '#c9f3d6', rim: '#5fbf8a', icon: '#8fe0b0' },
+      dispatch: { bg: 'rgba(14,24,40,0.92)', text: '#c4dcff', rim: '#6aa0e8', icon: '#9cc4ff', tag: 'НАДЗОР', tagFont: '700 8px "Segoe UI", Roboto, Arial, sans-serif', tagBg: '#2c5ea8', tagText: '#e8f0ff' },
+      /** Реплики рации важнее обычных: место в раскладке раньше (очки важности). */
+      radioScore: 4000,
+    },
     terminal: '#ffd36b',
     /** Терминал кодов тревоги в кабинете Коменданта: корпус, рамка, экран по коду. */
     codeTerminal: { case: '#1b2530', rim: '#4f5d6f', screen: { green: '#4fd08a', yellow: '#ffd36b', red: '#ff5b4a' } },
@@ -127,7 +139,7 @@ export const RENDER = {
      * камеры меньше roleZoom — роли только у важных (игрок, под курсором, тяжелораненый), меньше
      * nameZoom — и имена. Под курсором (ближе hoverRadius px мира) — строка подробностей цвета detailColor.
      */
-    labels: { pad: 2, maxBubbles: 6, roleZoom: 1.05, nameZoom: 0.75, hoverRadius: 16, detailColor: 'rgba(225,220,205,0.8)' },
+    labels: { pad: 2, maxBubbles: 7, roleZoom: 1.05, nameZoom: 0.75, hoverRadius: 16, detailColor: 'rgba(225,220,205,0.8)' },
     /**
      * Тяжелораненый: лужа крови под ним, кольцо — сколько осталось (радиус ring px мира), подпись
      * роли — «тяжело ранен · N с»; присевший ниже ростом (CROUCH.squash).

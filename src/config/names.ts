@@ -67,3 +67,8 @@ export const ZONE_NAMES = {
   rebelCamp: 'Лагерь сопротивления',
   blackMarket: 'Чёрный рынок',
 } as const;
+
+/** Женское ли имя (по первому слову: «Мария Зайцева»). */
+export function isFemaleName(name: string): boolean {
+  return FEMALE_FIRST.has(name.split(' ')[0]);
+}

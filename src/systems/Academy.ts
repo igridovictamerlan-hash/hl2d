@@ -747,6 +747,7 @@ export class AcademySystem {
     const head = this.instructors()[0];
     if (head) head.say(ctx.rng.pick(ACADEMY.lines.enrolled), ctx.law.now, 3);
     ctx.law.log(`Академия ВС: новый курсант — ${c.name}.`, 'world');
+    ctx.talk?.event('enlist', c.x, c.y, { who: c.name, kinOf: c });
     if (c.isPlayer) ctx.bus.emit('enlisted', { who: c });
     return true;
   }
@@ -776,6 +777,7 @@ export class AcademySystem {
       S?.toReserve(c);
     }
     ctx.law.log(`Присяга в Академии ВС: курсант ${civil} — теперь RCT.PCU ${c.name}${slot ? '' : ' (в резерве академии)'}.`, 'world');
+    ctx.talk?.event('graduate', c.x, c.y, { who: civil, kinOf: c, cp: true });
     if (c.isPlayer) ctx.bus.emit('graduated', { who: c, rank: c.rank, name: c.name });
   }
 

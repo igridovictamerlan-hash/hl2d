@@ -28,6 +28,7 @@ export class GunfireAudio {
   private crackleAcc = 0;
   private ambientT = 0;
   private shipGain: GainNode | null = null;
+  private radioSeq = 0;
 
   constructor() {
     try {
@@ -378,6 +379,53 @@ export class GunfireAudio {
     o.connect(og).connect(c.out);
     o.start(c.t0);
     o.stop(c.t0 + R.dur);
+  }
+
+  /**
+   * Рация (Radio.feed): новые передачи — «кшш» в начале, у Надзора ещё двойной писк. Игроку из силового блока —
+   * все (в наушнике, без расстояния), остальным — ближе AUDIO.radio.hear px.
+   */
+  radio(listener: Character, feed: readonly { seq: number; from: unknown; x: number; y: number }[], headset: boolean): void {
+    const last = feed.length ? feed[feed.length - 1].seq : this.radioSeq;
+    if (!this.ctx || this.muted || !this.master || !this.noise) {
+      this.radioSeq = last;
+      return;
+    }
+    const R = AUDIO.radio;
+    for (const t of feed) {
+      if (t.seq <= this.radioSeq) continue;
+      this.radioSeq = t.seq;
+      const d = headset ? 0 : Math.hypot(t.x - listener.x, t.y - listener.y);
+      if (d > R.hear) continue;
+      this.squelch(this.ctx, d, headset ? 0 : (t.x - listener.x) / R.panWidth, t.from === null);
+    }
+  }
+
+  private squelch(ctx: AudioContext, d: number, pan: number, beep: boolean): void {
+    const R = AUDIO.radio;
+    const c = this.chain(ctx, d, pan, R.gain, 0.02);
+    if (!c) return;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = R.band;
+    bp.Q.value = R.q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.9, c.t0);
+    g.gain.exponentialRampToValueAtTime(0.001, c.t0 + R.dur);
+    this.noiseSrc(ctx, c.t0, R.dur + 0.02).connect(bp).connect(g).connect(c.out);
+    if (!beep) return;
+    for (let k = 0; k < 2; k++) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = R.beep;
+      const bg = ctx.createGain();
+      const t = c.t0 + R.dur + k * R.beepDur * 1.6;
+      bg.gain.setValueAtTime(R.beepGain, t);
+      bg.gain.setValueAtTime(0.0001, t + R.beepDur);
+      o.connect(bg).connect(c.out);
+      o.start(t);
+      o.stop(t + R.beepDur + 0.01);
+    }
   }
 
   /** Пуля над ухом: щелчок и короткий свист с понижением (без задержки — пролетает рядом). */

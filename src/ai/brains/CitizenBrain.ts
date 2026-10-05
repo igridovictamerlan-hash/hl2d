@@ -1,3 +1,5 @@
+import { LINES } from '../../config/lines';
+import { phrase } from '../../systems/phrases';
 import { ARSENAL } from '../../config/arsenal';
 import type { HaulTask, ArmorerTask } from '../../systems/Arsenal';
 import type { Brain } from '../Brain';
@@ -480,7 +482,7 @@ export class CitizenBrain implements Brain {
       if (!lineOfSight(ctx.map, self.x, self.y, o.x, o.y)) continue;
       this.turfWarnAt = now + T.warnEvery;
       const L = GANGS.lines.turf;
-      self.say(L[(self.id + Math.floor(now)) % L.length], now, 2);
+      self.say(phrase(ctx.rng, self, L), now, 2);
       if (ctx.routine.night && o.money >= CRIME.npc.minMoney && ctx.crime.robOk(self, o) && !this.cpInSight(260) && ctx.rng.chance(T.nightRob)) {
         this.job = { kind: 'rob', victim: o, left: CRIME.rob.time, until: now + CRIME.npc.giveUp, repath: 0, threatened: false };
         this.fsm.change('work');
@@ -1930,7 +1932,7 @@ const PANIC: State<CitizenBrain> = {
     const p = b.panicFrom;
     const goal = p ? b.goalAwayFrom(p.x, p.y) : -1;
     if (goal >= 0) b.mover.goTo(b.self, b.ctx, goal);
-    b.self.say(b.ctx.rng.pick(['Стреляют!', 'Бежим!', 'Ложись!']), b.ctx.law.now, 1.5);
+    b.self.say(phrase(b.ctx.rng, b.self, LINES.panic), b.ctx.law.now, 1.5);
   },
   update(b) {
     if (b.self.panicUntil < b.ctx.law.now || b.mover.status === 'arrived' || b.mover.status === 'failed') {
@@ -1982,22 +1984,19 @@ const CHAT: State<CitizenBrain> = {
     b.mover.stop();
     faceTowards(self, p.x, p.y, dt);
     if (!b.chatLead) return;
-    // Ведущий ведёт беседу: вопрос — ответ собеседника — новая пара.
-    if (now >= b.nextLine) {
-      if (!b.chatPair || b.chatLine >= 2) {
-        const kin = p.family >= 0 && p.family === self.family;
-        b.chatPair = ctx.rng.pick(kin ? FAMILIES.dialogues : STREET.dialogues);
-        b.chatLine = 0;
-      }
-      const who = b.chatLine === 0 ? self : p;
-      who.say(b.chatPair[b.chatLine], now, 2.6);
-      b.chatLine++;
+    // Ведущий ведёт беседу: тема за темой (Talk) — слухи, обстановка, родня, дела банды; без повторов.
+    if (ctx.talk.busy(self)) b.nextLine = now + C.lineEvery[0];
+    else if (now >= b.nextLine) {
+      const kin = p.family >= 0 && p.family === self.family;
+      const g = ctx.gangs?.of(self);
+      ctx.talk.converse(self, p, kin ? 'family' : g && g === ctx.gangs.of(p) ? 'gang' : 'street');
       b.nextLine = now + ctx.rng.range(C.lineEvery[0], C.lineEvery[1]);
     }
-    if (now >= b.chatUntil) b.endChat(ctx.rng.chance(C.strollChance));
+    if (now >= b.chatUntil && ctx.talk.mayLeave(self, b.chatUntil)) b.endChat(ctx.rng.chance(C.strollChance));
   },
   exit(b) {
     // Прервали (проверка ВС, стрельба) — собеседник тоже расходится.
+    b.ctx.talk.stop(b.self);
     const p = b.partner;
     if (!p) return;
     const now = b.ctx.law.now;
@@ -2040,13 +2039,18 @@ const BARREL: State<CitizenBrain> = {
       return;
     }
     faceTowards(self, r.barrel.x, r.barrel.y, dt);
-    if (ctx.rng.chance(dt / ((B.lineEvery[0] + B.lineEvery[1]) / 2)) && !(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.barrelLines), now, 2.8);
-    if (now >= b.stayUntil) {
+    // У бочки — разговор с соседом по кругу (слухи, обстановка) или реплика в огонь.
+    if (!ctx.talk.busy(self) && ctx.rng.chance(dt / ((B.lineEvery[0] + B.lineEvery[1]) / 2)) && !(self.speech && self.speech.until > now)) {
+      const mate = r.barrel.taken.find((o) => o && o !== self && o.alive && o.brain instanceof CitizenBrain && o.brain.fsm.current === 'barrel' && o.brain.stayUntil > 0 && !ctx.talk.busy(o));
+      if (!(mate && ctx.rng.chance(0.55) && ctx.talk.converse(self, mate, 'barrel'))) self.say(ctx.talk.remark(self, 'barrel', STREET.barrelLines), now, 2.8);
+    }
+    if (now >= b.stayUntil && ctx.talk.mayLeave(self, b.stayUntil)) {
       b.idleLeft = ctx.rng.range(1, 3);
       return 'idle';
     }
   },
   exit(b) {
+    b.ctx.talk.stop(b.self);
     b.ctx.street.releaseBarrelSlot(b.self);
     b.barrel = null;
   },
@@ -2089,16 +2093,12 @@ const BENCH: State<CitizenBrain> = {
     if (nb && n) {
       // Сидят вдвоём — повернулись друг к другу вполоборота (к улице и к соседу).
       faceTowards(self, (n.x + seat.x) / 2 + bench.nx * 40, (n.y + seat.y) / 2 + bench.ny * 40, dt);
-      if (self.id < n.id && now >= b.nextLine) {
-        if (!b.chatPair || b.chatLine >= 2) {
-          b.chatPair = ctx.rng.pick(STREET.dialogues);
-          b.chatLine = 0;
-          ctx.street.stats.benchTalks++;
+      if (self.id < n.id) {
+        if (ctx.talk.busy(self)) b.nextLine = now + B.lineEvery[0];
+        else if (now >= b.nextLine) {
+          if (ctx.talk.converse(self, n, n.family >= 0 && n.family === self.family ? 'family' : 'bench')) ctx.street.stats.benchTalks++;
+          b.nextLine = now + ctx.rng.range(B.lineEvery[0], B.lineEvery[1]);
         }
-        const who = b.chatLine === 0 ? self : n;
-        who.say(b.chatPair[b.chatLine], now, 2.6);
-        b.chatLine++;
-        b.nextLine = now + ctx.rng.range(B.lineEvery[0], B.lineEvery[1]);
       }
       // Досидеть вместе: собеседник не уходит раньше ведущего.
       if (self.id < n.id) nb.stayUntil = Math.max(nb.stayUntil, b.stayUntil);
@@ -2106,15 +2106,16 @@ const BENCH: State<CitizenBrain> = {
       faceTowards(self, seat.x + bench.nx * 60, seat.y + bench.ny * 60, dt);
       if (now >= b.nextLine) {
         b.nextLine = now + ctx.rng.range(B.soloLineEvery[0], B.soloLineEvery[1]);
-        if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.benchLines), now, 2.6);
+        if (!(self.speech && self.speech.until > now)) self.say(ctx.talk.remark(self, 'bench', STREET.benchLines), now, 2.6);
       }
     }
-    if (now >= b.stayUntil) {
+    if (now >= b.stayUntil && ctx.talk.mayLeave(self, b.stayUntil)) {
       b.idleLeft = ctx.rng.range(1, 3);
       return 'idle';
     }
   },
   exit(b) {
+    b.ctx.talk.stop(b.self);
     b.ctx.street.releaseBenchSeat(b.self);
     b.bench = null;
     b.stayUntil = 0;
@@ -2158,11 +2159,11 @@ const HOME: State<CitizenBrain> = {
         b.stayUntil = now + (wake > 0 ? wake + ctx.rng.range(0, 15) : ctx.rng.range(lo, hi));
         self.asleep = b.sleeping;
         if (b.sleeping) ctx.housing.stats.sleeps++;
-        if (ctx.rng.chance(0.3)) self.say(ctx.rng.pick(b.sleeping ? H.lines.sleep : H.lines.home), now, 2);
+        if (ctx.rng.chance(0.3)) self.say(phrase(ctx.rng, self, b.sleeping ? H.lines.sleep : H.lines.home), now, 2);
       }
       return;
     }
-    if (b.sleeping && ctx.rng.chance(0.04 / 60)) self.say(ctx.rng.pick(HOUSING.lines.sleep), now, 1.5);
+    if (b.sleeping && ctx.rng.chance(0.04 / 60)) self.say(phrase(ctx.rng, self, HOUSING.lines.sleep), now, 1.5);
     // Утро настало раньше расчёта (часы сдвинулись — загрузка, тест) — встаёт.
     if (b.nightSleep && !ctx.routine.asleepTime(self)) b.stayUntil = Math.min(b.stayUntil, now);
     if (now >= b.stayUntil) {
@@ -2217,7 +2218,7 @@ const CARDS: State<CitizenBrain> = {
     const others = t.taken.filter((o) => o && o !== self && o.alive && o.brain instanceof CitizenBrain && o.brain.fsm.current === 'cards' && o.brain.stayUntil > 0) as Character[];
     if (others.length && now >= b.nextLine) {
       b.nextLine = now + ctx.rng.range(C.lineEvery[0], C.lineEvery[1]);
-      if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.cardLines), now, 2.4);
+      if (!(self.speech && self.speech.until > now)) self.say(ctx.talk.remark(self, 'cards', STREET.cardLines), now, 2.4);
     }
     if (now >= b.stayUntil) {
       b.idleLeft = ctx.rng.range(1, 3);
@@ -2279,17 +2280,20 @@ const CANTEEN: State<CitizenBrain> = {
     faceTowards(self, seat.lookX, seat.lookY, dt);
     // За столом с соседями — разговор.
     const others = ctx.shops.seats.some((o) => o !== seat && o.table === seat.table && o.taken && o.taken.alive && o.taken.brain instanceof CitizenBrain && o.taken.brain.fsm.current === 'canteen' && o.taken.brain.stayUntil > 0);
-    if (others && now >= b.nextLine) {
+    if (others && now >= b.nextLine && !ctx.talk.busy(self)) {
       b.nextLine = now + ctx.rng.range(M.lineEvery[0], M.lineEvery[1]);
-      if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(ARBAT.lines.canteen), now, 2.4);
+      // Сосед по столу — беседа; иначе — про еду.
+      const mate = ctx.shops.seats.find((o) => o !== seat && o.table === seat.table && o.taken && o.taken.alive && o.taken.brain instanceof CitizenBrain && o.taken.brain.fsm.current === 'canteen' && !ctx.talk.busy(o.taken))?.taken;
+      if (!(mate && ctx.rng.chance(0.5) && ctx.talk.converse(self, mate, 'canteen')) && !(self.speech && self.speech.until > now)) self.say(ctx.talk.remark(self, 'canteen', ARBAT.lines.canteen), now, 2.4);
     }
-    if (now >= b.stayUntil) {
+    if (now >= b.stayUntil && ctx.talk.mayLeave(self, b.stayUntil)) {
       ctx.shops.eat(self);
       b.idleLeft = ctx.rng.range(1, 3);
       return 'idle';
     }
   },
   exit(b) {
+    b.ctx.talk.stop(b.self);
     b.ctx.shops.releaseSeat(b.self);
     b.seat = null;
     b.stayUntil = 0;
@@ -2379,7 +2383,7 @@ const SMOKE: State<CitizenBrain> = {
     turnTowards(self, b.glanceDir, dt);
     if (now >= b.nextLine) {
       b.nextLine = now + ctx.rng.range(S.lineEvery[0], S.lineEvery[1]);
-      if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.smokeLines), now, 2.4);
+      if (!(self.speech && self.speech.until > now)) self.say(ctx.talk.remark(self, 'smoke', STREET.smokeLines), now, 2.4);
     }
     if (now >= b.stayUntil) {
       b.idleLeft = ctx.rng.range(0.5, 2);
@@ -2420,7 +2424,7 @@ const NOTICE: State<CitizenBrain> = {
     faceTowards(self, board.x, board.y, dt);
     if (b.nextLine > 0 && now >= b.nextLine) {
       b.nextLine = 0;
-      if (!(self.speech && self.speech.until > now)) self.say(ctx.rng.pick(STREET.noticeLines), now, 2.6);
+      if (!(self.speech && self.speech.until > now)) self.say(ctx.talk.remark(self, 'notice', STREET.noticeLines), now, 2.6);
     }
     if (now >= b.stayUntil) {
       b.idleLeft = ctx.rng.range(0.5, 2);
@@ -2457,7 +2461,7 @@ const LISTEN: State<CitizenBrain> = {
     if (b.mover.status === 'arrived' || self.moveSpeed < 4) {
       const p = st.plaza!;
       faceTowards(self, p.x, p.y, dt);
-      if (ctx.rng.chance(dt * 0.015) && !(self.speech && self.speech.until > ctx.law.now)) self.say(ctx.rng.pick(STREET.listenLines), ctx.law.now, 2);
+      if (ctx.rng.chance(dt * 0.015) && !(self.speech && self.speech.until > ctx.law.now)) self.say(ctx.talk.remark(self, 'listen'), ctx.law.now, 2);
     }
   },
 };

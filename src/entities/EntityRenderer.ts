@@ -1,5 +1,5 @@
 import { ITEMS } from '../config/items';
-import type { Character } from './Character';
+import type { Character, SpeechKind } from './Character';
 import type { View } from '../core/Camera';
 import { FACTIONS, colorsOf, rankOf } from '../config/factions';
 import { LOYALTY } from '../config/loyalty';
@@ -239,6 +239,7 @@ export class EntityRenderer {
       if (c === player) score += 1e6;
       if (c.downed) score += 5e3;
       if (speaking) score += 3e3;
+      if (speaking && c.speech!.kind !== 'say') score += E.bubble.radioScore;
       cand.push({ c, x, cy, score, speaking });
     }
     for (const e of cand) if (e.c === hovered) e.score += 1e5;
@@ -258,13 +259,14 @@ export class EntityRenderer {
     for (const { c, x, cy, speaking } of cand) {
       if (!speaking || said.length >= L.maxBubbles) continue;
       const key = c === player || c === hovered || c.downed;
-      if (!key && zoom < L.nameZoom) continue;
-      const top = cy + (PAWN.head.y - PAWN.head.r) * s * PAWN.scale - 6 * dpr;
-      const w = textWidth(ctx, c.speech!.text, E.speechFont, dpr) + 12 * dpr;
-      const h = 17 * dpr;
-      if (!key && !free(x - w / 2, top - h + 4 * dpr, x + w / 2, top + 4 * dpr)) continue;
-      placed.push({ x0: x - w / 2, y0: top - h + 4 * dpr, x1: x + w / 2, y1: top + 4 * dpr });
-      said.push({ c, x, y: top });
+      const radio = c.speech!.kind !== 'say';
+      if (!key && !radio && zoom < L.nameZoom) continue;
+      const bottom = cy + (PAWN.head.y - PAWN.head.r) * s * PAWN.scale - 4 * dpr;
+      const lay = bubbleLayout(ctx, c.speech!.text, c.speech!.kind, dpr);
+      const y0 = bottom - lay.h;
+      if (!key && !free(x - lay.w / 2, y0, x + lay.w / 2, bottom)) continue;
+      placed.push({ x0: x - lay.w / 2, y0, x1: x + lay.w / 2, y1: bottom });
+      said.push({ c, x, y: bottom, lay });
     }
     for (const { c, x, cy } of cand) {
       const key = c === player || c === hovered || c.downed;
@@ -318,26 +320,127 @@ export class EntityRenderer {
     }
     for (const b of said) {
       ctx.globalAlpha = b.c.visible ? 1 : 0.5;
-      this.bubble(ctx, b.c.speech!.text, b.x, b.y, dpr);
+      drawBubble(ctx, b.lay, b.c.speech!.kind, b.x, b.y, dpr);
     }
     ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
   }
+}
 
-  private bubble(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, dpr: number): void {
-    ctx.font = scaleFont(RENDER.entity.speechFont, dpr);
-    const w = ctx.measureText(text).width + 12 * dpr;
-    const h = 17 * dpr;
-    ctx.fillStyle = RENDER.entity.speechBg;
-    ctx.fillRect(x - w / 2, y - h + 4 * dpr, w, h);
-    ctx.fillStyle = RENDER.entity.speechText;
-    ctx.fillText(text, x, y);
+/** Раскладка облачка: строки (перенос по словам), ширина и высота в px экрана. */
+interface BubbleLayout {
+  lines: string[];
+  w: number;
+  h: number;
+  /** Отступ текста слева под значок рации. */
+  icon: number;
+}
+
+const layoutCache = new Map<string, BubbleLayout>();
+
+/** Перенос реплики по словам не шире RENDER.entity.bubble.maxWidth, не больше maxLines строк (кэш по тексту). */
+function bubbleLayout(ctx: CanvasRenderingContext2D, text: string, kind: SpeechKind, dpr: number): BubbleLayout {
+  const key = kind + dpr + text;
+  let lay = layoutCache.get(key);
+  if (lay) return lay;
+  const B = RENDER.entity.bubble;
+  const font = RENDER.entity.speechFont;
+  const icon = kind === 'say' ? 0 : 13 * dpr;
+  const max = B.maxWidth * dpr - icon;
+  const lines: string[] = [];
+  let cur = '';
+  for (const word of text.split(' ')) {
+    const next = cur ? `${cur} ${word}` : word;
+    if (cur && textWidth(ctx, next, font, dpr) > max) {
+      lines.push(cur);
+      cur = word;
+    } else cur = next;
   }
+  if (cur) lines.push(cur);
+  if (lines.length > B.maxLines) {
+    lines.length = B.maxLines;
+    lines[B.maxLines - 1] += '…';
+  }
+  let w = 0;
+  for (const l of lines) w = Math.max(w, textWidth(ctx, l, font, dpr));
+  w += icon + B.pad * 2 * dpr + 4 * dpr;
+  const tag = kind === 'dispatch' ? 9 * dpr : 0;
+  const h = lines.length * B.lineH * dpr + B.pad * 2 * dpr + tag;
+  lay = { lines, w, h, icon };
+  if (layoutCache.size > 600) layoutCache.clear();
+  layoutCache.set(key, lay);
+  return lay;
+}
+
+/**
+ * Облачко над головой: обычное — тёмное; рация — зелёное с рамкой и значком рации; Надзор — синее с биркой
+ * «НАДЗОР». bottom — нижний край (хвостик смотрит на голову).
+ */
+function drawBubble(ctx: CanvasRenderingContext2D, lay: BubbleLayout, kind: SpeechKind, x: number, bottom: number, dpr: number): void {
+  const E = RENDER.entity;
+  const B = E.bubble;
+  const st = kind === 'radio' ? B.radio : kind === 'dispatch' ? B.dispatch : null;
+  const x0 = Math.round(x - lay.w / 2);
+  const y0 = Math.round(bottom - lay.h);
+  const w = Math.round(lay.w);
+  const h = Math.round(lay.h);
+  const t = B.tail * dpr;
+  ctx.fillStyle = st ? st.bg : E.speechBg;
+  ctx.fillRect(x0, y0, w, h);
+  // Хвостик к голове.
+  ctx.beginPath();
+  ctx.moveTo(x - t, y0 + h);
+  ctx.lineTo(x, y0 + h + t);
+  ctx.lineTo(x + t, y0 + h);
+  ctx.closePath();
+  ctx.fill();
+  let ty = y0;
+  if (st) {
+    ctx.strokeStyle = st.rim;
+    ctx.lineWidth = Math.max(1, dpr);
+    ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
+    if (kind === 'dispatch') {
+      // Бирка «НАДЗОР» в верхнем левом углу.
+      const D = B.dispatch;
+      ctx.font = scaleFont(D.tagFont, dpr);
+      const tw = ctx.measureText(D.tag).width + 6 * dpr;
+      ctx.fillStyle = D.tagBg;
+      ctx.fillRect(x0, y0, tw, 9 * dpr);
+      ctx.fillStyle = D.tagText;
+      ctx.textAlign = 'left';
+      ctx.fillText(D.tag, x0 + 3 * dpr, y0 + 7.5 * dpr);
+      ty += 9 * dpr;
+    }
+    drawRadioIcon(ctx, x0 + B.pad * dpr + 1 * dpr, ty + B.pad * dpr + 1 * dpr, dpr, st.icon);
+  }
+  ctx.font = scaleFont(E.speechFont, dpr);
+  ctx.fillStyle = st ? st.text : E.speechText;
+  ctx.textAlign = st ? 'left' : 'center';
+  const tx = st ? x0 + lay.icon + B.pad * dpr + 2 * dpr : x;
+  for (let i = 0; i < lay.lines.length; i++) {
+    ctx.fillText(lay.lines[i], tx, ty + B.pad * dpr + (i + 1) * B.lineH * dpr - 3 * dpr);
+  }
+}
+
+/** Значок рации: корпус, антенна, две дуги сигнала. */
+function drawRadioIcon(ctx: CanvasRenderingContext2D, x: number, y: number, dpr: number, color: string): void {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y + 3 * dpr, 5 * dpr, 7 * dpr);
+  ctx.fillRect(x + 1 * dpr, y, 1 * dpr, 3 * dpr);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, dpr);
+  ctx.beginPath();
+  ctx.arc(x + 6 * dpr, y + 3 * dpr, 2.5 * dpr, -0.9, 0.9);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x + 6 * dpr, y + 3 * dpr, 4.5 * dpr, -0.9, 0.9);
+  ctx.stroke();
 }
 
 const drawOrder: { c: Character; x: number; y: number }[] = [];
 const labelCand: { c: Character; x: number; cy: number; score: number; speaking: boolean }[] = [];
 const labelRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
-const labelBubbles: { c: Character; x: number; y: number }[] = [];
+const labelBubbles: { c: Character; x: number; y: number; lay: BubbleLayout }[] = [];
 
 /** Подробности под курсором: CID (у жителей), семья или банда. */
 function labelDetail(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>): string {

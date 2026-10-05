@@ -123,7 +123,7 @@ describe('сопротивление в городе', () => {
     expect(node.broken).toBe(true);
     // Саботаж — точка тревоги для патрулей; код жёлтый — только за убитого патрульного.
     expect(sim.war.alarmActive).toBe(true);
-    expect(sim.log.some((l) => l.includes('саботаж'))).toBe(true);
+    expect(sim.log.some((l) => l.includes('саботаж')) || sim.ctx.radio.incidents.some((i) => i.kind === 'sabotage')).toBe(true);
     // Группа уходит под землю (город большой — путь к люку долгий), тревога снимается.
     run(sim, 360, () => sim.war.code === 'green' && op.team.every((c) => !c.alive || (c.brain as UndergroundBrain).mode === 'base'));
     for (const c of op.team) if (c.alive) expect(sim.map.levelAt(c.x, c.y)).toBe('sewer');

@@ -23,6 +23,7 @@ import { generateCity } from '../world/generator/CityGenerator';
 import { EntityManager } from '../entities/EntityManager';
 import type { Character } from '../entities/Character';
 import { createCharacter, nameFor, randomName, resetCids } from '../entities/factory';
+import { resetPhrases } from '../systems/phrases';
 import { stepPhysics } from '../entities/physics';
 import type { PawnLook } from '../entities/PawnRenderer';
 import { EntityRenderer } from '../entities/EntityRenderer';
@@ -59,6 +60,8 @@ import { PrisonSystem } from '../systems/Prison';
 import { AcademySystem } from '../systems/Academy';
 import { Staffing } from '../systems/Staffing';
 import { Access } from '../systems/Access';
+import { Radio, type Transmission } from '../systems/Radio';
+import { Talk } from '../systems/Talk';
 import { serviceHint } from '../systems/Staffing';
 import { StreetShops } from '../systems/StreetShops';
 import { Housing } from '../systems/Housing';
@@ -232,6 +235,10 @@ export class Game {
       (a) => this.render(a),
     );
     window.addEventListener('resize', () => this.resize());
+    // Надзор вызвал игрока из силового блока на происшествие — метка на карте.
+    this.bus.on('radio:call', ({ x, y }) => {
+      this.ui.mapView.marker = { x, y, level: 'city' };
+    });
     // Игрок избран Комендантом — новая роль (сохраняется).
     this.bus.on('elected', ({ who }) => {
       if (who !== this.player) return;
@@ -353,6 +360,8 @@ export class Game {
       academy: null as unknown as AcademySystem,
       staffing: null as unknown as Staffing,
       access: null as unknown as Access,
+      radio: null as unknown as Radio,
+      talk: null as unknown as Talk,
     };
     this.ai.routine = new Routine(this.ai);
     this.ai.errands = new Errands(this.ai);
@@ -380,6 +389,8 @@ export class Game {
     this.ai.staffing = new Staffing(this.ai);
     this.ai.academy = new AcademySystem(this.ai);
     this.ai.access = new Access(this.ai);
+    this.ai.talk = new Talk(this.ai);
+    this.ai.radio = new Radio(this.ai);
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
@@ -397,6 +408,7 @@ export class Game {
     this.law.onContraband = (c) => this.ai.errands.found(c);
     this.entities.clear();
     resetCids();
+    resetPhrases();
     this.playerCtl.reset();
     this.ui.check.hide();
     const start = roleSpawn(this.ai, 'citizen');
@@ -626,6 +638,10 @@ export class Game {
   }
 
   /** Склад Протектората (для строки HUD). */
+  get radioFeed(): readonly Transmission[] {
+    return this.ai?.radio?.feed ?? [];
+  }
+
   get arsenal(): ArsenalSystem | null {
     return this.ai?.arsenal ?? null;
   }
@@ -946,6 +962,8 @@ export class Game {
     this.war.command.paused = true;
     this.war.reinforcements = false;
     this.insurgency.paused = true;
+    this.ai.radio.enabled = false;
+    this.ai.talk.enabled = false;
     this.ui.roles.close();
     this.arena = new SquadArena(this.ai, side, this.player);
     this.arena.startRound();
@@ -1021,6 +1039,8 @@ export class Game {
     this.ai.prison.update();
     this.ai.staffing.update();
     this.ai.academy.update(dt);
+    this.ai.radio.update(dt);
+    this.ai.talk.update();
     // Красный код (штурм Управы) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();

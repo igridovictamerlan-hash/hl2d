@@ -31,6 +31,10 @@ import { FACTIONS, cpHas, cpUnit } from '../../config/factions';
 import { SECURITY } from '../../config/security';
 import { CWU_HQ } from '../../config/cwuHq';
 import type { KppPoint } from '../../systems/Arsenal';
+import type { RadioCall } from '../../systems/Radio';
+import { RADIO } from '../../config/radio';
+import { LINES } from '../../config/lines';
+import { phrase } from '../../systems/phrases';
 
 const near: Character[] = [];
 /** Обход живого поста — в пределах зоны поста (проверка зоны — в postLife). */
@@ -184,6 +188,8 @@ export class CpBrain implements Brain {
   greetAt = -1e9;
   alertUntil = 0;
   alertFace = 0;
+  /** Вызов по рации (Radio): куда ехать по происшествию, до какого времени, бегом ли. */
+  call: RadioCall | null = null;
 
   constructor(
     public self: Character,
@@ -223,11 +229,14 @@ export class CpBrain implements Brain {
    */
   shouldHunt(): boolean {
     const war = this.ctx.war;
-    // Прочёсывают при тревоге: коде жёлтом/красном или свежей точке тревоги (нападение, саботаж…).
-    if (this.guardPost || this.medicStation || (war.code === 'green' && !war.alarmActive)) return false;
+    if (this.guardPost || this.medicStation) return false;
     // Командование и охрана при тревоге остаются при своих. Ведомые идут за ведущим, а когда он
     // поднят на прочёсывание — расходятся и прочёсывают вместе с ним, каждый в своей точке.
     if (this.duty && STAFF.has(this.duty)) return false;
+    // Вызов по рации — едем, даже если тревоги в городе нет.
+    if (this.callPoint()) return true;
+    // Прочёсывают при тревоге: коде жёлтом/красном или свежей точке тревоги (нападение, саботаж…).
+    if (war.code === 'green' && !war.alarmActive) return false;
     const lead = this.duty === 'squad' && !this.lead ? this.leader() : null;
     const lb = lead?.brain;
     if (lead && lb instanceof CpBrain && lb.lead && lead !== this.self) {
@@ -247,6 +256,42 @@ export class CpBrain implements Brain {
       if (Math.hypot(p.x - o.x, p.y - o.y) < d && ++closer >= ALARM.minSquads) return false;
     }
     return true;
+  }
+
+  /** Действующий вызов по рации: свой или (ведомый) ведущего группы. */
+  activeCall(): RadioCall | null {
+    const now = this.ctx.law.now;
+    if (this.call && now >= this.call.until) this.call = null;
+    if (this.call) return this.call;
+    const l = this.duty === 'squad' && !this.lead ? this.leader() : null;
+    const lb = l?.brain;
+    return lb instanceof CpBrain && lb.call && now < lb.call.until ? lb.call : null;
+  }
+
+  /**
+   * Куда ехать по вызову: место происшествия, а если рядом с ним известен нападавший — к нему
+   * (WarSystem.nearestKnown не дальше RADIO.incident.merge от места).
+   */
+  callPoint(): Vec2 | null {
+    const c = this.activeCall();
+    if (!c) return null;
+    const k = this.ctx.war?.nearestKnown(c.x, c.y);
+    return k && dist(k.x, k.y, c.x, c.y) < RADIO.incident.merge ? k : c;
+  }
+
+  /**
+   * Свободен ли для вызова по рации (prio — важность нового): патрульный или ведущий группы в обходе или
+   * прочёсывании, не на посту, не на службе, не в бою; уже едет на вызов не ниже важностью — занят.
+   */
+  canRespond(prio: number): boolean {
+    if (this.guardPost || this.medicStation || this.rally || this.raidPost || this.formation || this.ward || this.scene || this.front >= 0) return false;
+    if (this.duty && this.duty !== 'squad') return false;
+    if (this.duty === 'squad' && !this.lead) return false;
+    if (this.self.cadet || this.target) return false;
+    const c = this.activeCall();
+    if (c && c.prio >= prio) return false;
+    const cur = this.fsm.current;
+    return cur === 'patrol' || cur === 'patrol-again' || cur === 'hunt' || cur === 'post';
   }
 
   /** Прочёсывание вокруг места p: своя точка, не у точек других; дошёл — осмотрелся — следующая. */
@@ -586,13 +631,13 @@ export class CpBrain implements Brain {
       o.hostile = true;
       o.law.wanted = true;
       this.self.say('Стрельба! Огонь на поражение!', now, 2);
-      ctx.war.raiseAlarm(o.x, o.y, 'стрельба в городе', false);
+      ctx.war.raiseAlarm(o.x, o.y, 'стрельба в городе', false, { kind: 'gunfire', reporter: this.self, suspect: o });
       armedAlarm.set(o, now);
       return;
     }
     if (now - (armedAlarm.get(o) ?? -1e9) < A.alarmEvery) return;
     armedAlarm.set(o, now);
-    ctx.war.raiseAlarm(o.x, o.y, 'вооружённый на улице', false);
+    ctx.war.raiseAlarm(o.x, o.y, 'вооружённый на улице', false, { kind: 'armed', reporter: this.self, suspect: o });
   }
 
   /** Патрульный в городе услышал чужой выстрел — тревога на место (не чаще LAW.armed.shotAlarmEvery). */
@@ -608,7 +653,7 @@ export class CpBrain implements Brain {
     if (k === 'checkpoint' || k === 'outlands' || k === 'wasteland') return;
     shotAlarmAt.set(ctx.law, now);
     self.say('Выстрелы! Проверить!', now, 2);
-    ctx.war.raiseAlarm(s.x, s.y, 'выстрелы в квартале', false);
+    ctx.war.raiseAlarm(s.x, s.y, 'выстрелы в квартале', false, { kind: 'shots', reporter: self });
   }
 
   /** Осмотреться: раненые свои (HELIX), нарушения, иногда — проверка «для порядка». */
@@ -648,6 +693,7 @@ export class CpBrain implements Brain {
       if (!v) continue;
       if (v === 'rebel') ctx.war.sighted(o);
       if (v === 'weapon') this.armedSeen(o);
+      if (v === 'fight') ctx.radio?.brawl(self, o);
       // Вооружённого врага берёт на себя бой (Gunner), остальных — задерживаем.
       if (ctx.combat.threat(self, o)) continue;
       // Часовой не уходит с поста ради беготни по городу; постовой RCT — только рядом с постом.
@@ -983,16 +1029,19 @@ function postLife(b: CpBrain, dt: number): void {
   if (b.postMode === 'chat') {
     const o = b.postPartner;
     const ob = o?.brain;
-    if (!o || !o.alive || !(ob instanceof CpBrain) || ob.postPartner !== self || ob.fsm.current !== 'guard' || b.postT <= 0) {
+    if (!o || !o.alive || !(ob instanceof CpBrain) || ob.postPartner !== self || ob.fsm.current !== 'guard' || (b.postT <= 0 && ctx.talk.mayLeave(self, now + b.postT))) {
       endChat(b);
       return;
     }
     turnTowards(self, Math.atan2(o.y - self.y, o.x - self.x), dt, 4);
-    if (b.postTalk >= 0 && now >= b.postNext && b.postStep < 2) {
-      const pair = L.postTalk[b.postTalk];
-      (b.postStep === 0 ? self : o).say(pair[b.postStep], now, 3);
+    // Беседу ведёт Talk (вызовы по рации, потери, смена, обстановка); тема кончилась — ещё одна, не больше двух.
+    if (b.postTalk >= 0 && now >= b.postNext && !ctx.talk.busy(self)) {
+      if (b.postStep >= 2 || !ctx.talk.converse(self, o, 'post')) {
+        endChat(b);
+        return;
+      }
       b.postStep++;
-      b.postNext = now + 3;
+      b.postNext = now + 2.5;
     }
     return;
   }
@@ -1050,14 +1099,15 @@ function postLife(b: CpBrain, dt: number): void {
       b.postPartner = o;
       ob.postPartner = self;
       b.postT = ob.postT = t;
-      b.postTalk = rng.int(0, L.postTalk.length - 1);
+      b.postTalk = 0;
       ob.postTalk = -1;
       b.postStep = 0;
       b.postNext = now + 0.5;
       return;
     }
   } else if (roll < P.beatChance + P.chatChance + P.radioChance) {
-    self.say(rng.pick(L.postRadio), now, 3);
+    // Доклад по рации — с ответом Надзора; эфир занят — сам себе под нос.
+    if (!ctx.radio?.checkIn(self)) self.say(rng.pick(L.postRadio), now, 3);
   } else if (rng.chance(0.15)) self.say(rng.pick(L.postBored), now, 2);
   b.postMode = 'stand';
   b.postT = rng.range(P.stand[0], P.stand[1]);
@@ -1065,6 +1115,7 @@ function postLife(b: CpBrain, dt: number): void {
 
 /** Разговор на посту окончен (у обоих). */
 function endChat(b: CpBrain): void {
+  b.ctx.talk.stop(b.self);
   const o = b.postPartner;
   const ob = o?.brain;
   if (ob instanceof CpBrain && ob.postPartner === b.self) {
@@ -1402,7 +1453,7 @@ const HEAL: State<CpBrain> = {
     faceTowards(b.self, p.x, p.y, dt);
     if (b.healCooldown <= 0 && b.ctx.combat.heal(p, COMBAT.healAmount)) {
       b.healCooldown = COMBAT.healCooldown;
-      b.self.say('Держись, латаю.', b.ctx.law.now, 1.5);
+      b.self.say(phrase(b.ctx.rng, b.self, LINES.cpMedic), b.ctx.law.now, 1.5);
     }
   },
 };
@@ -1419,7 +1470,10 @@ const HUNT: State<CpBrain> = {
       b.mover.speed = LAW.cpWalkSpeed;
       return b.idleState;
     }
-    const p = b.ctx.war.nearestKnown(b.self.x, b.self.y);
+    // По вызову рации — к месту происшествия (срочный — бегом), иначе — к ближайшему известному.
+    const call = b.activeCall();
+    b.mover.speed = call?.urgent ? LAW.cpRunSpeed : LAW.cpWalkSpeed * 1.3;
+    const p = b.callPoint() ?? b.ctx.war.nearestKnown(b.self.x, b.self.y);
     if (!p) {
       b.huntSpot = -1;
       if (b.mover.status !== 'moving' && b.mover.status !== 'pending') {
@@ -1441,7 +1495,7 @@ const BODYGUARD: State<CpBrain> = {
   enter(b) {
     b.mover.speed = LAW.cpWalkSpeed * 1.25;
     b.repath = 0;
-    if (b.ward) b.self.say('Юнит на сопровождении. Держитесь рядом.', b.ctx.law.now, 3);
+    if (b.ward) b.self.say(phrase(b.ctx.rng, b.self, LINES.bodyguard), b.ctx.law.now, 3);
   },
   update(b, dt) {
     const w = b.ward;

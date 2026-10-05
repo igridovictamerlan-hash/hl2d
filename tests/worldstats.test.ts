@@ -141,6 +141,9 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Война: ${JSON.stringify(sim.war.stats)}; места преступлений: ${JSON.stringify(sim.war.scenes.stats)}`);
   out.push(`Труд: ${JSON.stringify(sim.labor.stats)}; склад: ${JSON.stringify(sim.arsenal.stats)}`);
   out.push(`Барыга: ${JSON.stringify(sim.ctx.fence.stats)}`);
+  out.push(`Рация: ${JSON.stringify(sim.ctx.radio.stats)}`);
+  const T = sim.ctx.talk.stats;
+  out.push(`Разговоры: бесед ${T.convos} (договорили ${T.done}, разошлись ${T.cut}, прервали ${T.stopped}), реплик ${T.lines}, слухов ${T.news}, пересказано ${T.told}; темы: ${top(new Map(Object.entries(T.topics)), 25)}`);
   const vac: Record<string, number> = {};
   for (const s of sim.staffing.vacancies()) vac[cpUnit(s.spec.rank).short] = (vac[cpUnit(s.spec.rank).short] ?? 0) + 1;
   out.push(`Вакансии ВС по юнитам: ${JSON.stringify(vac)}`);

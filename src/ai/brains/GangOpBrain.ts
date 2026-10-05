@@ -244,6 +244,6 @@ export class GangOpBrain implements Brain {
     }
     self.say(ctx.rng.pick(what === 'hit' ? GANGS.lines.hit : GANGS.lines.convoy), ctx.law.now, 2);
     ctx.law.log(`${this.op.gang.def.name}: нападение на ${what === 'hit' ? 'патруль ВС' : 'конвой склада'}!`, 'radio');
-    ctx.war.raiseAlarm(self.x, self.y, what === 'hit' ? 'банда напала на патруль' : 'банда напала на конвой ВС', false);
+    ctx.war.raiseAlarm(self.x, self.y, what === 'hit' ? 'банда напала на патруль' : 'банда напала на конвой ВС', false, { kind: what === 'hit' ? 'gang' : 'convoy', suspect: self });
   }
 }

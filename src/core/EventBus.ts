@@ -35,6 +35,8 @@ export interface GameEvents {
   /** Игрока зачислили курсантом академии / он принял присягу (Academy). */
   enlisted: { who: Character };
   graduated: { who: Character; rank: number; name: string };
+  /** Надзор вызвал игрока из силового блока на происшествие (метка на карте). */
+  'radio:call': { x: number; y: number; where: string };
 }
 
 type Handler<T> = (payload: T) => void;

@@ -16,6 +16,9 @@ import type { AccessSite } from '../config/access';
  * cuffed — в наручниках, идёт за конвоиром; entering — заводят в камеру; jailed — сидит;
  * releasing — выходит из Управы после отсидки.
  */
+/** Вид реплики (облачко): вслух, в рацию, Надзор из рации. */
+export type SpeechKind = 'say' | 'radio' | 'dispatch';
+
 export type LawPhase = 'none' | 'ordered' | 'checking' | 'fleeing' | 'cuffed' | 'entering' | 'jailed' | 'releasing';
 
 export interface LawState {
@@ -263,11 +266,11 @@ export class Character {
     orderX: 0, orderY: 0, since: 0, lastCheck: -1e9, cell: -1, jailUntil: 0, savedBrain: null,
   };
 
-  /** Реплика над головой. */
-  speech: { text: string; until: number } | null = null;
+  /** Реплика над головой: say — вслух, radio — в рацию, dispatch — голос Надзора из рации. */
+  speech: { text: string; until: number; kind: SpeechKind } | null = null;
 
-  say(text: string, now: number, duration = 3): void {
-    this.speech = { text, until: now + duration };
+  say(text: string, now: number, duration = 3, kind: SpeechKind = 'say'): void {
+    this.speech = { text, until: now + duration, kind };
   }
 
   constructor(init: CharacterInit) {

@@ -29,6 +29,8 @@ import { GAME } from '../config/game';
 import { MENU_FIT } from '../config/menus';
 import { GRENADE_KINDS } from '../systems/CombatSystem';
 import type { SquadArena } from '../systems/SquadArena';
+import { FACTIONS } from '../config/factions';
+import type { Transmission } from '../systems/Radio';
 import { ArenaBar } from './ArenaBar';
 
 
@@ -45,6 +47,8 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly war: WarSystem;
   /** Склад Протектората (запасы, борт) — для строки HUD. */
   readonly arsenal: ArsenalSystem | null;
+  /** Передачи рации (звук «кшш»). */
+  readonly radioFeed: readonly Transmission[];
   /** Режим «отряд на отряд» (null — обычная игра). */
   readonly arena: SquadArena | null;
   /** Строка HUD о городе: поручение, ночной час (пусто — ничего). */
@@ -181,6 +185,7 @@ export class UI {
     const level = map.levelAt(player.x, player.y);
     this.audio.update(this.host.combat.shots, player, this.host.combat.now, (x, y) => map.levelAt(x, y) === level, this.host.combat.fx);
     this.audio.ambient(player, this.host.fireSpots, this.host.darkness, level === 'sewer', dt, this.host.arsenal?.shipView() ?? null);
+    this.audio.radio(player, this.host.radioFeed, FACTIONS[player.faction].authority && !player.cadet);
     this.placeLog();
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;

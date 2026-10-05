@@ -34,6 +34,8 @@ import type { Brawls } from '../systems/Brawls';
 import type { AcademySystem } from '../systems/Academy';
 import type { Staffing } from '../systems/Staffing';
 import type { Access } from '../systems/Access';
+import type { Radio } from '../systems/Radio';
+import type { Talk } from '../systems/Talk';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -99,4 +101,8 @@ export interface AiContext {
   staffing: Staffing;
   /** Пропускной режим режимных объектов (вахтёры). */
   access: Access;
+  /** Рация силового блока: происшествия, вызовы Надзора, доклады. */
+  radio: Radio;
+  /** Разговоры жителей: слухи о происшествиях, темы по обстановке, без повторов. */
+  talk: Talk;
 }

@@ -121,7 +121,7 @@ export class ScannerSystem {
     }
     if (found) {
       const what = rebels ? (rebels + armed > 1 ? `сканер засёк повстанцев (${rebels + armed})` : 'сканер засёк повстанца') : armed > 1 ? `сканер засёк вооружённых (${armed})` : 'сканер засёк вооружённого';
-      ctx.war.raiseAlarm(found.x, found.y, what);
+      ctx.war.raiseAlarm(found.x, found.y, what, false, { kind: 'scanner', reporter: s.owner, suspect: found });
     }
   }
 

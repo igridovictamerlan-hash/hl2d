@@ -1,3 +1,4 @@
+import { phrase } from './phrases';
 import { FACTIONS } from '../config/factions';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
@@ -280,8 +281,8 @@ export class GangSystem {
     ga.stats.feuds++;
     gb.stats.feuds++;
     const now = this.ctx.law.now;
-    a.say(this.ctx.rng.pick(GANGS.lines.turf), now, 2.5);
-    b.say(this.ctx.rng.pick(GANGS.lines.turf), now + 0.6, 2.5);
+    a.say(phrase(this.ctx.rng, a, GANGS.lines.turf), now, 2.5);
+    b.say(phrase(this.ctx.rng, b, GANGS.lines.turf), now + 0.6, 2.5);
     const z = this.ctx.map.zoneAtWorld(a.x, a.y);
     this.ctx.bus.emit('log', { text: `Стычка банд: ${ga.def.name} против ${gb.def.name}${z ? ` (${z.name})` : ''}.`, kind: 'world' });
   }

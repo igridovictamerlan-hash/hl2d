@@ -275,7 +275,7 @@ export class InsurgencySystem {
       m.law.wanted = true;
     }
     ctx.law.log(`Склад Протектората: нападение на конвой (${g.convoy?.point.name ?? 'пункт боепитания'})!`, 'radio');
-    ctx.war.raiseAlarm(by.x, by.y, 'нападение на конвой ВС', false);
+    ctx.war.raiseAlarm(by.x, by.y, 'нападение на конвой ВС', false, { kind: 'convoy', suspect: by });
     this.say(`засада — огонь по конвою ВС (${g.convoy?.point.name ?? 'склад'})!`);
   }
 
@@ -767,7 +767,7 @@ export class InsurgencySystem {
       if (w) ctx.combat.equip(m, w);
     }
     ctx.law.log('Тюрьма Протектората: вооружённое нападение! Охрана — к бою!', 'radio');
-    ctx.war.raiseAlarm(by.x, by.y, 'нападение на тюрьму', false);
+    ctx.war.raiseAlarm(by.x, by.y, 'нападение на тюрьму', false, { kind: 'prison', suspect: by });
     this.say('штурм тюрьмы — выбиваем двери камер!');
   }
 
@@ -850,7 +850,7 @@ export class InsurgencySystem {
       else ctx.prison.stats.freedByUnderground += n;
     }
     ctx.law.log(`${cell.prison ? 'Тюрьма Протектората: дверь камеры выбита' : 'Управа: дверь камеры КПЗ выбита'} — сбежали ${n}!`, 'radio');
-    ctx.war.raiseAlarm(cell.x, cell.y, cell.prison ? 'побег из тюрьмы' : 'побег из КПЗ Управы');
+    ctx.war.raiseAlarm(cell.x, cell.y, cell.prison ? 'побег из тюрьмы' : 'побег из КПЗ Управы', false, { kind: 'escape', suspect: by });
     this.say(`${by.isPlayer ? 'вы вскрыли' : by.profession === 'partisan' ? 'подпольщик вскрыл' : 'спецагент вскрыл'} камеру — наши на свободе (${n}).`);
     return n;
   }
@@ -870,7 +870,7 @@ export class InsurgencySystem {
     this.stats.riots++;
     by.say(ctx.rng.pick(PARTISANS.lines.riot), ctx.law.now, 2.5);
     ctx.law.log(`Беспорядки: ${n} горожан бунтуют — ${ctx.map.zoneAtWorld(x, y)?.name ?? 'город'}!`, 'radio');
-    ctx.war.raiseAlarm(x, y, 'беспорядки в городе');
+    ctx.war.raiseAlarm(x, y, 'беспорядки в городе', false, { kind: 'riot' });
     return n;
   }
 

@@ -15,6 +15,7 @@ import { VISION } from '../config/vision';
 import { loyalistPerk } from './Loyalty';
 import { FACTIONS, cpHas } from '../config/factions';
 import { LINES, fill } from '../config/lines';
+import { phrase } from './phrases';
 import { T } from '../world/tiles';
 import { apparentFaction, coverAuthority } from '../entities/cover';
 import { PrisonerBrain } from '../ai/brains/PrisonerBrain';
@@ -277,7 +278,7 @@ export class LawSystem {
       : reason === 'insult' ? LINES.cpOrderInsult
       : reason === 'rebel' || reason === 'weapon' ? LINES.cpOrderRebel
       : LINES.cpOrder;
-    handler.say(this.rng.pick(lines), this.time);
+    handler.say(phrase(this.rng, handler, lines, target), this.time);
     if (!target.isPlayer) {
       // Подпольщик под личиной не бежит: бег выдал бы его. Лоялист (не в розыске) — тоже: ему незачем.
       const loyal = target.faction === 'citizen' && target.loyalty >= LOYALTY.uniform.min && !law.wanted;
@@ -287,7 +288,7 @@ export class LawSystem {
       const base = table[target.profession ?? ''] ?? table[target.faction] ?? 0.05;
       const flee = target.disguised || (loyal && !guilty) ? 0 : base * (target.loyalty < 0 ? LAW.npc.lowLoyaltyMul : 1);
       if (this.rng.chance(Math.min(1, flee))) this.startFlee(target);
-      else target.say(this.rng.pick(LINES.comply), this.time, 2);
+      else target.say(phrase(this.rng, target, LINES.comply, handler), this.time, 2);
     }
   }
 
@@ -296,10 +297,11 @@ export class LawSystem {
     law.phase = 'fleeing';
     law.reason = 'resisting';
     law.since = this.time;
-    target.say(this.rng.pick(LINES.flee), this.time, 2);
+    target.say(phrase(this.rng, target, LINES.flee), this.time, 2);
     if (law.handler) {
-      law.handler.say(this.rng.pick(LINES.cpChase), this.time);
-      this.log(`${label(law.handler)}: убегает ${who(target, true).toLowerCase()}`, 'radio');
+      law.handler.say(phrase(this.rng, law.handler, LINES.cpChase), this.time);
+      if (this.onFlee && !law.handler.isPlayer) this.onFlee(law.handler, target);
+      else this.log(`${label(law.handler)}: убегает ${who(target, true).toLowerCase()}`, 'radio');
     }
   }
 
@@ -353,11 +355,11 @@ export class LawSystem {
       const paid = Math.min(target.money, verdict.fine);
       target.money -= paid;
       handler.money += Math.floor(paid / 2);
-      handler.say(fill(this.rng.pick(LINES.cpFine), { n: verdict.fine }), this.time);
+      handler.say(fill(phrase(this.rng, handler, LINES.cpFine, target), { n: verdict.fine }), this.time);
       adjustLoyalty(target, verdict.reason === 'insult' ? LOYALTY.points.insult : LOYALTY.points.fine, 'штраф', this.bus);
       this.log(`${label(handler)} оштрафовал ${who(target)} на ${verdict.fine} токенов (${VIOLATION_NAMES[verdict.reason]})`, 'law');
     } else {
-      handler.say(this.rng.pick(LINES.cpOk), this.time);
+      handler.say(phrase(this.rng, handler, LINES.cpOk, target), this.time);
       adjustLoyalty(target, LOYALTY.points.checkOk, 'проверка пройдена', this.bus);
     }
     this.clear(target);
@@ -387,19 +389,25 @@ export class LawSystem {
     const handler = target.law.handler;
     target.law.wanted = true;
     if (handler) {
-      handler.say(this.rng.pick(LINES.cpLost), this.time);
-      this.log(`${label(handler)}: потерял ${who(target)}, объявлен в розыск`, 'radio');
+      handler.say(phrase(this.rng, handler, LINES.cpLost), this.time);
+      if (this.onLost && !handler.isPlayer) this.onLost(handler, target);
+      else this.log(`${label(handler)}: потерял ${who(target)}, объявлен в розыск`, 'radio');
     }
     this.clear(target);
   }
 
   /** Отсидевшего отпустили (мозг уже прежний) — подполье даёт ему документы и уводит в схрон. */
   onReleased: ((c: Character) => void) | null = null;
+  /** Рация (Radio): нарушитель побежал от юнита, юнит его упустил, задержание (fled — после погони). */
+  onFlee: ((handler: Character, target: Character) => void) | null = null;
+  onLost: ((handler: Character, target: Character) => void) | null = null;
+  onArrest: ((handler: Character, target: Character, fled: boolean) => void) | null = null;
 
   arrest(handler: Character, target: Character, reason: Violation): void {
     const law = target.law;
     if (law.phase === 'cuffed' || law.phase === 'entering' || law.phase === 'jailed') return;
     const wasPlayerCheck = law.handler?.isPlayer && law.phase === 'checking';
+    const fled = law.phase === 'fleeing';
     law.phase = 'cuffed';
     law.handler = handler;
     law.reason = reason;
@@ -420,10 +428,11 @@ export class LawSystem {
     // В наручниках не упирается: конвоир и прохожие легко отталкивают.
     target.mass = PRISONER_MASS;
     target.wantX = target.wantY = 0;
-    handler.say(this.rng.pick(LINES.cpArrest), this.time);
+    handler.say(phrase(this.rng, handler, LINES.cpArrest, target), this.time);
     adjustLoyalty(target, LOYALTY.points.arrest, 'задержание', this.bus);
     this.log(`${label(handler)} задержал ${who(target)} (${VIOLATION_NAMES[reason]})`, 'law');
     if (wasPlayerCheck) this.bus.emit('law:checkClosed', { target });
+    this.onArrest?.(handler, target, fled);
   }
 
   /** Свободное место (не занято и не зарезервировано) в камере или -1. */

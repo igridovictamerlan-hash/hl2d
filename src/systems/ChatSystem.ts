@@ -59,6 +59,7 @@ export class ChatSystem {
       case 'рация':
         if (!FACTIONS[p.faction].authority) return this.log('Рации у вас нет — только у стражи и Легиона.');
         if (!rest) return this.log('Использование: /r текст');
+        p.say(rest, now, 4, 'radio');
         return this.log(`${p.name}: ${rest}`, 'radio');
       case 'roll':
       case 'кости': {
@@ -174,7 +175,7 @@ export class ChatSystem {
     adjustLoyalty(p, LOYALTY.points.report, 'донос', ctx.bus);
     this.log(`Надзор: принят донос гражданина #${p.cid} — ${zone}. Патрули направлены.`, 'radio');
     suspect.law.wanted = true;
-    if (suspect.faction === 'rebel' || suspect.weapon) ctx.war.raiseAlarm(suspect.x, suspect.y, 'донос о вооружённом');
+    if (suspect.faction === 'rebel' || suspect.weapon) ctx.war.raiseAlarm(suspect.x, suspect.y, 'донос о вооружённом', false, { kind: 'tip', suspect });
     else {
       // Ближайший свободный патрульный идёт разбираться.
       let cp: CpBrain | null = null;

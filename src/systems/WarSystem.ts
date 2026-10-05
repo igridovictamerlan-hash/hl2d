@@ -21,6 +21,7 @@ import type { Corpse } from './CombatSystem';
 import { CrimeScenes } from './CrimeScenes';
 import { lineOfSight } from '../world/visibility';
 import { VISION } from '../config/vision';
+import type { IncidentKind } from '../config/radio';
 
 /** Мозг бойца отряда — если он сейчас «свой» (задержанный ведёт себя как PrisonerBrain). */
 function rebelBrain(r: Character): RebelBrain | null {
@@ -34,6 +35,15 @@ function rebelBrain(r: Character): RebelBrain | null {
 export type AlertCode = 'green' | 'yellow' | 'red';
 
 /** Идущий капт КПП: до какого времени и счёт убийств в зоне. */
+/** Подробности тревоги для рации: вид происшествия, кто доложил, подозреваемый, пострадавший; radio: false — не в эфир. */
+export interface AlarmInfo {
+  kind?: IncidentKind;
+  reporter?: Character | null;
+  suspect?: Character | null;
+  victim?: { name: string } | null;
+  radio?: boolean;
+}
+
 export interface Capture {
   since: number;
   until: number;
@@ -184,7 +194,7 @@ export class WarSystem {
     this.scenes = new CrimeScenes(ctx);
     this.buildFronts();
     ctx.economy.paused = () => this.curfew;
-    ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Протектората');
+    ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Протектората', false, { kind: 'sabotage' });
     ctx.combat.onDamage = (target, attacker, killed) => this.onDamage(target, attacker, killed);
     const nav = ctx.nav;
     for (const a of nav.walkable) {
@@ -546,6 +556,7 @@ export class WarSystem {
     f.reinforceAt = f.medicAt = 0;
     const help = WAR.capture.reinforce ? 'Резерв выдвигается — держать точку!' : 'Подкреплений не будет — держать оборону!';
     this.ctx.law.log(`${f.name}: КАПТ точки ${pt.name}! Повстанцы (${f.squad.length}) идут на захват. ${help}`, 'radio');
+    this.ctx.radio?.front('capture', f, pt);
     this.ctx.bus.emit('announce', { text: `Капт · ${f.name} · ${pt.name}` });
     // На внутренний двор идут и державшие внешний (на постах остаётся WAR.capture.keepOnHeld).
     let keep = point > 0 ? WAR.capture.keepOnHeld : 0;
@@ -591,6 +602,7 @@ export class WarSystem {
         if (k < posts.length) rebelBrain(r)?.orderHold(posts[k % posts.length]);
         else rebelBrain(r)?.orderRegroup();
       });
+    this.ctx.radio?.front(breached ? 'breach' : 'lost', f, pt);
     if (breached) {
       this.breach(f);
       this.ctx.law.log(`${f.name}: КПП ПРОРВАН — ${f.points.map((p) => p.name).join('–')} у повстанцев (${score})! Граждане бегут к КПП примкнуть к сопротивлению.`, 'radio');
@@ -601,7 +613,7 @@ export class WarSystem {
     }
     // Захват точки — патрули стягиваются к проходной (код не меняется: жёлтый — только убитый
     // патрульный в городе, красный — штурм Управы).
-    this.raiseAlarm(f.apron.x, f.apron.y, `${f.name}: точка ${pt.name} захвачена повстанцами`);
+    this.raiseAlarm(f.apron.x, f.apron.y, `${f.name}: точка ${pt.name} захвачена повстанцами`, false, { radio: false });
   }
 
   /**
@@ -717,6 +729,7 @@ export class WarSystem {
     if (sent > 0) {
       this.stats.otaDeployed += sent;
       this.ctx.law.log(`Надзор: у ${f.name} скопление повстанцев (${counts[best]}) — легионеры (${sent}) выдвигаются на ${f.points[k].name}.`, 'radio');
+      this.ctx.radio?.front('ota', f, f.points[k]);
     }
   }
 
@@ -731,8 +744,8 @@ export class WarSystem {
         if (Math.hypot(o.x - b.x, o.y - b.y) > VISION.npcRange || !lineOfSight(map, o.x, o.y, b.x, b.y)) continue;
         this.seenCorpses.add(b);
         // Убит патрульный — код жёлтый; гражданский — точка тревоги рядом.
-        if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true);
-        else if (b.killer) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`);
+        if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true, { kind: 'officerDown', reporter: o, victim: b, suspect: b.killer });
+        else if (b.killer) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`, false, { kind: 'body', reporter: o, victim: b, suspect: b.killer });
         // Проходы перекрывают, на осмотр идут следователь и медик — когда рядом стихнет стрельба
         // (при штурме Управы — не до того). Гражданского — только убитого (не от голода).
         if (cp || b.killer) this.sceneQueue.add(b);
@@ -947,6 +960,7 @@ export class WarSystem {
       }
       const all = f.held === 0;
       this.ctx.law.log(`${f.name}: точка ${pt.name} отбита.${all ? ' КПП снова под контролем Протектората.' : ''}`, 'radio');
+      this.ctx.radio?.front('retake', f, pt);
       this.ctx.bus.emit('announce', { text: all ? `КПП отбит · ${f.name}` : `${pt.name} отбита` });
     }
   }
@@ -958,8 +972,11 @@ export class WarSystem {
     if (!this.inCity(target.x, target.y) || !this.inCity(attacker.x, attacker.y)) return;
     this.operatives.add(attacker);
     this.lastKnown.set(attacker, { x: attacker.x, y: attacker.y });
-    if (this.time - this.lastAlarmRaise > 10) this.raiseAlarm(target.x, target.y, `нападение на сотрудника ${FACTIONS[target.faction].role}`);
-    else if (this.alarm) this.alarm.until = this.time + ALARM.pointTime;
+    if (this.time - this.lastAlarmRaise > 10) this.raiseAlarm(target.x, target.y, `нападение на сотрудника ${FACTIONS[target.faction].role}`, false, { kind: 'attack', reporter: target, suspect: attacker });
+    else {
+      if (this.alarm) this.alarm.until = this.time + ALARM.pointTime;
+      this.ctx.radio?.report('attack', target.x, target.y, { reporter: target, suspect: attacker });
+    }
   }
 
   /** Действует ли точка тревоги (патрули рядом прочёсывают и при зелёном коде). */
@@ -971,12 +988,15 @@ export class WarSystem {
    * Тревога: патрули рядом стягиваются к точке и прочёсывают её (нападение, саботаж, побег…). Код
    * жёлтый (yellow = true) — только когда нашли убитого патрульного в городе: проверки CID чаще.
    */
-  raiseAlarm(x: number, y: number, what: string, yellow = false): void {
+  raiseAlarm(x: number, y: number, what: string, yellow = false, info: AlarmInfo = {}): void {
     this.lastAlarmRaise = this.time;
     this.alarm = { x, y, until: this.time + ALARM.pointTime };
     const zone = this.ctx.map.zoneAtWorld(x, y)?.name ?? 'город';
+    // В эфир — рацией (доклад, вызов Надзора, кто едет); без рации — строкой журнала, как раньше.
+    const radio = info.radio !== false ? this.ctx.radio : null;
+    const aired = radio?.report(info.kind ?? 'generic', x, y, { what, reporter: info.reporter ?? null, suspect: info.suspect ?? null, victim: info.victim ?? null });
     if (this.code !== 'green' || !yellow) {
-      this.ctx.law.log(`Надзор: ${what} — ${zone}. Всем патрулям в квартале — усилить поиск.`, 'radio');
+      if (!aired && info.radio !== false) this.ctx.law.log(`Надзор: ${what} — ${zone}. Всем патрулям в квартале — усилить поиск.`, 'radio');
       return;
     }
     this.code = 'yellow';
@@ -985,6 +1005,7 @@ export class WarSystem {
     this.ctx.law.log(`Администрация: Код ЖЁЛТЫЙ! ${what[0].toUpperCase()}${what.slice(1)} — ${zone}. Граждане, сохраняйте спокойствие и предъявляйте CID по первому требованию.`, 'world');
     this.ctx.bus.emit('alert', { code: 'yellow' });
     this.ctx.bus.emit('announce', { text: `Код жёлтый · ${what}` });
+    this.ctx.radio?.code('yellow');
     for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код жёлтый!', this.ctx.law.now, 4);
   }
 
@@ -1035,6 +1056,7 @@ export class WarSystem {
     );
     this.ctx.bus.emit('alert', { code: 'yellow' });
     this.ctx.bus.emit('announce', { text: banner });
+    this.ctx.radio?.code('yellow');
   }
 
   private declareRed(where: string, why = 'Прорыв периметра'): void {
@@ -1046,6 +1068,7 @@ export class WarSystem {
     this.calm = 0;
     this.ctx.law.log(`Администрация: Код КРАСНЫЙ! ${why} — ${where}. Объявлен комендантский час. Граждане, немедленно пройдите в жилые блоки.`, 'world');
     this.ctx.bus.emit('alert', { code: 'red' });
+    this.ctx.radio?.code('red');
     this.ctx.economy.forceClose();
     this.scenes.closeAll();
     this.ctx.bus.emit('announce', { text: 'Код красный · комендантский час' });
@@ -1097,6 +1120,7 @@ export class WarSystem {
         n.wave = true;
         n.waveSince = this.time;
         this.ctx.law.log(`Надзор: повстанцы (${stormers}) штурмуют Управу! Всем юнитам — к Управе!`, 'radio');
+        this.ctx.radio?.code('nexus');
         this.ctx.bus.emit('announce', { text: 'Штурм Управы' });
       }
     }
@@ -1183,6 +1207,7 @@ export class WarSystem {
     );
     this.ctx.bus.emit('alert', { code: 'green' });
     this.ctx.bus.emit('announce', { text: 'Код зелёный' });
+    this.ctx.radio?.code('green');
     for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
   }
 

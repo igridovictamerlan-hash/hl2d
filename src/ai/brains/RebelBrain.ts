@@ -690,6 +690,13 @@ export class RebelBrain implements Brain {
         if (!camp) break;
         const inCamp = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'rebel_camp';
         this.mover.speed = inCamp ? 60 : CHARACTER.runSpeed * 0.6;
+        // У костра — разговоры (наступление, погибшие, свои в тюрьме); пока говорят — стоят.
+        if (inCamp && ctx.talk?.busy(self)) {
+          this.mover.stop();
+          this.relocate = Math.max(this.relocate, 2);
+          break;
+        }
+        if (inCamp && this.mover.status === 'arrived') ctx.talk?.chatNear(self, 'camp', dt, (o) => o.faction === 'rebel' && o.brain instanceof RebelBrain && o.brain.mode === 'camp');
         if (this.goal < 0 || this.mover.status === 'failed' || (this.mover.status === 'arrived' && this.relocate <= 0)) {
           this.relocate = ctx.rng.range(4, 10);
           const a = randomAnchorAround(camp, ctx, 1, 7, new Set());

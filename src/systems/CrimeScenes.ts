@@ -407,6 +407,7 @@ export class CrimeScenes {
     if (!ofc) return;
     s.officer = ofc;
     (ofc.brain as CpBrain).assignScene(s, 'guard');
+    this.ctx.radio?.scene('guard', ofc, s.x, s.y);
   }
 
   private sendInvestigator(s: CrimeScene): void {
@@ -414,6 +415,7 @@ export class CrimeScenes {
     if (!inv) return;
     s.investigator = inv;
     (inv.brain as CpBrain).assignScene(s, 'investigate');
+    this.ctx.radio?.scene('investigate', inv, s.x, s.y);
   }
 
   /**
@@ -426,6 +428,7 @@ export class CrimeScenes {
     if (su) {
       s.medic = su;
       (su.brain as CpBrain).assignScene(s, 'examine');
+      this.ctx.radio?.scene('examine', su, s.x, s.y);
       return;
     }
     let best: Character | null = null;
