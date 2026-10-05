@@ -69,6 +69,9 @@ type Job =
   | { kind: 'haul'; task: HaulTask; carry: boolean; until: number; done?: boolean; fails?: number }
   | { kind: 'armory'; task: ArmorerTask; stage: 'pick' | 'bench' | 'drop'; until: number; t: number; done?: boolean; fails?: number };
 
+/** Что делает руками на работе (отрисовка): инструмент, письмо, нагнулся. */
+const WORK_TASK: Partial<Record<string, 'tool' | 'write' | 'crouch'>> = { pack: 'tool', repair: 'tool', armory: 'tool', cookpot: 'tool', clean: 'tool', scavenge: 'tool', paper: 'write', clerk: 'write', office: 'write', heal: 'crouch', loot: 'crouch' };
+
 /** Чем отличаются гражданин, рабочий ТС и повстанец в поведении «на улице». */
 export interface StreetProfile {
   /** Шанс пойти в «свою» зону вместо случайной точки. */
@@ -205,6 +208,7 @@ export class CitizenBrain implements Brain {
       return;
     }
     const cur = this.fsm.current;
+    self.task = cur === 'work' && this.job ? WORK_TASK[this.job.kind] ?? '' : '';
     if ((phase === 'ordered' || phase === 'checking') && cur === 'crew') {
       // Ведомого проверяет ВС — стоит, но из пары не уходит (ведущий ждёт).
       this.mover.stop();

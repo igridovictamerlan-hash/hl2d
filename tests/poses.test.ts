@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { animOf, isStriking, smokeCycle, strikeSweep } from '../src/entities/poses';
+import { animOf, hurtFlash, isStriking, smokeCycle, strikeSweep } from '../src/entities/poses';
 import { PAWN } from '../src/config/pawns';
 import { Character } from '../src/entities/Character';
+import { FISTS } from '../src/config/brawl';
 
 function pawn(id = 1): Character {
   return new Character({ id, faction: 'citizen', name: 'Т', cid: '1', x: 0, y: 0 });
@@ -110,5 +111,27 @@ describe('бытовые анимации пешек', () => {
     const late = animOf(c, 2.32, false, false).lean;
     expect(early).toBeLessThan(late);
     expect(Math.abs(animOf(c, 3, false, false).lean)).toBeLessThanOrEqual(PAWN.anim.idle.lean + 1e-9);
+  });
+
+  it('нокаут валит пешку, перевязка и подъём — присед', () => {
+    const c = pawn();
+    c.health = FISTS.floor;
+    c.stunUntil = 9;
+    const ko = animOf(c, 5, false, false);
+    expect(ko.kind).toBe('ko');
+    expect(ko.feet).toBe(false);
+    const d = pawn(2);
+    d.bandageUntil = 9;
+    const busy = animOf(d, 5, false, false);
+    expect(busy.kind).toBe('busy');
+    expect(busy.squash).toBeLessThan(1);
+    expect(animOf(d, 10, false, false).kind).toBe('stand');
+  });
+
+  it('вспышка попадания гаснет за время ранения', () => {
+    const c = pawn();
+    c.lastHurt = 1;
+    expect(hurtFlash(c, 1.01)).toBeGreaterThan(0.2);
+    expect(hurtFlash(c, 2)).toBe(0);
   });
 });

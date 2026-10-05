@@ -92,6 +92,12 @@ export const PAWN = {
     hurt: { time: 0.22, push: 2.6, lean: 0.15 },
     limp: { lean: 0.075, hard: 1.9, soft: 0.45 },
     march: { lift: 2.1, swing: 3.4, bob: 1.8 },
+    /** Нокаут: ниже ростом (squash, drop). Перезарядка: вторая рука к поясу и обратно с магазином (mag). Работа: рука с инструментом бьёт в такт (rate), письмо — мелко. Присев над делом — squash, drop. Вспышка попадания — alpha. */
+    ko: { squash: 0.8, drop: 2 },
+    reload: { belt: [-5.5, 8.5], mag: '#3a3d42', toBelt: 0.3, back: 0.6 },
+    work: { rate: 5, amp: 2.6, tool: '#9aa0a8', write: 0.9 },
+    busy: { squash: 0.82, drop: 1.6, rate: 4.5 },
+    flash: 0.4,
     fall: { time: 0.38, slide: 6, bounce: 0.07, pivot: 12 },
   },
   /**

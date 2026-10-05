@@ -11,7 +11,7 @@ import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
 import { bootColor, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
-import { animOf, drawActionHands, drawBlanket, drawHandProps, drawSleepZ, isStriking, strikeSweep } from './poses';
+import { animOf, drawActionHands, drawBlanket, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash, isStriking, strikeSweep } from './poses';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
@@ -107,7 +107,8 @@ export class EntityRenderer {
       // шаге; наклон в сторону движения по горизонтали, при ходьбе вверх/вниз — покачивание в такт.
       const walking = isWalking(c);
       const an = animOf(c, now, walking, c.aiming || c.recoil > W.aimRecoil);
-      const dir = an.kind === 'sleep' ? 'S' : c.bodyDir;
+      const lying = an.kind === 'sleep' || an.kind === 'ko';
+      const dir = lying ? 'S' : c.bodyDir;
       const speed = Math.hypot(c.gaitVx, c.gaitVy);
       const amt = walking ? Math.min(1, speed / CHARACTER.walkSpeed) : 0;
       const phase = (c.stride / W.stride) * Math.PI;
@@ -135,14 +136,24 @@ export class EntityRenderer {
       const hold = striking ? c.strikeAng + strikeSweep(c, now) : pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
       // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
       const hand = c.weapon ? handColor(look) : null;
-      const armed = !!c.weapon && an.kind !== 'sleep';
+      const armed = !!c.weapon && !lying;
       if (armed && dir === 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
       drawPawnCached(ctx, look, x, y, ps, dir);
-      if (an.kind === 'sleep') {
-        drawBlanket(ctx, c, x, y, ps);
-        drawSleepZ(ctx, c, x, y, ps, now);
+      const flash = hurtFlash(c, now);
+      if (flash > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${flash.toFixed(2)})`;
+        ctx.beginPath();
+        ctx.ellipse(x, y + 3 * ps, 8 * ps, 11 * ps, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (lying) {
+        if (c.asleep) {
+          drawBlanket(ctx, c, x, y, ps);
+          drawSleepZ(ctx, c, x, y, ps, now);
+        }
       } else if (!drawHandProps(ctx, c, look, x, y, ps, dir, now) && armed && dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
-      if (an.kind !== 'sleep') drawActionHands(ctx, c, look, x, y, ps, dir, now, marching ? sn : 0);
+      if (!lying) drawWorkHands(ctx, c, look, x, y, ps, dir, now);
+      if (!lying) drawActionHands(ctx, c, look, x, y, ps, dir, now, marching ? sn : 0);
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
         const bx = x + Math.cos(hold) * 6 * ps;

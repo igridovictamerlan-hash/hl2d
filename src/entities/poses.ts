@@ -1,5 +1,7 @@
 import type { Character } from './Character';
 import { PAWN } from '../config/pawns';
+import { WEAPONS } from '../config/items';
+import { FISTS } from '../config/brawl';
 import { handColor, type PawnDir, type PawnLook } from './PawnRenderer';
 
 /**
@@ -9,7 +11,7 @@ import { handColor, type PawnDir, type PawnLook } from './PawnRenderer';
  * толпа не дышала и не жестикулировала в такт), без выделения памяти на кадр.
  */
 
-export type PoseKind = 'stand' | 'sleep' | 'sit';
+export type PoseKind = 'stand' | 'sleep' | 'sit' | 'ko' | 'busy';
 
 /** Результат анимации на кадр: что добавить к ходьбе и позе. Один объект на все пешки — перезаписывается. */
 export interface PawnAnim {
@@ -60,6 +62,21 @@ export function animOf(c: Character, now: number, walking: boolean, aiming: bool
   a.dx = 0;
   a.dy = 0;
   if (walking) return impulses(c, now, a);
+  // Нокаутирован кулаками — валяется.
+  if (c.stunUntil > now && c.health <= FISTS.floor + 0.01) {
+    a.kind = 'ko';
+    a.squash = A.ko.squash;
+    a.drop = A.ko.drop;
+    a.feet = false;
+    return a;
+  }
+  // Перевязывается, поднимает раненого, ставит растяжку или нагнулся над делом — присел.
+  if (c.bandageUntil > now || c.reviveUntil > now || c.plantUntil > now || c.task === 'crouch') {
+    a.kind = 'busy';
+    a.squash = A.busy.squash;
+    a.drop = A.busy.drop;
+    return impulses(c, now, a);
+  }
   if (c.asleep) {
     const S = A.sleep;
     a.kind = 'sleep';
@@ -85,6 +102,12 @@ export function animOf(c: Character, now: number, walking: boolean, aiming: bool
   a.lift = (0.5 + 0.5 * Math.sin((now / I.breathePeriod) * TAU + ph * 0.7)) * I.bob;
   if (isTalking(c, now)) a.lift += Math.max(0, Math.sin(now * A.talk.rate * 0.7 + ph)) * A.talk.bob;
   return impulses(c, now, a);
+}
+
+/** Вспышка от попадания 0..1 (белый налёт на пешке). */
+export function hurtFlash(c: Character, now: number): number {
+  const p = (now - c.lastHurt) / PAWN.anim.hurt.time;
+  return p >= 0 && p < 1 ? (1 - p) * PAWN.anim.flash : 0;
 }
 
 /** Ход удара 0..1 или -1, если не бьёт сейчас. */
@@ -370,5 +393,62 @@ export function drawActionHands(ctx: CanvasRenderingContext2D, c: Character, loo
       const f = dir === 'W' ? -1 : 1;
       drawHand(ctx, x + f * (1.5 + sw) * ps, y + 5 * ps, ps, col);
     }
+  }
+}
+
+/**
+ * Работа руками (на месте, не в пути): перевязка, подъём раненого и растяжка — рука мелко водит перед
+ * собой; инструмент (конвейер, верстак, котёл, уборка) — рука с инструментом бьёт в такт; письмо —
+ * рука скребёт по столу. Перезарядка — вторая рука к поясу за магазином и обратно.
+ */
+export function drawWorkHands(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, x: number, y: number, ps: number, dir: PawnDir, now: number): void {
+  const A = PAWN.anim;
+  const col = handColor(look);
+  const ph = phaseOf(c);
+  const fwd = dir === 'W' ? -1 : 1;
+  const side = dir === 'E' || dir === 'W';
+  if (c.bandageUntil > now || c.reviveUntil > now || c.plantUntil > now || c.task === 'crouch') {
+    const t = now * A.busy.rate * Math.PI + ph;
+    const ox = Math.cos(c.facing) * 4;
+    const oy = Math.sin(c.facing) * 2 + 6;
+    drawHand(ctx, x + (ox + Math.sin(t) * 1.8) * ps, y + (oy + Math.cos(t * 1.3) * 1.2) * ps, ps, col);
+    drawHand(ctx, x + (ox - 3.5 + Math.cos(t * 0.9) * 1.2) * ps, y + (oy + 1) * ps, ps, col);
+  } else if (c.task === 'tool' && dir !== 'N') {
+    const W = A.work;
+    const t = now * W.rate + ph;
+    const e = Math.max(0, Math.sin(t));
+    const hx = (side ? fwd * 4.5 : 5.4) + 0;
+    const hy = 6 - e * W.amp;
+    drawStick(ctx, x + hx * ps, y + hy * ps, (side ? fwd : 0.3) * 1.5, -4, ps, W.tool, 1.4);
+    drawHand(ctx, x + hx * ps, y + hy * ps, ps, col);
+  } else if (c.task === 'write' && dir !== 'N') {
+    const W = A.work;
+    const t = now * W.rate * 2.2 + ph;
+    drawHand(ctx, x + ((side ? fwd * 4.2 : 3.5) + Math.sin(t) * W.write) * ps, y + (7.2 + Math.cos(t * 0.7) * 0.5) * ps, ps, col);
+  }
+  if (c.weapon && c.reloadUntil > now) {
+    const w = WEAPONS[c.weapon];
+    if (!w.reload) return;
+    const R = A.reload;
+    const u = 1 - (c.reloadUntil - now) / w.reload;
+    const front = { x: Math.cos(c.facing) * 6.5, y: Math.sin(c.facing) * 3 + 3 };
+    let hx = front.x;
+    let hy = front.y;
+    let mag = false;
+    if (u < R.toBelt) {
+      const k = smooth(u / R.toBelt);
+      hx = front.x + (R.belt[0] - front.x) * k;
+      hy = front.y + (R.belt[1] - front.y) * k;
+    } else if (u < R.back) {
+      const k = smooth((u - R.toBelt) / (R.back - R.toBelt));
+      hx = R.belt[0] + (front.x - R.belt[0]) * k;
+      hy = R.belt[1] + (front.y - R.belt[1]) * k;
+      mag = true;
+    }
+    if (mag) {
+      ctx.fillStyle = R.mag;
+      ctx.fillRect(x + (hx - 1) * ps, y + (hy - 3) * ps, 2 * ps, 3.4 * ps);
+    }
+    drawHand(ctx, x + hx * ps, y + hy * ps, ps, col);
   }
 }
