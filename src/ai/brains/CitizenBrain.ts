@@ -2083,6 +2083,7 @@ const BENCH: State<CitizenBrain> = {
       if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
         b.mover.stop();
         b.stayUntil = now + ctx.rng.range(B.time[0], B.time[1]);
+        self.seated = 'sit';
         b.nextLine = now + ctx.rng.range(1, 2.5);
       } else if (st === 'idle') b.goToPoint(seat);
       return;
@@ -2118,6 +2119,7 @@ const BENCH: State<CitizenBrain> = {
     b.ctx.talk.stop(b.self);
     b.ctx.street.releaseBenchSeat(b.self);
     b.bench = null;
+    b.self.seated = '';
     b.stayUntil = 0;
   },
 };
@@ -2208,6 +2210,7 @@ const CARDS: State<CitizenBrain> = {
       if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
         b.mover.stop();
         b.stayUntil = now + ctx.rng.range(C.time[0], C.time[1]);
+        self.seated = 'cards';
         b.nextLine = now + ctx.rng.range(1, 3);
       } else if (st === 'idle') b.goToPoint(seat);
       return;
@@ -2228,6 +2231,7 @@ const CARDS: State<CitizenBrain> = {
   exit(b) {
     b.ctx.street.releaseTableSeat(b.self);
     b.table = null;
+    b.self.seated = '';
     b.stayUntil = 0;
   },
 };
@@ -2272,6 +2276,7 @@ const CANTEEN: State<CitizenBrain> = {
       if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
         b.mover.stop();
         b.stayUntil = now + ctx.rng.range(M.eat[0], M.eat[1]);
+        self.seated = 'eat';
         b.nextLine = now + ctx.rng.range(1, 4);
       } else if (st === 'idle') b.goToPoint(seat);
       return;
@@ -2296,6 +2301,7 @@ const CANTEEN: State<CitizenBrain> = {
     b.ctx.talk.stop(b.self);
     b.ctx.shops.releaseSeat(b.self);
     b.seat = null;
+    b.self.seated = '';
     b.stayUntil = 0;
     b.soupFirst = false;
     // Не доел (ВС, стрельба) — миска остаётся на столе.

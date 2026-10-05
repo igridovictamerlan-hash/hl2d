@@ -11,6 +11,7 @@ import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
 import { bootColor, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
+import { animOf, drawBlanket, drawHandProps, drawSleepZ } from './poses';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
@@ -85,7 +86,7 @@ export class EntityRenderer {
     for (const { c, x: gx, y: gy } of shown) {
       ctx.globalAlpha = c.visible ? 1 : 0.4;
       // Сторона — по походке (идёт — по ходу, боком — профилем; целится или стоит — куда смотрит).
-      const dir = c.bodyDir;
+      // Спящий лежит лицом к нам.
       const look = this.lookOf(c);
       const reloading = c.reloadUntil > now;
       // Тяжело ранен — лежит.
@@ -105,31 +106,37 @@ export class EntityRenderer {
       // Шаг: фаза по пройденному пути (полупериод синуса — один шаг), корпус подпрыгивает на каждом
       // шаге; наклон в сторону движения по горизонтали, при ходьбе вверх/вниз — покачивание в такт.
       const walking = isWalking(c);
+      const an = animOf(c, now, walking, c.aiming || c.recoil > W.aimRecoil);
+      const dir = an.kind === 'sleep' ? 'S' : c.bodyDir;
       const speed = Math.hypot(c.gaitVx, c.gaitVy);
       const amt = walking ? Math.min(1, speed / CHARACTER.walkSpeed) : 0;
       const phase = (c.stride / W.stride) * Math.PI;
       const sn = Math.sin(phase);
-      const bob = Math.abs(sn) * W.bob * amt;
+      const bob = Math.abs(sn) * W.bob * amt + an.lift;
       const horiz = speed > 0 ? Math.abs(c.gaitVx) / speed : 0;
-      const lean = walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) : 0;
+      const lean = walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) : an.lean;
       // Поворот вокруг точки у ног: ступни на земле, корпус наклоняется.
       const footY = W.foot.y * ps;
       const cs = Math.cos(lean);
       const si = Math.sin(lean);
       // Присел — ниже ростом (сжат по вертикали к ступням).
-      const k = c.crouch ? CROUCH.squash : 1;
-      ctx.setTransform(cs, si, -si * k, cs * k, gx, gy + footY);
+      const k = (c.crouch ? CROUCH.squash : 1) * an.squash;
+      ctx.setTransform(cs, si, -si * k, cs * k, gx, gy + footY + an.drop * ps);
       // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
       const x = 0;
       const y = -footY - bob * ps;
-      drawFeet(ctx, dir, look, ps, walking ? phase : null, amt);
+      if (an.feet) drawFeet(ctx, dir, look, ps, walking ? phase : null, amt);
       // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу.
       const hold = pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
       // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
       const hand = c.weapon ? handColor(look) : null;
-      if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
+      const armed = !!c.weapon && an.kind !== 'sleep';
+      if (armed && dir === 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
       drawPawnCached(ctx, look, x, y, ps, dir);
-      if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
+      if (an.kind === 'sleep') {
+        drawBlanket(ctx, c, x, y, ps);
+        drawSleepZ(ctx, c, x, y, ps, now);
+      } else if (!drawHandProps(ctx, c, look, x, y, ps, dir, now) && armed && dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
         const bx = x + Math.cos(hold) * 6 * ps;

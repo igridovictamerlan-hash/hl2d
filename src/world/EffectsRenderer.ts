@@ -21,6 +21,10 @@ import { RENDER } from '../config/render';
 import { GRENADE, MINE } from '../config/combat';
 import { FACTIONS } from '../config/factions';
 import { lineOfSight } from './visibility';
+import { smokeCycle } from '../entities/poses';
+
+/** Буфер цикла перекура (без выделения памяти на кадр). */
+const smokeState = { raise: 0, exhale: -1 };
 
 /**
  * Эффекты мира: тела погибших, поломки (щитки), места в очереди за рационом, трассеры и
@@ -702,18 +706,27 @@ export class EffectsRenderer {
     for (let k = 0; k < list.length; k++) {
       const c = list[k];
       if (!c.smoking || !c.alive || !c.visible) continue;
-      const x = (c.x + Math.cos(c.facing) * 7 - v.left) * s;
-      const y = (c.y + Math.sin(c.facing) * 7 - v.top) * s;
+      // Дым идёт изо рта: тонкая струйка от сигареты всегда, густой выдох — когда рука опустилась.
+      const x = (c.x + Math.cos(c.facing) * 2 - v.left) * s;
+      const y = (c.y - 5 - v.top) * s;
       if (x < -40 || y < -40 || x > v.width + 40 || y > v.height + 40) continue;
-      const pulse = 0.5 + 0.5 * Math.sin(now * 3 + c.id);
-      ctx.fillStyle = pulse > 0.5 ? S.ember[0] : S.ember[1];
-      ctx.fillRect(x - s, y - s, 2 * s, 2 * s);
+      smokeCycle(c, now, smokeState);
       ctx.fillStyle = S.puff;
-      for (let p = 0; p < 3; p++) {
-        const t = (now * 0.5 + p / 3 + c.id * 0.13) % 1;
-        const r = (1.5 + t * 3) * s;
-        ctx.globalAlpha = 1 - t;
-        ctx.fillRect(x + Math.sin(t * 6 + p) * 3 * s - r / 2, y - t * 18 * s - r / 2, r, r);
+      const wisp = smokeState.raise < 0.5 ? 1 : 0;
+      for (let p = 0; p < wisp * 2; p++) {
+        const t = (now * 0.5 + p / 2 + c.id * 0.13) % 1;
+        const r = (1 + t * 2) * s;
+        ctx.globalAlpha = (1 - t) * 0.5;
+        ctx.fillRect(x + Math.sin(t * 6 + p) * 2 * s - r / 2, y - 3 * s - t * 14 * s - r / 2, r, r);
+      }
+      if (smokeState.exhale >= 0) {
+        const e = smokeState.exhale;
+        for (let p = 0; p < 4; p++) {
+          const t = Math.min(1, e + p * 0.08);
+          const r = (1.6 + t * 4.5) * s;
+          ctx.globalAlpha = (1 - e) * 0.75;
+          ctx.fillRect(x + Math.cos(c.facing) * (1 + t * 7) * s + Math.sin(t * 7 + p * 2) * 2 * s - r / 2, y - t * 12 * s - p * 1.2 * s - r / 2, r, r);
+        }
       }
       ctx.globalAlpha = 1;
     }
