@@ -98,6 +98,12 @@ export const PAWN = {
     work: { rate: 5, amp: 2.6, tool: '#9aa0a8', write: 0.9 },
     busy: { squash: 0.82, drop: 1.6, rate: 4.5 },
     flash: 0.4,
+    /** Кивок слушателя: два кивка за time с на dip px. Руки вверх по приказу ВС (hands), документы в руке при проверке. Паника: руки машут (rate, amp), бег быстрее и скорченнее (bob). Честь: рука к виску. Пыль на бегу: с какой скорости (from — долей быстрого шага), сколько клубов, цвет. */
+    nod: { time: 0.7, dip: 1.4 },
+    order: { x: 7.6, y: -2.5, wobble: 0.5, card: '#f1eee4' },
+    panic: { rate: 14, amp: 2.4, y: -6, bob: 1.5 },
+    salute: { x: 4.4, y: -13.6 },
+    dust: { from: 0.8, puffs: 3, size: 2.6, back: 11, color: '190,176,150', alpha: 0.34 },
     fall: { time: 0.38, slide: 6, bounce: 0.07, pivot: 12 },
   },
   /**

@@ -144,6 +144,8 @@ function impulses(c: Character, now: number, a: PawnAnim): PawnAnim {
     a.lean += Math.cos(c.throwAng) * T.lean * e;
     a.dx += Math.cos(c.throwAng) * 1.4 * e;
   }
+  const np = (now - c.nodAt) / A.nod.time;
+  if (np >= 0 && np < 1) a.dy += Math.abs(Math.sin(np * Math.PI * 2)) * A.nod.dip * (1 - np);
   const hp = (now - c.lastHurt) / A.hurt.time;
   if (hp >= 0 && hp < 1) {
     const H = A.hurt;
@@ -451,4 +453,62 @@ export function drawWorkHands(ctx: CanvasRenderingContext2D, c: Character, look:
     }
     drawHand(ctx, x + hx * ps, y + hy * ps, ps, col);
   }
+}
+
+/**
+ * Руки по обстоятельствам (поверх спрайта): приказ ВС — руки подняты (стой, не двигайся), проверка — в руке
+ * карточка CID, паника — руки машут над головой, честь офицеру — рука к виску. Смотрит от нас (N) — не рисуем.
+ */
+export function drawGestureHands(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, x: number, y: number, ps: number, dir: PawnDir, now: number): void {
+  if (dir === 'N') return;
+  const A = PAWN.anim;
+  const col = handColor(look);
+  const ph = phaseOf(c);
+  const side = dir === 'E' || dir === 'W';
+  const fwd = dir === 'W' ? -1 : 1;
+  if (c.task === 'panic') {
+    const P = A.panic;
+    const t = now * P.rate + ph;
+    drawHand(ctx, x + (side ? fwd * 1.5 : -7.4) * ps, y + (P.y + Math.sin(t) * P.amp) * ps, ps, col);
+    if (!side) drawHand(ctx, x + 7.4 * ps, y + (P.y + Math.sin(t + 2.1) * P.amp) * ps, ps, col);
+    return;
+  }
+  if (c.saluteUntil > now && c.faction === 'cp') {
+    const S = A.salute;
+    drawHand(ctx, x + (side ? fwd * 3.2 : S.x) * ps, y + S.y * ps, ps, col);
+    return;
+  }
+  const phase = c.law.phase;
+  if (phase === 'ordered' && !c.weapon && c.alive) {
+    const O = A.order;
+    const w = Math.sin(now * 6 + ph) * O.wobble;
+    drawHand(ctx, x + (side ? fwd * 2 : O.x) * ps, y + (O.y + w) * ps, ps, col);
+    if (!side) drawHand(ctx, x - O.x * ps, y + (O.y - w) * ps, ps, col);
+  } else if (phase === 'checking' && !c.weapon && c.alive) {
+    const O = A.order;
+    const hx = x + (side ? fwd * 5.5 : 4.2) * ps;
+    const hy = y + 2 * ps;
+    ctx.fillStyle = O.card;
+    ctx.strokeStyle = PAWN.outline;
+    ctx.lineWidth = Math.max(1, PAWN.outlineWidth * 0.5 * ps);
+    ctx.fillRect(hx - 2.2 * ps, hy - 3.6 * ps, 4.4 * ps, 3 * ps);
+    ctx.strokeRect(hx - 2.2 * ps, hy - 3.6 * ps, 4.4 * ps, 3 * ps);
+    drawHand(ctx, hx, hy, ps, col);
+  }
+}
+
+/** Пыль из-под ног на быстром беге: клубы отстают назад по ходу (без состояния — по фазе шага). */
+export function drawDust(ctx: CanvasRenderingContext2D, c: Character, gx: number, gy: number, ps: number, speed: number, fastSpeed: number): void {
+  const D = PAWN.anim.dust;
+  if (speed < fastSpeed * D.from || c.crouch) return;
+  const ux = c.gaitVx / speed;
+  const uy = c.gaitVy / speed;
+  ctx.fillStyle = `rgb(${D.color})`;
+  for (let k = 0; k < D.puffs; k++) {
+    const t = (((c.stride / 16 + k / D.puffs) % 1) + 1) % 1;
+    const r = (0.8 + t * D.size) * ps;
+    ctx.globalAlpha = (1 - t) * D.alpha;
+    ctx.fillRect(gx - ux * (3 + t * D.back) * ps - r / 2 + Math.sin(k * 5 + c.id) * ps, gy + (11 - t * 3 - uy * t * D.back * 0.5) * ps - r / 2, r, r);
+  }
+  ctx.globalAlpha = c.visible ? 1 : 0.4;
 }

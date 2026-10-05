@@ -208,7 +208,7 @@ export class CitizenBrain implements Brain {
       return;
     }
     const cur = this.fsm.current;
-    self.task = cur === 'work' && this.job ? WORK_TASK[this.job.kind] ?? '' : '';
+    self.task = cur === 'panic' || cur === 'flee' ? 'panic' : cur === 'work' && this.job ? WORK_TASK[this.job.kind] ?? '' : '';
     if ((phase === 'ordered' || phase === 'checking') && cur === 'crew') {
       // Ведомого проверяет ВС — стоит, но из пары не уходит (ведущий ждёт).
       this.mover.stop();

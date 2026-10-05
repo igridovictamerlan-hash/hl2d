@@ -11,7 +11,7 @@ import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
 import { bootColor, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
-import { animOf, drawActionHands, drawBlanket, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash, isStriking, strikeSweep } from './poses';
+import { animOf, drawActionHands, drawBlanket, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash, isStriking, strikeSweep } from './poses';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
@@ -103,6 +103,7 @@ export class EntityRenderer {
         ctx.stroke();
       }
       drawPawnShadow(ctx, gx, gy, ps);
+      drawDust(ctx, c, gx, gy, ps, Math.hypot(c.gaitVx, c.gaitVy), CHARACTER.runSpeed);
       // Шаг: фаза по пройденному пути (полупериод синуса — один шаг), корпус подпрыгивает на каждом
       // шаге; наклон в сторону движения по горизонтали, при ходьбе вверх/вниз — покачивание в такт.
       const walking = isWalking(c);
@@ -116,7 +117,7 @@ export class EntityRenderer {
       // Хромает — шаг неровный: подскок на одной ноге сильнее, корпус кренится; строевой шаг — чётче и выше.
       const limping = walking && c.limpUntil > now;
       const marching = walking && c.marching;
-      const bobMul = limping ? (sn > 0 ? PAWN.anim.limp.hard : PAWN.anim.limp.soft) : marching ? PAWN.anim.march.bob : 1;
+      const bobMul = limping ? (sn > 0 ? PAWN.anim.limp.hard : PAWN.anim.limp.soft) : marching ? PAWN.anim.march.bob : walking && c.task === 'panic' ? PAWN.anim.panic.bob : 1;
       const bob = Math.abs(sn) * W.bob * amt * bobMul + an.lift;
       const horiz = speed > 0 ? Math.abs(c.gaitVx) / speed : 0;
       const lean = walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) + (limping ? sn * PAWN.anim.limp.lean : 0) + an.lean : an.lean;
@@ -152,6 +153,7 @@ export class EntityRenderer {
           drawSleepZ(ctx, c, x, y, ps, now);
         }
       } else if (!drawHandProps(ctx, c, look, x, y, ps, dir, now) && armed && dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
+      if (!lying) drawGestureHands(ctx, c, look, x, y, ps, dir, now);
       if (!lying) drawWorkHands(ctx, c, look, x, y, ps, dir, now);
       if (!lying) drawActionHands(ctx, c, look, x, y, ps, dir, now, marching ? sn : 0);
       // Курьер несёт коробку перед собой.

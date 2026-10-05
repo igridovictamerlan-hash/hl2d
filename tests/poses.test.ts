@@ -134,4 +134,13 @@ describe('бытовые анимации пешек', () => {
     expect(hurtFlash(c, 1.01)).toBeGreaterThan(0.2);
     expect(hurtFlash(c, 2)).toBe(0);
   });
+
+  it('слушатель кивает после реплики и успокаивается', () => {
+    const c = pawn();
+    c.nodAt = 4;
+    let dip = 0;
+    for (let t = 4; t < 4.7; t += 0.02) dip = Math.max(dip, animOf(c, t, false, false).dy);
+    expect(dip).toBeGreaterThan(0.5);
+    expect(animOf(c, 6, false, false).dy).toBeCloseTo(0, 5);
+  });
 });
