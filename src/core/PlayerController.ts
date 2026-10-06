@@ -178,14 +178,17 @@ export class PlayerController {
     if (locked) {
       if (!p.brain) p.wantX = p.wantY = 0;
       p.aiming = false;
+      ctx.combat.melee.guard(p, false);
     } else {
       const { mx, my, len, k } = this.moveDir(i);
       // Прицеливание (ПКМ): медленный шаг, бег невозможен; конус сужается.
       const aw = p.weapon ? WEAPONS[p.weapon] : null;
       p.aiming = i.aimDown && !!aw && aw.mode !== 'melee';
+      // Без оружия или с холодным ПКМ — блок (удар ЛКМ его опускает).
+      const guard = ctx.combat.melee.guard(p, i.aimDown && (!aw || aw.mode === 'melee') && !this.hooks.wheel.open);
       // C — присесть; побежал — встал.
       if (i.wasPressed('crouch')) p.crouch = !p.crouch;
-      const run = (i.isDown('run') || i.moveRun) && len > 0 && !p.aiming;
+      const run = (i.isDown('run') || i.moveRun) && len > 0 && !p.aiming && !guard;
       if (run) p.crouch = false;
       const speed = (p.aiming ? CHARACTER.walkSpeed * aw!.aimMove : run ? CHARACTER.runSpeed : CHARACTER.walkSpeed) * (run ? 1 : k);
       p.wantX = mx * speed;
@@ -226,7 +229,7 @@ export class PlayerController {
       ctx.combat.equip(p, null);
       this.say('Оружие убрано.');
     }
-    // Без оружия в руках — кулаки (ЛКМ).
+    // Без оружия в руках — кулаки (ЛКМ): серия джеб — прямой — хук; нажатый чуть раньше удар выйдет сам.
     if (!p.weapon && i.mouseInside && !wheel.open && i.mousePressed) {
       const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
       ctx.combat.punch(p, m.x, m.y);
@@ -240,7 +243,7 @@ export class PlayerController {
         if (msg) this.say(msg, 'world');
       }
     }
-    // Стрельба: автомат — пока зажата кнопка, остальное — по клику; дубинка — удар.
+    // Стрельба: автомат — пока зажата кнопка, остальное — по клику; дубинка и нож — удар серии.
     const w = p.weapon ? WEAPONS[p.weapon] : null;
     if (w && i.mouseInside && !wheel.open && (w.mode === 'auto' ? i.mouseDown : i.mousePressed)) {
       const m = this.camera.screenToWorld(i.mouseX, i.mouseY);

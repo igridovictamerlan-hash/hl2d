@@ -250,7 +250,8 @@ export class LawSystem {
     if (this.trespass(target)) return 'restricted';
     if (this.curfewCheck(target)) return 'curfew';
     // Лоялистам бегать разрешено.
-    if (target.moveSpeed > LAW.runSpeed && !this.panicking(target) && !loyalistPerk(target, 'run')) return 'running';
+    // Выпад и отброс в драке — не бег (Melee: impulse).
+    if (target.moveSpeed > LAW.runSpeed && target.melee.impulse <= this.now && !this.panicking(target) && !loyalistPerk(target, 'run')) return 'running';
     return null;
   }
 

@@ -17,6 +17,8 @@ import { PAWN } from '../config/pawns';
 import { apparentFaction, displayName } from './cover';
 import { CROUCH, DOWNED } from '../config/tactics';
 import type { PawnLook } from './PawnRenderer';
+import { drawFists, fistsShown, flinchOf, meleeSwing } from './meleePose';
+import { MELEE_LOOK } from '../config/melee';
 
 /**
  * Подпись роли над пешкой — коротко: юнит у ВС («PCU.03»), юнит у армии («Ветеран»), профессия или
@@ -88,9 +90,13 @@ export class EntityRenderer {
       const dir = c.bodyDir;
       const look = this.lookOf(c);
       const reloading = c.reloadUntil > now;
-      // Тяжело ранен — лежит.
+      // Тяжело ранен — лежит; нокаут — лежит на боку, над головой звёздочки.
       if (c.downed) {
         this.downedBody(ctx, c, look, gx, gy, s, ps, now);
+        continue;
+      }
+      if (c.melee.ko > now) {
+        this.koBody(ctx, c, look, gx, gy, s, ps, now);
         continue;
       }
       if (c.isPlayer) {
@@ -111,25 +117,43 @@ export class EntityRenderer {
       const sn = Math.sin(phase);
       const bob = Math.abs(sn) * W.bob * amt;
       const horiz = speed > 0 ? Math.abs(c.gaitVx) / speed : 0;
-      const lean = walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) : 0;
+      // Получил удар — дёрнулся от него (наклон и сдвиг), на миг вспыхнул.
+      const fl = flinchOf(c, now);
+      const lean = (walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) : 0) + fl.lean;
       // Поворот вокруг точки у ног: ступни на земле, корпус наклоняется.
       const footY = W.foot.y * ps;
       const cs = Math.cos(lean);
       const si = Math.sin(lean);
       // Присел — ниже ростом (сжат по вертикали к ступням).
       const k = c.crouch ? CROUCH.squash : 1;
-      ctx.setTransform(cs, si, -si * k, cs * k, gx, gy + footY);
+      ctx.setTransform(cs, si, -si * k, cs * k, gx + fl.dx * s, gy + footY + fl.dy * s);
       // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
       const x = 0;
       const y = -footY - bob * ps;
       drawFeet(ctx, dir, look, ps, walking ? phase : null, amt);
-      // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу.
-      const hold = pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
-      // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
-      const hand = c.weapon ? handColor(look) : null;
-      if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
+      // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу; в ударе и блоке — куда смотрит.
+      const swing = c.weapon ? meleeSwing(c, now) : null;
+      const hold = swing || c.melee.engaged || pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
+      // Смотрит от нас — оружие (и кулаки) за спиной, иначе — в руках перед собой.
+      const fists = fistsShown(c, now);
+      const hand = c.weapon || fists ? handColor(look) : null;
+      if (dir === 'N') {
+        if (fists) drawFists(ctx, c, x, y, s, now, hand!);
+        else drawWeapon(ctx, c, x, y, s, reloading, hold, hand, swing);
+      }
       drawPawnCached(ctx, look, x, y, ps, dir);
-      if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
+      if (fl.flash > 0) {
+        // Вспышка удара: та же пешка ещё раз «на свет».
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = (c.visible ? 1 : 0.4) * fl.flash;
+        drawPawnCached(ctx, look, x, y, ps, dir);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = c.visible ? 1 : 0.4;
+      }
+      if (dir !== 'N') {
+        if (fists) drawFists(ctx, c, x, y, s, now, hand!);
+        else drawWeapon(ctx, c, x, y, s, reloading, hold, hand, swing);
+      }
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
         const bx = x + Math.cos(hold) * 6 * ps;
@@ -169,6 +193,40 @@ export class EntityRenderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     ctx.globalAlpha = 1;
+  }
+
+  /** Нокаут: пешка на боку (ворочается), над головой кружат звёздочки. */
+  private koBody(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number): void {
+    const K = MELEE_LOOK.ko;
+    const side = lookSeed(c.id) % 2 ? 1 : -1;
+    const a = side * (Math.PI / 2) + Math.sin(now * 3 + c.id) * 0.06;
+    const cs = Math.cos(a);
+    const si = Math.sin(a);
+    ctx.setTransform(cs, si, -si, cs, gx, gy);
+    drawPawnCached(ctx, look, 0, -2 * ps, ps, 'S');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Голова — сбоку (пешка лежит на боку): там и звёздочки.
+    const hx = gx + side * (2 - PAWN.head.y) * ps;
+    const hy = gy - 4 * ps;
+    ctx.fillStyle = K.star;
+    ctx.strokeStyle = PAWN.outline;
+    ctx.lineWidth = Math.max(1, 0.8 * s);
+    for (let k = 0; k < K.stars; k++) {
+      const t = now * K.spin + (k * Math.PI * 2) / K.stars;
+      const sx = hx + Math.cos(t) * 8 * ps;
+      const sy = hy + Math.sin(t) * 3 * ps - 3 * ps;
+      const r = (1.8 + 0.5 * Math.sin(t * 2)) * ps;
+      ctx.beginPath();
+      for (let j = 0; j < 8; j++) {
+        const rr = j % 2 ? r * 0.42 : r;
+        const aa = (j * Math.PI) / 4 + t;
+        if (j) ctx.lineTo(sx + Math.cos(aa) * rr, sy + Math.sin(aa) * rr);
+        else ctx.moveTo(sx + Math.cos(aa) * rr, sy + Math.sin(aa) * rr);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
   /** Лежащий тяжелораненый: лужа крови, пешка на боку (слабо шевелится), кольцо — сколько осталось. */

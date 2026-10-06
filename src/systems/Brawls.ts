@@ -233,16 +233,25 @@ export class Brawls {
     if (!this.enabled || (this.nextRandom -= dt) > 0) return;
     this.nextRandom = BRAWL.every;
     if (ctx.war.code === 'red' || !ctx.rng.chance(BRAWL.randomChance)) return;
-    const pool = ctx.entities.list.filter(
-      (c) => !c.isPlayer && c.faction === 'citizen' && c.loyalty < BRAWL.calmLoyalty && c.brain instanceof CitizenBrain && c.brain.fsm.current === 'walk' && this.canBrawl(c),
-    );
-    if (!pool.length) return;
-    const a = ctx.rng.pick(pool);
+    // Задира — из тех, у кого рядом есть прохожий (раньше брали любого гуляющего и чаще всего зря).
+    const pairs: [Character, Character][] = [];
+    for (const a of ctx.entities.list) {
+      if (a.isPlayer || a.faction !== 'citizen' || a.loyalty >= BRAWL.calmLoyalty || !(a.brain instanceof CitizenBrain) || a.brain.fsm.current !== 'walk' || !this.canBrawl(a)) continue;
+      const o = this.markFor(a);
+      if (o) pairs.push([a, o]);
+    }
+    if (!pairs.length) return;
+    const [a, o] = ctx.rng.pick(pairs);
+    this.start(a, o);
+  }
+
+  /** Прохожий, к которому задира a может прицепиться: житель рядом (seek px), на виду, не в драке. */
+  private markFor(a: Character): Character | null {
+    const { ctx } = this;
     for (const o of ctx.entities.near(a.x, a.y, BRAWL.seek, near)) {
       if (o === a || o.isPlayer || o.faction !== 'citizen' || !this.canBrawl(o) || this.fighting(o)) continue;
-      if (!lineOfSight(ctx.map, a.x, a.y, o.x, o.y)) continue;
-      this.start(a, o);
-      return;
+      if (lineOfSight(ctx.map, a.x, a.y, o.x, o.y)) return o;
     }
+    return null;
   }
 }

@@ -14,13 +14,16 @@ import { resolveCircleVsTiles } from '../world/collision';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, ITEMS, GEAR, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
 import { gearLoot } from './Gear';
-import { armorOf, roleArmor, rollZone, behind } from './wounds';
+import { armorOf, roleArmor, rollZone } from './wounds';
 import { FACTIONS, cpHas, type FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { muzzleWorld } from '../entities/weaponPose';
 import { BARKS } from '../config/barks';
-import { FISTS } from '../config/brawl';
 import { bark, barkSide } from './Barks';
+import { Melee } from './Melee';
+import type { MeleeStyle } from '../config/melee';
+import { MELEE } from '../config/melee';
+import { resetMelee } from '../entities/meleeState';
 
 const DEG = Math.PI / 180;
 
@@ -73,7 +76,8 @@ export interface Fx {
   seq: number;
   /** Когда случилось (игровое время боя). */
   t: number;
-  kind: 'muzzle' | 'hit' | 'wall' | 'blast' | 'stab' | 'smoke' | 'fire' | 'rocket' | 'bleed' | 'whiz';
+  /** Ближний бой (Melee): swing — взмах (попал или нет), stab — попал, block — закрылся, parry — парировал, ko — нокаут. */
+  kind: 'muzzle' | 'hit' | 'wall' | 'blast' | 'stab' | 'smoke' | 'fire' | 'rocket' | 'bleed' | 'whiz' | 'swing' | 'block' | 'parry' | 'ko';
   x: number;
   y: number;
   ang: number;
@@ -85,17 +89,10 @@ export interface Fx {
   /** Сила: урон попадания или радиус взрыва. */
   power: number;
   lethal: boolean;
-}
-
-/** Взмах дубинкой — сектор удара (для отрисовки). */
-export interface Swing {
-  x: number;
-  y: number;
-  ang: number;
-  half: number;
-  reach: number;
-  t: number;
-  hit: boolean;
+  /** Ближний бой: чем били, чем закрылся, тяжёлый ли удар серии. */
+  style?: MeleeStyle;
+  guard?: MeleeStyle;
+  heavy?: boolean;
 }
 
 export interface Corpse {
@@ -224,7 +221,8 @@ export function isMedic(c: Character): boolean {
  */
 export class CombatSystem {
   readonly bullets: Bullet[] = [];
-  readonly swings: Swing[] = [];
+  /** Ближний бой: удары, серии, блок, нокаут (systems/Melee.ts). */
+  readonly melee: Melee;
   readonly corpses: Corpse[] = [];
   readonly shots: Shot[] = [];
   readonly grenades: Grenade[] = [];
@@ -263,7 +261,9 @@ export class CombatSystem {
     private readonly bus: EventBus,
     private readonly rng: Rng,
     private readonly law: LawSystem,
-  ) {}
+  ) {
+    this.melee = new Melee(this, entities, map, rng, bus);
+  }
 
   get now(): number {
     return this.time;
@@ -437,14 +437,14 @@ export class CombatSystem {
     return c.bandageUntil > this.time;
   }
 
-  /** Занят руками: перевязывается, ставит растяжку, поднимает раненого — или сам лежит. */
+  /** Занят руками: перевязывается, ставит растяжку, поднимает раненого — или сам лежит (ранен, нокаут). */
   busy(c: Character): boolean {
-    return c.bandageUntil > this.time || c.plantUntil > this.time || c.reviveUntil > this.time || c.downed;
+    return c.bandageUntil > this.time || c.plantUntil > this.time || c.reviveUntil > this.time || c.downed || c.melee.ko > this.time;
   }
 
   canFire(c: Character): boolean {
     if (!c.weapon || !c.alive || this.time < c.nextShot || this.busy(c)) return false;
-    if (WEAPONS[c.weapon].mode === 'melee') return true;
+    if (WEAPONS[c.weapon].mode === 'melee') return this.melee.ready(c);
     return !this.reloading(c) && c.mag > 0;
   }
 
@@ -466,19 +466,22 @@ export class CombatSystem {
   }
 
   /** Записать эффект (для отрисовки и звука). */
-  private emit(kind: Fx['kind'], x: number, y: number, ang: number, cls: WeaponClass | null, by: Character | null, target: Character | null = null, zone: Fx['zone'] = null, power = 0, lethal = false): void {
-    this.fx.push({ seq: ++this.fxSeq, t: this.time, kind, x, y, ang, cls, by, target, zone, power, lethal });
+  emit(kind: Fx['kind'], x: number, y: number, ang: number, cls: WeaponClass | null, by: Character | null, target: Character | null = null, zone: Fx['zone'] = null, power = 0, lethal = false): Fx {
+    const f: Fx = { seq: ++this.fxSeq, t: this.time, kind, x, y, ang, cls, by, target, zone, power, lethal };
+    this.fx.push(f);
     if (this.fx.length > FX_KEEP) this.fx.splice(0, this.fx.length - FX_KEEP);
+    return f;
   }
 
   /**
    * Выстрел (удар) в сторону точки. Возвращает, в кого попадёт пуля (для дроби — последняя
-   * попавшая); урон — когда пуля долетит. Ракета РПГ цель не предсказывает (null).
+   * попавшая); урон — когда пуля долетит. Ракета РПГ цель не предсказывает (null). Холодное оружие —
+   * удар серии (Melee): урон — после замаха, возвращает, кого удар достанет сейчас.
    */
   fire(c: Character, tx: number, ty: number): Character | null {
     const w = this.weaponOf(c);
     if (!w) return null;
-    if (w.mode === 'melee') return this.swing(c, w, tx, ty);
+    if (w.mode === 'melee') return this.melee.start(c, tx, ty);
     // Дробовик заряжается по патрону: выстрел прерывает перезарядку, если в магазине что-то есть.
     if (w.perRound && this.reloading(c) && c.mag > 0) c.reloadUntil = 0;
     if (!this.canFire(c)) {
@@ -663,7 +666,7 @@ export class CombatSystem {
   }
 
   /** Кровотечение и последствия ранения в зону (урон — отдельно, через damage). */
-  private wound(target: Character, dmg: number, zone: HitZone | 'blast'): void {
+  wound(target: Character, dmg: number, zone: HitZone | 'blast'): void {
     if (!target.alive) return;
     const per = zone === 'blast' ? HITS.bleed.arm : HITS.bleed[zone];
     target.bleed = Math.min(HITS.bleedMax, target.bleed + dmg * per);
@@ -671,98 +674,21 @@ export class CombatSystem {
     if (zone === 'arm') target.armUntil = this.time + HITS.armTime;
   }
 
-  /**
-   * Удар: ближайший в секторе перед собой. Дубинка оглушает; нож режет (кровотечение), в спину —
-   * × backstab и мимо брони (два удара в спину валят патрульного).
-   */
   /** Ударили кулаком (задаёт Brawls: ответить, позвать братву). */
   onPunch: (target: Character, attacker: Character) => void = () => {};
 
   /**
-   * Удар кулаком — пустыми руками, оружие в руках не нужно (FISTS): кулаком не убить — здоровье не ниже
-   * floor, дошёл до него — нокаут (оглушён knockout с). Возвращает, в кого попал.
+   * Удар кулаком — пустыми руками, оружие в руках не нужно (серия кулаков, Melee): кулаком не убить —
+   * здоровье не ниже FISTS.floor, дошёл до него — нокаут. Урон — после замаха; возвращает, кого удар
+   * достанет сейчас.
    */
   punch(c: Character, tx: number, ty: number): Character | null {
-    if (!c.alive || c.downed || this.time < c.nextShot || this.busy(c)) return null;
-    c.nextShot = this.time + 1 / FISTS.rate;
-    const ang = Math.atan2(ty - c.y, tx - c.x);
-    c.facing = ang;
-    const half = 45 * DEG;
-    let best: Character | null = null;
-    let bestD = Infinity;
-    for (const o of this.entities.near(c.x, c.y, c.radius + FISTS.range + 16, near)) {
-      if (o === c || !o.alive || o.downed) continue;
-      const gap = Math.hypot(o.x - c.x, o.y - c.y) - o.radius - c.radius;
-      if (gap > FISTS.range) continue;
-      if (gap > 4 && Math.abs(angleDiff(Math.atan2(o.y - c.y, o.x - c.x), ang)) > half) continue;
-      if (!lineOfSight(this.map, c.x, c.y, o.x, o.y)) continue;
-      if (gap < bestD) {
-        bestD = gap;
-        best = o;
-      }
-    }
-    this.swings.push({ x: c.x, y: c.y, ang, half, reach: c.radius + FISTS.range, t: COMBAT.swingTime, hit: !!best });
-    if (!best) return null;
-    this.stats.hit++;
-    best.stunUntil = Math.max(best.stunUntil, this.time + FISTS.stun);
-    best.aim = 0;
-    const dmg = Math.min(FISTS.damage * (1 - armorOf(best).torso * 0.5), Math.max(0, best.health - FISTS.floor));
-    this.emit('stab', best.x - Math.cos(ang) * best.radius, best.y - Math.sin(ang) * best.radius, ang, 'melee', c, best, 'torso', dmg, false);
-    if (dmg > 0) this.damage(best, dmg, c, 'torso');
-    else if (!best.disguised && !FACTIONS[c.faction].authority && FACTIONS[best.faction].authority) this.damage(best, 0, c, 'torso');
-    if (best.alive && best.health <= FISTS.floor + 0.01) best.stunUntil = Math.max(best.stunUntil, this.time + FISTS.knockout);
-    this.onPunch(best, c);
-    return best;
+    return this.melee.start(c, tx, ty, 'fists');
   }
 
-  /** Нокаутирован кулаками (оглушён и на пороге здоровья). */
+  /** Нокаутирован кулаками (лежит). */
   knockedOut(c: Character): boolean {
-    return c.health <= FISTS.floor + 0.01 && c.stunUntil > this.time;
-  }
-
-  private swing(c: Character, w: WeaponDef, tx: number, ty: number): Character | null {
-    if (!this.canFire(c)) return null;
-    c.nextShot = this.time + 1 / w.fireRate;
-    const ang = Math.atan2(ty - c.y, tx - c.x);
-    c.facing = ang;
-    const half = w.spreadHip * DEG;
-    let best: Character | null = null;
-    let bestD = Infinity;
-    for (const o of this.entities.near(c.x, c.y, c.radius + w.range + 16, near)) {
-      if (o === c || !o.alive) continue;
-      const gap = Math.hypot(o.x - c.x, o.y - c.y) - o.radius - c.radius;
-      if (gap > w.range) continue;
-      if (gap > 4 && Math.abs(angleDiff(Math.atan2(o.y - c.y, o.x - c.x), ang)) > half) continue;
-      if (!lineOfSight(this.map, c.x, c.y, o.x, o.y)) continue;
-      if (gap < bestD) {
-        bestD = gap;
-        best = o;
-      }
-    }
-    this.swings.push({ x: c.x, y: c.y, ang, half, reach: c.radius + w.range, t: COMBAT.swingTime, hit: !!best });
-    if (!best) return null;
-    best.stunUntil = Math.max(best.stunUntil, this.time + w.stun);
-    best.aim = 0;
-    this.hits++;
-    this.stats.hit++;
-    const hx = best.x - Math.cos(ang) * best.radius;
-    const hy = best.y - Math.sin(ang) * best.radius;
-    if (w.class === 'blade') {
-      const back = behind(best, c);
-      const armor = armorOf(best);
-      const dmg = back ? w.damage * (w.backstab ?? 1) : w.damage * (1 - armor.torso * (1 - w.pierce));
-      this.emit('stab', hx, hy, ang, w.class, c, best, 'torso', dmg, back);
-      if (back && c.isPlayer) this.bus.emit('log', { text: `Удар в спину: ${best.name}.`, kind: 'world' });
-      this.addDecal(hx + Math.cos(ang) * 6, hy + Math.sin(ang) * 6, 'blood', COMBAT.decals.bloodTime, this.rng.range(0, Math.PI), this.rng.range(0.7, 1.1));
-      this.wound(best, dmg, 'torso');
-      this.damage(best, dmg, c, 'torso');
-      return best;
-    }
-    const armor = armorOf(best);
-    const dmg = w.damage * (1 - armor.torso * 0.5);
-    this.emit('stab', hx, hy, ang, w.class, c, best, 'torso', dmg, false);
-    this.damage(best, dmg, c, 'torso');
-    return best;
+    return this.melee.knockedOut(c);
   }
 
   /**
@@ -978,6 +904,7 @@ export class CombatSystem {
     c.limpUntil = c.armUntil = 0;
     c.burnUntil = 0;
     c.stunUntil = 0;
+    resetMelee(c.melee);
     c.speedMul = 1;
     c.recoil = c.kick = c.aim = 0;
     c.wantX = c.wantY = c.vx = c.vy = 0;
@@ -1396,7 +1323,7 @@ export class CombatSystem {
     this.updateBullets(dt);
     this.updateMines(dt);
     this.updateDrag();
-    for (let i = this.swings.length - 1; i >= 0; i--) if ((this.swings[i].t -= dt) <= 0) this.swings.splice(i, 1);
+    this.melee.update(dt);
     for (let i = this.corpses.length - 1; i >= 0; i--) if (this.corpses[i].until < this.time) this.corpses.splice(i, 1);
     while (this.shots.length > 0 && this.time - this.shots[0].t > 2) this.shots.shift();
     // Убитые NPC уходят из мира после тика (не посреди обхода списка мозгами).
@@ -1449,7 +1376,11 @@ export class CombatSystem {
       // Оглушение, перевязка, хромота — медленнее.
       const stunned = c.stunUntil > this.time;
       const dressing = this.busy(c);
-      c.speedMul = (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1) * (c.crouch ? CROUCH.speedMul : 1) * (c.dragging ? DOWNED.dragSpeed : 1);
+      const m = c.melee;
+      // Нокаут — лежит; блок — шаг короче; стойка — лицом к противнику (походка).
+      if (m.block && !this.melee.guard(c, true)) m.block = false;
+      m.engaged = m.stance > this.time;
+      c.speedMul = m.ko > this.time ? 0 : (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1) * (c.crouch ? CROUCH.speedMul : 1) * (c.dragging ? DOWNED.dragSpeed : 1) * (m.block ? MELEE.block.speedMul : 1);
       // Прицеливание копится стоя (при ходьбе — медленнее), теряется на бегу, без ПКМ и при перезарядке.
       if (w && w.mode !== 'melee') {
         const running = c.moveSpeed > CHARACTER.walkSpeed * 1.2;
