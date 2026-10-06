@@ -38,6 +38,10 @@ export class Mover {
   yieldFrom: Character | null = null;
 
   private req: PathRequest | null = null;
+  /** Шаг напрямую (drive) на этот тик. */
+  private driving = false;
+  private driveX = 0;
+  private driveY = 0;
   private repaths = 0;
   private avgSpeed = 0;
   private blockedTime = 0;
@@ -64,6 +68,19 @@ export class Mover {
   /** Путь устарел (например, вахта не пустила на объект) — перестроить к той же цели. */
   replan(self: Character, ctx: AiContext): void {
     if (this.goal >= 0 && this.status === 'moving') this.requestPath(self, ctx);
+  }
+
+  /**
+   * Шаг напрямую на этот тик, без пути (ближний бой: подшаг, отход, обход противника по кругу).
+   * Сбрасывает цель; следующий тик без drive — стоит.
+   */
+  drive(vx: number, vy: number): void {
+    this.stop();
+    this.yieldFrom = null;
+    this.blocker = null;
+    this.driveX = vx;
+    this.driveY = vy;
+    this.driving = true;
   }
 
   stop(): void {
@@ -122,8 +139,10 @@ export class Mover {
         this.follow(self, ctx, dt);
         break;
       default:
-        self.wantX = self.wantY = 0;
+        self.wantX = this.driving ? this.driveX : 0;
+        self.wantY = this.driving ? this.driveY : 0;
     }
+    this.driving = false;
   }
 
   /** Затор: давно топчемся на пятачке, не дойдя до цели, — бросаем её (true — сдались на этом тике). */

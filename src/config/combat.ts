@@ -129,7 +129,6 @@ export const COMBAT = {
   trail: 0.022,
   flashTime: 0.06,
   impactTime: 0.35,
-  swingTime: 0.18,
   /** Слышимость выстрела: NPC в радиусе реагируют. */
   hearing: 360,
   /** Медик HELIX лечит за раз и перезаряжается. */
