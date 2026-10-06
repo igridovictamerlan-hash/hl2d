@@ -677,6 +677,8 @@ export class Talk {
       }
       const show = Math.min(P.show[1], Math.max(P.show[0], P.base + P.perChar * l.text.length));
       who.say(l.text, now, show);
+      // Слушатель кивает, пока ему говорят (только отрисовка).
+      other.nodAt = now + 0.35;
       // Собеседник молчит, пока ему отвечают.
       if (other.speech && other.speech.kind === 'say') other.speech.until = Math.min(other.speech.until, now);
       this.stats.lines++;

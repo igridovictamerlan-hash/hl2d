@@ -32,6 +32,10 @@ export const SECURITY = {
     sway: 0.9,
     look: [2, 5] as const,
     watch: 130,
+    /** Офицер ближе saluteDist px — честь на saluteTime с, не чаще раза в saluteEvery с. */
+    saluteDist: 90,
+    saluteTime: 1.1,
+    saluteEvery: 25,
     greetEvery: 18,
     greetChance: 0.35,
     answerChance: 0.5,
