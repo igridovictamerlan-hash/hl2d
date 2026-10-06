@@ -424,20 +424,16 @@ describe('жизнь на улице', () => {
     const R = sim.ctx.relations;
     const [a, v, f, g] = folks(sim, 4);
     withPid(sim, f, pidWith('brave', true));
-    R.link(f, v, 90, 70);
+    withPid(sim, g, pidWith('brave', true, f.pid));
     near(sim, a, v);
     near(sim, v, f, 3);
     near(sim, v, g, 3);
-    R.link(g, v, 90, 70);
-    withPid(sim, g, pidWith('brave', true, f.pid));
+    R.link(f, v, 90, 70);
     R.link(g, v, 90, 70);
     for (const c of [a, v, f, g]) idle(c);
     copsAway(sim, v);
-    let helped = false;
-    for (let k = 0; k < 20 && !helped; k++) {
-      sim.ctx.combat.punch(a, v.x, v.y);
-      helped = sim.ctx.brawls.list.some((x) => (x.a === f || x.b === f || x.a === g || x.b === g) && (x.a === a || x.b === a));
-      skip(sim, 30);
+    const against = (c: Character) => sim.ctx.brawls.list.some((x) => (x.a === c || x.b === c) && (x.a === a || x.b === a));
+    const reset = (): void => {
       sim.ctx.brawls.list.length = 0;
       for (const c of [a, v, f, g]) {
         c.nextShot = 0;
@@ -445,10 +441,23 @@ describe('жизнь на улице', () => {
         c.health = c.maxHealth;
         idle(c);
       }
+    };
+    // Бьют именно пострадавшего (расстановка по якорям случайна: зевака мог оказаться на линии удара).
+    for (let k = 0; k < 20 && !R.stats.defends; k++) {
+      sim.ctx.combat.punch(a, v.x, v.y, v);
+      if (R.stats.defends) break;
+      skip(sim, 30);
+      reset();
     }
-    expect(helped).toBe(true);
-    expect(R.stats.defends).toBeGreaterThan(0);
+    const first = R.stats.defends;
+    expect(first).toBe(1);
+    expect(against(f) || against(g)).toBe(true);
     expect(R.bond(v, f)!.mem.some((m) => m.kind === 'defended') || R.bond(v, g)!.mem.some((m) => m.kind === 'defended')).toBe(true);
+    // Сразу ещё удар: на пострадавшего откат — второй заступник не набегает, драка не разрастается в свалку.
+    a.nextShot = 0;
+    sim.ctx.combat.punch(a, v.x, v.y, v);
+    expect(R.stats.defends).toBe(first);
+    expect(sim.ctx.brawls.list.filter((x) => x.a === a || x.b === a).length).toBeLessThanOrEqual(RELATIONS.allies.maxOnAttacker);
   });
 
   test('недруг не станет говорить: отказ и осадок', () => {

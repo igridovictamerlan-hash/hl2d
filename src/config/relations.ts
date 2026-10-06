@@ -168,7 +168,8 @@ export const RELATIONS = {
     revive: { target: 32, actor: 7, witness: 6, fam: 10, memT: 'saved', thoughtT: 'helped', cooldown: 30, seen: true },
     feed: { target: 24, actor: 6, witness: 3, fam: 8, memT: 'fed', thoughtT: 'gift', thoughtA: 'shared', cooldown: 60 },
     defend: { target: 20, actor: 4, witness: 4, fam: 7, memT: 'defended', thoughtT: 'helped', cooldown: 20, seen: true },
-    gift: { target: 14, actor: 3, witness: 0, fam: 5, memT: 'gift', thoughtT: 'gift', cooldown: 30 },
+    // Из рук в руки (посылка, хлеб): получивший теперь знает дарителя в лицо (fam ≥ bond.known).
+    gift: { target: 14, actor: 3, witness: 0, fam: 8, memT: 'gift', thoughtT: 'gift', cooldown: 30 },
     arrest: { target: -22, actor: 0, witness: -3, fam: 6, memT: 'arrestedMe', thoughtT: 'arrested', cooldown: 30, seen: true },
     fine: { target: -9, actor: 0, witness: -1, fam: 3, memT: 'fined', thoughtT: 'fined', cooldown: 20 },
     kill: { target: 0, actor: 0, witness: -26, fam: 6, memW: 'sawKill', thoughtW: 'sawDeath', cooldown: 10, seen: true },

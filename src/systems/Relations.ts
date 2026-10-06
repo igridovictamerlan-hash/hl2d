@@ -714,6 +714,8 @@ export class Relations {
             this.stats.defends++;
             this.event('defend', o, victim);
             this.defer(1.1, () => victim.alive && victim.say(this.pick(victim, RELATIONS.lines.defended, o), this.now, 2));
+            // Один заступник за раз: остальные близкие смотрят (иначе драка разрастается в свалку).
+            break;
           }
         }
       } else if (per.brave < RELATIONS.scan.fleeBelow) o.brain.fleeFrom(attacker);
