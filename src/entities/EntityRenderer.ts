@@ -102,12 +102,17 @@ export class EntityRenderer {
         ctx.ellipse(gx, gy + PAWN.shadow.y * ps, (PAWN.shadow.rx + 3) * ps, (PAWN.shadow.ry + 1.8) * ps, 0, 0, Math.PI * 2);
         ctx.stroke();
       }
-      drawPawnShadow(ctx, gx, gy, ps);
-      drawDust(ctx, c, gx, gy, ps, Math.hypot(c.gaitVx, c.gaitVy), CHARACTER.runSpeed);
       // Шаг: фаза по пройденному пути (полупериод синуса — один шаг), корпус подпрыгивает на каждом
       // шаге; наклон в сторону движения по горизонтали, при ходьбе вверх/вниз — покачивание в такт.
       const walking = isWalking(c);
       const an = animOf(c, now, walking, c.aiming || c.recoil > W.aimRecoil);
+      // Спит на кровати — лежит на ней по её оси (не на клетке рядом).
+      if (an.kind === 'sleep' && c.sleepAt) {
+        this.bedSleeper(ctx, c, look, (c.sleepAt.x - v.left) * s, (c.sleepAt.y - v.top) * s, c.sleepAt.w >= c.sleepAt.h, ps, now);
+        continue;
+      }
+      drawPawnShadow(ctx, gx, gy, ps);
+      drawDust(ctx, c, gx, gy, ps, Math.hypot(c.gaitVx, c.gaitVy), CHARACTER.runSpeed);
       const lying = an.kind === 'sleep' || an.kind === 'ko';
       const dir = lying ? 'S' : c.bodyDir;
       const speed = Math.hypot(c.gaitVx, c.gaitVy);
@@ -197,6 +202,23 @@ export class EntityRenderer {
     ctx.globalAlpha = 1;
   }
 
+  /**
+   * Спящий на кровати: пешка в центре кровати, лёжа вдоль неё (горизонтальная кровать — головой влево или вправо
+   * по id, вертикальная — головой вверх), под одеялом, дышит; «z» — у головы.
+   */
+  private bedSleeper(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, bx: number, by: number, horizontal: boolean, ps: number, now: number): void {
+    const S = PAWN.anim.sleep;
+    const a = horizontal ? (c.id % 2 ? Math.PI / 2 : -Math.PI / 2) : 0;
+    const br = 1 + S.breathe * 0.6 * Math.sin((now / S.period) * Math.PI * 2 + c.id * 2.399);
+    const cs = Math.cos(a) * br;
+    const si = Math.sin(a) * br;
+    ctx.setTransform(cs, si, -si, cs, bx, by);
+    drawPawnCached(ctx, look, 0, -2 * ps, ps, 'S');
+    drawBlanket(ctx, c, 0, -2 * ps, ps);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    drawSleepZ(ctx, c, bx + (horizontal ? (a > 0 ? 1 : -1) * 9 * ps : 0), by + 2 * ps, ps, now);
+  }
+
   /** Лежащий тяжелораненый: лужа крови, пешка на боку (слабо шевелится), кольцо — сколько осталось. */
   private downedBody(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number): void {
     const D = RENDER.entity.downed;
@@ -250,8 +272,10 @@ export class EntityRenderer {
     const py = player ? player.y : v.top + v.height / s / 2;
     for (const c of list) {
       if (!c.alive || (!c.visible && !showAll)) continue;
-      const x = (lerp(c.prevX, c.x, alpha) - v.left) * s;
-      const cy = (lerp(c.prevY, c.y, alpha) - v.top) * s;
+      // Спящий лежит на кровати — подпись у кровати, а не у клетки рядом.
+      const bed = c.asleep ? c.sleepAt : null;
+      const x = ((bed ? bed.x : lerp(c.prevX, c.x, alpha)) - v.left) * s;
+      const cy = ((bed ? bed.y : lerp(c.prevY, c.y, alpha)) - v.top) * s;
       if (x < -200 || cy < -80 || x > v.width + 200 || cy > v.height + 80) continue;
       if (hoverX !== null && hoverY !== null) {
         const d = Math.hypot(hoverX - x, hoverY - cy);

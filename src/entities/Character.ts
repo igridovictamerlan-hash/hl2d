@@ -157,6 +157,8 @@ export class Character {
   hunger: number = ECONOMY.hunger.max;
   /** Спит (в кровати): сытость тает медленнее (ECONOMY.hunger.sleepMul). */
   asleep = false;
+  /** Кровать, на которой спит (центр и размер, px): пешка рисуется лёжа на ней (только отрисовка); null — у койки без кровати. */
+  sleepAt: { x: number; y: number; w: number; h: number } | null = null;
   /** Оружие в руках (предмет из инвентаря) или null. */
   weapon: WeaponId | null = null;
   /** Надетое снаряжение (шлем, бронежилет, рюкзак) — не в ячейках инвентаря (systems/Gear). */

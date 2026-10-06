@@ -2164,6 +2164,7 @@ const HOME: State<CitizenBrain> = {
         const wake = b.nightSleep ? ctx.routine.untilWake(self) : 0;
         b.stayUntil = now + (wake > 0 ? wake + ctx.rng.range(0, 15) : ctx.rng.range(lo, hi));
         self.asleep = b.sleeping;
+        self.sleepAt = b.sleeping ? ctx.housing.of(self)?.bedBox ?? null : null;
         if (b.sleeping) ctx.housing.stats.sleeps++;
         if (ctx.rng.chance(0.3)) self.say(phrase(ctx.rng, self, b.sleeping ? H.lines.sleep : H.lines.home), now, 2);
       }
@@ -2188,6 +2189,7 @@ const HOME: State<CitizenBrain> = {
     b.sleeping = false;
     b.nightSleep = false;
     b.self.asleep = false;
+    b.self.sleepAt = null;
   },
 };
 

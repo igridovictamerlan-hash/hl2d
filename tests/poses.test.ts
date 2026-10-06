@@ -143,4 +143,14 @@ describe('бытовые анимации пешек', () => {
     expect(dip).toBeGreaterThan(0.5);
     expect(animOf(c, 6, false, false).dy).toBeCloseTo(0, 5);
   });
+
+  it('спящий на кровати помнит, где лежит; без кровати поза та же', () => {
+    const c = pawn();
+    c.asleep = true;
+    c.sleepAt = { x: 100, y: 50, w: 32, h: 22 };
+    expect(animOf(c, 1, false, false).kind).toBe('sleep');
+    c.asleep = false;
+    c.sleepAt = null;
+    expect(animOf(c, 1, false, false).kind).toBe('stand');
+  });
 });
