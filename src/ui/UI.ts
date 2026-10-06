@@ -16,6 +16,8 @@ import { RoleMenu } from './RoleMenu';
 import { CheckPanel, type CheckChoice } from './CheckPanel';
 import { CodePanel } from './CodePanel';
 import { InventoryPanel } from './InventoryPanel';
+import { ContactsPanel } from './ContactsPanel';
+import type { PersonInfo } from '../systems/Relations';
 import { ShopPanel } from './ShopPanel';
 import { AlertBar } from './AlertBar';
 import { DeathScreen } from './DeathScreen';
@@ -53,6 +55,8 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly arena: SquadArena | null;
   /** Строка HUD о городе: поручение, ночной час (пусто — ничего). */
   readonly cityHint: string;
+  /** Знакомые игрока (панель K). */
+  contacts(): readonly PersonInfo[];
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null, name?: string | null): void;
   /** Имя персонажа для меню роли: текущее (не ВС) и новое случайное. */
   currentName(): string;
@@ -91,6 +95,7 @@ export class UI {
   readonly check: CheckPanel;
   readonly code: CodePanel;
   readonly inventory: InventoryPanel;
+  readonly contacts: ContactsPanel;
   readonly shop: ShopPanel;
   readonly alert: AlertBar;
   readonly death: DeathScreen;
@@ -114,6 +119,7 @@ export class UI {
     this.check = new CheckPanel(root, bus, (t, c) => host.resolveCheck(t, c));
     this.code = new CodePanel(root, () => host.war, (c) => host.setAlertCode(c));
     this.inventory = new InventoryPanel(root, host);
+    this.contacts = new ContactsPanel(root, () => host.contacts());
     this.capture = new CaptureBar(root);
     this.arenaBar = new ArenaBar(root);
     this.mapView = new MapView(root);
@@ -187,6 +193,7 @@ export class UI {
     this.audio.ambient(player, this.host.fireSpots, this.host.darkness, level === 'sewer', dt, this.host.arsenal?.shipView() ?? null);
     this.audio.radio(player, this.host.radioFeed, FACTIONS[player.faction].authority && !player.cadet);
     this.placeLog();
+    this.contacts.update(dt);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;

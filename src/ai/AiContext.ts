@@ -36,6 +36,7 @@ import type { Staffing } from '../systems/Staffing';
 import type { Access } from '../systems/Access';
 import type { Radio } from '../systems/Radio';
 import type { Talk } from '../systems/Talk';
+import type { Relations } from '../systems/Relations';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 export interface AiContext {
@@ -105,4 +106,6 @@ export interface AiContext {
   radio: Radio;
   /** Разговоры жителей: слухи о происшествиях, темы по обстановке, без повторов. */
   talk: Talk;
+  /** Живые люди: характер, настроение, память отношений (знакомства, обиды, дружба). */
+  relations: Relations;
 }

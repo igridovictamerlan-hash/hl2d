@@ -34,6 +34,7 @@ import type { Vec2 } from '../../core/math';
 import { STREET } from '../../config/street';
 import type { Barrel, Bench, CardTable, NoticeBoard } from '../../systems/StreetLife';
 import { FAMILIES } from '../../config/families';
+import { RELATIONS } from '../../config/relations';
 import { lineOfSight } from '../../world/visibility';
 import { CWU_HQ } from '../../config/cwuHq';
 import { PARTISANS } from '../../config/underground';
@@ -154,6 +155,8 @@ export class CitizenBrain implements Brain {
   brawlRepath = 0;
   private turfTimer = 0;
   private turfWarnAt = 0;
+  /** Горюет: чередовать «домой» и обычные дела. */
+  private mournTurn = 0;
   /** Столовая: сперва за супом к раздаче. */
   soupFirst = false;
   /** Боец банды: стрелок (стычки) и идёт ли бой. */
@@ -228,7 +231,7 @@ export class CitizenBrain implements Brain {
       // Стрельбы в тире академии — учебные: от них не разбегаются.
       if (shot && !shot.shooter?.cadet && self.faction !== 'rebel' && self.gang < 0) {
         // Стрельба рядом — бежать прочь.
-        self.panicUntil = now + ctx.rng.range(4, 6);
+        self.panicUntil = now + ctx.rng.range(4, 6) * (ctx.relations?.panicMul(self) ?? 1);
         this.panicFrom = { x: shot.x, y: shot.y };
         this.fsm.change('panic');
       } else if (ctx.war.curfew && cur !== 'shelter') this.fsm.change('shelter');
@@ -345,15 +348,58 @@ export class CitizenBrain implements Brain {
     if (ctx.law.now - this.lastChat < STREET.chat.cooldown) return false;
     let best: Character | null = null;
     let bestD: number = STREET.chat.seek;
+    const rel = ctx.relations;
     for (const o of ctx.entities.near(self.x, self.y, STREET.chat.seek, near)) {
       if (!this.chattable(o)) continue;
-      const d = Math.hypot(o.x - self.x, o.y - self.y);
+      // Знакомых тянет сильнее (друзья — «ближе» на вид), с недругом не заговорят.
+      const t = rel?.enabled ? rel.tier(self, o) : 'stranger';
+      if (t === 'rival' || t === 'enemy') continue;
+      const d = Math.hypot(o.x - self.x, o.y - self.y) * (t === 'close' ? 0.4 : t === 'friend' ? 0.5 : t === 'acquaintance' ? 0.8 : 1);
       if (d < bestD && lineOfSight(ctx.map, self.x, self.y, o.x, o.y)) {
         best = o;
         bestD = d;
       }
     }
     if (!best) return false;
+    // Не расположен говорить (с незнакомцем в дурном настроении, с недоброжелателем) — отшил.
+    if (rel?.enabled && !rel.willTalk(best, self)) {
+      rel.rebuff(best, self);
+      this.lastChat = ctx.law.now;
+      return false;
+    }
+    return this.beginChat(best);
+  }
+
+  /**
+   * Заговорить с конкретным человеком (друг на встрече, голодный — к тому, у кого есть еда). far — идти через весь
+   * город (как к родне). true — пошёл говорить: беседа начнётся, когда подойдёт.
+   */
+  chatWith(o: Character, far = false): boolean {
+    const { self, ctx } = this;
+    const cur = this.fsm.current;
+    if ((cur !== 'idle' && cur !== 'walk') || !this.street || this.partner || ctx.law.now - this.lastChat < STREET.chat.cooldown / 2) return false;
+    if (!this.chattable(o) || (!far && Math.hypot(o.x - self.x, o.y - self.y) > STREET.chat.seek * 1.2)) return false;
+    if (!this.beginChat(o)) return false;
+    this.fsm.change('chat');
+    return true;
+  }
+
+  /** К другу в гости (как к родне): ближайший свободный друг не дальше RELATIONS.friends.seek. */
+  private startFriendChat(): boolean {
+    const { self, ctx } = this;
+    if (ctx.law.now - this.lastChat < STREET.chat.cooldown || !ctx.relations?.enabled) return false;
+    let best: Character | null = null;
+    let bestD: number = RELATIONS.friends.seek;
+    for (const o of ctx.relations.circle(self, 'friends', false)) {
+      if (!this.chattable(o)) continue;
+      const d = Math.hypot(o.x - self.x, o.y - self.y);
+      if (d < bestD) {
+        best = o;
+        bestD = d;
+      }
+    }
+    if (!best) return false;
+    ctx.street.stats.chats++;
     return this.beginChat(best);
   }
 
@@ -399,7 +445,11 @@ export class CitizenBrain implements Brain {
     if (!this.street || hustler || ctx.war.code === 'red' || !ctx.street || !ctx.rng.chance(act >= 0 ? act : STREET.activityChance)) return null;
     const W = STREET.weights;
     const st = ctx.street;
-    const m = (k: Parameters<typeof R.weight>[1]): number => R.weight(this.self, k);
+    const rel = ctx.relations;
+    // Привычки (у каждого свои любимые занятия) и одиночество (тянет к людям).
+    const hab = (h: Parameters<typeof rel.habit>[1]): number => (rel?.enabled ? rel.habit(this.self, h) : 1);
+    const lonely = rel?.enabled && rel.lonely(this.self) ? RELATIONS.friends.lonelyMul : 1;
+    const m = (k: Parameters<typeof R.weight>[1]): number => R.weight(this.self, k) * (k === 'family' ? 1 : hab(k)) * (k === 'chat' ? lonely : 1);
     // Скамейки — только при зелёном коде; родня — если есть семья; карты — в общежитиях.
     const bench = ctx.war.code === 'green' && st.benches.length ? W.bench * m('bench') : 0;
     const family = this.self.family >= 0 ? W.family * m('family') : 0;
@@ -412,12 +462,15 @@ export class CitizenBrain implements Brain {
     const barrel = W.barrel * m('barrel');
     const homeW = W.home * m('home');
     const smoke = W.smoke * m('smoke');
-    let r = ctx.rng.range(0, chat + barrel + homeW + bench + family + cards + smoke + notice + shopping);
+    // Друзья (не родня): в гости, чем общительнее и одиночнее — тем охотнее.
+    const friend = rel?.enabled && rel.circle(this.self, 'friends', false).length ? RELATIONS.friends.weight * m('family') * (0.4 + rel.persona(this.self).social) * lonely : 0;
+    let r = ctx.rng.range(0, chat + barrel + homeW + bench + family + cards + smoke + notice + shopping + friend);
     if ((r -= shopping) < 0) return 'shopping';
     if ((r -= chat) < 0) return this.startChat() ? 'chat' : null;
     if ((r -= barrel) < 0) return 'barrel';
     if ((r -= bench) < 0) return 'bench';
     if ((r -= family) < 0) return this.startFamilyChat() ? 'chat' : 'home';
+    if ((r -= friend) < 0) return this.startFriendChat() ? 'chat' : null;
     if ((r -= cards) < 0) return 'cards';
     if ((r -= smoke) < 0) return 'smoke';
     if ((r -= notice) < 0) return 'notice';
@@ -587,6 +640,8 @@ export class CitizenBrain implements Brain {
       if (ctx.rng.chance(0.35)) self.say(ctx.rng.pick(ROUTINE.lines.bed), ctx.law.now, 2);
       return 'home';
     }
+    // Горе: пока горюет по близкому — больше сидит дома, а не бродит по улицам (каждое второе решение).
+    if (ctx.relations?.mourning(self) && ctx.housing?.of(self) && this.mournTurn++ % 2 === 0) return 'home';
     // Голод важнее дел: без еды и голоднее seekBelow — в очередь за пайком, в столовую за супом или в лавку.
     if (this.starving()) {
       if (eco.open && !eco.hasBeenServed(self) && self.faction !== 'rebel' && this.pairedFor(eco.window)) {
@@ -1167,7 +1222,8 @@ const IDLE: State<CitizenBrain> = {
   name: 'idle',
   enter(b) {
     b.mover.stop();
-    b.mover.speed = b.walkSpeed;
+    // Темп шага — по настроению и нраву (мрачный плетётся, довольный бодрее).
+    b.mover.speed = b.walkSpeed * (b.ctx.relations?.paceMul(b.self) ?? 1);
     if (b.idleLeft <= 0) b.idleLeft = b.ctx.rng.range(AI.citizen.idleTime[0], AI.citizen.idleTime[1]);
   },
   update(b, dt) {
@@ -1918,7 +1974,7 @@ const BRAWL_STATE: State<CitizenBrain> = {
     }
     b.mover.stop();
     faceTowards(self, o.x, o.y, dt);
-    if (ctx.combat.punch(self, o.x, o.y) && ctx.rng.chance(0.12)) self.say(ctx.rng.pick(BRAWL.lines.hit), ctx.law.now, 1.5);
+    if (ctx.combat.punch(self, o.x, o.y, o) && ctx.rng.chance(0.12)) self.say(ctx.rng.pick(BRAWL.lines.hit), ctx.law.now, 1.5);
   },
   exit(b) {
     b.mover.speed = b.walkSpeed;
@@ -1953,7 +2009,7 @@ const CHAT: State<CitizenBrain> = {
     b.chatUntil = 0;
     b.chatPair = null;
     b.chatLine = 0;
-    const kin = !!b.partner && b.partner.family >= 0 && b.partner.family === b.self.family;
+    const kin = !!b.partner && ((b.partner.family >= 0 && b.partner.family === b.self.family) || !!b.ctx.relations?.loved(b.self, b.partner));
     b.meetUntil = b.ctx.law.now + (kin ? FAMILIES.meetTimeout : C.meetTimeout);
     if (!b.chatLead) b.mover.stop();
     else if (b.partner) b.goToPoint(b.partner);
@@ -1978,6 +2034,7 @@ const CHAT: State<CitizenBrain> = {
         b.mover.stop();
         b.chatUntil = pb.chatUntil = now + ctx.rng.range(C.time[0], C.time[1]);
         b.nextLine = now + 0.4;
+        ctx.relations?.chatBegan(self, p);
       } else if (b.mover.status !== 'moving' && b.mover.status !== 'pending') b.goToPoint(p);
       return;
     }
@@ -2169,6 +2226,7 @@ const HOME: State<CitizenBrain> = {
     if (now >= b.stayUntil) {
       if (b.nightSleep) {
         // Утро: встал — и сразу решает, куда (очередь, смена, дела).
+        ctx.relations?.think(self, 'rested');
         if (ctx.rng.chance(0.35)) self.say(ctx.rng.pick(ROUTINE.lines.wake), now, 2);
         b.idleLeft = ctx.rng.range(0.5, 3);
         return 'idle';

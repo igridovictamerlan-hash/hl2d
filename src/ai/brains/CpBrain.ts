@@ -1453,6 +1453,7 @@ const HEAL: State<CpBrain> = {
     faceTowards(b.self, p.x, p.y, dt);
     if (b.healCooldown <= 0 && b.ctx.combat.heal(p, COMBAT.healAmount)) {
       b.healCooldown = COMBAT.healCooldown;
+      b.ctx.relations?.event('help', b.self, p);
       b.self.say(phrase(b.ctx.rng, b.self, LINES.cpMedic), b.ctx.law.now, 1.5);
     }
   },

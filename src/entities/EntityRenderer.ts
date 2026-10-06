@@ -5,6 +5,8 @@ import { FACTIONS, colorsOf, rankOf } from '../config/factions';
 import { LOYALTY } from '../config/loyalty';
 import { familyTitle, type FamilySystem } from '../systems/Families';
 import type { GangSystem } from '../systems/Gangs';
+import type { Relations } from '../systems/Relations';
+import { RELATIONS } from '../config/relations';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
@@ -54,6 +56,8 @@ export class EntityRenderer {
   families: FamilySystem | null = null;
   /** Банды: повязка цвета банды и её название в подписи. */
   gangs: GangSystem | null = null;
+  /** Живые люди: характер, настроение и отношение к игроку в подписи под курсором. */
+  relations: Relations | null = null;
 
   /** Внешность пешки: партизан в маскировке — по личине; лоялист — в форме; семья и банда — повязка. */
   lookOf(c: Character): PawnLook {
@@ -62,7 +66,7 @@ export class EntityRenderer {
     const loyalist = isLoyalistUniform(c);
     const fam = !c.disguised ? this.families?.of(c) ?? null : null;
     const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
-    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso') };
+    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso') };
   }
 
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
@@ -178,7 +182,7 @@ export class EntityRenderer {
     ctx.beginPath();
     ctx.ellipse(gx + 2 * s, gy + 4 * s, 15 * s, 8 * s, 0.3, 0, Math.PI * 2);
     ctx.fill();
-    const a = (lookSeed(c.id) % 2 ? Math.PI / 2 : -Math.PI / 2) + Math.sin(now * 2.5 + c.id) * D.wobble;
+    const a = (lookSeed(c.pid) % 2 ? Math.PI / 2 : -Math.PI / 2) + Math.sin(now * 2.5 + c.id) * D.wobble;
     const cs = Math.cos(a);
     const si = Math.sin(a);
     ctx.setTransform(cs, si, -si, cs, gx, gy);
@@ -280,20 +284,21 @@ export class EntityRenderer {
       const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
       const role = !wantRole ? '' : c.downed ? `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : roleLabel(c);
       const rw = role ? textWidth(ctx, role, E.roleFont, dpr) : 0;
-      const detail = c === hovered && c !== player ? labelDetail(c, this.families, gang) : '';
-      const dw = detail ? textWidth(ctx, detail, E.roleFont, dpr) : 0;
-      const lines = 1 + (role ? 1 : 0) + (detail ? 1 : 0);
+      const details = c === hovered && c !== player ? labelDetails(c, this.families, gang, this.relations, player) : noDetails;
+      let dw = 0;
+      for (const d of details) dw = Math.max(dw, textWidth(ctx, d.text, E.roleFont, dpr));
+      const lines = 1 + (role ? 1 : 0) + details.length;
       const w = Math.max(nw, rw, dw);
       const y0 = ny - 10 * dpr;
       let showRole = !!role;
-      let showDetail = !!detail;
+      let showDetail = details.length > 0;
       if (!key && !free(x - w / 2, y0, x + w / 2, y0 + lines * 10 * dpr + 2 * dpr)) {
         // Тесно: только имя, а если и ему негде — ничего.
         if (!free(x - nw / 2, y0, x + nw / 2, ny + 2 * dpr)) continue;
         showRole = false;
         showDetail = false;
       }
-      const n = 1 + (showRole ? 1 : 0) + (showDetail ? 1 : 0);
+      const n = 1 + (showRole ? 1 : 0) + (showDetail ? details.length : 0);
       placed.push({ x0: x - (showRole || showDetail ? w : nw) / 2, y0, x1: x + (showRole || showDetail ? w : nw) / 2, y1: y0 + n * 10 * dpr + 2 * dpr });
       const r = rankOf(c.faction, c.rank);
       ctx.lineWidth = 3 * dpr;
@@ -312,10 +317,12 @@ export class EntityRenderer {
         ctx.fillText(role, x, ly);
       }
       if (showDetail) {
-        ly += 10 * dpr;
-        ctx.strokeText(detail, x, ly);
-        ctx.fillStyle = L.detailColor;
-        ctx.fillText(detail, x, ly);
+        for (const d of details) {
+          ly += 10 * dpr;
+          ctx.strokeText(d.text, x, ly);
+          ctx.fillStyle = d.color ?? L.detailColor;
+          ctx.fillText(d.text, x, ly);
+        }
       }
     }
     for (const b of said) {
@@ -442,13 +449,35 @@ const labelCand: { c: Character; x: number; cy: number; score: number; speaking:
 const labelRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
 const labelBubbles: { c: Character; x: number; y: number; lay: BubbleLayout }[] = [];
 
-/** Подробности под курсором: CID (у жителей), семья или банда. */
-function labelDetail(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>): string {
-  if (c.downed) return '';
+/** Строка подробностей под курсором и её цвет (null — обычный). */
+interface DetailLine {
+  text: string;
+  color: string | null;
+}
+const noDetails: DetailLine[] = [];
+
+/** Подробности под курсором: CID (у жителей), семья или банда; характер и настроение; отношение к игроку. */
+function labelDetails(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>, rel: Relations | null, viewer: Character | null): DetailLine[] {
+  if (c.downed) return noDetails;
   const cid = c.faction === 'citizen' || c.faction === 'cwu' || c.disguised ? `#${c.cid}` : '';
   const fam = !c.disguised ? families?.of(c) ?? null : null;
   const extra = gang ? `«${gang.def.name}»` : fam ? familyTitle(fam.surname) : '';
-  return cid && extra ? `${cid} · ${extra}` : cid || extra;
+  const out: DetailLine[] = [];
+  const head = cid && extra ? `${cid} · ${extra}` : cid || extra;
+  if (head) out.push({ text: head, color: null });
+  if (rel?.enabled && !c.isPlayer) {
+    const i = rel.info(c, viewer);
+    // Характер словами и настроение (причина — самая сильная мысль).
+    const feel = i.because ? `${i.moodName} — ${i.because}` : i.moodName;
+    out.push({ text: i.tags ? `${i.tags} · ${feel}` : feel, color: i.moodColor });
+    // Как относится к вам: знакомый, приятель, недруг… и что помнит.
+    if (viewer && !viewer.disguised && (i.tier !== 'stranger' || i.kin)) {
+      const tier = i.kin ? RELATIONS.tiers.kin : RELATIONS.tiers[i.tier];
+      const color = i.tier === 'friend' || i.tier === 'close' ? '#9ad88c' : i.tier === 'rival' || i.tier === 'enemy' ? '#ff8a78' : null;
+      out.push({ text: `к вам: ${tier} ${i.opinion > 0 ? '+' : ''}${i.opinion}${i.memory ? ` · ${i.memory}` : ''}`, color });
+    }
+  }
+  return out;
 }
 
 const widthCache = new Map<string, number>();

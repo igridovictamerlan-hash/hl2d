@@ -128,7 +128,7 @@ export class ChatSystem {
         }
       }
       if (best) {
-        const reply = ctx.rng.pick(LINES.citizenGreet);
+        const reply = ctx.relations?.enabled ? ctx.relations.greetReply(best, p) : ctx.rng.pick(LINES.citizenGreet);
         best.say(reply, now + 0.6, 3);
         this.log(`${best.name}: ${reply}`, 'chat');
       }

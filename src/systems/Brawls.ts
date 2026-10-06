@@ -99,7 +99,9 @@ export class Brawls {
   /** Ударили кулаком: житель отвечает (или убегает), за бандита — братва. */
   private punched(t: Character, a: Character): void {
     if (!this.fighting(t) && !t.isPlayer && t.brain instanceof CitizenBrain && this.canBrawl(t) && this.canBrawl(a)) {
-      if (t.gang >= 0 || this.ctx.rng.chance(BRAWL.fightBack)) this.start(t, a, true);
+      // Храбрые и вспыльчивые отвечают чаще, робкие — убегают; на недруга — злее.
+      const mul = this.ctx.relations?.fightBackMul(t, a) ?? 1;
+      if (t.gang >= 0 || this.ctx.rng.chance(Math.min(0.95, BRAWL.fightBack * mul))) this.start(t, a, true);
       else {
         t.say(this.ctx.rng.pick(BRAWL.lines.flee), this.now, 2);
         t.brain.fleeFrom(a);
@@ -166,7 +168,10 @@ export class Brawls {
       return `${target.name} делает вид, что не слышит.`;
     }
     const brawler = target.brain instanceof CitizenBrain && this.canBrawl(target) && this.canBrawl(by);
-    const anger = target.gang >= 0 ? BRAWL.insult.banditAnger : target.loyalty >= BRAWL.calmLoyalty ? BRAWL.insult.anger / 3 : BRAWL.insult.anger;
+    const anger0 = target.gang >= 0 ? BRAWL.insult.banditAnger : target.loyalty >= BRAWL.calmLoyalty ? BRAWL.insult.anger / 3 : BRAWL.insult.anger;
+    // Характер, настроение и отношение к обидчику: вспыльчивый и мрачный взрываются быстрее, друг — прощает.
+    const anger = Math.min(0.95, anger0 * (ctx.relations?.angerMul(target, by) ?? 1));
+    ctx.relations?.event('insult', by, target);
     if (brawler && ctx.rng.chance(anger) && this.start(target, by, true)) {
       if (target.gang >= 0) this.backup(target, by, true);
       return `${target.name} бросается на вас!`;
@@ -192,7 +197,7 @@ export class Brawls {
 
   /** Ссора после разговора (CitizenBrain.endChat). */
   quarrel(a: Character, b: Character): void {
-    if (!this.enabled || a.loyalty >= BRAWL.calmLoyalty || b.loyalty >= BRAWL.calmLoyalty || !this.ctx.rng.chance(BRAWL.chatChance)) return;
+    if (!this.enabled || a.loyalty >= BRAWL.calmLoyalty || b.loyalty >= BRAWL.calmLoyalty || !this.ctx.rng.chance(BRAWL.chatChance * (this.ctx.relations?.quarrelMul(a, b) ?? 1))) return;
     this.start(a, b);
   }
 
@@ -240,7 +245,7 @@ export class Brawls {
     const a = ctx.rng.pick(pool);
     for (const o of ctx.entities.near(a.x, a.y, BRAWL.seek, near)) {
       if (o === a || o.isPlayer || o.faction !== 'citizen' || !this.canBrawl(o) || this.fighting(o)) continue;
-      if (!lineOfSight(ctx.map, a.x, a.y, o.x, o.y)) continue;
+      if (!lineOfSight(ctx.map, a.x, a.y, o.x, o.y) || (ctx.relations && !ctx.relations.mayBully(a, o))) continue;
       this.start(a, o);
       return;
     }

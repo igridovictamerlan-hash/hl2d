@@ -290,14 +290,15 @@ export class EconomySystem {
 
   /** Купить в магазине. */
   /** Цена в магазине ТС для персонажа (лоялистам — скидка). */
-  shopPrice(c: Character, id: ItemId): number | undefined {
+  shopPrice(c: Character, id: ItemId, mul = 1): number | undefined {
     const base = ITEMS[id].price;
     if (base === undefined) return undefined;
-    return Math.max(1, Math.round(base * (1 - (hasLoyalty(c) ? loyaltyTier(c).discount : 0))));
+    return Math.max(1, Math.round(base * (1 - (hasLoyalty(c) ? loyaltyTier(c).discount : 0)) * mul));
   }
 
-  buy(c: Character, id: ItemId): string | null {
-    const price = this.shopPrice(c, id);
+  /** mul — цена у этого продавца (своим — скидка, недругам — надбавка: Relations.priceMul). */
+  buy(c: Character, id: ItemId, mul = 1): string | null {
+    const price = this.shopPrice(c, id, mul);
     if (price === undefined) return 'Этого в магазине нет.';
     if (c.money < price) return `Не хватает токенов: нужно ${price}.`;
     if (c.inventory.add(id, 1) === 0) return 'Инвентарь полон.';

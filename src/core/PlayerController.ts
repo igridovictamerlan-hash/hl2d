@@ -7,6 +7,7 @@ import type { AiContext } from '../ai/AiContext';
 import type { CheckChoice } from '../ui/CheckPanel';
 import type { AlertCode } from '../systems/WarSystem';
 import { WAR } from '../config/war';
+import { RELATIONS } from '../config/relations';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
 import { FACTIONS, cpHas, cpUnit } from '../config/factions';
@@ -710,6 +711,8 @@ export class PlayerController {
         return this.say('Ремонт… не отходите 5 секунд.', 'world');
       }
     }
+    // Человек перед вами: поговорить (раньше очереди за рационом — у окна раздачи всегда кто-то стоит).
+    if (this.talkToFront(p, ctx)) return;
     // Очередь за рационом.
     if (eco.open && d(eco.window) < 200 && p.faction !== 'cp') {
       if (eco.hasBeenServed(p)) return this.say('Вы уже получили рацион в эту раздачу.');
@@ -724,7 +727,20 @@ export class PlayerController {
       }
       return this.say(ctx.arsenal?.present ? 'Аптечка пополнена. Патроны и гранаты — на складе Протектората, у окна выдачи.' : 'Аптечка пополнена.', 'world');
     }
-    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Протектората и тел.');
+    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Протектората, тел и людей (поговорить).');
+  }
+
+  /**
+   * E перед живым человеком: поговорить (знакомство, новости), ещё раз — угостить голодного, если просит
+   * (Relations.interact). true — обработано.
+   */
+  private talkToFront(p: Character, ctx: AiContext): boolean {
+    if (!ctx.relations?.enabled) return false;
+    const o = this.facingTarget(p, ctx, RELATIONS.player.reach, (x) => x.alive && !x.downed && !x.isPlayer && !(p.disguised && x.faction === 'cp'));
+    if (!o) return false;
+    const msg = ctx.relations.interact(p, o);
+    if (msg) this.say(msg, 'world');
+    return true;
   }
 
   /**
@@ -956,6 +972,7 @@ export class PlayerController {
       if (!target) return this.say('Некого лечить рядом.');
       if (!p.inventory.remove('bandage', 1) && !p.inventory.remove('medkit', 1)) return this.say('Нет бинтов и аптечек — пополните у тайника или на рынке.');
       ctx.combat.heal(target, COMBAT.healAmount);
+      ctx.relations?.event('help', p, target);
       this.healCooldown = COMBAT.healCooldown;
       return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
     }
@@ -999,6 +1016,7 @@ export class PlayerController {
       }
       const target = best ?? (p.health < p.maxHealth ? p : null);
       if (!target || !ctx.combat.heal(target, COMBAT.healAmount)) return this.say('Некого лечить рядом.');
+      ctx.relations?.event('help', p, target);
       this.healCooldown = COMBAT.healCooldown;
       return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
     }

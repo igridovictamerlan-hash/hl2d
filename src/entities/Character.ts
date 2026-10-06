@@ -75,6 +75,11 @@ export interface CharacterInit {
  */
 export class Character {
   readonly id: number;
+  /**
+   * Номер человека (systems/Relations.ts): устойчивый — возрождённый житель получает прежний (RoleSpec.pid),
+   * по нему помнят знакомства, мнение и характер. У нового персонажа — его id.
+   */
+  pid: number;
   faction: FactionId;
   /** Ранг во фракции (у ВС и повстанцев от него зависит цвет). */
   rank = 0;
@@ -275,6 +280,7 @@ export class Character {
 
   constructor(init: CharacterInit) {
     this.id = init.id;
+    this.pid = init.id;
     this.faction = init.faction;
     this.name = init.name;
     this.cid = init.cid;

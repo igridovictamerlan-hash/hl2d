@@ -8,6 +8,7 @@ import { LOYALTY } from '../config/loyalty';
 import { ECONOMY } from '../config/economy';
 import { PROFESSIONS } from '../config/professions';
 import { RADIO } from '../config/radio';
+import { RELATIONS } from '../config/relations';
 import { FACTIONS } from '../config/factions';
 import { Rng } from '../core/rng';
 import { whereOf } from '../world/places';
@@ -45,7 +46,12 @@ interface Convo {
   i: number;
   next: number;
   setting: TalkSetting;
+  /** Тема беседы (для отношений: знакомство, ссора, извинение…). */
+  topic: string;
 }
+
+/** Где к беседе подмешиваются темы отношений (знакомство, друзья, слухи о людях, настроение). */
+const RELATION_SETTINGS: ReadonlySet<TalkSetting> = new Set<TalkSetting>(['street', 'bench', 'barrel', 'canteen', 'smoke', 'walk', 'family']);
 
 /** Сменщик имени: «Мария Зайцева» → «Мария», «ВС-1234» → «ВС-1234». */
 export function firstName(c: Character): string {
@@ -78,6 +84,8 @@ export class Talk {
   private readonly known = new WeakMap<Character, News[]>();
   private readonly topicMem = new WeakMap<Character, { id: string; with: number; at: number }[]>();
   private readonly convos: Convo[] = [];
+  /** Тема последней собранной беседы (dialogue → converse). */
+  private lastTopic = 'small';
 
   constructor(private readonly ctx: AiContext) {
     this.rng = ctx.rng.fork(0x7a1c);
@@ -279,6 +287,14 @@ export class Talk {
       const w = w0 * (this.recentTopic(a, b, id) ? W.repeatMul : 1);
       cands.push({ id, w, build: () => this.buildTopic(id, a, b, attA, attB) });
     }
+    // Отношения: знакомство, друзья, благодарность, поддержка, извинение, слухи о людях, настроение.
+    const rel = this.ctx.relations;
+    if (rel?.enabled && rel.topics && RELATION_SETTINGS.has(setting)) {
+      for (const id of rel.topicIds(a, b)) {
+        const w = rel.topicWeight(id) * (this.recentTopic(a, b, id) ? W.repeatMul : 1);
+        cands.push({ id, w, build: () => this.buildRelation(id, a, b) });
+      }
+    }
     let total = 0;
     for (const c of cands) total += c.w;
     for (let tries = 0; tries < 4 && cands.length; tries++) {
@@ -289,6 +305,8 @@ export class Talk {
         if (r <= 0) break;
       }
       const c = cands[k];
+      // Тема запоминается до сборки: сборка может её поправить (извинение отвергли).
+      this.lastTopic = c.id.startsWith('news:') ? 'news' : c.id;
       const lines = c.build();
       if (lines && lines.length >= 2) {
         this.markTopic(a, b, c.id);
@@ -297,7 +315,50 @@ export class Talk {
       total -= c.w;
       cands.splice(k, 1);
     }
+    this.lastTopic = 'small';
     return this.buildPair(a, b, setting === 'family' ? FAMILIES.dialogues : setting === 'post' ? SECURITY.lines.postTalk : STREET.dialogues, 'small');
+  }
+
+  /** Беседа по отношениям (config/relations.ts topics): знакомство, друзья, благодарность, поддержка, извинение, слух о человеке, настроение. */
+  private buildRelation(id: string, a: Character, b: Character): TalkLine[] | null {
+    const rel = this.ctx.relations;
+    const out: TalkLine[] = [];
+    const vars = this.vars(a, b);
+    const say = (who: 0 | 1, list: readonly string[] | undefined): boolean => {
+      if (!list?.length) return false;
+      const text = this.line(who === 0 ? a : b, list, vars, who === 0 ? b : a);
+      if (!text) return false;
+      out.push({ who, text });
+      return true;
+    };
+    const maybe = (who: 0 | 1, list: readonly string[] | undefined): void => {
+      if (this.rng.chance(TALK.backChance)) say(who, list);
+    };
+    if (id === 'gossip') {
+      const g = rel.gossipFor(a, b);
+      if (!g) return null;
+      const def = RELATIONS.topics[g.good ? 'gossipGood' : 'gossipBad'];
+      vars.who = displayName(g.c);
+      const agreed = rel.gossip(a, b, g.c, g.good);
+      if (!say(0, def.open) || !say(1, agreed ? def.agree : def.differ)) return null;
+      maybe(0, def.back);
+      return out;
+    }
+    const def = RELATIONS.topics[id];
+    if (!def) return null;
+    if (id === 'thanks') vars.why = rel.why(a, b, false);
+    if (id === 'apology') vars.why = rel.why(a, b, true, true);
+    if (id === 'apology') {
+      const ok = rel.apologyAccepted(a, b);
+      if (!say(0, def.open) || !say(1, ok ? def.accept : def.refuse)) return null;
+      if (ok) maybe(0, def.back);
+      // Принято — chatDone увидит тему и помирит; отказ — тема остаётся «apology-отказ», без последствий.
+      if (!ok) this.lastTopic = 'apology-refused';
+      return out;
+    }
+    if (!say(0, def.open) || !say(1, def.reply)) return null;
+    maybe(0, def.back);
+    return out;
   }
 
   /** Вес темы по обстановке (0 — не к месту). */
@@ -583,6 +644,14 @@ export class Talk {
       if (inc) return this.line(c, C.cpRecent, { ...this.vars(c, null), where: inc.where, what: inc.what || 'вызова' });
       opts.push(C.cp);
     } else {
+      // Настроение и одиночество: слова в тон тому, что на душе (config/relations.ts).
+      const rel = ctx.relations;
+      if (rel?.enabled) {
+        const m = rel.mood(c);
+        if (m <= RELATIONS.talk.moodLow) opts.push(RELATIONS.lines.moodLow);
+        else if (m >= RELATIONS.talk.moodHigh) opts.push(RELATIONS.lines.moodHigh);
+        if (rel.lonely(c)) opts.push(RELATIONS.lines.lonely);
+      }
       if (c.hunger < ECONOMY.hunger.max * 0.35) opts.push(C.hungry);
       const ph = ctx.routine?.enabled ? ctx.routine.phaseOf(c) : null;
       if (ph === 'night') opts.push(C.night);
@@ -619,7 +688,7 @@ export class Talk {
     if (!this.enabled || a === b || !a.alive || !b.alive || this.busy(a) || this.busy(b)) return false;
     const lines = this.dialogue(a, b, setting);
     if (lines.length < 2) return false;
-    this.convos.push({ a, b, lines, i: 0, next: this.now + TALK.pace.first, setting });
+    this.convos.push({ a, b, lines, i: 0, next: this.now + TALK.pace.first, setting, topic: this.lastTopic });
     this.stats.convos++;
     return true;
   }
@@ -645,6 +714,7 @@ export class Talk {
       if (v.a === c || v.b === c) {
         this.convos.splice(i, 1);
         this.stats.stopped++;
+        this.ctx.relations?.chatDone(v.a, v.b, v.topic, v.i / Math.max(1, v.lines.length));
       }
     }
   }
@@ -658,12 +728,14 @@ export class Talk {
       if (!v.a.alive || !v.b.alive || v.a.downed || v.b.downed || Math.hypot(v.a.x - v.b.x, v.a.y - v.b.y) > (P.far[v.setting] ?? P.maxDist)) {
         this.convos.splice(i, 1);
         this.stats.cut++;
+        this.ctx.relations?.chatDone(v.a, v.b, v.topic, v.i / Math.max(1, v.lines.length));
         continue;
       }
       if (now < v.next) continue;
       if (v.i >= v.lines.length) {
         this.convos.splice(i, 1);
         this.stats.done++;
+        this.ctx.relations?.chatDone(v.a, v.b, v.topic, 1);
         continue;
       }
       const l = v.lines[v.i++];

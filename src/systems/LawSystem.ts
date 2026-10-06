@@ -358,6 +358,7 @@ export class LawSystem {
       handler.say(fill(phrase(this.rng, handler, LINES.cpFine, target), { n: verdict.fine }), this.time);
       adjustLoyalty(target, verdict.reason === 'insult' ? LOYALTY.points.insult : LOYALTY.points.fine, 'штраф', this.bus);
       this.log(`${label(handler)} оштрафовал ${who(target)} на ${verdict.fine} токенов (${VIOLATION_NAMES[verdict.reason]})`, 'law');
+      this.onVerdict?.(handler, target, 'fine');
     } else {
       handler.say(phrase(this.rng, handler, LINES.cpOk, target), this.time);
       adjustLoyalty(target, LOYALTY.points.checkOk, 'проверка пройдена', this.bus);
@@ -402,6 +403,8 @@ export class LawSystem {
   onFlee: ((handler: Character, target: Character) => void) | null = null;
   onLost: ((handler: Character, target: Character) => void) | null = null;
   onArrest: ((handler: Character, target: Character, fled: boolean) => void) | null = null;
+  /** Решение по проверке (арест, штраф, отпустили) — Relations: обида на ВС у задержанного и его близких. */
+  onVerdict: ((handler: Character, target: Character, kind: 'arrest' | 'fine' | 'ok') => void) | null = null;
 
   arrest(handler: Character, target: Character, reason: Violation): void {
     const law = target.law;
@@ -433,6 +436,7 @@ export class LawSystem {
     this.log(`${label(handler)} задержал ${who(target)} (${VIOLATION_NAMES[reason]})`, 'law');
     if (wasPlayerCheck) this.bus.emit('law:checkClosed', { target });
     this.onArrest?.(handler, target, fled);
+    this.onVerdict?.(handler, target, 'arrest');
   }
 
   /** Свободное место (не занято и не зарезервировано) в камере или -1. */

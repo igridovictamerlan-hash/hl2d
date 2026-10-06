@@ -677,12 +677,14 @@ export class CombatSystem {
    */
   /** Ударили кулаком (задаёт Brawls: ответить, позвать братву). */
   onPunch: (target: Character, attacker: Character) => void = () => {};
+  /** Подняли тяжелораненого (не арест): кто и кого — Relations запоминает добро. */
+  onRevive: (helper: Character, target: Character) => void = () => {};
 
   /**
    * Удар кулаком — пустыми руками, оружие в руках не нужно (FISTS): кулаком не убить — здоровье не ниже
    * floor, дошёл до него — нокаут (оглушён knockout с). Возвращает, в кого попал.
    */
-  punch(c: Character, tx: number, ty: number): Character | null {
+  punch(c: Character, tx: number, ty: number, only: Character | null = null): Character | null {
     if (!c.alive || c.downed || this.time < c.nextShot || this.busy(c)) return null;
     c.nextShot = this.time + 1 / FISTS.rate;
     const ang = Math.atan2(ty - c.y, tx - c.x);
@@ -691,7 +693,8 @@ export class CombatSystem {
     let best: Character | null = null;
     let bestD = Infinity;
     for (const o of this.entities.near(c.x, c.y, c.radius + FISTS.range + 16, near)) {
-      if (o === c || !o.alive || o.downed) continue;
+      // Драчун бьёт своего противника, а не первого встречного (иначе зеваки и заступники втягиваются в драку цепочкой).
+      if (o === c || !o.alive || o.downed || (only && o !== only)) continue;
       const gap = Math.hypot(o.x - c.x, o.y - c.y) - o.radius - c.radius;
       if (gap > FISTS.range) continue;
       if (gap > 4 && Math.abs(angleDiff(Math.atan2(o.y - c.y, o.x - c.x), ang)) > half) continue;
@@ -892,6 +895,7 @@ export class CombatSystem {
     if (!h.inventory.remove(id, 1)) return;
     this.raise(t, t.maxHealth * (id === 'medkit' ? DOWNED.kitHp : DOWNED.reviveHp) * (medic ? DOWNED.medicHp : 1));
     this.revives++;
+    this.onRevive(h, t);
     if (t.isPlayer) this.bus.emit('log', { text: `${h.name} поднял вас на ноги.`, kind: 'system' });
     else if (h.isPlayer) this.bus.emit('log', { text: `Вы подняли ${t.name}.`, kind: 'system' });
   }

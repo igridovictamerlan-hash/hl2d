@@ -62,6 +62,7 @@ import { Staffing } from '../systems/Staffing';
 import { Access } from '../systems/Access';
 import { Radio, type Transmission } from '../systems/Radio';
 import { Talk } from '../systems/Talk';
+import { Relations, type PersonInfo } from '../systems/Relations';
 import { serviceHint } from '../systems/Staffing';
 import { StreetShops } from '../systems/StreetShops';
 import { Housing } from '../systems/Housing';
@@ -227,7 +228,7 @@ export class Game {
         this.input.releaseAll();
         this.ui.chat.open('');
       },
-      busy: () => this.ui.menu.isOpen || this.ui.roles.isOpen || this.ui.inventory.isOpen || this.ui.mapView.bigOpen || this.ui.shop.isOpen || this.ui.chat.isOpen,
+      busy: () => this.ui.menu.isOpen || this.ui.roles.isOpen || this.ui.inventory.isOpen || this.ui.contacts.isOpen || this.ui.mapView.bigOpen || this.ui.shop.isOpen || this.ui.chat.isOpen,
       playing: () => !this.ui.menu.isOpen && !this.ui.roles.isOpen,
     });
     this.loop = new GameLoop(
@@ -362,6 +363,7 @@ export class Game {
       access: null as unknown as Access,
       radio: null as unknown as Radio,
       talk: null as unknown as Talk,
+      relations: null as unknown as Relations,
     };
     this.ai.routine = new Routine(this.ai);
     this.ai.errands = new Errands(this.ai);
@@ -390,7 +392,9 @@ export class Game {
     this.ai.academy = new AcademySystem(this.ai);
     this.ai.access = new Access(this.ai);
     this.ai.talk = new Talk(this.ai);
+    this.ai.relations = new Relations(this.ai);
     this.ai.radio = new Radio(this.ai);
+    this.entityRenderer.relations = this.ai.relations;
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
@@ -415,6 +419,7 @@ export class Game {
     this.player = createCharacter(this.entities, this.rng, 'citizen', start.x, start.y, true);
     this.civilName = this.player.name;
     this.ai.player = this.player;
+    this.ai.relations.register(this.player);
     spawnPopulation(this.ai, this.opts.npcs);
     const save = this.pendingSave && this.pendingSave.seed === map.seed && source === 'generated' ? this.pendingSave : null;
     this.pendingSave = null;
@@ -519,6 +524,7 @@ export class Game {
       const gang = p.profession === 'bandit' ? this.ai.gangs?.join(p) ?? null : null;
       if (gang && announce) this.bus.emit('log', { text: `Вы в банде «${gang.def.name}»: район — ${gang.quarter || 'у общаги'}, общак в общаге (E). Чужих на районе не терпят.`, kind: 'system' });
       const d = gang ? H.of(p) : faction === 'citizen' || faction === 'cwu' || faction === 'vort' || underground ? H.house(p, workplaceOf(this.ai, p)) : null;
+      if (d && announce && !underground) this.ai.relations.seedPlayer(p);
       if (d && announce) this.bus.emit('log', { text: underground ? 'Ваша явка в городе отмечена на карте (M): E в комнате — спрятать добычу или взять из тайника.' : 'Ваш дом отмечен на карте (M) кружком.', kind: 'system' });
     }
     if (announce) {
@@ -527,6 +533,7 @@ export class Game {
       const pr = p.profession && p.profession !== DEFAULT_PROFESSION[faction] ? ` · ${PROFESSIONS[p.profession].name}` : '';
       this.bus.emit('log', { text: `Вы теперь: ${FACTIONS[faction].role}${r ? ` (${r.name})` : ''}${div}${pr} — ${p.name}`, kind: 'system' });
       if (p.profession) for (const t of PROFESSIONS[p.profession].perks) this.bus.emit('log', { text: `• ${t}`, kind: 'system' });
+      this.bus.emit('log', { text: 'Жители запоминают, что вы делаете: E перед человеком — поговорить, K — знакомые. Добро помнят — обиды тоже.', kind: 'system' });
     }
   }
 
@@ -555,6 +562,7 @@ export class Game {
     if (ui.shop.isOpen) return ui.shop.close();
     if (ui.code.isOpen) return ui.code.close();
     if (ui.inventory.isOpen) return ui.inventory.toggle();
+    if (ui.contacts.isOpen) return ui.contacts.toggle();
     this.input.releaseAll();
     ui.menu.open('pause');
   }
@@ -673,7 +681,7 @@ export class Game {
   /** Сохранить сейчас (если роль выбрана и игрок жив; в «отряд на отряд» — нет). */
   save(): boolean {
     if (!this.role || !this.player?.alive || this.arena) return false;
-    const data = capturePlayer(this.player, this.map.seed, this.role, this.civilName, { explored: this.ui.mapView.explored, hatches: this.ui.mapView.hatches });
+    const data = capturePlayer(this.player, this.map.seed, this.role, this.civilName, { explored: this.ui.mapView.explored, hatches: this.ui.mapView.hatches }, Date.now(), this.ai.relations.serialize());
     try {
       localStorage.setItem(SAVE.key, JSON.stringify(data));
       return true;
@@ -699,6 +707,8 @@ export class Game {
     this.civilName = save.civilName || this.civilName;
     this.applyRole(save.role.faction, save.role.rank, save.role.division, false, save.role.profession ?? null);
     applyToPlayer(this.player, save);
+    // Знакомства и память отношений — тем же людям (карта та же, имена сверяются).
+    this.ai.relations.restore(save.social);
     const p = this.player;
     // Позиция — если там можно стоять (карта та же).
     if (save.pos) {
@@ -795,8 +805,17 @@ export class Game {
     this.canvas.focus();
   }
 
+  /** Знакомые игрока (панель K): кто его знает и как относится. */
+  contacts(): PersonInfo[] {
+    return this.ai?.relations?.enabled ? this.ai.relations.contacts(this.player) : [];
+  }
+
   shopPrice(id: ItemId): number | undefined {
-    return this.economy.shopPrice(this.player, id);
+    // Лавка проспекта: цена зависит от того, как продавец относится к покупателю.
+    const street = this.ui.shop.kind === 'street' ? this.ui.shop.street : null;
+    const v = street && street.sub !== 'cwu' && street.vendor?.alive ? street.vendor : null;
+    const mul = v && this.ai.relations?.enabled ? this.ai.relations.priceMul(v, this.player) : 1;
+    return this.economy.shopPrice(this.player, id, mul);
   }
 
   buyBlack(k: number): string | null {
@@ -829,6 +848,8 @@ export class Game {
     // Силовой блок не возрождается: погибший ВС (и курсант) — в городе появляется новый житель.
     if (this.role?.faction === 'cp') {
       this.civilName = randomName(this.rng);
+      // Новый человек с новым именем: прежние знакомые его не узнают, он их — тоже.
+      this.ai.relations.forget(p.pid);
       this.role = { faction: 'citizen', rank: 0, division: null, profession: DEFAULT_PROFESSION.citizen ?? null };
       this.applyRole('citizen', 0, null, true, this.role.profession ?? null);
       this.bus.emit('announce', { text: 'Ваш юнит погиб. ВС не возрождаются — вы новый житель города' });
@@ -964,6 +985,7 @@ export class Game {
     this.insurgency.paused = true;
     this.ai.radio.enabled = false;
     this.ai.talk.enabled = false;
+    this.ai.relations.enabled = false;
     this.ui.roles.close();
     this.arena = new SquadArena(this.ai, side, this.player);
     this.arena.startRound();
@@ -1041,6 +1063,7 @@ export class Game {
     this.ai.academy.update(dt);
     this.ai.radio.update(dt);
     this.ai.talk.update();
+    this.ai.relations.update(dt);
     // Красный код (штурм Управы) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
@@ -1066,6 +1089,7 @@ export class Game {
     if (this.input.wasPressed('devPanel')) this.ui.dev.toggle();
     if (this.input.wasPressed('help')) this.ui.help.toggle();
     if (this.input.wasPressed('bigMap')) this.ui.mapView.toggleBig();
+    if (this.input.wasPressed('contacts') && !this.ui.chat.isOpen && !this.ui.roles.isOpen) this.ui.contacts.toggle();
     if (this.input.wasPressed('zoom')) {
       const k = this.camera.cycleZoom();
       this.bus.emit('log', { text: `Масштаб камеры: ×${k}`, kind: 'world' });

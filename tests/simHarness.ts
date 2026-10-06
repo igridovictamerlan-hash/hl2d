@@ -41,6 +41,7 @@ import { Staffing } from '../src/systems/Staffing';
 import { Access } from '../src/systems/Access';
 import { Radio } from '../src/systems/Radio';
 import { Talk } from '../src/systems/Talk';
+import { Relations } from '../src/systems/Relations';
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
 export function makeSim(seedOrMap: number | GameMap) {
@@ -98,6 +99,7 @@ export function makeSim(seedOrMap: number | GameMap) {
       access: null as unknown as Access,
       radio: null as unknown as Radio,
       talk: null as unknown as Talk,
+      relations: null as unknown as Relations,
   };
   // Распорядок дня в тестах выключен (иначе ночью город спит) — у него свой тест.
   ctx.routine = new Routine(ctx, false);
@@ -138,6 +140,7 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.academy.recruiting = false;
   ctx.access = new Access(ctx);
   ctx.talk = new Talk(ctx);
+  ctx.relations = new Relations(ctx);
   ctx.radio = new Radio(ctx);
   // Случайные драки в тестах выключены (свой тест) — удары и братва работают.
   ctx.brawls.enabled = false;
@@ -173,6 +176,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     ctx.academy.update(dt);
     ctx.radio.update(dt);
     ctx.talk.update();
+    ctx.relations.update(dt);
   };
   return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access };
 }

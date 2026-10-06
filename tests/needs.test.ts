@@ -65,6 +65,8 @@ describe('голод и еда', () => {
     const c = sim.entities.list.find((o) => o.faction === 'citizen' && o.alive && o.gang < 0 && o.profession === 'citizen' && o.law.phase === 'none' && o.brain instanceof CitizenBrain)!;
     c.inventory.clear();
     c.hunger = 5;
+    // Плановая проверка CID (приказ «стоять») не должна совпасть с этими двумя секундами: тест про голод, не про закон.
+    c.law.lastCheck = sim.law.now;
     run(sim, 2);
     expect(['canteen', 'queue', 'shop']).toContain((c.brain as CitizenBrain).fsm.current);
     run(sim, 90, () => c.hunger > 30);

@@ -46,8 +46,13 @@ export class CrimeSystem {
     this.stats.stolen += amount;
     this.flag(thief);
     if (thief.isPlayer) this.ctx.bus.emit('log', { text: `Вы вытащили у прохожего ${amount} токенов. Не попадитесь ВС на глаза ${CRIME.seenFor} с.`, kind: 'world' });
-    if (victim.isPlayer) this.ctx.bus.emit('log', { text: `У вас вытащили ${amount} токенов!`, kind: 'law' });
-    else if (rng.chance(P.noticeChance)) this.cry(victim, thief);
+    if (victim.isPlayer) {
+      this.ctx.bus.emit('log', { text: `У вас вытащили ${amount} токенов!`, kind: 'law' });
+      this.ctx.relations?.event('rob', thief, victim);
+    } else if (rng.chance(P.noticeChance)) {
+      this.cry(victim, thief);
+      this.ctx.relations?.event('rob', thief, victim);
+    }
     return amount;
   }
 
@@ -72,6 +77,7 @@ export class CrimeSystem {
     this.stats.robberies++;
     this.stats.stolen += amount;
     this.flag(bandit);
+    this.ctx.relations?.event('rob', bandit, victim);
     if (bandit.isPlayer) this.ctx.bus.emit('log', { text: `Прохожий отдал ${amount} токенов. Уходите, пока не прибежали ВС.`, kind: 'world' });
     if (victim.isPlayer) this.ctx.bus.emit('log', { text: `Вас ограбили на ${amount} токенов!`, kind: 'law' });
     else {

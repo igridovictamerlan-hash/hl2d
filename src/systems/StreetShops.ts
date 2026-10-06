@@ -276,8 +276,17 @@ export class StreetShops {
     if (why === 'closed') return `${s.name}: закрыто — продавца нет на месте.`;
     if (why === 'empty' || s.goods <= 0) return `${s.name}: товар кончился — ждут коробку из штаба ТС.`;
     if (!s.stock.includes(id)) return 'Этого здесь не продают.';
-    const err = this.ctx.economy.buy(c, id);
+    // Продавец помнит покупателя: своим — скидка, недругам — надбавка, врагу не продаст.
+    const rel = this.ctx.relations;
+    const v0 = s.vendor && s.vendor.alive && s.sub !== 'cwu' ? s.vendor : null;
+    if (rel?.enabled && v0 && !rel.willServe(v0, c)) {
+      rel.refuseService(v0, c);
+      return `${s.name}: продавец не хочет вас обслуживать.`;
+    }
+    const mul = rel?.enabled && v0 ? rel.priceMul(v0, c) : 1;
+    const err = this.ctx.economy.buy(c, id, mul);
     if (err) return err;
+    if (rel?.enabled && v0) rel.traded(v0, c, mul);
     s.goods--;
     this.stats.purchases++;
     // Продавцу — за продажу (как у прилавка магазина ТС; там economy.buy уже заплатил тому, кто рядом).

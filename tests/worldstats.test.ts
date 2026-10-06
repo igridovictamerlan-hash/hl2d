@@ -32,6 +32,8 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   sim.ctx.routine.enabled = true;
   sim.ctx.brawls.enabled = true;
   sim.academy.recruiting = true;
+  // RELATIONS=0 — без живых людей (для сравнения: драки, смерти, занятия).
+  sim.ctx.relations.enabled = process.env.RELATIONS !== '0';
   spawnPopulation(sim.ctx, AI.citizens);
   const out: string[] = [];
   const start = new Map<string, number>();
@@ -144,6 +146,17 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Рация: ${JSON.stringify(sim.ctx.radio.stats)}`);
   const T = sim.ctx.talk.stats;
   out.push(`Разговоры: бесед ${T.convos} (договорили ${T.done}, разошлись ${T.cut}, прервали ${T.stopped}), реплик ${T.lines}, слухов ${T.news}, пересказано ${T.told}; темы: ${top(new Map(Object.entries(T.topics)), 25)}`);
+  // Живые люди: связи по уровням знакомства, настроение города, события отношений.
+  const R = sim.ctx.relations;
+  const tiers = new Map<string, number>();
+  const moods = new Map<string, number>();
+  for (const c of sim.entities.list) {
+    if (!c.alive || c.isPlayer) continue;
+    for (const [, bd] of (R['bonds'].get(c.pid) ?? new Map())) inc(tiers, R.tierOf(bd));
+    const m = R.mood(c);
+    inc(moods, m <= -28 ? 'подавлены' : m <= -9 ? 'хмурые' : m <= 34 ? 'спокойные' : 'в духе');
+  }
+  out.push(`Живые люди: связи ${top(tiers)}; настроение ${top(moods)}; события ${JSON.stringify(R.stats)}`);
   const vac: Record<string, number> = {};
   for (const s of sim.staffing.vacancies()) vac[cpUnit(s.spec.rank).short] = (vac[cpUnit(s.spec.rank).short] ?? 0) + 1;
   out.push(`Вакансии ВС по юнитам: ${JSON.stringify(vac)}`);
