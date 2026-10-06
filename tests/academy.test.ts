@@ -356,6 +356,7 @@ describe('пропуска и вахтёры', () => {
     run(sim, 30 * 4 + 2);
     // Погибший в живом мире житель ждёт возрождения — приток считает и его.
     expect(count() + sim.roster.pending('citizen')).toBe(n0);
-    expect(sim.roster.arrived).toBe(3);
+    // Кто-то из жителей мог устроиться в ТС — приток восполняет и его, так что приехало не меньше трёх.
+    expect(sim.roster.arrived).toBeGreaterThanOrEqual(3);
   });
 });
