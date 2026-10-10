@@ -365,6 +365,154 @@ export function checkpointSection(x: number, y: number): CheckpointSection {
   return 'inner';
 }
 
+/**
+ * Остальные типы КПП (generator/checkpoints.ts). Каждый шаблон — прямоугольник в той же ориентации
+ * (пустошь на западе, город на востоке) и по тому же контракту, что и CHECKPOINT_TEMPLATE: полоса пустоши
+ * `o` с лагерем-завалами слева; внешние ворота `g` (2×4 тайла на оси) → внешняя точка (2 поста `P`) → шорт и
+ * лонг → внутренняя точка (3 поста `P` или `` ` ``) → внутренние ворота `g` → проходная с зигзагом и дверью `d` на
+ * проспект и двумя постами RCT `R`. Проходная у всех типов одна — столбцы CHECKPOINT_STRIP_X…65 классического
+ * шаблона (composeCheckpoint приставляет её к левой части, выровняв ось с ряда axisRow); так «нет ни прямой
+ * видимости, ни прострела из внутреннего двора в город» выполняется для любой левой части.
+ * Какая клетка к какой части КПП относится — карты частей в checkpoints.ts (по прямоугольникам).
+ * Символы, которых нет в легенде выше (только в этих шаблонах):
+ *   .  — открытая земля (WASTE; не `o`: по `o` считается середина пустоши — выход повстанцев);
+ *   _  — траншея (TRENCH, проходима), ` — траншея с постом (checkpoint_post);
+ *   "  — пропасть (CHASM: не пройти, но видно и простреливается);
+ *   Ж  — скала (ROCK);  # — руины и стены бункеров (в зонах КПП вне бункеров рисуются как руины);
+ *   k  — бетон/щебень (пол руин, мост, тоннель, уступы), , — пол бункера (медик ВС уходит туда на лечение).
+ * Проходы везде не уже 2 тайлов (якорь 2×2), проломы в руинах — по 2 тайла, бруствер и валуны (B) не оставляют
+ * карманов уже двух тайлов — тест связности требует ноль недостижимых тайлов.
+ */
+
+/**
+ * «Ничейная полоса» (траншеи): 72×27, ось — ряд 13. Траншея повстанцев (зигзаг в полосе пустоши) и траншея
+ * Протектората (x 34…38) смотрят друг на друга через ~31 тайл ничейной земли с воронками и обломками (B),
+ * заграждением из колючей проволоки (x 11, с проходами и воротами) и двумя передовыми позициями из мешков с
+ * постами P — это внешняя точка. За траншеей Протектората — руины: дорога по оси (шорт) и фланговый лонг
+ * вдоль северной стены через пролом, комната-карман с юга. Внутренняя точка — вторая, короткая траншея с тремя
+ * постами и бункер с дверью перед внутренними воротами.
+ */
+export const TRENCHES_LEFT: readonly string[] = [
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'ooo__ooooo.B........................__...##..##...........',
+  'ooo__ooooo.B........................__...##..##...........',
+  'ooo__Boooo.B................BBB....B__....................',
+  'ooo__Boooo....BB.............B.....B__.............__.....',
+  'ooo__ooooo.....B....................__............B`_.....',
+  'ooo__ooooo.B........BBBB..........____.####kk###..B__.....',
+  'ooo____ooo.B........BP............____.####kk###...__.....',
+  'ooo____ooo.B........B..........BBB__...####kk###...____...',
+  'ooooo__Boo.B........BBBB.......BBB__...####kk###...____...',
+  'ooooo__Boo....B...................__.................__...',
+  'ooooo__ooogg......................__................B__...',
+  'ooooo__ooogg.....BB...........BB..____...BB.........B`_...',
+  'ooooo__ooogg.....BB...............____...............__...',
+  'ooo____ooogg........................__.......BB......__...',
+  'ooo____ooo.........................B__...............__...',
+  'ooo__ooooo.B.......................B__.............____...',
+  'ooo__Boooo.B...................BB...__.###kk####...____...',
+  'ooo__Boooo.B...........BBBB....BB...__.##kkkkkk#..._`.....',
+  'ooo__ooooo.B...BB......BP.........____.##kkkkkk#..........',
+  'ooo__ooooo....B........B..........____.##kkBBkk#..##dd##..',
+  'ooo____ooo.............BBBB.......__...##kkBBkk#..#,,,,#..',
+  'ooo____Boo.B................BBB..B__...##kkkkkk#..#,,,,#..',
+  'ooooo__Boo.B.....................B__...##kkkkkk#..#,,,,#..',
+  'ooooo__ooo.B......................__...##kkkkkk#..#,,,,#..',
+  'ooooo__ooo.B......................__...#########..######..',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+];   
+
+/**
+ * «Разбитый пригород»: 66×27, ось — ряд 13. Улица (дорога под огнём) идёт через руины: на западе заслон из
+ * мешков и шикана у ворот, на востоке — заграждение перед внутренними воротами. Северный квартал руин
+ * (дома-скорлупы с проломами в 2 тайла, поперечный переулок) и перекрёсток — внешняя точка (2 поста). Шорт —
+ * сама улица. Лонг — подвальный коридор (бетон) вдоль южной кромки: вход со стебля у перекрёстка, выход
+ * у заграждения. Внутренняя точка — южные дома и заграждение (3 поста), уцелевший дом с дверью — бункер.
+ */
+export const SUBURB_LEFT: readonly string[] = [
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+  'ooooooooooooooMM########....########################',
+  'ooooooooooooooMM#kkkkkk#..P.#kkkkkkkkkk##kkkkkkkkkk#',
+  'ooooooooooooooMM#kPkkkk#....#kkkkkkkkkk##kkkkkkkkkk#',
+  'ooBBooooooooooMM#kkkkkkk....kkkkkkkkkkk##kkkkkkkkkk#',
+  'ooooooooooBoooMM#kkBBkkk....kkkkkBBkkkk##kkkBBkkkkk#',
+  'oooooooooooBooMM#kkkkkk#....#kkkkkkkkkk##kkkkkkkkkk#',
+  'ooooooBoooooooMM#kkkkkk#B...#kkkkkkkkkk##kkkkkkkkkk#',
+  'ooooooBoooooooMM#kkkkkk#B...#kkkkkkkkkk##kkkkkkkkkk#',
+  'ooooooooooooooMM####kk##....####kk##########kk######',
+  'ooBooooooooBooMM...B............................B...',
+  'ooBooooooooBoogg................................B...',
+  'oooooooooooooogg.............BB.....B...............',
+  'ooooooooBooooogg......B.............B............P..',
+  'ooooooooBooooogg......B.............................',
+  'ooooooooooooooMM...B............................B...',
+  'ooooBooooooBooMM...B............................B...',
+  'ooooBooooooBooMM####kkkk##########kk###dd#####kk##kk',
+  'ooooooooooooooMM####kkkk########kkkkk#,,,,,#kkkkk#kk',
+  'ooooooooooooooMM####kkkk########kPkkk#,,,,,#kkkkk#kk',
+  'ooBBooooooooooMM####kkkk########kkkkk#,,,,,#kkkkk#kk',
+  'oooooooooBooooMM####kkkk########Bkkkk#,,,,,#BkkPk#kk',
+  'ooooooooooooooMM####kkkk##########################kk',
+  'ooooooooooooooMM####kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk',
+  'ooooooooooooooMM####kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk',
+  'ooooooooooooooMM####kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk',
+  'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+];  
+
+/**
+ * «Горный перевал»: 66×27, ось — ряд 13. Долина между скалами (Ж); северные и южные уступы со ступенями
+ * в 2 тайла — снайперские позиции (P). Поперёк долины — пропасть (CHASM, видно и простреливается насквозь)
+ * с единственным мостом шириной 4 тайла (шорт); у восточного конца моста — мешки с постом и бункер в скале.
+ * Лонг — старый тоннель (бетон) в северной скале: стволы входа и выхода по 2 тайла.
+ */
+export const PASS_LEFT: readonly string[] = [
+  'MMMMMMMMMMMMMMЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ',
+  'ooooooooooooooЖЖЖЖkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkЖЖЖЖ',
+  'ooooooooooooooЖЖЖЖkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkЖЖЖЖ',
+  'ooooooooooooooЖЖЖЖkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkЖЖЖЖ',
+  'ooBBooooooooooЖЖЖЖkkЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖkkЖЖЖЖ',
+  'ooooooooooBoooЖЖЖЖkkЖЖkkkkkPkЖЖЖЖЖЖЖЖkkkkkPkЖЖkkЖЖЖЖ',
+  'oooooooooooBooЖЖЖЖkkЖЖkkkkkkkЖЖЖЖЖЖЖЖkkkkkkkЖЖkkЖЖЖЖ',
+  'ooooooBoooooooЖЖЖЖkkЖЖkkkkkkkЖЖЖЖЖЖЖЖkkkkkkkЖЖkkЖЖЖЖ',
+  'ooooooBoooooooЖЖЖЖkkЖЖkkЖЖЖЖЖЖЖЖЖЖЖЖЖkkЖЖЖЖЖЖЖkkЖЖЖЖ',
+  'ooooooooooooooЖЖ..............""""..B...............',
+  'ooBooooooooBooЖЖ..............""""..BP..............',
+  'ooBooooooooBoogg..........BB..kkkk.............BB...',
+  'oooooooooooooogg......B.......kkkk......BB..........',
+  'ooooooooBooooogg......B.......kkkk..................',
+  'ooooooooBooooogg..............kkkk..................',
+  'ooooooooooooooЖЖ...B..........""""..B...............',
+  'ooooBooooooBooЖЖ...B.....BB...""""..B.......BB......',
+  'ooooBooooooBooЖЖ..............""""..................',
+  'ooooooooooooooЖЖ..............""""..................',
+  'ooooooooooooooЖЖЖЖЖkkЖЖЖЖЖЖЖЖЖЖЖЖЖ###dd###ЖЖЖЖЖЖЖkkЖ',
+  'ooBBooooooooooЖЖЖЖЖkkЖЖЖЖЖЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖЖЖЖЖЖkkЖ',
+  'oooooooooBooooЖЖЖЖЖkkkkkPkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkPkkkkkЖ',
+  'ooooooooooooooЖЖЖЖЖkkkkkkkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkkkkkkkЖ',
+  'ooooooooooooooЖЖЖЖЖkkkkkkkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkkkkkkkЖ',
+  'ooooooooooooooЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖЖЖЖЖЖЖЖЖ',
+  'ooooooooooooooЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ########ЖЖЖЖЖЖЖЖЖЖ',
+  'MMMMMMMMMMMMMMЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ',
+];
+
+/** Первый столбец общей для всех типов части классического шаблона: внутренние ворота и проходная. */
+export const CHECKPOINT_STRIP_X = 52;
+
+/**
+ * Левая часть (пустошь … двор перед внутренними воротами, оканчивается перед столбцом внутренних ворот)
+ * + проходная классики, выровненная по оси: ряд axisRow левой части = CHECKPOINT_AXIS_ROW шаблона.
+ */
+export function composeCheckpoint(left: readonly string[], axisRow: number): string[] {
+  const off = axisRow - CHECKPOINT_AXIS_ROW;
+  const strip = CHECKPOINT_TEMPLATE.map((r) => r.slice(CHECKPOINT_STRIP_X));
+  const blank = 'M'.repeat(strip[0].length);
+  return left.map((r, y) => r + (strip[y - off] ?? blank));
+}
+
+export const TRENCHES_TEMPLATE: readonly string[] = composeCheckpoint(TRENCHES_LEFT, CHECKPOINT_AXIS_ROW);
+export const SUBURB_TEMPLATE: readonly string[] = composeCheckpoint(SUBURB_LEFT, CHECKPOINT_AXIS_ROW);
+export const PASS_TEMPLATE: readonly string[] = composeCheckpoint(PASS_LEFT, CHECKPOINT_AXIS_ROW);
+
 /** Зеркало по горизонтали (КПП на восточном конце проспекта). */
 export function mirrorTemplate(rows: readonly string[]): string[] {
   return rows.map((r) => [...r].reverse().join(''));

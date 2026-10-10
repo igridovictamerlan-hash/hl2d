@@ -26,6 +26,12 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   F: T.INTERIOR,
   k: T.BUNKER,
   o: T.WASTE,
+  // КПП-«позиционки» (CHECKPOINT_TYPES): открытая земля, траншея (` — с постом), пропасть, скала.
+  '.': T.WASTE,
+  _: T.TRENCH,
+  '`': T.TRENCH,
+  '"': T.CHASM,
+  Ж: T.ROCK,
   B: T.BARRIER,
   P: T.BUNKER,
   R: T.BUNKER,
@@ -236,7 +242,7 @@ export function stampTemplate(
       g.set(x0 + x, y0 + y, t, true);
       g.zones[(y0 + y) * g.w + x0 + x] = zoneOf(ch, x, y);
       if (ch === 'F') pois.push({ type: 'nexus_desk', x: x0 + x, y: y0 + y });
-      if (ch === 'P') pois.push({ type: 'checkpoint_post', x: x0 + x, y: y0 + y });
+      if (ch === 'P' || ch === '`') pois.push({ type: 'checkpoint_post', x: x0 + x, y: y0 + y });
       if (ch === 'R') pois.push({ type: 'gate_post', x: x0 + x, y: y0 + y });
       if (ch === 'T') pois.push({ type: 'code_terminal', x: x0 + x, y: y0 + y });
       if (ch === 'b') pois.push({ type: 'bunk', x: x0 + x, y: y0 + y });

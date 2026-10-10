@@ -14,7 +14,8 @@ import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked, carveAccessRoad } from './stamps';
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, ACADEMY_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
+import { NEXUS_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, ACADEMY_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate } from './templates';
+import { CHECKPOINTS, checkpointRows, pickCheckpointTypes, type SectionChar } from './checkpoints';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
@@ -132,7 +133,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const pois: Poi[] = [];
 
   // 1. План.
-  const layout = planLayout(rng.fork(1), W, H);
+  const layout = planLayout(rng.fork(1), W, H, pickCheckpointTypes(seed));
 
   // 2. Решётка и лабиринт.
   const lat = Lattice.build(rng.fork(2), layout.xs, layout.ys);
@@ -412,14 +413,16 @@ function generateAttempt(seed: number, attempt: number): GameMap {
 
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);
 
-  // Пограничные КПП. Выход только один — в сторону города (к проспекту).
+  // Пограничные КПП. Выход только один — в сторону города (к проспекту). Тип КПП — свой шаблон и своя карта
+  // частей (checkpoints.ts); POI checkpoint_type запоминает тип для боевого ИИ и интерфейса.
   layout.checkpoints.forEach((cp, k) => {
-    const rows = cp.mirror ? mirrorTemplate(CHECKPOINT_TEMPLATE) : [...CHECKPOINT_TEMPLATE];
-    const cw = rows[0].length;
+    const def = CHECKPOINTS[cp.type];
+    const { rows, sections } = checkpointRows(def, cp.mirror);
+    const zoneKey = { o: 'outer', s: 'short', l: 'long', i: 'inner', g: 'gatehouse' } as const;
     // Пустошь перед КПП (и завалы на ней) — зона пустоши, остальное — части КПП.
-    const zoneOf = (ch: string, x: number, y: number) => {
-      const tx = cp.mirror ? cw - 1 - x : x;
-      return ch === 'o' || tx < CHECKPOINT_OUTLANDS_W ? zOut : zCheckpoints[k][checkpointSection(tx, y)];
+    const zoneOf = (_ch: string, x: number, y: number) => {
+      const part = sections[y][x] as SectionChar;
+      return part === '-' ? zOut : zCheckpoints[k][zoneKey[part]];
     };
     const res = stampTemplate(g, rows, cp.rect.x, cp.rect.y, zoneOf, pois);
     const cityDx = cp.mirror ? -1 : 1;
@@ -430,6 +433,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     let sx = 0, sy = 0, n = 0;
     for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[0].length; x++) if (rows[y][x] === 'o') { sx += x; sy += y; n++; }
     pois.push({ type: 'outlands_exit', x: cp.rect.x + Math.round(sx / n), y: cp.rect.y + Math.round(sy / n) });
+    pois.push({ type: 'checkpoint_type', x: cp.rect.x, y: cp.rect.y, w: cp.rect.w, h: cp.rect.h, kind: cp.type, face: cp.mirror ? 'E' : 'W' });
   });
 
   // Улицы старого города: ряды домов вдоль проспектов, площади и артерий; на главном проспекте и

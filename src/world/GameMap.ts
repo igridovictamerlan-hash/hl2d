@@ -1,5 +1,6 @@
 import { SOLID, OPAQUE, T } from './tiles';
 import type { MapStats } from './mapStats';
+import type { CheckpointType } from '../config/generator';
 
 export type ZoneKind =
   | 'residential'
@@ -57,6 +58,7 @@ export type PoiType =
   | 'checkpoint_post'
   | 'gate_post'
   | 'outlands_exit'
+  | 'checkpoint_type'
   | 'recruit_terminal'
   | 'shop_counter'
   | 'hatch'
@@ -176,7 +178,8 @@ export type FacadeUse = 'house' | 'shop' | 'cafe' | 'canteen';
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)
  * задают якорь 2×2 (x, y — его левый верхний тайл, центр — на стыке четырёх тайлов) и связаны
- * попарно одинаковым id.
+ * попарно одинаковым id. checkpoint_type — пограничный КПП: прямоугольник (x, y, w, h), вид в kind
+ * (classic / trenches / suburb / pass) и сторона пустоши в face (W — западный КПП, E — восточный).
  */
 export interface Poi {
   type: PoiType;
@@ -187,7 +190,7 @@ export interface Poi {
   w?: number;
   h?: number;
   /** Жилая комната: в общежитии или в особняке (id — номер здания), иначе — отдельный дом. */
-  kind?: 'dorm' | 'villa';
+  kind?: 'dorm' | 'villa' | CheckpointType;
   /** Дом в ряду вдоль улицы и ларёк: куда смотрит фасад (окно), чем занят, какая лавка (ARBAT). */
   face?: 'N' | 'S' | 'E' | 'W';
   use?: FacadeUse;

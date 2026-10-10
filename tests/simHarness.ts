@@ -1,6 +1,8 @@
 import { resetCids } from '../src/entities/factory';
 import { resetPhrases } from '../src/systems/phrases';
 import { generateCity } from '../src/world/generator/CityGenerator';
+import { setForcedCheckpointTypes } from '../src/world/generator/checkpoints';
+import type { CheckpointType } from '../src/config/generator';
 import { NavGrid } from '../src/world/NavGrid';
 import { EntityManager } from '../src/entities/EntityManager';
 import { PathService } from '../src/ai/PathService';
@@ -47,12 +49,33 @@ import { Radio } from '../src/systems/Radio';
 import { Talk } from '../src/systems/Talk';
 import { Relations } from '../src/systems/Relations';
 
+/**
+ * Города для тестов по сиду: пограничные КПП — классические (checkpoints: ['classic'], карта совпадает с прежней
+ * побитово). Остальные типы (generator/checkpoints.ts) меняют размеры КПП и раскладку всего города, а мир — хаос:
+ * любой сдвиг карты перераспределяет случайность заселения, и тесты, выверенные на одной карте сида, спотыкаются о
+ * драку банд или убитого по дороге медика, к КПП не имея отношения. Типы КПП проверяет tests/checkpoints.test.ts
+ * (свои карты через makeSim(map)); checkpoints: null — случайные типы по сиду, как в игре, либо HL2D_CP=random
+ * для всего набора.
+ */
+export interface SimOptions {
+  checkpoints?: readonly CheckpointType[] | null;
+}
+
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
-export function makeSim(seedOrMap: number | GameMap) {
+export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   // Номера CID — общий набор модуля: без сброса случайность теста зависит от предыдущих тестов.
   resetCids();
   resetPhrases();
-  const map = typeof seedOrMap === 'number' ? generateCity(seedOrMap) : seedOrMap;
+  let map: GameMap;
+  if (typeof seedOrMap === 'number') {
+    const types = opts.checkpoints !== undefined ? opts.checkpoints : process.env.HL2D_CP === 'random' ? null : (['classic'] as const);
+    setForcedCheckpointTypes(types);
+    try {
+      map = generateCity(seedOrMap);
+    } finally {
+      setForcedCheckpointTypes(null);
+    }
+  } else map = seedOrMap;
   const nav = new NavGrid(map);
   const entities = new EntityManager();
   const bus = new EventBus();

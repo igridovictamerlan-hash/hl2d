@@ -1,7 +1,8 @@
 import type { Rng } from '../../core/rng';
 import { clamp, rectsOverlap, type Rect, type Vec2 } from '../../core/math';
-import { GENERATOR } from '../../config/generator';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CHECKPOINT_AXIS_ROW, CWU_HQ_TEMPLATE } from './templates';
+import { GENERATOR, type CheckpointType } from '../../config/generator';
+import { NEXUS_TEMPLATE, CWU_HQ_TEMPLATE } from './templates';
+import { CHECKPOINTS } from './checkpoints';
 
 /**
  * Макро-план города: магистрали, линии решётки, прямоугольники районов и штампов.
@@ -53,8 +54,8 @@ export interface CityLayout {
   nexusRot: 0 | 180;
   /** Штаб ТС: фасадом (face — куда вход) на главный проспект, вдали от Управы, площади и КПП. */
   cwuHq: { rect: Rect; face: 'N' | 'S' } | null;
-  /** Пограничные КПП на концах главного проспекта; mirror — город с запада (восточный конец). */
-  checkpoints: { rect: Rect; mirror: boolean }[];
+  /** Пограничные КПП на концах главного проспекта; mirror — город с запада (восточный конец); type — вид КПП. */
+  checkpoints: { rect: Rect; mirror: boolean; type: CheckpointType }[];
   quarterSeeds: Vec2[];
 }
 
@@ -223,7 +224,7 @@ function cornerRect(c: Corner, size: number, W: number, H: number, border: numbe
   return { x, y, w: size, h: size };
 }
 
-export function planLayout(rng: Rng, W: number, H: number): CityLayout {
+export function planLayout(rng: Rng, W: number, H: number, cpTypes: readonly [CheckpointType, CheckpointType]): CityLayout {
   const G = GENERATOR;
   const border = G.border;
   const L = G.lattice;
@@ -298,15 +299,15 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   const plaza: Rect = { x: px, y: py, w: plazaSize, h: plazaSize };
 
   // Пограничные КПП: коридор КПП продолжает главный проспект у западной и восточной стены.
-  const cw = CHECKPOINT_TEMPLATE[0].length;
-  const ch = CHECKPOINT_TEMPLATE.length;
-  const checkpoints = [false, true].map((mirror) => {
-    const x = mirror ? W - border - cw : border;
-    const apronX = mirror ? x : x + cw - 1;
+  const checkpoints = [false, true].map((mirror, k) => {
+    const type = cpTypes[k];
+    const def = CHECKPOINTS[type];
+    const x = mirror ? W - border - def.w : border;
+    const apronX = mirror ? x : x + def.w - 1;
     const seg = avenueSegAt(hAvenue, apronX);
     const mid = seg.offset + Math.floor(seg.width / 2);
     // Ось КПП (ворота, шорт) совпадает с серединой проспекта.
-    return { rect: { x, y: mid - CHECKPOINT_AXIS_ROW, w: cw, h: ch }, mirror };
+    return { rect: { x, y: mid - def.axisRow, w: def.w, h: def.h }, mirror, type };
   });
   for (const c of checkpoints) {
     if (rectsOverlap(c.rect, restricted, 3) || rectsOverlap(c.rect, plaza, 3)) {
