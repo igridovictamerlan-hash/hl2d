@@ -8,9 +8,23 @@ import { FACTIONS } from '../config/factions';
 import { whereOf } from '../world/places';
 import { fmt } from './Radio';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
+import { CpBrain } from '../ai/brains/CpBrain';
+import { LINES } from '../config/lines';
+import { phrase } from './phrases';
+import { coverAuthority } from '../entities/cover';
+import { T } from '../world/tiles';
+import type { Vec2 } from '../core/math';
 
 /** Ступень квартала: 0 — обычно, 1 — усиленный патруль, 2 — проверки всех, 3 — комендантский час. */
 export type Tier = 0 | 1 | 2 | 3;
+
+/** Пост на выходе из квартала: где стоять, куда смотреть (наружу), насколько выход широк и кто стоит. */
+interface ExitPost {
+  pos: Vec2;
+  face: number;
+  score: number;
+  holder: Character | null;
+}
 
 /**
  * Квартал помнит (config/escalation.ts): страх района у жителей (Senses — каждый раздражитель в зоне) и внимание ВС
@@ -38,6 +52,18 @@ export class Escalation {
   /** Дела, по которым уже учтено нападение (без убийства). */
   private readonly assaulted = new WeakSet<Case>();
   private readonly rng: Rng;
+  /** Зоны, где возможен комендантский час (ESCALATION.curfewKinds), и «внешние» зоны для выходов из квартала. */
+  private readonly curfewZone: Uint8Array;
+  private readonly outsideZone: Uint8Array;
+  /** Сколько кварталов под комендантским часом сейчас. */
+  private curfews = 0;
+  /** Кого и когда окликнули: первый и последний окрик и начало часа в зоне (новый час — новый счёт). */
+  private readonly warned = new WeakMap<Character, { first: number; last: number; since: number }>();
+  /** Когда юнит ВС последний раз окликал. */
+  private readonly unitWarned = new WeakMap<Character, number>();
+  /** Выходы кварталов (кэш по зоне) и кто на них стоит. */
+  private readonly exits = new Map<number, ExitPost[]>();
+  private postsAt = 0;
   private timer = 0;
   private moveAt = 0;
   /** Кварталы, которых жители избегают: кэш объединения с базовым набором (версия меняется при пересчёте). */
@@ -46,7 +72,7 @@ export class Escalation {
   private readonly avoidCache = new WeakMap<ReadonlySet<number>, { v: number; set: ReadonlySet<number> }>();
   /** Код жёлтый держится, пока по городу серия. */
   serial = false;
-  readonly stats = { notes: 0, tierUps: 0, patrols: 0, moves: 0, serial: 0, curfews: 0 };
+  readonly stats = { notes: 0, tierUps: 0, patrols: 0, moves: 0, serial: 0, curfews: 0, warns: 0, posts: 0 };
 
   constructor(private readonly ctx: AiContext) {
     const n = Math.max(1, ctx.map.zones.length);
@@ -59,6 +85,15 @@ export class Escalation {
     this.patrolAt = new Float32Array(n).fill(-1e9);
     this.dangerSince = new Float32Array(n).fill(-1);
     this.rng = ctx.rng.fork(0xe5ca1);
+    const curfewKinds = new Set<string>(ESCALATION.curfewKinds);
+    const outsideKinds = new Set<string>(ESCALATION.posts.outside);
+    this.curfewZone = new Uint8Array(n);
+    this.outsideZone = new Uint8Array(n);
+    for (const z of ctx.map.zones) {
+      if (z.id >= n) continue;
+      if (curfewKinds.has(z.kind)) this.curfewZone[z.id] = 1;
+      if (outsideKinds.has(z.kind)) this.outsideZone[z.id] = 1;
+    }
   }
 
   private get now(): number {
@@ -132,7 +167,10 @@ export class Escalation {
   // ───────────────────────────── ступени ─────────────────────────────
 
   update(dt: number): void {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      this.releasePosts(() => 0);
+      return;
+    }
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = ESCALATION.every;
@@ -143,7 +181,7 @@ export class Escalation {
     this.serial = cityKills >= T.serialKills;
     // Кварталы, которых избегают.
     const feared = new Set<number>();
-    let anyCurfew = false;
+    let curfewN = 0;
     for (let z = 0; z < this.tier.length; z++) {
       const f = this.zoneFear(z);
       if (f >= ESCALATION.avoid) feared.add(z);
@@ -157,8 +195,10 @@ export class Escalation {
       if (h >= T.patrol) t = 1;
       if (h >= T.lockdown || zk >= T.zoneKills) t = 2;
       if ((this.serial && zk >= 1) || h >= T.curfew) t = 3;
+      // Комендантский час — только там, где живут и работают; проспект, площадь, лавки и т. п. — не выше проверок.
+      if (t === 3 && !this.curfewZone[z]) t = 2;
       if (t !== this.tier[z]) this.setTier(z, t as Tier);
-      if (t === 3) anyCurfew = true;
+      if (t === 3) curfewN++;
       if (t >= 1 && now - this.patrolAt[z] >= ESCALATION.patrol.every) {
         this.patrolAt[z] = now;
         this.patrol(z, t as Tier);
@@ -168,8 +208,10 @@ export class Escalation {
       this.feared = feared;
       this.version++;
     }
+    this.curfews = curfewN;
+    this.updatePosts(now);
     // Серия — код жёлтый (держит WarSystem.holdYellow, пока серия идёт).
-    if ((this.serial || anyCurfew) && this.ctx.war.code === 'green') {
+    if ((this.serial || curfewN > 0) && this.ctx.war.code === 'green') {
       this.stats.serial++;
       const k = this.kills[this.kills.length - 1];
       const z = k ? k.zone : 0;
@@ -188,7 +230,7 @@ export class Escalation {
     const zone = this.ctx.map.zones[z];
     if (!zone) return;
     const L = ESCALATION.lines;
-    const vars = { zone: zone.name, where: whereOf(zone), what: t >= 3 ? 'серия убийств' : t === 2 ? 'убийства в квартале' : 'нападение' };
+    const vars = { zone: zone.name, where: whereOf(zone), what: t >= 3 ? 'серия убийств' : t === 2 ? 'убийства в квартале' : 'нападение', grace: ESCALATION.curfewGrace };
     if (t > prev) {
       this.stats.tierUps++;
       if (t === 3) {
@@ -222,6 +264,146 @@ export class Escalation {
     if (!list || !list.length) return null;
     const a = this.rng.pick(list);
     return { x: this.ctx.nav.worldX(a), y: this.ctx.nav.worldY(a) };
+  }
+
+  // ───────────────────────────── посты на выходах ─────────────────────────────
+
+  /** Якорь на открытом месте (не комната, не двор под крышей, не дверь): тайл под центром якоря. */
+  private openAir(ax: number, ay: number): boolean {
+    const t = this.ctx.map.tileAt(ax + 1, ay + 1);
+    return t !== T.INTERIOR && t !== T.COURTYARD && t !== T.DOOR;
+  }
+
+  /**
+   * Выходы из квартала z (кэш): якоря квартала на открытом месте не дальше posts.reach якорей от проходимого места
+   * «внешней» зоны (улица, площадь, соседний квартал). Широкие выходы — первыми (больше проходимых якорей чужой
+   * зоны рядом), не ближе posts.spacing px друг к другу; лицом — в сторону чужой зоны (наружу).
+   */
+  private exitsOf(z: number): ExitPost[] {
+    let list = this.exits.get(z);
+    if (list) return list;
+    list = [];
+    this.exits.set(z, list);
+    const { nav } = this.ctx;
+    const P = ESCALATION.posts;
+    const R = P.reach;
+    const cand: { a: number; n: number; face: number }[] = [];
+    for (const a of nav.anchorsByZone.get(z) ?? []) {
+      const ax = nav.ax(a);
+      const ay = nav.ay(a);
+      if (!this.openAir(ax, ay)) continue;
+      let n = 0;
+      let sx = 0;
+      let sy = 0;
+      for (let dy = -R; dy <= R; dy++) {
+        for (let dx = -R; dx <= R; dx++) {
+          const bx = ax + dx;
+          const by = ay + dy;
+          if (!nav.isWalkable(bx, by)) continue;
+          const b = by * nav.w + bx;
+          if (nav.zone[b] === z || !this.outsideZone[nav.zone[b]] || nav.level[b] !== nav.level[a] || !this.openAir(bx, by)) continue;
+          n++;
+          sx += dx;
+          sy += dy;
+        }
+      }
+      if (n > 0) cand.push({ a, n, face: Math.atan2(sy, sx) });
+    }
+    cand.sort((u, v) => v.n - u.n || u.a - v.a);
+    const keep = P.count[P.count.length - 1];
+    for (const c of cand) {
+      const x = nav.worldX(c.a);
+      const y = nav.worldY(c.a);
+      if (list.every((o) => Math.hypot(o.pos.x - x, o.pos.y - y) >= P.spacing)) list.push({ pos: { x, y }, face: c.face, score: c.n, holder: null });
+      if (list.length >= keep) break;
+    }
+    return list;
+  }
+
+  /** Стоит ли на посту его юнит: жив, мозг тот же и пост за ним (rally). */
+  private holds(p: ExitPost): boolean {
+    const c = p.holder;
+    const b = c?.brain;
+    return !!c && c.alive && b instanceof CpBrain && b.rally === p.pos;
+  }
+
+  /** Снять юнита с поста: назад к патрулю (пост освобождается). */
+  private release(p: ExitPost): void {
+    if (this.holds(p)) {
+      const b = p.holder!.brain as CpBrain;
+      b.rally = null;
+      if (b.fsm.current === 'guard') b.fsm.change(b.idleState);
+    }
+    p.holder = null;
+  }
+
+  /** Снять посты, которых больше не нужно: want(z) — сколько постов нужно в квартале z; лишние и осиротевшие уходят. */
+  private releasePosts(want: (z: number) => number): void {
+    for (const [z, list] of this.exits) {
+      const n = want(z);
+      for (let i = 0; i < list.length; i++) if (list[i].holder && (i >= n || !this.holds(list[i]))) this.release(list[i]);
+    }
+  }
+
+  /** Свободные патрульные ВС города, которых можно поставить на пост. */
+  private postPool(): Character[] {
+    const out: Character[] = [];
+    for (const c of this.ctx.entities.list) {
+      const b = c.brain;
+      if (!c.alive || c.isPlayer || !(b instanceof CpBrain) || c.law.phase !== 'none' || !b.canExitPost() || !this.ctx.war.inCity(c.x, c.y)) continue;
+      out.push(c);
+    }
+    return out;
+  }
+
+  /**
+   * Посты на выходах из кварталов со ступенью 2 и выше (зоны curfewKinds): раз в posts.every с — снять лишних и
+   * осиротевших, поставить на свободные места ближайших свободных патрульных (не дальше posts.seek px, всего не больше
+   * posts.max). Ступень упала, красный код (мобилизация) — посты снимают.
+   */
+  private updatePosts(now: number): void {
+    const P = ESCALATION.posts;
+    if (now < this.postsAt) return;
+    this.postsAt = now + P.every;
+    const red = this.ctx.war.code === 'red';
+    const want: { z: number; n: number; t: number }[] = [];
+    if (!red) {
+      for (let z = 0; z < this.tier.length; z++) {
+        const t = this.tier[z];
+        if (t >= 2 && this.curfewZone[z]) want.push({ z, n: P.count[t], t });
+      }
+    }
+    const need = new Map<number, number>();
+    for (const w of want) need.set(w.z, w.n);
+    this.releasePosts((z) => need.get(z) ?? 0);
+    let total = 0;
+    for (const list of this.exits.values()) for (const p of list) if (p.holder) total++;
+    if (!want.length || total >= P.max) return;
+    want.sort((a, b) => b.t - a.t || this.zoneHeat(b.z) - this.zoneHeat(a.z) || a.z - b.z);
+    let pool: Character[] | null = null;
+    for (const w of want) {
+      const list = this.exitsOf(w.z);
+      for (let i = 0; i < Math.min(w.n, list.length) && total < P.max; i++) {
+        const p = list[i];
+        if (p.holder) continue;
+        pool ??= this.postPool();
+        let best = -1;
+        let bestD: number = P.seek;
+        for (let k = 0; k < pool.length; k++) {
+          const d = Math.hypot(pool[k].x - p.pos.x, pool[k].y - p.pos.y);
+          if (d < bestD) {
+            bestD = d;
+            best = k;
+          }
+        }
+        if (best < 0) continue;
+        const c = pool.splice(best, 1)[0];
+        (c.brain as CpBrain).assignExitPost(p.pos, p.face);
+        p.holder = c;
+        total++;
+        this.stats.posts++;
+      }
+    }
   }
 
   /** Переезд: робкий одинокий житель из страшного квартала съезжает в свободное жильё подальше. */
@@ -268,17 +450,82 @@ export class Escalation {
     return this.enabled && z >= 0 && this.tier[z] === 3 && this.curfewSince[z] >= 0 && this.now - this.curfewSince[z] > ESCALATION.curfewGrace;
   }
 
-  /** Житель должен сидеть дома: комендантский час в квартале, где он сейчас или где его дом. */
+  /** Идёт ли комендантский час хоть в одном квартале (быстрый выход для осмотра ВС). */
+  get curfewOn(): boolean {
+    return this.enabled && this.curfews > 0;
+  }
+
+  /**
+   * Житель должен сидеть дома: комендантский час в квартале, где он сейчас или где его дом. Час бывает только в зонах
+   * ESCALATION.curfewKinds (в остальных ступень не выше 2), так что житель с домом в проходной зоне его не получает.
+   */
   curfewFor(c: Character): boolean {
-    if (!this.enabled || FACTIONS[c.faction].authority) return false;
+    if (!this.enabled || this.curfews === 0 || FACTIONS[c.faction].authority) return false;
     if (this.tierAt(c.x, c.y) === 3) return true;
     const d = this.ctx.housing?.of(c);
     return !!d && this.tierAt(d.at.x, d.at.y) === 3;
   }
 
-  /** Нарушает ли комендантский час квартала (ВС — штраф и «по домам»). */
+  /**
+   * Подчиняется ли час: мозг горожанина в состоянии «домой» или «укрыться» (идёт или уже пришёл к двери) — он и
+   * так делает то, что ему приказали бы, останавливать его незачем. Всё остальное (стоит, гуляет, игрок) — нет.
+   */
+  private complying(c: Character): boolean {
+    const b = c.brain;
+    if (!(b instanceof CitizenBrain)) return false;
+    const s = b.fsm.current;
+    return s === 'shelter' || s === 'home';
+  }
+
+  /**
+   * Может ли человек сейчас быть нарушителем часа: час в его квартале действует (после отсрочки), он на улице, не
+   * сотрудник Протектората (и не переодет в него), не под разбирательством, не идёт домой.
+   */
+  private breaker(c: Character): boolean {
+    return (
+      this.curfewAt(c.x, c.y) && c.alive && !c.downed && !FACTIONS[c.faction].authority && c.faction !== 'vort' && c.law.phase === 'none' &&
+      !coverAuthority(c) && this.ctx.war.outdoors(c) && !this.complying(c)
+    );
+  }
+
+  /**
+   * Предупредить: ВС видит на улице квартала с часом человека, который не идёт домой, — окликает («По домам!»), но
+   * не останавливает. Не чаще warn.every с на человека и warn.unitEvery с на юнита. Игроку — строка в журнал,
+   * горожанин иногда отвечает. true — окрик прозвучал.
+   */
+  warn(cp: Character, c: Character): boolean {
+    if (!this.enabled || this.curfews === 0 || !this.breaker(c)) return false;
+    const W = ESCALATION.warn;
+    const now = this.now;
+    if (now - (this.unitWarned.get(cp) ?? -1e9) < W.unitEvery) return false;
+    const since = this.curfewSince[this.zoneAt(c.x, c.y)];
+    const prev = this.warned.get(c);
+    // Тот же час и окрик не старше forget — счёт идёт с первого окрика; иначе начинается заново.
+    const w = prev && prev.since === since && now - prev.last <= W.forget ? prev : null;
+    if (w && now - w.last < W.every) return false;
+    if (!this.ctx.law.canSee(cp, c)) return false;
+    this.unitWarned.set(cp, now);
+    if (w) w.last = now;
+    else this.warned.set(c, { first: now, last: now, since });
+    this.stats.warns++;
+    cp.say(phrase(this.rng, cp, LINES.cpWarnZoneCurfew, c), now, W.sayTime);
+    if (c.isPlayer) this.ctx.bus.emit('log', { text: W.playerLog, kind: 'law' });
+    else if (this.rng.chance(W.replyChance)) c.say(phrase(this.rng, c, LINES.zoneCurfewReply, cp), now, W.replyTime);
+    return true;
+  }
+
+  /**
+   * Нарушает ли комендантский час квартала (ВС — приказ стоять, штраф «по домам», повторно — арест). Только тот, кого
+   * окликнули не меньше warn.grace с назад (и окрик не старше warn.forget, в этом же часе), кто не идёт домой
+   * (complying) и кого не проверяли ближе warn.recheck с.
+   */
   curfewViolation(c: Character): boolean {
-    return this.curfewAt(c.x, c.y) && c.alive && !FACTIONS[c.faction].authority && c.law.phase === 'none' && this.ctx.war.outdoors(c);
+    if (!this.curfewOn || !this.breaker(c)) return false;
+    const W = ESCALATION.warn;
+    const now = this.now;
+    const w = this.warned.get(c);
+    if (!w || w.since !== this.curfewSince[this.zoneAt(c.x, c.y)] || now - w.first < W.grace || now - w.last > W.forget) return false;
+    return now - c.law.lastCheck > W.recheck;
   }
 
   /** Избегаемые зоны: базовый набор плюс страшные кварталы (кэш — не новый Set на каждый путь). */

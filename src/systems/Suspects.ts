@@ -8,7 +8,7 @@ import { SUSPECTS } from '../config/suspects';
 import { SENSES } from '../config/senses';
 import { RADIO } from '../config/radio';
 import { WEAPONS, ITEMS, type WeaponClass } from '../config/items';
-import { FACTIONS } from '../config/factions';
+import { FACTIONS, cpHas } from '../config/factions';
 import { LOYALTY } from '../config/loyalty';
 import { apparentFaction, displayName } from '../entities/cover';
 import { lineOfSight } from '../world/visibility';
@@ -18,6 +18,7 @@ import { CpBrain } from '../ai/brains/CpBrain';
 import { fmt } from './Radio';
 import { female, phrase } from './phrases';
 import type { IncidentKind } from '../config/radio';
+import type { Dwelling } from './Housing';
 
 /** Кто на вид: сторона по одежде (лоялист — в светло-фиолетовом), банда — по повязке. */
 export type Side = 'citizen' | 'loyalist' | 'cwu' | 'vort' | 'gang' | 'rebel' | 'cp' | 'other';
@@ -112,12 +113,57 @@ export interface Tip {
   at: number;
 }
 
+/** Дверь поквартирного обхода: жилище, куда стучат, и якорь у его двери снаружи. */
+interface Door {
+  d: Dwelling;
+  x: number;
+  y: number;
+  a: number;
+}
+
+/**
+ * Поквартирный обход убийства: один юнит идёт по домам вокруг места (вызов с отрицательным номером — через
+ * рацию CpBrain), стучит, опрашивает тех, кто дома. wait — ждёт свободного юнита, go — идёт к двери, knock —
+ * стучит, answer — ему отвечают (и записывают).
+ */
+interface Canvass {
+  id: number;
+  cs: Case;
+  callId: number;
+  doors: Door[];
+  i: number;
+  unit: Character | null;
+  phase: 'wait' | 'go' | 'knock' | 'answer';
+  /** Не раньше; не дольше (юнита нет); следующая попытка найти юнита; когда начался обход. */
+  start: number;
+  expire: number;
+  nextTry: number;
+  began: number;
+  /** С какого времени идёт к этой двери; когда сменится стадия; с какого времени занят другим (-1 — нет); неудачи пути. */
+  since: number;
+  at: number;
+  stallSince: number;
+  fails: number;
+  failAt: number;
+  reassigned: number;
+  told: number;
+  /** Ответная реплика сотрудника (после слов жителей) и когда её сказать. */
+  line: string | null;
+  lineAt: number;
+}
+
+/** Состояния юнита, при которых обход продолжается (остальные — бой, конвой, служба — обход срывают). */
+const CANVASS_OK: ReadonlySet<string> = new Set(['hunt', 'patrol', 'patrol-again', 'post', 'follow', 'approach', 'check']);
+/** Свободен для обхода (следователь): не на службе и не в деле. */
+const CANVASS_FREE: ReadonlySet<string> = new Set(['patrol', 'patrol-again', 'post', 'hunt', 'follow']);
+
 /**
  * Дела о преступлениях (config/suspects.ts): Senses сообщает о насилии на глазах — заводится дело, свидетели
  * запоминают приметы (по своему положению и характеру) и решают: донести, соврать или промолчать (бандиты и воры
  * не доносят). Донос — ногами: свидетель идёт к ВС (CitizenBrain 'report'), сотрудник передаёт в эфир с
  * приметами и направлением; знали в лицо — розыск по имени. ВС видел сам — огонь на поражение. Патрули ищут по
- * ориентировке (recognize), при проверке — улики (кровь, нож того же вида); доказано — в тюрьму.
+ * ориентировке (recognize), при проверке — улики (кровь, нож того же вида); доказано — в тюрьму. Об убийстве, которое
+ * стало известно ВС, юнит идёт по домам вокруг места (поквартирный обход) и расспрашивает тех, кто дома.
  */
 export class Suspects {
   enabled = true;
@@ -128,7 +174,13 @@ export class Suspects {
   private readonly heardAt = new WeakMap<Character, number>();
   /** Крики, на которые уже кто-то идёт. */
   private readonly screams: { x: number; y: number; t: number }[] = [];
-  readonly stats = { cases: 0, witnesses: 0, reports: 0, lies: 0, silent: 0, delivered: 0, named: 0, cpSaw: 0, recognized: 0, charged: 0, released: 0, forensic: 0, bodies: 0 };
+  readonly stats = { cases: 0, witnesses: 0, reports: 0, lies: 0, silent: 0, delivered: 0, named: 0, cpSaw: 0, recognized: 0, charged: 0, released: 0, forensic: 0, bodies: 0, canvass: 0, knocks: 0, canvassTold: 0 };
+  /** Поквартирные обходы в работе. */
+  readonly canvasses: Canvass[] = [];
+  private readonly canvassed = new Set<number>();
+  private readonly entries = new Map<number, Door | null>();
+  private nextCanvass = 1;
+  private canvassScan = 0;
 
   constructor(private readonly ctx: AiContext) {
     this.rng = ctx.rng.fork(0x5005ec);
@@ -320,11 +372,16 @@ export class Suspects {
     }
   }
 
+  /** Улица своих не сдаёт: бандиты, воры, отбросы, подполье и повстанцы. */
+  private closedMouth(o: Character): boolean {
+    return o.gang >= 0 || o.faction === 'rebel' || o.profession === 'thief' || o.profession === 'bandit' || o.profession === 'outcast' || o.disguised;
+  }
+
   /** Решение свидетеля: донести, соврать, промолчать (config/senses SENSES.witness). */
   private decide(o: Character, a: Character, victim: Character | null): Witness['will'] {
     const W = SENSES.witness;
     // Улица своих не сдаёт: бандиты, воры, отбросы, подполье и повстанцы — молчат.
-    if (o.gang >= 0 || o.faction === 'rebel' || o.profession === 'thief' || o.profession === 'bandit' || o.profession === 'outcast' || o.disguised) return 'silent';
+    if (this.closedMouth(o)) return 'silent';
     const rel = this.ctx.relations;
     let p = W.base + Math.max(-30, Math.min(100, o.loyalty)) * W.loyalty;
     if (rel?.enabled) {
@@ -746,7 +803,323 @@ export class Suspects {
       const a = cs.actor;
       if (!a.alive || now - cs.at > SUSPECTS.memory || a.law.phase === 'jailed') cs.closed = true;
     }
+    if (this.enabled) this.updateCanvass(now);
     void civilian;
+  }
+
+  // ───────────────────────────── поквартирный обход ─────────────────────────────
+
+  /**
+   * Ход обходов: раз в canvass.scan с — известные ВС убийства без обхода получают его (где бы дело ни стало
+   * известным: донос, глаза сотрудника, экспертиза, опознание); остальное — каждый тик, лёгкое.
+   */
+  private updateCanvass(now: number): void {
+    const C = SUSPECTS.canvass;
+    if (now >= this.canvassScan) {
+      this.canvassScan = now + C.scan;
+      for (const cs of this.cases) if (cs.kind === 'murder' && cs.known && !cs.closed && !this.canvassed.has(cs.id)) this.scheduleCanvass(cs, now);
+    }
+    for (let i = this.canvasses.length - 1; i >= 0; i--) if (this.stepCanvass(this.canvasses[i], now)) this.canvasses.splice(i, 1);
+  }
+
+  /** Обход по делу (один раз): двери вокруг места, ближние первыми. */
+  private scheduleCanvass(cs: Case, now: number): void {
+    const C = SUSPECTS.canvass;
+    this.canvassed.add(cs.id);
+    const doors = this.canvassDoors(cs);
+    if (!doors.length) return;
+    const id = this.nextCanvass++;
+    this.canvasses.push({
+      id, cs, callId: -(1000 + id), doors, i: 0, unit: null, phase: 'wait', start: now + C.delay, expire: now + C.delay + C.wait, nextTry: 0, began: -1,
+      since: 0, at: 0, stallSince: -1, fails: 0, failAt: -1e9, reassigned: 0, told: 0, line: null, lineAt: 0,
+    });
+  }
+
+  /** Двери жилищ не дальше radius от места (не явки и не хаты — там не обход, а облава): цепочка от ближней. */
+  private canvassDoors(cs: Case): Door[] {
+    const C = SUSPECTS.canvass;
+    const housing = this.ctx.housing;
+    if (!housing) return [];
+    const cand: { d: Dwelling; dist: number }[] = [];
+    for (const d of housing.dwellings) {
+      if (d.reserved) continue;
+      const dist = Math.hypot(d.at.x - cs.x, d.at.y - cs.y);
+      if (dist <= C.radius) cand.push({ d, dist });
+    }
+    cand.sort((a, b) => a.dist - b.dist);
+    const pool: Door[] = [];
+    const used = new Set<number>();
+    for (const { d } of cand) {
+      const e = this.entryOf(d);
+      if (!e || used.has(e.a) || Math.hypot(e.x - cs.x, e.y - cs.y) > C.radius * 1.3) continue;
+      used.add(e.a);
+      pool.push(e);
+      if (pool.length >= C.doors) break;
+    }
+    // Порядок обхода: ближняя к месту, дальше — ближняя к только что опрошенной.
+    const out: Door[] = [];
+    let px = cs.x;
+    let py = cs.y;
+    while (pool.length) {
+      let bi = 0;
+      for (let k = 1; k < pool.length; k++) if (Math.hypot(pool[k].x - px, pool[k].y - py) < Math.hypot(pool[bi].x - px, pool[bi].y - py)) bi = k;
+      const [e] = pool.splice(bi, 1);
+      out.push(e);
+      px = e.x;
+      py = e.y;
+    }
+    return out;
+  }
+
+  /** Где стучат в жилище: первый якорь снаружи комнаты по ходу от её места (волной по якорям); кэш. */
+  private entryOf(d: Dwelling): Door | null {
+    const hit = this.entries.get(d.id);
+    if (hit !== undefined) return hit;
+    const { nav, housing } = this.ctx;
+    let out: Door | null = null;
+    const start = nav.nearestWalkable(d.at.x, d.at.y, 1);
+    if (start >= 0 && nav.level[start] === 0) {
+      const seen = new Set<number>([start]);
+      let front = [start];
+      for (let step = 0; step < SUSPECTS.canvass.entryDepth && !out && front.length; step++) {
+        const next: number[] = [];
+        for (const i of front) {
+          const ax = nav.ax(i);
+          const ay = nav.ay(i);
+          for (let k = 0; k < 4 && !out; k++) {
+            const bx = ax + (k === 0 ? 1 : k === 1 ? -1 : 0);
+            const by = ay + (k === 2 ? 1 : k === 3 ? -1 : 0);
+            if (!nav.isWalkable(bx, by)) continue;
+            const j = by * nav.w + bx;
+            if (seen.has(j)) continue;
+            seen.add(j);
+            const x = nav.worldX(j);
+            const y = nav.worldY(j);
+            if (!housing.inside(d, { x, y })) out = { d, x, y, a: j };
+            else next.push(j);
+          }
+        }
+        front = next;
+      }
+    }
+    this.entries.set(d.id, out);
+    return out;
+  }
+
+  /** Строка в журнал — игроку из силового блока или тому, кто рядом. */
+  private announce(text: string, x: number, y: number): void {
+    const p = this.ctx.player;
+    if (p && (p.faction === 'cp' || Math.hypot(p.x - x, p.y - y) < SUSPECTS.canvass.hear)) this.ctx.law.log(text, 'radio');
+  }
+
+  /** Свободен ли сотрудник для обхода: не на посту, не в службе, не в деле и не занят вызовом не ниже по важности. */
+  private canvassFree(b: CpBrain, now: number): boolean {
+    if (b.guardPost || b.medicStation || b.rally || b.raidPost || b.formation || b.ward || b.scene || b.front >= 0 || b.target) return false;
+    if (b.duty && b.duty !== 'squad') return false;
+    if (b.call && now < b.call.until && b.call.prio >= SUSPECTS.canvass.prio) return false;
+    return CANVASS_FREE.has(b.fsm.current);
+  }
+
+  /** Юнит для обхода: следователь (ему от места ближе или дальше — не так важно), иначе свободный патрульный. */
+  private canvassUnit(cv: Canvass, now: number): Character | null {
+    const C = SUSPECTS.canvass;
+    const door = cv.doors[cv.i];
+    let best: Character | null = null;
+    let bs = Infinity;
+    for (const c of this.ctx.entities.list) {
+      const b = c.brain;
+      if (!(b instanceof CpBrain) || c.faction !== 'cp' || !c.alive || c.isPlayer || c.downed || c.cadet) continue;
+      if (!(cpHas(c, 'investigate') ? this.canvassFree(b, now) : b.canRespond(C.prio))) continue;
+      if (!this.ctx.war.inCity(c.x, c.y) || this.ctx.map.levelAt(c.x, c.y) !== 'city') continue;
+      const d = Math.hypot(c.x - door.x, c.y - door.y);
+      if (d > C.seek) continue;
+      const score = d - (cpHas(c, 'investigate') ? C.investigatorBonus : 0);
+      if (score < bs) {
+        bs = score;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  /** Конец обхода: вызов у юнита снять (если ещё наш). */
+  private endCanvass(cv: Canvass): true {
+    const b = cv.unit?.brain;
+    if (b instanceof CpBrain && b.call?.id === cv.callId) b.call = null;
+    cv.unit = null;
+    return true;
+  }
+
+  /** Юнит выбыл или его забрали: другому (не больше reassign раз), иначе отбой. */
+  private lostCanvass(cv: Canvass, now: number): boolean {
+    const C = SUSPECTS.canvass;
+    const b = cv.unit?.brain;
+    if (b instanceof CpBrain && b.call?.id === cv.callId) b.call = null;
+    cv.unit = null;
+    if (cv.reassigned >= C.reassign) return true;
+    cv.reassigned++;
+    cv.phase = 'wait';
+    cv.nextTry = now + C.retry;
+    cv.expire = now + C.wait;
+    cv.stallSince = -1;
+    return false;
+  }
+
+  /** Шаг обхода; true — обход кончился. */
+  private stepCanvass(cv: Canvass, now: number): boolean {
+    const C = SUSPECTS.canvass;
+    const { ctx } = this;
+    if (cv.cs.closed || ctx.war.code === 'red') return this.endCanvass(cv);
+    if (cv.phase === 'wait') {
+      if (now < cv.start || now < cv.nextTry) return false;
+      if (now > cv.expire) return this.endCanvass(cv);
+      cv.nextTry = now + C.retry;
+      if (this.canvasses.filter((o) => o.unit).length >= C.active) return false;
+      const u = this.canvassUnit(cv, now);
+      if (!u) return false;
+      const first = cv.began < 0;
+      const door = cv.doors[cv.i];
+      (u.brain as CpBrain).call = { id: cv.callId, x: door.x, y: door.y, until: now + C.callTime, urgent: false, prio: C.prio };
+      cv.unit = u;
+      cv.phase = 'go';
+      cv.since = now;
+      cv.fails = 0;
+      cv.stallSince = -1;
+      if (first) {
+        cv.began = now;
+        this.stats.canvass++;
+        this.announce(`Поквартирный обход: ${whereOf(ctx.map.zoneAtWorld(cv.cs.x, cv.cs.y))}.`, cv.cs.x, cv.cs.y);
+      }
+      return false;
+    }
+    const u = cv.unit;
+    const b = u?.brain;
+    if (!u || !u.alive || u.downed || !(b instanceof CpBrain) || b.call?.id !== cv.callId || !CANVASS_OK.has(b.fsm.current)) return this.lostCanvass(cv, now);
+    if (now - cv.began > C.maxTime) return this.endCanvass(cv);
+    const st = b.fsm.current;
+    // Занят другим (проверка документов, ждёт перехода в «прочёсывание») — не дольше lostAfter.
+    if (st === 'hunt') cv.stallSince = -1;
+    else if (cv.stallSince < 0) cv.stallSince = now;
+    else if (now - cv.stallSince > C.lostAfter) return this.lostCanvass(cv, now);
+    const door = cv.doors[cv.i];
+    b.call.until = now + C.callTime;
+    const dist = Math.hypot(u.x - door.x, u.y - door.y);
+    if (cv.phase === 'go') {
+      if (cv.fails >= 2 || now - cv.since > C.goMax) return this.nextDoor(cv, b, now);
+      if (st === 'hunt') this.steer(cv, b, u, door, dist, now);
+      if (st === 'hunt' && dist <= C.reach) {
+        cv.phase = 'knock';
+        cv.at = now + C.knock;
+        this.stats.knocks++;
+        u.say(phrase(this.rng, u, C.lines.knock), now, C.knock);
+      }
+      return false;
+    }
+    if (st === 'hunt') this.steer(cv, b, u, door, dist, now);
+    if (cv.line && now >= cv.lineAt) {
+      u.say(cv.line, now, 2.4);
+      cv.line = null;
+    }
+    if (now < cv.at) return false;
+    if (cv.phase === 'knock') {
+      this.interview(cv, u, door, now);
+      cv.phase = 'answer';
+      cv.at = now + C.answer;
+      return false;
+    }
+    return this.nextDoor(cv, b, now);
+  }
+
+  private nextDoor(cv: Canvass, b: CpBrain, now: number): boolean {
+    cv.i++;
+    if (cv.i >= cv.doors.length) return this.endCanvass(cv);
+    const door = cv.doors[cv.i];
+    cv.phase = 'go';
+    cv.since = now;
+    cv.fails = 0;
+    cv.line = null;
+    if (b.call) {
+      b.call.x = door.x;
+      b.call.y = door.y;
+    }
+    return false;
+  }
+
+  /**
+   * Привести юнита к двери: он в «прочёсывании» по вызову, но его случайные точки нам не нужны — шлём прямо к
+   * двери (huntSpot — чтобы прочёсывание считало, что он на месте), у двери чужую цель отменяем — стоит.
+   */
+  private steer(cv: Canvass, b: CpBrain, u: Character, door: Door, dist: number, now: number): void {
+    const m = b.mover;
+    b.huntSpot = door.a;
+    if (dist <= SUSPECTS.canvass.hold) {
+      if (m.goal >= 0 && m.goal !== door.a) m.stop();
+      return;
+    }
+    if (m.goal === door.a && m.status !== 'failed' && m.status !== 'idle') return;
+    if (m.goal === door.a && m.status === 'failed' && now - cv.failAt > 1.5) {
+      cv.failAt = now;
+      cv.fails++;
+    }
+    m.goTo(u, this.ctx, door.a);
+  }
+
+  /** Живые у этой двери: в комнате жилища или (свои) не дальше inside px от неё. */
+  private residents(d: Dwelling, except: Character): Character[] {
+    const { ctx } = this;
+    const ts = ctx.map.tileSize;
+    const pad = SUSPECTS.canvass.inside;
+    const r = d.room;
+    const out: Character[] = [];
+    const cx = (r.x + r.w / 2) * ts;
+    const cy = (r.y + r.h / 2) * ts;
+    for (const c of ctx.entities.near(cx, cy, Math.max(r.w, r.h) * ts * 0.75 + pad, nearBuf)) {
+      if (c === except || !c.alive || c.downed || c.isPlayer || c.asleep || FACTIONS[c.faction].authority) continue;
+      const near = c.x >= r.x * ts - pad && c.y >= r.y * ts - pad && c.x < (r.x + r.w) * ts + pad && c.y < (r.y + r.h) * ts + pad;
+      if (ctx.housing.inside(d, c) || (c.home === d.id && near)) out.push(c);
+    }
+    return out;
+  }
+
+  /** Открыли дверь: расспросить тех, кто дома. */
+  private interview(cv: Canvass, cp: Character, door: Door, now: number): void {
+    const C = SUSPECTS.canvass;
+    const people = this.residents(door.d, cp);
+    if (!people.length) {
+      cv.line = phrase(this.rng, cp, C.lines.nobody);
+      cv.lineAt = now + 1.2;
+      return;
+    }
+    let told = false;
+    for (const r of people) {
+      const w = cv.cs.witnesses.get(r.pid);
+      if (!w) {
+        r.say(phrase(this.rng, r, C.lines.nothing), now, 2.6);
+        continue;
+      }
+      if (w.told) {
+        r.say(phrase(this.rng, r, C.lines.already), now, 2.6);
+        continue;
+      }
+      if (!this.rng.chance(this.closedMouth(r) ? C.hardTalk : C.talk)) {
+        r.say(phrase(this.rng, r, C.lines.deny), now, 2.6);
+        continue;
+      }
+      w.told = true;
+      const st = this.statementOf(cv.cs, w);
+      cv.cs.statements.push(st);
+      this.merge(cv.cs);
+      if (st.dir !== null) cv.cs.dir = st.dir;
+      this.stats.canvassTold++;
+      cv.told++;
+      told = true;
+      r.say(fmt(phrase(this.rng, r, SENSES.lines.report), { desc: this.lookWords(st.look, st.named ? displayName(cv.cs.actor) : ''), dir: this.dirWord(st.dir) }), now, 3.4);
+      if (w.named && w.will !== 'lie' && !cv.cs.named) this.identify(cv.cs, cp, `поквартирный обход: ${st.name}`);
+    }
+    if (told) {
+      cv.line = phrase(this.rng, cp, C.lines.thanks);
+      cv.lineAt = now + 1.8;
+    }
   }
 }
 

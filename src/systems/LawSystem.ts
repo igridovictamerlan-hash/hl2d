@@ -98,6 +98,8 @@ export class LawSystem {
   prisonGate: Vec2 | null = null;
   /** Куда выводить отпущенного (из тюрьмы — за её ворота; иначе ворота Управы). */
   readonly releaseSpot = new Map<Character, Vec2>();
+  /** Когда человека последний раз оштрафовали за комендантский час в квартале (повторно — арест, LAW.zoneCurfewRepeat). */
+  private readonly zoneCurfewFined = new WeakMap<Character, number>();
 
   constructor(
     private readonly map: GameMap,
@@ -354,6 +356,8 @@ export class LawSystem {
       if (target.isPlayer) this.bus.emit('log', { text: ERRANDS.lines.found, kind: 'law' });
     }
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };
+    // Комендантский час в квартале: штраф уже был недавно — на этот раз арест.
+    if (reason === 'zone_curfew' && this.time - (this.zoneCurfewFined.get(target) ?? -1e9) < LAW.zoneCurfewRepeat) return { kind: 'arrest', reason, fine: 0 };
     if (reason === 'running' || reason === 'restricted' || reason === 'insult' || reason === 'fight' || reason === 'zone_curfew') {
       return { kind: 'fine', reason, fine: LAW.fines[reason] };
     }
@@ -375,6 +379,7 @@ export class LawSystem {
       handler.money += Math.floor(paid / 2);
       // Комендантский час в квартале — штраф и «по домам».
       handler.say(fill(phrase(this.rng, handler, verdict.reason === 'zone_curfew' ? LINES.cpGoHome : LINES.cpFine, target), { n: verdict.fine }), this.time);
+      if (verdict.reason === 'zone_curfew') this.zoneCurfewFined.set(target, this.time);
       adjustLoyalty(target, verdict.reason === 'insult' ? LOYALTY.points.insult : LOYALTY.points.fine, 'штраф', this.bus);
       this.log(`${label(handler)} оштрафовал ${who(target)} на ${verdict.fine} токенов (${VIOLATION_NAMES[verdict.reason]})`, 'law');
       this.onVerdict?.(handler, target, 'fine');

@@ -301,6 +301,28 @@ export class CpBrain implements Brain {
   }
 
   /**
+   * Свободен для поста на выходе из квартала (Escalation.updatePosts): патрульный или ведомый группы в обходе, не пост
+   * и не служба (КПП, склад, тюрьма, командование), не в бою, не на вызове по рации, не раненый и не при деле.
+   */
+  canExitPost(): boolean {
+    if (this.guardPost || this.medicStation || this.rally || this.raidPost || this.formation || this.ward || this.scene || this.front >= 0) return false;
+    if (this.duty && this.duty !== 'squad') return false;
+    if (this.self.cadet || this.target || this.self.health < this.self.maxHealth * COMBAT.woundedFraction || this.activeCall()) return false;
+    const cur = this.fsm.current;
+    return cur === 'patrol' || cur === 'patrol-again' || cur === 'post' || cur === 'follow';
+  }
+
+  /**
+   * Встать на пост у выхода из квартала (rally, как заслон у прорыва): стоит лицом наружу, а lookAround в состоянии
+   * guard проверяет проходящих с множителем ступени квартала. Снимает Escalation (rally = null).
+   */
+  assignExitPost(spot: Vec2, face: number): void {
+    this.rally = spot;
+    this.rallyFacing = face;
+    if (this.fsm.current !== 'fight' && this.fsm.current !== 'retreat') this.fsm.change('guard');
+  }
+
+  /**
    * Крик о помощи в городе (Suspects.cpHeard): свободный патрульный или ведущий группы бегом идёт проверить —
    * вызов на это место, дальше прочёсывание как по вызову Надзора (hunt). Занятый или на посту не уходит:
    * поворачивается на крик и отвечает репликой.
@@ -718,10 +740,15 @@ export class CpBrain implements Brain {
         return;
       }
     }
+    // Комендантский час в квартале: сперва окрик «по домам» (Escalation.warn), останавливают — только упрямых.
+    const warns = ctx.escalation.curfewOn && this.checksPeople && ctx.war.code !== 'red';
     for (const o of ctx.entities.near(self.x, self.y, VISION.npcRange, near)) {
       if (o === self) continue;
       const v = law.observe(self, o);
-      if (!v) continue;
+      if (!v) {
+        if (warns && this.watches(o, atCheckpoint) && !ctx.combat.threat(self, o)) ctx.escalation.warn(self, o);
+        continue;
+      }
       if (v === 'rebel') ctx.war.sighted(o);
       if (v === 'weapon') this.armedSeen(o);
       if (v === 'fight') ctx.radio?.brawl(self, o);

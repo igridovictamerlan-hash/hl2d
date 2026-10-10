@@ -1,6 +1,7 @@
 import type { Senses } from '../systems/Senses';
 import type { Suspects } from '../systems/Suspects';
 import type { Escalation } from '../systems/Escalation';
+import type { Memorials } from '../systems/Memorials';
 import type { SecuritySystem } from '../systems/Security';
 import type { CwuHqSystem } from '../systems/CwuHq';
 import type { ArsenalSystem } from '../systems/Arsenal';
@@ -117,4 +118,6 @@ export interface AiContext {
   suspects: Suspects;
   /** Страх кварталов и ступени реакции ВС (systems/Escalation.ts). */
   escalation: Escalation;
+  /** Памятные места: цветы и свечи на месте убийства мирного жителя (systems/Memorials.ts). */
+  memorials: Memorials;
 }

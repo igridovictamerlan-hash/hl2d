@@ -66,6 +66,7 @@ import { Radio, type Transmission } from '../systems/Radio';
 import { Senses } from '../systems/Senses';
 import { Suspects } from '../systems/Suspects';
 import { Escalation } from '../systems/Escalation';
+import { Memorials } from '../systems/Memorials';
 import { Talk } from '../systems/Talk';
 import { Relations, type PersonInfo } from '../systems/Relations';
 import { serviceHint } from '../systems/Staffing';
@@ -375,6 +376,7 @@ export class Game {
       senses: null as unknown as Senses,
       suspects: null as unknown as Suspects,
       escalation: null as unknown as Escalation,
+      memorials: null as unknown as Memorials,
     };
     this.ai.routine = new Routine(this.ai);
     this.ai.errands = new Errands(this.ai);
@@ -407,12 +409,14 @@ export class Game {
     this.ai.radio = new Radio(this.ai);
     this.ai.suspects = new Suspects(this.ai);
     this.ai.escalation = new Escalation(this.ai);
+    this.ai.memorials = new Memorials(this.ai);
     this.ai.senses = new Senses(this.ai);
     this.entityRenderer.relations = this.ai.relations;
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
     this.entityRenderer.senses = this.ai.senses;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
+    this.lighting.memorials = this.ai.memorials.list;
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
     this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
     this.economy.onEmpty = () => this.labor.noticeEmpty();
@@ -1017,6 +1021,7 @@ export class Game {
     if (this.ai.senses) this.ai.senses.enabled = false;
     if (this.ai.suspects) this.ai.suspects.enabled = false;
     if (this.ai.escalation) this.ai.escalation.enabled = false;
+    if (this.ai.memorials) this.ai.memorials.enabled = false;
     this.ui.roles.close();
     this.arena = new SquadArena(this.ai, side, this.player);
     this.arena.startRound();
@@ -1098,6 +1103,7 @@ export class Game {
     this.ai.relations.update(dt);
     this.ai.suspects?.update();
     this.ai.escalation?.update(dt);
+    this.ai.memorials?.update();
     // Красный код (штурм Управы) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
@@ -1190,6 +1196,7 @@ export class Game {
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.effects.drawScenes(ctx, v, this.war.scenes.list);
+    this.effects.drawMemorials(ctx, v, this.ai.memorials.list, this.law.now);
     this.effects.drawMines(ctx, v, this.combat, this.player, this.map);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.arsenalView.drawCarried(ctx, v, this.ai.arsenal, alpha);

@@ -48,6 +48,7 @@ import { SENSES } from '../../config/senses';
 import type { Tip } from '../../systems/Suspects';
 import { T } from '../../world/tiles';
 import { ESCALATION } from '../../config/escalation';
+import type { Memorial } from '../../systems/Memorials';
 
 /** Работа по профессии (ТС, поднадзорный, отброс общества). */
 type Job =
@@ -100,7 +101,9 @@ const near2: Character[] = [];
 
 /** Состояния, в которых мозг сам решает, куда смотреть (не «по ходу движения»). */
 /** Досуг, который голод прерывает (работу, сон, очередь и дела — нет). */
-const LEISURE: ReadonlySet<string> = new Set(['walk', 'idle', 'home', 'bench', 'barrel', 'smoke', 'notice', 'listen', 'cards', 'chat']);
+const LEISURE: ReadonlySet<string> = new Set(['walk', 'idle', 'home', 'bench', 'barrel', 'smoke', 'notice', 'listen', 'cards', 'chat', 'mourn']);
+/** Состояния, где житель на улице обязан идти или ждать недолго: стоит без движения дольше STREET.freeze.after — застрял. */
+const FREE_STATES: ReadonlySet<string> = new Set(['idle', 'walk', 'shop', 'shelter']);
 const SELF_FACING = new Set(['brawl', 'crew', 'stopped', 'chat', 'barrel', 'listen', 'bench', 'cards', 'smoke', 'notice', 'canteen', 'shopping']);
 
 /**
@@ -201,6 +204,27 @@ export class CitizenBrain implements Brain {
   private leisureSet: ReadonlySet<number> | null = null;
   /** Комендантский час в квартале: «домой» уже сказано за этот приход. */
   private curfewSaid = false;
+  /**
+   * Укрытие (состояние shelter): когда зашёл, добрался ли; квартал, чей час загнал домой (точка внутри него), — пока
+   * там час, идёт до крыши, даже перейдя границу; страх (shelterFear) — домой в любом случае, час не нужен.
+   */
+  shelterSince = 0;
+  shelterSettled = false;
+  shelterPt: Vec2 | null = null;
+  shelterFear = false;
+  /** Спрятался на улице, а не в помещении: недолго (STREET.curfew.outdoorHide), потом домой. */
+  hideOut = false;
+  /** Памятное место (systems/Memorials.ts): к какому идёт, где встать, близкий ли погибшего; когда был в прошлый раз. */
+  memorial: Memorial | null = null;
+  mournSpot: Vec2 | null = null;
+  mournKin = false;
+  lastMourn = -1e9;
+  /** Предохранитель от застывших на улице: где стоял в начале окна, сколько с не отходил, в какой группе состояний. */
+  private freezeX = 0;
+  private freezeY = 0;
+  private freezeT = 0;
+  /** Сколько раз предохранитель будил застывшего на улице (все мозги, для тестов и аудита). */
+  static unfreezes = 0;
 
   constructor(
     public self: Character,
@@ -213,7 +237,7 @@ export class CitizenBrain implements Brain {
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
-    this.fsm = new StateMachine<CitizenBrain>(this, [CREW, IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT, CANTEEN, SHOPPING, BRAWL_STATE, HIDE, GAWK, REPORT], 'idle');
+    this.fsm = new StateMachine<CitizenBrain>(this, [CREW, IDLE, WALK, STOPPED, FLEE, QUEUE, SHOP, WORK, SHELTER, PANIC, CHAT, BARREL, HOME, LISTEN, BENCH, CARDS, SMOKE, NOTICE, RIOT, CANTEEN, SHOPPING, BRAWL_STATE, HIDE, GAWK, REPORT, MOURN], 'idle');
     // Разносим начальные таймеры, чтобы толпа не двинулась синхронно.
     this.idleLeft = ctx.rng.range(0, AI.citizen.idleTime[1]);
     this.nextHome = ctx.law.now + ctx.rng.range(HOUSING.visit.first[0], HOUSING.visit.first[1]);
@@ -255,8 +279,9 @@ export class CitizenBrain implements Brain {
       // Страх (Senses): паника, укрыться, пойти донести — решено, дальше по новому состоянию.
     } else if (cur !== 'panic' && cur !== 'hide') {
       const now = ctx.law.now;
-      // Комендантский час — городской (красный код) или в квартале, где житель сейчас (или где его дом).
-      const curfew = ctx.war.curfew || this.districtCurfew();
+      // Комендантский час — городской (красный код) или в квартале, где житель сейчас (или где его дом); уже идущий
+      // в укрытие не бросает путь у границы квартала (гистерезис), пока час в квартале не кончился.
+      const curfew = ctx.war.curfew || this.districtCurfew() || (cur === 'shelter' && this.shelterHold(now));
       const shot = !ctx.senses?.enabled && self.panicUntil < now ? ctx.combat.heardShot(self, 220, 0.4) : null;
       // Грузчик с ящиком в конвое на КПП от выстрелов не разбегается — там всегда стреляют.
       // Бандиты от стрельбы не разбегаются (у них свой бой — gangFight), иначе пара распадается.
@@ -267,6 +292,9 @@ export class CitizenBrain implements Brain {
         this.panicFrom = { x: shot.x, y: shot.y };
         this.fsm.change('panic');
       } else if (curfew && cur !== 'shelter') {
+        // Квартальный час: запомнить, где он (точка внутри квартала — по ней держим путь до крыши).
+        this.shelterFear = false;
+        this.shelterPt = ctx.war.curfew ? null : this.curfewPoint();
         this.fsm.change('shelter');
         // Только квартальный час (городского нет) — один раз за приход: «домой».
         if (!ctx.war.curfew && !this.curfewSaid) {
@@ -274,8 +302,7 @@ export class CitizenBrain implements Brain {
           self.say(phrase(ctx.rng, self, ESCALATION.lines.curfewHome), now, 2.5);
         }
       } else if (!curfew && cur === 'shelter') {
-        this.fsm.change('idle');
-        this.curfewSaid = false;
+        this.endShelter();
       } else if (self.profession === 'cook' && ctx.economy.open && !ctx.economy.dispenser && (cur === 'idle' || cur === 'walk')) {
         if (ctx.economy.claimDispenser(self)) {
           this.job = { kind: 'dispense' };
@@ -298,8 +325,69 @@ export class CitizenBrain implements Brain {
     this.mover.update(self, ctx, dt);
     const st = this.fsm.current;
     // Прячется, глазеет, докладывает — на месте смотрит сам (на угрозу, на тело, на сотрудника), на ходу — по ходу.
-    const still = (st === 'hide' || st === 'gawk' || st === 'report') && self.moveSpeed <= 8;
+    const still = (st === 'hide' || st === 'gawk' || st === 'report' || st === 'mourn') && self.moveSpeed <= 8;
     if (!SELF_FACING.has(st) && !still && this.glanceUntil <= ctx.law.now) faceMovement(self, ctx, dt);
+    this.freezeWatch(st, dt);
+  }
+
+  /**
+   * Комендантский час позади или идёт: укрытие больше не нужно. Дома (в помещении) — пересидеть случайное время
+   * STREET.curfew.linger (город выходит на улицы постепенно), на улице — сразу дальше.
+   */
+  private endShelter(): void {
+    const { self, ctx } = this;
+    const C = STREET.curfew;
+    this.curfewSaid = false;
+    this.idleLeft = ctx.war.outdoors(self) ? 1 : ctx.rng.range(C.linger[0], C.linger[1]);
+    this.fsm.change('idle');
+  }
+
+  /**
+   * Пока не добрался до крыши (STREET.curfew.holdMax с), идёт в укрытие, даже если у границы квартала мгновенный час
+   * «мигнул»: час в квартале (shelterPt) ещё идёт или страх велел идти домой (shelterFear).
+   */
+  private shelterHold(now: number): boolean {
+    if (this.shelterSettled || now - this.shelterSince > STREET.curfew.holdMax) return false;
+    if (this.shelterFear) return true;
+    const p = this.shelterPt;
+    return !!p && this.ctx.escalation.tierAt(p.x, p.y) === 3;
+  }
+
+  /** Точка внутри квартала с комендантским часом, который загнал домой: где стоит или где его дом. */
+  private curfewPoint(): Vec2 | null {
+    const { self, ctx } = this;
+    if (ctx.escalation.tierAt(self.x, self.y) === 3) return { x: self.x, y: self.y };
+    const h = ctx.housing?.of(self)?.at;
+    return h ? { x: h.x, y: h.y } : null;
+  }
+
+  /**
+   * Предохранитель: житель на улице, где стоять незачем (idle, walk, shop, shelter), не сдвинулся дальше
+   * STREET.freeze.move px за STREET.freeze.after с — решает заново. Состояния, где стоят по делу (беседа, скамейка,
+   * очередь, работа, дом, сон, драка…), таймер сбрасывают.
+   */
+  private freezeWatch(st: string, dt: number): void {
+    const { self, ctx } = this;
+    const F = STREET.freeze;
+    const moved = Math.hypot(self.x - this.freezeX, self.y - this.freezeY) > F.move;
+    if (moved || !FREE_STATES.has(st)) {
+      this.freezeX = self.x;
+      this.freezeY = self.y;
+      this.freezeT = 0;
+      return;
+    }
+    if ((this.freezeT += dt) < F.after) return;
+    this.freezeT = 0;
+    const now = ctx.law.now;
+    if (
+      !self.alive || self.downed || self.asleep || self.seated || self.smoking || self.law.phase !== 'none' ||
+      this.glanceUntil > now || this.partner || this.inCrew || this.job || this.gawk || ctx.talk?.busy(self) || !ctx.war.outdoors(self)
+    ) return;
+    CitizenBrain.unfreezes++;
+    this.mover.stop();
+    this.mover.yieldFrom = null;
+    this.idleLeft = ctx.rng.range(0.2, 1);
+    this.fsm.change('idle');
   }
 
   /**
@@ -512,7 +600,9 @@ export class CitizenBrain implements Brain {
     const smoke = W.smoke * m('smoke') * out;
     // Друзья (не родня): в гости, чем общительнее и одиночнее — тем охотнее.
     const friend = rel?.enabled && rel.circle(this.self, 'friends', false).length ? RELATIONS.friends.weight * m('family') * (0.4 + rel.persona(this.self).social) * lonely * out : 0;
-    let r = ctx.rng.range(0, chat + barrel + homeW + bench + family + cards + smoke + notice + shopping + friend);
+    // Памятные места: близкие погибшего идут охотно, чужие — изредка, если мемориал рядом.
+    const mourn = this.mournWeight();
+    let r = ctx.rng.range(0, chat + barrel + homeW + bench + family + cards + smoke + notice + shopping + friend + mourn);
     if ((r -= shopping) < 0) return 'shopping';
     if ((r -= chat) < 0) return this.startChat() ? 'chat' : null;
     if ((r -= barrel) < 0) return 'barrel';
@@ -522,7 +612,30 @@ export class CitizenBrain implements Brain {
     if ((r -= cards) < 0) return 'cards';
     if ((r -= smoke) < 0) return 'smoke';
     if ((r -= notice) < 0) return 'notice';
+    if ((r -= mourn) < 0) return this.memorial ? 'mourn' : null;
     return 'home';
+  }
+
+  /**
+   * Вес занятия «mourn» (и выбор мемориала в this.memorial): близкому погибшего (Memorials.forVisitor) — weight × kinMul,
+   * чужому — weight, если мемориал ближе seek px и не ночь. Не чаще раза в cooldown с; не в квартале с комендантским часом.
+   */
+  private mournWeight(): number {
+    const { self, ctx } = this;
+    const M = STREET.mourn;
+    this.memorial = null;
+    const mem = ctx.memorials;
+    if (!mem?.enabled || !mem.list.length || ctx.war.curfew || ctx.law.now - this.lastMourn < M.cooldown) return 0;
+    let m = mem.forVisitor(self);
+    const kin = !!m;
+    if (!m) {
+      if (ctx.routine.night) return 0;
+      m = mem.nearest(self.x, self.y, M.seek);
+    }
+    if (!m || ctx.law.now > m.until || (ctx.escalation.enabled && ctx.escalation.tierAt(m.x, m.y) === 3)) return 0;
+    this.memorial = m;
+    this.mournKin = kin;
+    return M.weight * (kin ? M.kinMul : 1);
   }
 
   /** Беседа окончена: оба расходятся (иногда ведущий уводит собеседника гулять вместе). */
@@ -663,10 +776,15 @@ export class CitizenBrain implements Brain {
       if (cur === 'panic' || (cur === 'hide' && !this.hideHere) || brk === 0) return false;
       if (cur === 'hide') return false;
       // Уже в помещении (дома, в подъезде, в лавке) — не выбегать на улицу, а переждать.
-      if (cur === 'home' || cur === 'shelter' || !ctx.war.outdoors(self)) {
+      if (!ctx.war.outdoors(self)) {
         this.hideHere = true;
         this.fsm.change('hide');
         return true;
+      }
+      // Идёт домой по улице (укрытие, визит домой) — путь не бросает и не прячется посреди улицы: быстрым шагом дальше.
+      if (cur === 'home' || cur === 'shelter') {
+        this.hurryHome(now);
+        return false;
       }
       self.panicUntil = now + S.rng.range(SENSES.panic.time[0], SENSES.panic.time[1]) * (ctx.relations?.panicMul(self) ?? 1);
       this.panicFrom = { x: self.fearX, y: self.fearY };
@@ -706,6 +824,25 @@ export class CitizenBrain implements Brain {
       }
     }
     return false;
+  }
+
+  /** Слово у мемориала: близкий — по имени погибшего, прохожий — сочувственное. */
+  mournSay(m: Memorial, now: number): void {
+    const { self, ctx } = this;
+    if (self.speech && self.speech.until > now) return;
+    const M = STREET.mourn;
+    self.say(phrase(ctx.rng, self, this.mournKin ? M.lines : M.strangerLines).replace(/\{name\}/g, m.name), now, 3);
+  }
+
+  /** Напуган на пути домой: быстрым шагом (не бегом — бег нарушение), иногда вырывается слово. */
+  private hurryHome(now: number): void {
+    const { self, ctx } = this;
+    const S = ctx.senses;
+    this.mover.speed = Math.max(this.mover.speed, Math.min(this.walkSpeed * SENSES.hide.speed, LAW.runSpeed - 8));
+    if (now - this.alertAt > 6 && !(self.speech && self.speech.until > now)) {
+      this.alertAt = now;
+      if (S.rng.chance(0.4)) self.say(phrase(S.rng, self, SENSES.lines.hide), now, 1.8);
+    }
   }
 
   /** Насколько занятие держит при страхе: 2 — бросит при испуге, 3 — только при панике, 0 — не бросит. */
@@ -763,10 +900,14 @@ export class CitizenBrain implements Brain {
     this.tipRetry = 0;
   }
 
-  /** Укрытие: свой дом неподалёку (не в сторону угрозы), иначе ближайшее помещение или двор. */
+  /**
+   * Укрытие, по порядку: свой дом неподалёку (не в сторону угрозы); ближайшее помещение — комната, подъезд, двор
+   * (BFS по якорям, затем список укрытий войны); и только если помещений нет — место за стенами, откуда угрозу не видно.
+   */
   hideGoal(): number {
     const { self, ctx } = this;
     const H = SENSES.hide;
+    const C = STREET.curfew;
     const fx = self.fearX;
     const fy = self.fearY;
     const myD = Math.hypot(self.x - fx, self.y - fy);
@@ -786,10 +927,12 @@ export class CitizenBrain implements Brain {
     if (start < 0) return -1;
     const map = ctx.map;
     const ts = map.tileSize;
+    const blocked = (i: number): boolean => Math.hypot(nav.worldX(i) - fx, nav.worldY(i) - fy) < 96 || this.avoid.has(nav.zone[i]);
+    // Ближайшее помещение (не дверной проём: в нём не спрятаться), не мимо угрозы.
     const path = ctx.bfs.search(
       start,
       H.seek,
-      (i) => Math.hypot(nav.worldX(i) - fx, nav.worldY(i) - fy) < 96 || this.avoid.has(nav.zone[i]),
+      blocked,
       (i) => {
         const x = nav.worldX(i);
         const y = nav.worldY(i);
@@ -798,7 +941,32 @@ export class CitizenBrain implements Brain {
         return Math.hypot(x - fx, y - fy) >= myD * 0.9;
       },
     );
-    return path && path.length ? path[path.length - 1] : -1;
+    if (path && path.length) return path[path.length - 1];
+    // Поиск оборвался (далеко или нет прохода) — укрытие из списка войны: ближайшее по прямой, подальше от угрозы.
+    let best = -1;
+    let bestD: number = C.hideReach;
+    for (const a of ctx.war.shelters) {
+      const x = nav.worldX(a);
+      const y = nav.worldY(a);
+      const dd = Math.hypot(x - self.x, y - self.y);
+      if (dd >= bestD || Math.hypot(x - fx, y - fy) < Math.max(96, myD * 0.9) || this.avoid.has(nav.zone[a])) continue;
+      bestD = dd;
+      best = a;
+    }
+    if (best >= 0) return best;
+    // Помещений нет: за ближайшими стенами, откуда угрозу не видно (и подальше от неё).
+    const cover = ctx.bfs.search(
+      start,
+      C.coverNodes,
+      blocked,
+      () => false,
+      (i) => {
+        const x = nav.worldX(i);
+        const y = nav.worldY(i);
+        return (lineOfSight(map, x, y, fx, fy) ? 0 : 1000) + Math.min(Math.hypot(x - fx, y - fy), 500) - Math.hypot(x - self.x, y - self.y) * 0.5;
+      },
+    );
+    return cover && cover.length ? cover[cover.length - 1] : -1;
   }
 
   /** Зевака: остановиться и поглазеть на драку. */
@@ -2154,21 +2322,29 @@ const shelterGoal = (b: CitizenBrain): number => {
 const SHELTER: State<CitizenBrain> = {
   name: 'shelter',
   enter(b) {
-    b.mover.speed = CHARACTER.walkSpeed * 1.05;
+    // Быстрым шагом, но не бегом: порог бега LAW.runSpeed — нарушение.
+    b.mover.speed = LAW.runSpeed * STREET.curfew.brisk;
     b.mover.avoidZones = b.avoid;
+    b.shelterSince = b.ctx.law.now;
+    b.shelterSettled = false;
     const a = shelterGoal(b);
     if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
   },
   update(b) {
     const st = b.mover.status;
-    if (st === 'arrived') b.mover.stop();
-    else if (st === 'failed' || (st === 'idle' && b.ctx.war.outdoors(b.self))) {
+    if (st === 'arrived') {
+      b.mover.stop();
+      b.shelterSettled = true;
+    } else if (st === 'failed' || (st === 'idle' && b.ctx.war.outdoors(b.self))) {
+      b.shelterSettled = false;
       const a = st === 'failed' ? b.ctx.war.nearestShelter(b.self.x, b.self.y, b.self) : shelterGoal(b);
       if (a >= 0) b.mover.goTo(b.self, b.ctx, a);
-    }
+    } else if (st === 'idle') b.shelterSettled = true;
   },
   exit(b) {
     b.mover.speed = b.walkSpeed;
+    b.shelterFear = false;
+    b.shelterPt = null;
     b.ctx.war.releaseShelter(b.self);
   },
 };
@@ -2291,7 +2467,8 @@ const PANIC: State<CitizenBrain> = {
 
 /**
  * Укрыться (страх, config/senses.ts SENSES.hide): в помещении — переждать на месте; на улице — быстрым шагом домой
- * (если близко и не мимо угрозы) или в ближайший подъезд/двор, там сидеть, пока не отпустит.
+ * (если близко и не мимо угрозы) или в ближайшее помещение (подъезд, двор, комната), там сидеть, пока не отпустит.
+ * Не нашёл помещения и стоит на улице — недолго (STREET.curfew.outdoorHide), потом домой, а не посреди улицы.
  */
 const HIDE: State<CitizenBrain> = {
   name: 'hide',
@@ -2299,20 +2476,21 @@ const HIDE: State<CitizenBrain> = {
     const { ctx, self } = b;
     const H = SENSES.hide;
     b.stayUntil = 0;
+    b.hideOut = false;
     self.asleep = false;
     b.mover.avoidZones = b.avoid;
     b.mover.speed = Math.min(b.walkSpeed * H.speed, LAW.runSpeed - 8);
     ctx.senses?.stats && ctx.senses.stats.hides++;
     if (b.hideHere) {
       b.mover.stop();
-      b.stayUntil = ctx.law.now + ctx.senses.rng.range(H.stay[0], H.stay[1]);
+      hideStay(b);
       return;
     }
     const goal = b.hideGoal();
     if (goal >= 0) b.mover.goTo(self, ctx, goal);
     else {
       b.mover.stop();
-      b.stayUntil = ctx.law.now + ctx.senses.rng.range(H.stay[0], H.stay[1]);
+      hideStay(b);
     }
   },
   update(b, dt) {
@@ -2323,13 +2501,22 @@ const HIDE: State<CitizenBrain> = {
       const st = b.mover.status;
       if (st === 'arrived' || st === 'failed' || st === 'idle') {
         b.mover.stop();
-        b.stayUntil = now + S.rng.range(SENSES.hide.stay[0], SENSES.hide.stay[1]);
+        hideStay(b);
       }
       return;
     }
     // Сидит тихо, смотрит, откуда может прийти беда.
     faceTowards(self, self.fearX, self.fearY, dt);
     if (S.rng.chance(SENSES.hide.lineChance * dt) && !(self.speech && self.speech.until > now)) self.say(phrase(S.rng, self, SENSES.lines.hide), now, 1.8);
+    if (b.hideOut) {
+      // На улице: постоял — и домой (страх не отпустил — тем более), а не стоять у всех на виду.
+      if (now >= b.stayUntil) {
+        b.shelterFear = true;
+        b.shelterPt = null;
+        return 'shelter';
+      }
+      return;
+    }
     if (now >= b.stayUntil && S.tier(self) === 0) {
       b.idleLeft = S.rng.range(1, 3);
       return 'idle';
@@ -2339,8 +2526,19 @@ const HIDE: State<CitizenBrain> = {
     b.mover.speed = b.walkSpeed;
     b.mover.avoidZones = b.avoid;
     b.hideHere = false;
+    b.hideOut = false;
   },
 };
+
+/** Начать сидеть в укрытии: в помещении — обычное время, на улице (или в дверном проёме) — недолго. */
+function hideStay(b: CitizenBrain): void {
+  const { ctx, self } = b;
+  const H = SENSES.hide;
+  const ts = ctx.map.tileSize;
+  const outside = ctx.war.outdoors(self) || ctx.map.tileAt(Math.floor(self.x / ts), Math.floor(self.y / ts)) === T.DOOR;
+  b.hideOut = outside;
+  b.stayUntil = ctx.law.now + (outside ? STREET.curfew.outdoorHide : ctx.senses.rng.range(H.stay[0], H.stay[1]));
+}
 
 /** Зевака у тела (или близкий — горевать): встать неподалёку лицом к телу, переговариваться, потом уйти. */
 const GAWK: State<CitizenBrain> = {
@@ -2705,6 +2903,7 @@ const HOME: State<CitizenBrain> = {
     b.nightSleep = false;
     b.self.asleep = false;
     b.self.sleepAt = null;
+    b.mover.speed = b.walkSpeed;
   },
 };
 
@@ -2965,6 +3164,68 @@ const NOTICE: State<CitizenBrain> = {
   },
   exit(b) {
     b.board = null;
+    b.stayUntil = 0;
+  },
+};
+
+/**
+ * Памятное место (systems/Memorials.ts): подойти к мемориалу, встать лицом к нему на STREET.mourn.stay с, сказать слово.
+ * Пришёл — Memorials.visit (цветы, свечи, слухи). Стоят по делу — предохранитель застывших их не будит.
+ */
+const MOURN: State<CitizenBrain> = {
+  name: 'mourn',
+  enter(b) {
+    const { ctx, self } = b;
+    b.errandRoute();
+    b.stayUntil = 0;
+    b.meetUntil = ctx.law.now + STREET.mourn.giveUp;
+    const m = b.memorial;
+    b.mournSpot = m ? ctx.memorials.spot(m, self) : null;
+    if (!m || !b.mournSpot || !b.goToPoint(b.mournSpot)) {
+      b.memorial = null;
+      b.idleLeft = 0.5;
+    }
+  },
+  update(b, dt) {
+    const M = STREET.mourn;
+    const { ctx, self } = b;
+    const now = ctx.law.now;
+    const m = b.memorial;
+    const spot = b.mournSpot;
+    if (!m || !spot || !ctx.memorials?.list.includes(m) || now > m.until) {
+      b.idleLeft = ctx.rng.range(0.5, 2);
+      return 'idle';
+    }
+    const st = b.mover.status;
+    if (!b.stayUntil) {
+      if (st === 'failed' || now > b.meetUntil) {
+        b.idleLeft = ctx.rng.range(0.5, 2);
+        return 'idle';
+      }
+      if (st === 'arrived' || Math.hypot(spot.x - self.x, spot.y - self.y) < 12) {
+        b.mover.stop();
+        b.stayUntil = now + ctx.rng.range(M.stay[0], M.stay[1]);
+        b.nextLine = now + (b.stayUntil - now) * 0.55;
+        b.lastMourn = now;
+        // Слово при приходе говорит сама Memorials.visit — своё не добавляем.
+        ctx.memorials.visit(self, m);
+      } else if (st === 'idle') b.goToPoint(spot);
+      return;
+    }
+    faceTowards(self, m.x, m.y, dt);
+    // Посреди стояния — ещё слово (Memorials.visit уже сказал своё при приходе).
+    if (b.nextLine > 0 && now >= b.nextLine) {
+      b.nextLine = 0;
+      if (ctx.rng.chance(M.lineChance)) b.mournSay(m, now);
+    }
+    if (now >= b.stayUntil) {
+      b.idleLeft = ctx.rng.range(1, 3);
+      return 'idle';
+    }
+  },
+  exit(b) {
+    b.memorial = null;
+    b.mournSpot = null;
     b.stayUntil = 0;
   },
 };

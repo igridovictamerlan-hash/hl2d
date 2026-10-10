@@ -22,6 +22,9 @@ import { GRENADE, MINE } from '../config/combat';
 import { FACTIONS } from '../config/factions';
 import { lineOfSight } from './visibility';
 import { smokeCycle } from '../entities/poses';
+import type { Memorial } from '../systems/Memorials';
+import { MEMORIALS } from '../config/memorials';
+import { hash2 } from '../core/rng';
 
 /** Буфер цикла перекура (без выделения памяти на кадр). */
 const smokeState = { raise: 0, exhale: -1 };
@@ -1147,6 +1150,127 @@ export class EffectsRenderer {
       ctx.fillText(label, tx, ty);
     }
     ctx.textBaseline = 'alphabetic';
+  }
+
+  /**
+   * Памятные места: снимок в рамке у стены, цветы (букеты по два-три цвета) и свечи в стаканчиках с мерцающим
+   * пламенем. Без save/restore и градиентов; размеры — в px мира × масштаб; расположение — по номеру места.
+   */
+  drawMemorials(ctx: CanvasRenderingContext2D, v: View, list: readonly Memorial[], now: number): void {
+    if (!list.length) return;
+    const L = MEMORIALS.look;
+    const S = L.sign;
+    const C = L.candle;
+    const F = L.flower;
+    const s = v.scale;
+    const pad = L.pad * s;
+    const TAU = Math.PI * 2;
+    const nFlower = L.flowers.length;
+    for (let k = 0; k < list.length; k++) {
+      const m = list[k];
+      const x = (m.x - v.left) * s;
+      const y = (m.y - v.top) * s;
+      if (x < -pad || y < -pad || x > v.width + pad || y > v.height + pad) continue;
+      // u — вдоль стены, w — от стены; в экран: X = x + (tx·u + nx·w)·s.
+      const nx = m.nx;
+      const ny = m.ny;
+      const tx = -ny;
+      const ty = nx;
+      const side = Math.abs(nx) > 0.5;
+      /** Прямоугольник: a — вдоль стены, b — от стены (стена вертикальная — оси меняются местами). */
+      const rect = (u: number, w: number, a: number, b: number): void => {
+        const cx = x + (tx * u + nx * w) * s;
+        const cy = y + (ty * u + ny * w) * s;
+        const rw = (side ? b : a) * s;
+        const rh = (side ? a : b) * s;
+        ctx.fillRect(cx - rw / 2, cy - rh / 2, rw, rh);
+      };
+      // Снимок у стены.
+      const sw = -(L.wallGap - S.d / 2 - 0.3);
+      ctx.fillStyle = L.outline;
+      rect(0, sw, S.w + 1.6, S.d + 1.6);
+      ctx.fillStyle = S.frame;
+      rect(0, sw, S.w, S.d);
+      ctx.fillStyle = S.frameLight;
+      rect(0, sw + S.d / 2 - 0.7, S.w - 1, 0.9);
+      ctx.fillStyle = S.paper;
+      rect(0, sw, S.w - 3, S.d - 2.2);
+      ctx.fillStyle = S.photo;
+      rect(-1.6, sw, 4.2, S.d - 3);
+      ctx.fillStyle = S.ribbon;
+      rect(S.w / 2 - 3.4, sw, 2.6, S.d - 2.2);
+      // Цветы: ряд перед снимком от середины в стороны; к концу срока блекнут.
+      const nf = Math.min(m.flowers, L.maxFlowers);
+      if (nf > 0) {
+        ctx.globalAlpha = m.until - now < MEMORIALS.ttl * (1 - L.wilt.from) ? L.wilt.alpha : 1;
+        for (let i = 0; i < nf; i++) {
+          const h = hash2(m.id, i, 0xf10);
+          const slot = i & 1 ? (i + 1) >> 1 : -(i >> 1);
+          const u = slot * L.step + ((h & 7) - 3.5) * 0.25;
+          const w = F.row + (((h >> 3) & 3) - 1.5) * 0.5;
+          const cx = x + (tx * u + nx * w) * s;
+          const cy = y + (ty * u + ny * w) * s;
+          ctx.fillStyle = L.outline;
+          ctx.beginPath();
+          ctx.arc(cx, cy, F.outline * s, 0, TAU);
+          ctx.fill();
+          ctx.fillStyle = L.wrap;
+          ctx.beginPath();
+          ctx.arc(cx, cy, F.wrap * s, 0, TAU);
+          ctx.fill();
+          const a0 = ((h >> 5) % 360) * (Math.PI / 180);
+          for (let b = 0; b < 3; b++) {
+            const a = a0 + b * (TAU / 3);
+            ctx.fillStyle = b === 0 && h & 0x4000 ? L.stem : L.flowers[((h >> (8 + b * 3)) & 7) % nFlower];
+            ctx.beginPath();
+            ctx.arc(cx + Math.cos(a) * F.spread * s, cy + Math.sin(a) * F.spread * s, F.bloom * s, 0, TAU);
+            ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+      // Свечи: ряд ближе к людям; пламя мерцает у каждой по-своему.
+      const nc = Math.min(m.candles, L.maxCandles);
+      for (let i = 0; i < nc; i++) {
+        const h = hash2(m.id, i, 0xca7d1e);
+        const slot = i & 1 ? (i + 1) >> 1 : -(i >> 1);
+        const u = slot * L.step * 1.1 + ((h & 7) - 3.5) * 0.2;
+        const w = C.row + (((h >> 3) & 3) - 1.5) * 0.5;
+        const cx = x + (tx * u + nx * w) * s;
+        const cy = y + (ty * u + ny * w) * s;
+        ctx.fillStyle = L.outline;
+        ctx.beginPath();
+        ctx.arc(cx, cy, (C.radius + 0.9) * s, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = C.glass;
+        ctx.beginPath();
+        ctx.arc(cx, cy, C.radius * s, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = C.glassLight;
+        ctx.beginPath();
+        ctx.arc(cx - 0.7 * s, cy - 0.7 * s, C.radius * 0.45 * s, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = C.wax;
+        ctx.beginPath();
+        ctx.arc(cx, cy, C.radius * 0.55 * s, 0, TAU);
+        ctx.fill();
+        const fl = 1 + C.flicker * Math.sin(now * 13 + (h & 63)) * Math.sin(now * 7.1 + (h >> 6 & 63));
+        ctx.globalAlpha = C.haloAlpha * (0.75 + 0.25 * fl);
+        ctx.fillStyle = C.halo;
+        ctx.beginPath();
+        ctx.arc(cx, cy, C.flameRadius * 3 * s * fl, 0, TAU);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = C.flame;
+        ctx.beginPath();
+        ctx.arc(cx, cy, C.flameRadius * s * fl, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = C.core;
+        ctx.beginPath();
+        ctx.arc(cx, cy, C.flameRadius * 0.5 * s * fl, 0, TAU);
+        ctx.fill();
+      }
+    }
   }
 
   /** Полоска прогресса действия над игроком (люк, саботаж, ремонт). */

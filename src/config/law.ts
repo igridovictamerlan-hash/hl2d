@@ -40,6 +40,11 @@ export const LAW = {
 
   /** Штрафы. zone_curfew — комендантский час в квартале (район, а не весь город): штраф и «по домам», не арест. */
   fines: { running: 5, restricted: 15, insult: 12, fight: 15, zone_curfew: 15 },
+  /**
+   * Комендантский час в квартале: пойманного повторно в течение zoneCurfewRepeat с после штрафа за него же не штрафуют,
+   * а задерживают (штраф «по домам» не подействовал).
+   */
+  zoneCurfewRepeat: 300,
   /** За что арест (иначе штраф). */
   arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot', 'contraband', 'forgery', 'murder', 'assault'] as readonly string[],
   /** Дознаватели JURY: проверка быстрее, штраф больше. */
