@@ -1,6 +1,3 @@
-import { appendFileSync } from 'node:fs';
-const LOG = '/tmp/claude-0/-home-user-hl2d/219688ed-6672-5525-b817-423a142b703e/scratchpad/vals.log';
-const rec = (o: Record<string, unknown>) => appendFileSync(LOG, JSON.stringify(o) + '\n');
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { spawnRole } from '../src/systems/Roster';
@@ -200,9 +197,9 @@ function crimeSpot(sim: Sim): { c: P; seen: P[] } {
   throw new Error('нет места для убийства');
 }
 
-/** Сколько раз житель (по номеру CID) оштрафован или задержан за комендантский час в квартале — по журналу. */
-function zoneStops(sim: Sim, cid: string): number {
-  return sim.log.filter((l) => l.includes(`#${cid} `) && l.includes('комендантский час в квартале') && (l.includes('оштрафовал') || l.includes('задержал'))).length;
+/** Сколько раз житель (по номеру CID) получил запись в журнале за комендантский час в квартале: штраф или арест. */
+function zoneLog(sim: Sim, cid: string, verb: 'оштрафовал' | 'задержал'): number {
+  return sim.log.filter((l) => l.includes(`#${cid} `) && l.includes('комендантский час в квартале') && l.includes(verb)).length;
 }
 
 describe('Город реагирует 2.0', () => {
@@ -238,7 +235,7 @@ describe('Город реагирует 2.0', () => {
       H.house(citizen(sim, at));
     }
     // Упрямец: один житель стоит на улице и домой не идёт (мозг его не ведёт) — на нём проверяем окрик и штраф.
-    // Он в прямой видимости патрульного ВС, который стоит рядом (60–110 px), — тот его и заметит.
+    // Он в прямой видимости постового ВС (60–110 px), — тот его и заметит.
     const pair = watchPair(sim, zid);
     const residents = () => sim.entities.list.filter((c) => c.faction === 'citizen' && c.alive && c.home >= 0 && sim.map.zoneAtWorld(H.dwellings[c.home].at.x, H.dwellings[c.home].at.y)?.id === zid);
     const outdoorsOf = (list: Character[]) => list.filter((c) => sim.ctx.war.outdoors(c)).length;
@@ -276,13 +273,15 @@ describe('Город реагирует 2.0', () => {
       }
     }
     const end = outdoorsOf(walkers);
-    rec({ test: 'curfew', start, end, walkers: walkers.length, warns: sim.ctx.escalation.stats.warns, stubbornStops: zoneStops(sim, stubborn.cid), stubbornLog: sim.log.filter((l) => l.includes(`#${stubborn.cid} `)), allStops: sim.entities.list.filter((c) => c.faction === 'citizen').reduce((n, c) => n + zoneStops(sim, c.cid), 0), unfreezes: CitizenBrain.unfreezes, hideMax, tier: sim.ctx.escalation.tier[zid] });
     expect(end, `жители квартала на улице: было ${start}, стало ${end}`).toBeLessThanOrEqual(Math.max(1, start * 0.2));
-    // Упрямца окликнули (ступень за ним следит), и он не оштрафован и не задержан за час больше одного раза.
+    // Идущих домой не останавливают (нарушения нет — они в укрытии).
+    expect(walkers.filter((c) => zoneLog(sim, c.cid, 'оштрафовал') + zoneLog(sim, c.cid, 'задержал') > 0)).toHaveLength(0);
+    // Упрямца окликнули; штраф — после отсрочки и паузы между проверками CID. Ждём его (ещё до 150 с).
     expect(sim.ctx.escalation.stats.warns).toBeGreaterThanOrEqual(1);
-    expect(zoneStops(sim, stubborn.cid)).toBeLessThanOrEqual(1);
-    const worst = Math.max(0, ...sim.entities.list.filter((c) => c.faction === 'citizen').map((c) => zoneStops(sim, c.cid)));
-    expect(worst).toBeLessThanOrEqual(1);
+    expect(run(sim, 150, () => zoneLog(sim, stubborn.cid, 'оштрафовал') > 0)).toBe(true);
+    // Никого не оштрафовали за час в квартале больше одного раза (повторно — арест, LAW.zoneCurfewRepeat).
+    const fines = Math.max(0, ...sim.entities.list.filter((c) => c.faction === 'citizen').map((c) => zoneLog(sim, c.cid, 'оштрафовал')));
+    expect(fines).toBeLessThanOrEqual(1);
     expect(CitizenBrain.unfreezes).toBeLessThan(5);
     expect(hideMax).toBeLessThanOrEqual(10);
   });
@@ -338,11 +337,10 @@ describe('Город реагирует 2.0', () => {
     // Штраф — не раньше чем через grace после окрика. Окно побольше: между проверками CID есть перерыв (recheck).
     let tFine = -1;
     expect(run(sim, 240, () => {
-      if (zoneStops(sim, c.cid) > 0) tFine = sim.law.now;
-      return zoneStops(sim, c.cid) > 0;
+      if (zoneLog(sim, c.cid, 'оштрафовал') > 0) tFine = sim.law.now;
+      return zoneLog(sim, c.cid, 'оштрафовал') > 0;
     })).toBe(true);
     expect(tFine - tWarn).toBeGreaterThanOrEqual(W.grace);
-    expect(sim.log.some((l) => l.includes(`#${c.cid} `) && l.includes('оштрафовал'))).toBe(true);
   });
 
   test('поквартирный обход: после известного убийства ВС стучит в дома рядом, в том числе к молчащему свидетелю', { timeout: 120_000 }, () => {
@@ -386,9 +384,7 @@ describe('Город реагирует 2.0', () => {
     expect(S.stats.canvass).toBeGreaterThanOrEqual(1);
     // Опрос у первой двери (дом вора) закончился: обход пошёл к следующей двери (cv.i растёт после ответа жильцов).
     // Рассказал ли вор (hardTalk — редко) — S.stats.canvassTold, не проверяем: это шанс.
-    const okI = run(sim, 15, () => cv.i >= 1);
-    rec({ test: 'canvass', knocks: S.stats.knocks, canvass: S.stats.canvass, canvassTold: S.stats.canvassTold, cvI: cv.i, okI, thiefSpeech: thief.speech?.text ?? null, witnesses: cs.witnesses.size, told: [...cs.witnesses.values()].map((w) => [w.will, w.told]) });
-    expect(okI).toBe(true);
+    expect(run(sim, 15, () => cv.i >= 1)).toBe(true);
   });
 
   test('мемориал и родня: после гибели мирного — памятное место, родня приходит, чужие — нет', { timeout: 120_000 }, () => {
