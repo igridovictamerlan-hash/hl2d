@@ -76,6 +76,9 @@ type Job =
   | { kind: 'haul'; task: HaulTask; carry: boolean; until: number; done?: boolean; fails?: number }
   | { kind: 'armory'; task: ArmorerTask; stage: 'pick' | 'bench' | 'drop'; until: number; t: number; done?: boolean; fails?: number };
 
+/** Что делает руками на работе (отрисовка): инструмент, письмо, нагнулся. */
+const WORK_TASK: Partial<Record<string, 'tool' | 'write' | 'crouch'>> = { pack: 'tool', repair: 'tool', armory: 'tool', cookpot: 'tool', clean: 'tool', scavenge: 'tool', paper: 'write', clerk: 'write', office: 'write', heal: 'crouch', loot: 'crouch' };
+
 /** Чем отличаются гражданин, рабочий ТС и повстанец в поведении «на улице». */
 export interface StreetProfile {
   /** Шанс пойти в «свою» зону вместо случайной точки. */
@@ -232,6 +235,7 @@ export class CitizenBrain implements Brain {
       return;
     }
     const cur = this.fsm.current;
+    self.task = cur === 'panic' || cur === 'flee' ? 'panic' : cur === 'work' && this.job ? WORK_TASK[this.job.kind] ?? '' : '';
     if ((phase === 'ordered' || phase === 'checking') && cur === 'crew') {
       // Ведомого проверяет ВС — стоит, но из пары не уходит (ведущий ждёт).
       this.mover.stop();
@@ -2594,6 +2598,7 @@ const BENCH: State<CitizenBrain> = {
       if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
         b.mover.stop();
         b.stayUntil = now + ctx.rng.range(B.time[0], B.time[1]);
+        self.seated = 'sit';
         b.nextLine = now + ctx.rng.range(1, 2.5);
       } else if (st === 'idle') b.goToPoint(seat);
       return;
@@ -2629,6 +2634,7 @@ const BENCH: State<CitizenBrain> = {
     b.ctx.talk.stop(b.self);
     b.ctx.street.releaseBenchSeat(b.self);
     b.bench = null;
+    b.self.seated = '';
     b.stayUntil = 0;
   },
 };
@@ -2672,6 +2678,7 @@ const HOME: State<CitizenBrain> = {
         const wake = b.nightSleep ? ctx.routine.untilWake(self) : 0;
         b.stayUntil = now + (wake > 0 ? wake + ctx.rng.range(0, 15) : ctx.rng.range(lo, hi));
         self.asleep = b.sleeping;
+        self.sleepAt = b.sleeping ? ctx.housing.of(self)?.bedBox ?? null : null;
         if (b.sleeping) ctx.housing.stats.sleeps++;
         if (ctx.rng.chance(0.3)) self.say(phrase(ctx.rng, self, b.sleeping ? H.lines.sleep : H.lines.home), now, 2);
       }
@@ -2697,6 +2704,7 @@ const HOME: State<CitizenBrain> = {
     b.sleeping = false;
     b.nightSleep = false;
     b.self.asleep = false;
+    b.self.sleepAt = null;
   },
 };
 
@@ -2724,6 +2732,7 @@ const CARDS: State<CitizenBrain> = {
       if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
         b.mover.stop();
         b.stayUntil = now + ctx.rng.range(C.time[0], C.time[1]);
+        self.seated = 'cards';
         b.nextLine = now + ctx.rng.range(1, 3);
       } else if (st === 'idle') b.goToPoint(seat);
       return;
@@ -2744,6 +2753,7 @@ const CARDS: State<CitizenBrain> = {
   exit(b) {
     b.ctx.street.releaseTableSeat(b.self);
     b.table = null;
+    b.self.seated = '';
     b.stayUntil = 0;
   },
 };
@@ -2789,6 +2799,7 @@ const CANTEEN: State<CitizenBrain> = {
       if (st === 'arrived' || Math.hypot(seat.x - self.x, seat.y - self.y) < 10) {
         b.mover.stop();
         b.stayUntil = now + ctx.rng.range(M.eat[0], M.eat[1]);
+        self.seated = 'eat';
         b.nextLine = now + ctx.rng.range(1, 4);
       } else if (st === 'idle') b.goToPoint(seat);
       return;
@@ -2813,6 +2824,7 @@ const CANTEEN: State<CitizenBrain> = {
     b.ctx.talk.stop(b.self);
     b.ctx.shops.releaseSeat(b.self);
     b.seat = null;
+    b.self.seated = '';
     b.stayUntil = 0;
     b.soupFirst = false;
     // Не доел (ВС, стрельба) — миска остаётся на столе.

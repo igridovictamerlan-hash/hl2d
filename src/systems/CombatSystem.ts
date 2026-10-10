@@ -103,6 +103,8 @@ export interface Corpse {
   /** Кто убил (для сканирования OBS) и отсканировано ли уже. */
   killer: Character | null;
   scanned?: boolean;
+  /** Упал: когда и в какую сторону (анимация падения, только отрисовка). */
+  fell?: { at: number; ang: number };
   /** Сжигает санитар: до этого времени горит, потом исчезает; кто сжигает. */
   burning?: number;
   cremator?: Character | null;
@@ -720,6 +722,7 @@ export class CombatSystem {
     }
     target.health -= amount;
     target.lastHurt = this.time;
+    if (attacker && attacker !== target) target.hurtAng = Math.atan2(target.y - attacker.y, target.x - attacker.x);
     target.lastAttacker = attacker;
     if (zone) target.lastZone = zone;
     this.press(target, SUPPRESS.hit);
@@ -940,7 +943,7 @@ export class CombatSystem {
     c.weapon = null;
     c.mag = 0;
     c.mags = {};
-    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot, pid: c.pid, t: this.time, weapon: killer?.weapon ? WEAPONS[killer.weapon].class : null });
+    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot, pid: c.pid, t: this.time, weapon: killer?.weapon ? WEAPONS[killer.weapon].class : null, fell: { at: this.time, ang: c.lastAttacker ? Math.atan2(c.y - c.lastAttacker.y, c.x - c.lastAttacker.x) : c.facing + Math.PI } });
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
     if (c.law.phase !== 'none') this.law.release(c);
@@ -1072,6 +1075,8 @@ export class CombatSystem {
     c.inventory.remove(k, 1);
     c.nextGrenade = this.time + G.cooldown;
     c.facing = ang;
+    c.throwAt = this.time;
+    c.throwAng = ang;
     const fuse = k === 'smoke_grenade' ? G.smoke.fuse : k === 'fire_grenade' ? G.fire.fuse : G.fuse;
     const g: Grenade = {
       kind: k, x: c.x, y: c.y, x0: c.x, y0: c.y, x1: c.x + dx * land, y1: c.y + dy * land,

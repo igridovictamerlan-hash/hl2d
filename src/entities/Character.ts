@@ -150,6 +150,8 @@ export class Character {
   squadLead: Character | null = null;
   /** Курит (уличная жизнь) — огонёк и дымок у пешки. */
   smoking = false;
+  /** Сидит на месте (только отрисовка, entities/poses.ts): скамейка, стол с картами, столовая — и что делает. */
+  seated: '' | 'sit' | 'cards' | 'eat' = '';
   /** Пишет в блокноте (медик на месте преступления) до этого времени закона — сидит, блокнот в руках. */
   notepadUntil = 0;
 
@@ -161,6 +163,8 @@ export class Character {
   hunger: number = ECONOMY.hunger.max;
   /** Спит (в кровати): сытость тает медленнее (ECONOMY.hunger.sleepMul). */
   asleep = false;
+  /** Кровать, на которой спит (центр и размер, px): пешка рисуется лёжа на ней (только отрисовка); null — у койки без кровати. */
+  sleepAt: { x: number; y: number; w: number; h: number } | null = null;
   /** Оружие в руках (предмет из инвентаря) или null. */
   weapon: WeaponId | null = null;
   /** Надетое снаряжение (шлем, бронежилет, рюкзак) — не в ячейках инвентаря (systems/Gear). */
@@ -221,6 +225,20 @@ export class Character {
   stunUntil = 0;
   /** Ближний бой: удар и серия, блок, сбит, нокаут (systems/Melee.ts). */
   readonly melee: MeleeState = newMeleeState();
+  /** Только для отрисовки (entities/poses.ts): когда и куда бил (кулак, дубинка, нож), когда бросал гранату, откуда пришёл удар. */
+  strikeAt = -1e9;
+  strikeAng = 0;
+  strikeKind: '' | 'fist' | 'club' | 'blade' = '';
+  throwAt = -1e9;
+  throwAng = 0;
+  hurtAng = 0;
+  /** Чем занят руками на работе (только отрисовка): инструмент, письмо, нагнулся над чем-то. */
+  task: '' | 'tool' | 'write' | 'crouch' | 'panic' = '';
+  /** Кивает собеседнику с этого времени; отдаёт честь офицеру до этого времени (только отрисовка). */
+  nodAt = -1e9;
+  saluteUntil = 0;
+  /** Строевой шаг (курсанты на плацу) — только отрисовка. */
+  marching = false;
   /** Множитель желаемой скорости (оглушение). Ставит CombatSystem, применяет физика. */
   speedMul = 1;
   /** Сколько секунд ещё проходит сквозь других NPC (разбор затора, Mover); игрока не проходит. */

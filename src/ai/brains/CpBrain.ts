@@ -1132,7 +1132,10 @@ function postLife(b: CpBrain, dt: number): void {
   let face = b.postSpot ? b.postFace + rng.range(-0.02, 0.02) : b.postFace;
   let passer: Character | null = null;
   let pd: number = P.watch;
+  const myCommand = cpUnit(self.rank).command;
   for (const o of ctx.entities.near(self.x, self.y, P.watch, near)) {
+    // Офицер рядом — честь (не чаще раза в saluteEvery с).
+    if (o !== self && o.alive && o.faction === 'cp' && now >= self.saluteUntil + P.saluteEvery && cpUnit(o.rank).command > myCommand && dist(self.x, self.y, o.x, o.y) < P.saluteDist) self.saluteUntil = now + P.saluteTime;
     if (o === self || !o.alive || o.moveSpeed < 20 || FACTIONS[o.faction].authority) continue;
     const d = dist(self.x, self.y, o.x, o.y);
     if (d < pd) {
