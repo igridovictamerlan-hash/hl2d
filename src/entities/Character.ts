@@ -9,6 +9,7 @@ import type { Brain } from '../ai/Brain';
 import type { Violation } from '../config/law';
 import type { CadetRecord } from '../config/academy';
 import type { AccessSite } from '../config/access';
+import { newMeleeState, type MeleeState } from './meleeState';
 
 /**
  * Этапы разбирательства с законом:
@@ -218,6 +219,8 @@ export class Character {
   lastZone: 'head' | 'torso' | 'arm' | 'leg' | 'blast' | null = null;
   /** Оглушён (дубинкой) до этого времени. */
   stunUntil = 0;
+  /** Ближний бой: удар и серия, блок, сбит, нокаут (systems/Melee.ts). */
+  readonly melee: MeleeState = newMeleeState();
   /** Множитель желаемой скорости (оглушение). Ставит CombatSystem, применяет физика. */
   speedMul = 1;
   /** Сколько секунд ещё проходит сквозь других NPC (разбор затора, Mover); игрока не проходит. */

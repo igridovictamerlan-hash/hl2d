@@ -6,6 +6,7 @@ import { Rng } from '../core/rng';
 import { RENDER } from '../config/render';
 import { GRENADE } from '../config/combat';
 import { SUPPRESS } from '../config/tactics';
+import { MELEE } from '../config/melee';
 
 /** Виды частиц (индекс — порядок отрисовки). */
 const enum K {
@@ -22,18 +23,19 @@ const enum K {
   Energy,
   Flash,
   Muzzle,
+  Impact,
 }
-const KINDS = 13;
+const KINDS = 14;
 
 const P = RENDER.particles;
 const COLOR: string[] = [
   P.colors.dust, P.colors.smoke, P.colors.darkSmoke, P.colors.bloodMist, P.colors.blood, P.colors.debris,
-  P.colors.fire, P.colors.fireCore, P.colors.ember, P.colors.spark, P.colors.energy, P.colors.flash, P.colors.muzzle,
+  P.colors.fire, P.colors.fireCore, P.colors.ember, P.colors.spark, P.colors.energy, P.colors.flash, P.colors.muzzle, P.colors.impact,
 ];
 /** Прозрачность в начале жизни (дальше — к нулю). */
-const ALPHA = [0.35, 0.55, 0.65, 0.45, 0.95, 1, 0.85, 0.95, 1, 1, 1, 0.9, 1];
-/** Рисовать чёрточкой по скорости (искры) или кружком. */
-const STREAK = [false, false, false, false, false, false, false, false, true, true, true, false, false];
+const ALPHA = [0.35, 0.55, 0.65, 0.45, 0.95, 1, 0.85, 0.95, 1, 1, 1, 0.9, 1, 0.85];
+/** Рисовать чёрточкой по скорости (искры, линии удара) или кружком. */
+const STREAK = [false, false, false, false, false, false, false, false, true, true, true, false, false, true];
 
 /**
  * Частицы боя (только отрисовка, у логики их нет): читают новые эффекты боя (CombatSystem.fx) и
@@ -61,6 +63,8 @@ export class Particles {
   private seq = 0;
   /** Тряска экрана (px экрана), вспышка ранения 0..1, маркер попадания. */
   shake = 0;
+  /** Замирание кадра от удара в ближнем бою (реальные секунды; Game замедляет время, пока > 0). */
+  hitstop = 0;
   hurt = 0;
   marker = 0;
   markerKill = false;
@@ -134,6 +138,11 @@ export class Particles {
     this.shake = Math.min(P.maxShake, this.shake + v);
   }
 
+  /** Замереть на t реальных секунд (удар в ближнем бою у игрока). */
+  private stop(t: number): void {
+    this.hitstop = Math.max(this.hitstop, t);
+  }
+
   private spawn(f: Fx, player: Character): void {
     const r = this.rng;
     const fromPlayer = f.by === player;
@@ -168,20 +177,69 @@ export class Particles {
         }
         break;
       }
+      case 'swing': {
+        // Дубинка трещит разрядом на взмахе; тяжёлый удар — пыль из-под ног бьющего.
+        if (f.style === 'baton') this.fan(K.Energy, f.heavy ? 4 : 2, f.x, f.y, f.ang, 0.6, [40, 120], [0.06, 0.14], [1, 1], 0, 6);
+        if (f.heavy && f.by) this.fan(K.Dust, 3, f.by.x, f.by.y + 8, f.ang + Math.PI, 0.9, [20, 60], [0.3, 0.6], [2, 3.2], 8, 4);
+        break;
+      }
       case 'stab': {
-        const blade = f.cls === 'blade';
-        if (blade) {
-          this.fan(K.Blood, f.lethal ? 14 : 9, f.x, f.y, f.ang + Math.PI / 2, 0.8, [40, 150], [0.3, 0.6], [1, 2], 0, 7);
-          this.fan(K.BloodMist, 1, f.x, f.y, f.ang, 0.3, [10, 30], [0.3, 0.5], [3, 5], 12, 4);
-        } else this.fan(K.Energy, 7, f.x, f.y, f.ang + Math.PI, 1.3, [60, 180], [0.1, 0.25], [1, 1], 0, 5);
+        const style = f.style ?? (f.cls === 'blade' ? 'blade' : 'baton');
+        const heavy = !!f.heavy;
+        const head = f.zone === 'head';
+        this.add(K.Flash, f.x, f.y, 0, 0, 0.05, style === 'baton' ? 5 : heavy ? 4.5 : 3.2);
+        if (style === 'blade') {
+          // Кровь — по ходу клинка; в спину и тычком — гуще.
+          this.fan(K.Blood, f.lethal ? 16 : heavy ? 12 : 8, f.x, f.y, f.ang, 0.45, [60, 210], [0.3, 0.6], [1, 2], 0, 7);
+          this.fan(K.BloodMist, f.lethal || heavy ? 2 : 1, f.x, f.y, f.ang, 0.3, [10, 30], [0.3, 0.5], [3, 5], 12, 4);
+        } else {
+          // Линии удара веером от точки попадания; в голову или тяжёлым — капли крови.
+          this.fan(K.Impact, heavy ? 8 : 5, f.x, f.y, f.ang + Math.PI, 1.3, [150, 260], [0.07, 0.13], [0.9, 1.3], 0, 9);
+          if (style === 'baton') this.fan(K.Energy, heavy ? 12 : 7, f.x, f.y, f.ang + Math.PI, 1.3, [60, 180], [0.1, 0.25], [1, 1], 0, 5);
+          if ((head || heavy) && f.power > 4) this.fan(K.Blood, heavy ? 5 : 3, f.x, f.y, f.ang, 0.5, [50, 150], [0.25, 0.45], [0.8, 1.5], 0, 7);
+          else this.fan(K.Dust, 2, f.x, f.y, f.ang, 0.7, [15, 40], [0.25, 0.4], [1.8, 2.6], 6, 4);
+        }
+        if (heavy) this.rings.push({ x: f.x, y: f.y, t: 0, life: 0.18, r: 16 });
         if (fromPlayer) {
-          this.addShake(blade ? 2.5 : 1.5);
+          this.addShake(MELEE.shake[style] * (heavy ? MELEE.shake.heavyMul : 1));
           this.marker = P.markerTime;
           this.markerKill = !(f.target?.alive ?? true);
+          this.stop(heavy ? MELEE.hitstop.heavy : MELEE.hitstop.hit);
         }
         if (f.target === player) {
           this.addShake(P.hurt + f.power * P.hurtPerDamage);
-          this.hurt = Math.min(1, this.hurt + 0.4);
+          this.hurt = Math.min(1, this.hurt + 0.3 + f.power * 0.01);
+          this.stop(heavy ? MELEE.hitstop.heavy : MELEE.hitstop.hit);
+        }
+        break;
+      }
+      case 'block':
+      case 'parry': {
+        // Оружие об оружие — искры; кулаки и предплечья — глухой удар (пыль, линии).
+        const parry = f.kind === 'parry';
+        const metal = f.style !== 'fists' && f.guard !== 'fists';
+        this.add(K.Flash, f.x, f.y, 0, 0, 0.05, parry ? 6 : metal ? 4 : 3);
+        if (metal) this.fan(K.Spark, parry ? 12 : 7, f.x, f.y, f.ang + Math.PI, 1.2, [120, 340], [0.06, 0.16], [1, 1], 0, 6);
+        else this.fan(K.Impact, parry ? 6 : 3, f.x, f.y, f.ang + Math.PI, 1.1, [120, 220], [0.06, 0.11], [0.9, 1.2], 0, 9);
+        this.fan(K.Dust, 2, f.x, f.y, f.ang, 0.8, [15, 40], [0.25, 0.4], [1.8, 2.6], 6, 4);
+        // Голыми руками от ножа — порез по рукам.
+        if (f.style === 'blade' && f.guard === 'fists' && f.power > 0) this.fan(K.Blood, 4, f.x, f.y, f.ang, 0.5, [40, 120], [0.25, 0.45], [0.8, 1.4], 0, 7);
+        if (parry || f.heavy) this.rings.push({ x: f.x, y: f.y, t: 0, life: 0.2, r: parry ? 14 : 18 });
+        if (fromPlayer || f.target === player) {
+          this.addShake(MELEE.shake.block * (parry || f.heavy ? 1.5 : 1));
+          this.stop(parry ? MELEE.hitstop.parry : f.heavy ? MELEE.hitstop.heavy : MELEE.hitstop.hit);
+        }
+        if (f.kind === 'block' && f.target === player && f.power > 0) this.hurt = Math.min(1, this.hurt + 0.12 + f.power * 0.01);
+        break;
+      }
+      case 'ko': {
+        // Нокаут: линии удара от головы, пыль от падения, волна.
+        this.fan(K.Impact, 8, f.x, f.y - 8, 0, Math.PI, [140, 240], [0.08, 0.15], [1, 1.4], 0, 9);
+        this.fan(K.Dust, 5, f.x, f.y + 6, 0, Math.PI, [20, 70], [0.4, 0.8], [2.2, 3.4], 8, 3);
+        this.rings.push({ x: f.x, y: f.y, t: 0, life: 0.25, r: 22 });
+        if (fromPlayer || f.target === player) {
+          this.addShake(2.5);
+          this.stop(MELEE.hitstop.parry);
         }
         break;
       }

@@ -29,6 +29,8 @@ import type { PawnLook } from '../entities/PawnRenderer';
 import { EntityRenderer } from '../entities/EntityRenderer';
 import { WeaponWheel } from '../ui/WeaponWheel';
 import { HUD } from '../config/hud';
+import { MELEE } from '../config/melee';
+import { resetMelee } from '../entities/meleeState';
 import { MINIMAP } from '../config/minimap';
 import { Particles } from '../world/Particles';
 import { SquadArena } from '../systems/SquadArena';
@@ -217,7 +219,10 @@ export class Game {
       chooseCode: (c) => this.ui.code.choose(c),
       closeCodePanel: () => this.ui.code.close(),
       wheel: this.wheel,
-      setSlow: (on) => (this.loop.timeScale = on ? HUD.wheel.slow : 1),
+      setSlow: (on) => {
+        this.wheelSlow = on;
+        this.applyTimeScale();
+      },
       setMarker: (x, y) => (this.ui.mapView.marker = { x, y, level: 'city' }),
     });
     this.touch = new TouchControls(uiRoot, {
@@ -486,6 +491,7 @@ export class Game {
     p.cover = null;
     p.carrying = false;
     p.burnUntil = 0;
+    resetMelee(p.melee);
     p.alive = true;
     p.health = p.maxHealth;
     p.hunger = ECONOMY.hunger.max;
@@ -1136,6 +1142,16 @@ export class Game {
     this.input.endTick();
   }
 
+  /** Колесо оружия открыто (мир замедлен); когда был прошлый кадр (реальное время, мс) — для замирания от удара. */
+  private wheelSlow = false;
+  private lastFrame = 0;
+
+  /** Замедление времени: колесо оружия и замирание кадра от удара в ближнем бою (Particles.hitstop). */
+  private applyTimeScale(): void {
+    const stop = this.particles.hitstop > 0 ? MELEE.hitstop.scale : 1;
+    this.loop.timeScale = Math.min(this.wheelSlow ? HUD.wheel.slow : 1, stop);
+  }
+
   /** Тряска экрана: взрывы, свои выстрелы, попадания (сдвиг вида, не камеры; px экрана). */
   private shake(v: View): void {
     const a = this.particles.shake;
@@ -1147,6 +1163,13 @@ export class Game {
 
   private render(alpha: number): void {
     const ctx = this.ctx;
+    // Замирание от удара идёт в реальном времени (логика в это время почти стоит).
+    const ms = performance.now();
+    if (this.particles.hitstop > 0) {
+      this.particles.hitstop = Math.max(0, this.particles.hitstop - Math.min(0.1, (ms - this.lastFrame) / 1000));
+      this.applyTimeScale();
+    } else if (this.loop.timeScale !== (this.wheelSlow ? HUD.wheel.slow : 1)) this.applyTimeScale();
+    this.lastFrame = ms;
     const v = this.camera.view(alpha);
     this.shake(v);
     const dpr = this.camera.dpr;
@@ -1186,7 +1209,7 @@ export class Game {
     this.effects.drawShots(ctx, v, this.combat);
     this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);
     this.effects.drawScanners(ctx, v, this.ai.scanners.list, alpha, this.law.now);
-    this.aim.drawSwings(ctx, v, this.combat);
+    this.aim.drawSwings(ctx, v, this.combat, alpha, showAll);
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);
     this.particles.drawOver(ctx, v, this.combat);
     if (!sewer) this.arsenalView.drawShip(ctx, v, this.ai.arsenal, this.law.now);

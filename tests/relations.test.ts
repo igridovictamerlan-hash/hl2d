@@ -444,7 +444,10 @@ describe('жизнь на улице', () => {
     };
     // Бьют именно пострадавшего (расстановка по якорям случайна: зевака мог оказаться на линии удара).
     for (let k = 0; k < 20 && !R.stats.defends; k++) {
-      sim.ctx.combat.punch(a, v.x, v.y, v);
+      a.facing = Math.atan2(v.y - a.y, v.x - a.x);
+      sim.ctx.combat.punch(a, v.x, v.y);
+      // Удар с замахом (Melee): урон и «ударили» — через долю секунды.
+      for (let i = 0; i < 40 && !R.stats.defends; i++) sim.step();
       if (R.stats.defends) break;
       skip(sim, 30);
       reset();
@@ -455,7 +458,10 @@ describe('жизнь на улице', () => {
     expect(R.bond(v, f)!.mem.some((m) => m.kind === 'defended') || R.bond(v, g)!.mem.some((m) => m.kind === 'defended')).toBe(true);
     // Сразу ещё удар: на пострадавшего откат — второй заступник не набегает, драка не разрастается в свалку.
     a.nextShot = 0;
-    sim.ctx.combat.punch(a, v.x, v.y, v);
+    a.facing = Math.atan2(v.y - a.y, v.x - a.x);
+      sim.ctx.combat.punch(a, v.x, v.y);
+      // Удар с замахом (Melee): урон и «ударили» — через долю секунды.
+      for (let i = 0; i < 40 && !R.stats.defends; i++) sim.step();
     expect(R.stats.defends).toBe(first);
     expect(sim.ctx.brawls.list.filter((x) => x.a === a || x.b === a).length).toBeLessThanOrEqual(RELATIONS.allies.maxOnAttacker);
   });

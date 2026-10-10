@@ -21,7 +21,9 @@ import { ECONOMY } from '../../config/economy';
 import { ARBAT } from '../../config/arbat';
 import type { CanteenSeat, StreetShop, SupplyTarget } from '../../systems/StreetShops';
 import { ROUTINE } from '../../config/routine';
-import { BRAWL, FISTS } from '../../config/brawl';
+import { BRAWL } from '../../config/brawl';
+import { MELEE } from '../../config/melee';
+import { MeleeFighter } from '../MeleeFighter';
 import { HOUSING } from '../../config/housing';
 import { ITEMS, WEAPONS, type ItemId } from '../../config/items';
 import type { RepairSpot } from '../../systems/EconomySystem';
@@ -157,6 +159,8 @@ export class CitizenBrain implements Brain {
   wasOnShift = true;
   /** Драка: перестроить путь к противнику через… */
   brawlRepath = 0;
+  /** Боец в драке (обход, серии, блок) — пока идёт драка. */
+  fighter: MeleeFighter | null = null;
   private turfTimer = 0;
   private turfWarnAt = 0;
   /** Горюет: чередовать «домой» и обычные дела. */
@@ -2195,7 +2199,10 @@ const RIOT: State<CitizenBrain> = {
 };
 
 /** Стрельба рядом: бежать прочь несколько секунд. */
-/** Драка на кулаках: к противнику, вплотную — бить (Brawls ведёт, кто с кем и до каких пор). */
+/**
+ * Драка на кулаках (Brawls ведёт, кто с кем и до каких пор): далеко — к противнику по пути, рядом —
+ * бой (MeleeFighter: обход по кругу, серии, блок и отход).
+ */
 const BRAWL_STATE: State<CitizenBrain> = {
   name: 'brawl',
   enter(b) {
@@ -2203,6 +2210,7 @@ const BRAWL_STATE: State<CitizenBrain> = {
     b.mover.stop();
     b.mover.speed = b.walkSpeed * 1.2;
     b.brawlRepath = 0;
+    b.fighter = null;
     if (b.self.weapon) b.ctx.combat.equip(b.self, null);
   },
   update(b, dt) {
@@ -2216,8 +2224,8 @@ const BRAWL_STATE: State<CitizenBrain> = {
       b.mover.stop();
       return;
     }
-    const gap = Math.hypot(o.x - self.x, o.y - self.y) - o.radius - self.radius;
-    if (gap > FISTS.reach - self.radius) {
+    if (Math.hypot(o.x - self.x, o.y - self.y) > MELEE.ai.engage) {
+      ctx.combat.melee.guard(self, false);
       b.brawlRepath -= dt;
       if (b.brawlRepath <= 0 || b.mover.status === 'idle' || b.mover.status === 'arrived') {
         b.brawlRepath = 0.5;
@@ -2226,12 +2234,14 @@ const BRAWL_STATE: State<CitizenBrain> = {
       }
       return;
     }
-    b.mover.stop();
-    faceTowards(self, o.x, o.y, dt);
-    if (ctx.combat.punch(self, o.x, o.y, o) && ctx.rng.chance(0.12)) self.say(ctx.rng.pick(BRAWL.lines.hit), ctx.law.now, 1.5);
+    (b.fighter ??= new MeleeFighter(self)).tick(o, ctx, b.mover, b.walkSpeed, dt);
+    const a = self.melee.attack;
+    if (a && a.start === ctx.combat.now && ctx.rng.chance(0.08)) self.say(ctx.rng.pick(BRAWL.lines.hit), ctx.law.now, 1.5);
   },
   exit(b) {
     b.mover.speed = b.walkSpeed;
+    b.ctx.combat.melee.guard(b.self, false);
+    b.fighter = null;
   },
 };
 

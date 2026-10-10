@@ -298,8 +298,6 @@ export const RENDER = {
     bolt: 'rgba(255,120,60,0.95)',
     rocket: '#4f5a44',
     rocketFlame: '#ffb347',
-    swing: 'rgba(170,210,255,0.55)',
-    swingHit: 'rgba(200,230,255,0.9)',
     slash: 'rgba(235,240,245,0.7)',
   },
   /**
@@ -327,6 +325,8 @@ export const RENDER = {
       muzzle: '#ffd98a',
       muzzleCombine: '#bfefff',
       ring: '#fff0d0',
+      /** Линии удара в ближнем бою (веер чёрточек от точки попадания). */
+      impact: '#fff6e4',
     },
     muzzleSize: { melee: 0, blade: 0, pistol: 5, magnum: 8, smg: 5, rifle: 7, pulse: 7, shotgun: 10, crossbow: 0, sniper: 11, launcher: 14 },
     light: '255,200,120',

@@ -245,7 +245,7 @@ export class Hud {
       this.res.textContent = '';
     } else if (w.mode === 'melee') {
       this.mag.textContent = '';
-      this.res.textContent = w.class === 'blade' ? 'в спину — сильнее' : 'оглушает';
+      this.res.textContent = w.class === 'blade' ? 'в спину · ПКМ блок' : 'оглушает · ПКМ блок';
     } else if (info.reloading) {
       this.mag.textContent = '…';
       this.res.textContent = 'перезарядка';
