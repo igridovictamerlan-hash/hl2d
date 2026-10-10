@@ -1,3 +1,6 @@
+import type { Senses } from '../systems/Senses';
+import type { Suspects } from '../systems/Suspects';
+import type { Escalation } from '../systems/Escalation';
 import type { SecuritySystem } from '../systems/Security';
 import type { CwuHqSystem } from '../systems/CwuHq';
 import type { ArsenalSystem } from '../systems/Arsenal';
@@ -108,4 +111,10 @@ export interface AiContext {
   talk: Talk;
   /** Живые люди: характер, настроение, память отношений (знакомства, обиды, дружба). */
   relations: Relations;
+  /** Восприятие: раздражители, страх, свидетели (systems/Senses.ts). */
+  senses: Senses;
+  /** Дела о преступлениях, приметы, доносы (systems/Suspects.ts). */
+  suspects: Suspects;
+  /** Страх кварталов и ступени реакции ВС (systems/Escalation.ts). */
+  escalation: Escalation;
 }

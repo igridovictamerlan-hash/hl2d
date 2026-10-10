@@ -34,7 +34,7 @@ export type ItemId =
   | WeaponId;
 
 /** Снаряжение, которое можно надеть (слоты пешки в инвентаре). */
-export type GearId = 'helmet' | 'helmet_cp' | 'vest' | 'plate_vest' | 'backpack';
+export type GearId = 'helmet' | 'helmet_cp' | 'vest' | 'plate_vest' | 'backpack' | 'coat' | 'cap';
 /** Куда надевается: голова, корпус, спина. */
 export type GearSlot = 'head' | 'torso' | 'back';
 export interface GearDef {
@@ -44,8 +44,10 @@ export interface GearDef {
   torso?: number;
   /** Рюкзак: сколько ячеек инвентаря добавляет. */
   capacity?: number;
-  /** Цвет на пешке. */
-  color: string;
+  /** Цвет на пешке; нет — на пешке не рисуется. */
+  color?: string;
+  /** «в чём» для примет в ориентировке (предложный падеж): «в плаще», «в каске ВС». */
+  worn?: string;
 }
 
 export type ItemKind = 'food' | 'medical' | 'weapon' | 'ammo' | 'tool' | 'gear' | 'misc';
@@ -255,11 +257,14 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   medkit: { id: 'medkit', name: 'Аптечка', desc: 'Лечение +40.', kind: 'medical', stack: 3, heal: 40, price: 28 },
   bandage: { id: 'bandage', name: 'Бинт', desc: 'Лечение +15.', kind: 'medical', stack: 5, heal: 15, price: 9 },
   cigarettes: { id: 'cigarettes', name: 'Сигареты', desc: 'Ходовая валюта «чёрного рынка».', kind: 'misc', stack: 10, price: 5 },
-  helmet: { id: 'helmet', name: 'Армейский шлем', desc: 'Шлем армии сопротивления: держит часть пуль в голову.', kind: 'gear', stack: 1, price: 60, gear: { slot: 'head', head: 0.45, color: '#55603a' } },
-  helmet_cp: { id: 'helmet_cp', name: 'Каска ВС', desc: 'Каска городской полиции: снята с тела.', kind: 'gear', stack: 1, price: 45, gear: { slot: 'head', head: 0.35, color: '#3f4a55' } },
-  vest: { id: 'vest', name: 'Бронежилет', desc: 'Мягкий бронежилет: держит часть пуль в корпус.', kind: 'gear', stack: 1, price: 70, gear: { slot: 'torso', torso: 0.4, color: '#4b5663' } },
-  plate_vest: { id: 'plate_vest', name: 'Плитник', desc: 'Бронежилет с пластинами: крепче, но редкость.', kind: 'gear', stack: 1, price: 110, gear: { slot: 'torso', torso: 0.55, color: '#5d6b3a' } },
+  helmet: { id: 'helmet', name: 'Армейский шлем', desc: 'Шлем армии сопротивления: держит часть пуль в голову.', kind: 'gear', stack: 1, price: 60, gear: { slot: 'head', head: 0.45, color: '#55603a', worn: 'армейском шлеме' } },
+  helmet_cp: { id: 'helmet_cp', name: 'Каска ВС', desc: 'Каска городской полиции: снята с тела.', kind: 'gear', stack: 1, price: 45, gear: { slot: 'head', head: 0.35, color: '#3f4a55', worn: 'каске ВС' } },
+  vest: { id: 'vest', name: 'Бронежилет', desc: 'Мягкий бронежилет: держит часть пуль в корпус.', kind: 'gear', stack: 1, price: 70, gear: { slot: 'torso', torso: 0.4, color: '#4b5663', worn: 'бронежилете' } },
+  plate_vest: { id: 'plate_vest', name: 'Плитник', desc: 'Бронежилет с пластинами: крепче, но редкость.', kind: 'gear', stack: 1, price: 110, gear: { slot: 'torso', torso: 0.55, color: '#5d6b3a', worn: 'плитнике' } },
   backpack: { id: 'backpack', name: 'Рюкзак', desc: 'Больше места: +4 ячейки инвентаря, пока надет.', kind: 'gear', stack: 1, price: 40, gear: { slot: 'back', capacity: 4, color: '#5a6238' } },
+  // Одежда без брони: по ней свидетели и ВС узнают вас в ориентировке. Плащ занимает место бронежилета.
+  coat: { id: 'coat', name: 'Плащ', desc: 'Длинный плащ. Брони не даёт, но по нему узнают в ориентировке. Занимает место бронежилета.', kind: 'gear', stack: 1, price: 25, gear: { slot: 'torso', color: '#6a5a46', worn: 'плаще' } },
+  cap: { id: 'cap', name: 'Кепка', desc: 'Кепка. Брони не даёт, но по ней узнают в ориентировке.', kind: 'gear', stack: 1, price: 10, gear: { slot: 'head', color: '#3b4048', worn: 'кепке' } },
   lockpick: { id: 'lockpick', name: 'Отмычка', desc: 'Для взлома раздатчика рационов (вор). Ломается.', kind: 'tool', stack: 5 },
   grenade: { id: 'grenade', name: 'Осколочная граната', desc: 'T — бросить к курсору (взрыв через 2 с), Y — сменить гранату.', kind: 'misc', stack: 3 },
   smoke_grenade: { id: 'smoke_grenade', name: 'Дымовая граната', desc: 'Дымовая завеса: сквозь неё не видно (пули летят).', kind: 'misc', stack: 3 },

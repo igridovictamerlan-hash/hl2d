@@ -6,6 +6,7 @@ import { LOYALTY } from '../config/loyalty';
 import { familyTitle, type FamilySystem } from '../systems/Families';
 import type { GangSystem } from '../systems/Gangs';
 import type { Relations } from '../systems/Relations';
+import type { Senses } from '../systems/Senses';
 import { RELATIONS } from '../config/relations';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { RENDER } from '../config/render';
@@ -58,6 +59,8 @@ export class EntityRenderer {
   gangs: GangSystem | null = null;
   /** Живые люди: характер, настроение и отношение к игроку в подписи под курсором. */
   relations: Relations | null = null;
+  /** Страх (испуган, в панике — строка под курсором); задаёт Game. */
+  senses: Senses | null = null;
 
   /** Внешность пешки: партизан в маскировке — по личине; лоялист — в форме; семья и банда — повязка. */
   lookOf(c: Character): PawnLook {
@@ -284,7 +287,7 @@ export class EntityRenderer {
       const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
       const role = !wantRole ? '' : c.downed ? `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : roleLabel(c);
       const rw = role ? textWidth(ctx, role, E.roleFont, dpr) : 0;
-      const details = c === hovered && c !== player ? labelDetails(c, this.families, gang, this.relations, player) : noDetails;
+      const details = c === hovered && c !== player ? labelDetails(c, this.families, gang, this.relations, player, this.senses) : noDetails;
       let dw = 0;
       for (const d of details) dw = Math.max(dw, textWidth(ctx, d.text, E.roleFont, dpr));
       const lines = 1 + (role ? 1 : 0) + details.length;
@@ -457,7 +460,7 @@ interface DetailLine {
 const noDetails: DetailLine[] = [];
 
 /** Подробности под курсором: CID (у жителей), семья или банда; характер и настроение; отношение к игроку. */
-function labelDetails(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>, rel: Relations | null, viewer: Character | null): DetailLine[] {
+function labelDetails(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>, rel: Relations | null, viewer: Character | null, senses: Senses | null): DetailLine[] {
   if (c.downed) return noDetails;
   const cid = c.faction === 'citizen' || c.faction === 'cwu' || c.disguised ? `#${c.cid}` : '';
   const fam = !c.disguised ? families?.of(c) ?? null : null;
@@ -465,6 +468,9 @@ function labelDetails(c: Character, families: FamilySystem | null, gang: ReturnT
   const out: DetailLine[] = [];
   const head = cid && extra ? `${cid} · ${extra}` : cid || extra;
   if (head) out.push({ text: head, color: null });
+  // Страх (Senses): испуган или в панике — видно по поведению.
+  const fear = senses?.enabled ? senses.tier(c) : 0;
+  if (fear >= 2) out.push({ text: fear === 3 ? 'в панике' : 'напуган', color: fear === 3 ? '#ff8a78' : '#f0c070' });
   if (rel?.enabled && !c.isPlayer) {
     const i = rel.info(c, viewer);
     // Характер словами и настроение (причина — самая сильная мысль).

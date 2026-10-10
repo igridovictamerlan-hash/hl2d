@@ -117,6 +117,16 @@ export interface Corpse {
   stripped?: boolean;
   /** Медик на месте преступления накрыл тело белой простынёй (CrimeScenes.cover). */
   covered?: boolean;
+  /** Номер человека (Character.pid) и когда погиб (время боя): родня узнаёт своего, тело «свежее». */
+  pid: number;
+  t: number;
+  /** Нашли (житель закричал или ВС увидел) и кто нашёл (pid) — Senses. */
+  found?: boolean;
+  foundBy?: number;
+  /** Сколько зевак стоит у тела (Senses / CitizenBrain gawk). */
+  gawkers?: number;
+  /** Чем убит (вид оружия убийцы) — экспертиза (Suspects.forensic). */
+  weapon?: WeaponClass | null;
 }
 
 /** Граната в полёте или на земле. */
@@ -1004,7 +1014,7 @@ export class CombatSystem {
     c.weapon = null;
     c.mag = 0;
     c.mags = {};
-    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot });
+    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot, pid: c.pid, t: this.time, weapon: killer?.weapon ? WEAPONS[killer.weapon].class : null });
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
     if (c.law.phase !== 'none') this.law.release(c);

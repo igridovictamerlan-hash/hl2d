@@ -109,6 +109,8 @@ export class CrimeSystem {
   /**
    * Наблюдатель OBS отсканировал тело: убийца (если не сотрудник Протектората) объявлен в розыск,
    * «Надзор» знает, где он сейчас. Возвращает текст для журнала.
+   * Уголовное дело (Suspects): экспертиза и свидетели называют виновника сами (розыск — при опознании),
+   * скан лишь открывает дело. Без дела (война, Протекторат, не в городе) — как раньше.
    */
   investigate(corpse: Corpse, obs: Character): string {
     corpse.scanned = true;
@@ -116,6 +118,12 @@ export class CrimeSystem {
     const zone = this.ctx.map.zoneAtWorld(corpse.x, corpse.y)?.name ?? 'город';
     if (!k) return `Скан тела: ${corpse.name} — причина смерти не установлена.`;
     if (FACTIONS[k.faction].authority) return `Скан тела: ${corpse.name} — ликвидирован сотрудником Протектората (${k.name}).`;
+    const r = this.ctx.suspects?.enabled ? this.ctx.suspects.forensic(corpse, obs) : null;
+    if (r !== null) {
+      if (!r) return `Надзор: скан тела (${zone}) — ${corpse.name}: виновник не установлен, дело открыто.`;
+      this.ctx.staffing?.merit(obs, STAFFING.merit.investigate);
+      return `Надзор: скан тела (${zone}) — ${corpse.name}: виновник установлен.`;
+    }
     k.law.wanted = true;
     // Заслуга следователя: убийца найден.
     this.ctx.staffing?.merit(obs, STAFFING.merit.investigate);

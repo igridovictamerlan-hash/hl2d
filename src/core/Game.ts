@@ -61,6 +61,9 @@ import { AcademySystem } from '../systems/Academy';
 import { Staffing } from '../systems/Staffing';
 import { Access } from '../systems/Access';
 import { Radio, type Transmission } from '../systems/Radio';
+import { Senses } from '../systems/Senses';
+import { Suspects } from '../systems/Suspects';
+import { Escalation } from '../systems/Escalation';
 import { Talk } from '../systems/Talk';
 import { Relations, type PersonInfo } from '../systems/Relations';
 import { serviceHint } from '../systems/Staffing';
@@ -364,6 +367,9 @@ export class Game {
       radio: null as unknown as Radio,
       talk: null as unknown as Talk,
       relations: null as unknown as Relations,
+      senses: null as unknown as Senses,
+      suspects: null as unknown as Suspects,
+      escalation: null as unknown as Escalation,
     };
     this.ai.routine = new Routine(this.ai);
     this.ai.errands = new Errands(this.ai);
@@ -394,9 +400,13 @@ export class Game {
     this.ai.talk = new Talk(this.ai);
     this.ai.relations = new Relations(this.ai);
     this.ai.radio = new Radio(this.ai);
+    this.ai.suspects = new Suspects(this.ai);
+    this.ai.escalation = new Escalation(this.ai);
+    this.ai.senses = new Senses(this.ai);
     this.entityRenderer.relations = this.ai.relations;
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
+    this.entityRenderer.senses = this.ai.senses;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
     this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
@@ -409,6 +419,9 @@ export class Game {
     this.law.panicking = (c) => c.panicUntil > this.law.now;
     this.law.trespass = (c) => this.ai.access.trespassing(c);
     this.law.merit = (c, pts) => this.ai.staffing.merit(c, pts);
+    this.law.charge = (c) => this.ai.suspects?.charge(c) ?? null;
+    this.law.zoneCurfew = (c) => this.ai.escalation?.curfewViolation(c) ?? false;
+    this.law.closeCase = (c) => this.ai.suspects?.close(c);
     this.law.onContraband = (c) => this.ai.errands.found(c);
     this.entities.clear();
     resetCids();
@@ -652,6 +665,15 @@ export class Game {
 
   get arsenal(): ArsenalSystem | null {
     return this.ai?.arsenal ?? null;
+  }
+
+  /** Дела о преступлениях (ориентировка по игроку в HUD) и реакция города по зонам (название зоны). */
+  get suspects(): Suspects | null {
+    return this.ai?.suspects ?? null;
+  }
+
+  get escalation(): Escalation | null {
+    return this.ai?.escalation ?? null;
   }
 
   /** Часы и время суток для HUD: «19:40 · вечер». */
@@ -986,6 +1008,9 @@ export class Game {
     this.ai.radio.enabled = false;
     this.ai.talk.enabled = false;
     this.ai.relations.enabled = false;
+    if (this.ai.senses) this.ai.senses.enabled = false;
+    if (this.ai.suspects) this.ai.suspects.enabled = false;
+    if (this.ai.escalation) this.ai.escalation.enabled = false;
     this.ui.roles.close();
     this.arena = new SquadArena(this.ai, side, this.player);
     this.arena.startRound();
@@ -1037,6 +1062,7 @@ export class Game {
     this.law.update(dt, this.player);
     this.economy.update(dt);
     this.combat.update(dt);
+    this.ai.senses?.update(dt);
     this.particles.update(this.combat, this.player, dt);
     if (this.arena) {
       // Город пуст: работают только бой, двери, закон и сам режим.
@@ -1064,6 +1090,8 @@ export class Game {
     this.ai.radio.update(dt);
     this.ai.talk.update();
     this.ai.relations.update(dt);
+    this.ai.suspects?.update();
+    this.ai.escalation?.update(dt);
     // Красный код (штурм Управы) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();

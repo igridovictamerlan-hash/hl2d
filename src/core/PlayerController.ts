@@ -7,6 +7,7 @@ import type { AiContext } from '../ai/AiContext';
 import type { CheckChoice } from '../ui/CheckPanel';
 import type { AlertCode } from '../systems/WarSystem';
 import { WAR } from '../config/war';
+import { ESCALATION } from '../config/escalation';
 import { RELATIONS } from '../config/relations';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
@@ -488,7 +489,7 @@ export class PlayerController {
     if (street) {
       if (!street.stock.length) return this.say(`${street.name}: сегодня только поглазеть — товара нет.`);
       const why = ctx.shops.refusal(street);
-      if (why === 'closed') return this.say(`${street.name}: закрыто — продавца нет за прилавком.`);
+      if (why === 'closed') return this.say(ctx.shops.closedEarly(street) ? `${street.name}: ${ESCALATION.lines.shopEarly}` : `${street.name}: закрыто — продавца нет за прилавком.`);
       if (why === 'empty') return this.say(`${street.name}: полки пусты — ждут коробку из штаба ТС.`);
       return this.hooks.openShop('street', street);
     }

@@ -290,6 +290,8 @@ describe('место преступления', () => {
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
     sim.ctx.insurgency.paused = true;
+    // Проверяется оцепление и осмотр; прежняя механика «скан — сразу розыск» (уголовные дела — Suspects — выключены).
+    sim.ctx.suspects.enabled = false;
     const plaza = poiWorld(sim.ctx, 'plaza_center')!;
     const at = spotNear(sim, plaza, 0, 4);
     const victim = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: null, division: null, rank: 0, kit: 'citizen' }, at)!;
@@ -339,7 +341,7 @@ describe('место преступления', () => {
     let wide: { x: number; y: number } | null = null;
     const ts = sim.map.tileSize;
     // Прямой переулок без боковых ответвлений в радиусе оцепления: берём первый, где оцепление — две линии.
-    const body0 = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] });
+    const body0 = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 });
     const straight = (p: { x: number; y: number }) => {
       const s = sim.war.scenes.open(body0(p), 'civil');
       const ok = !!s && s.lines.length === 2;
@@ -366,7 +368,7 @@ describe('место преступления', () => {
     }
     expect(alley).toBeTruthy();
     expect(wide).toBeTruthy();
-    const body = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] });
+    const body = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 });
     const a = sim.war.scenes.open(body(alley!), 'civil')!;
     // Прямой переулок: две линии поперёк, каждая — короткая лента, концы у стен.
     expect(a.lines.length).toBe(2);
@@ -397,7 +399,7 @@ describe('место преступления', () => {
     expect(medic).toBeTruthy();
     const plaza = poiWorld(sim.ctx, 'plaza_center')!;
     const body = (p: { x: number; y: number }) => {
-      const k = { x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      const k = { x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 };
       sim.combat.corpses.push(k);
       return k;
     };
@@ -429,7 +431,7 @@ describe('место преступления', () => {
     const plaza = poiWorld(sim.ctx, 'plaza_center')!;
     const at = spotNear(sim, plaza, 0, 3);
     const mk = (p: { x: number; y: number }): Corpse => {
-      const k: Corpse = { x: p.x, y: p.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      const k: Corpse = { x: p.x, y: p.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 };
       sim.combat.corpses.push(k);
       return k;
     };
@@ -467,7 +469,7 @@ describe('место преступления', () => {
     }
     expect(spots.length).toBe(S.maxOpen + 2);
     const body = (p: { x: number; y: number }): Corpse => {
-      const k: Corpse = { x: p.x, y: p.y, faction: 'cp', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      const k: Corpse = { x: p.x, y: p.y, faction: 'cp', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 };
       sim.combat.corpses.push(k);
       return k;
     };
@@ -490,7 +492,7 @@ describe('место преступления', () => {
     sim.war.reinforcements = false;
     (sim.war as unknown as { declareRed(where: string): void }).declareRed('тест');
     const plaza = poiWorld(sim.ctx, 'plaza_center')!;
-    expect(sim.war.scenes.open({ x: plaza.x, y: plaza.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] }, 'civil')).toBeNull();
+    expect(sim.war.scenes.open({ x: plaza.x, y: plaza.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 }, 'civil')).toBeNull();
   });
 
   test('бандит обирает неоцеплённое тело ВС — забирает оружие', { timeout: 60_000 }, () => {

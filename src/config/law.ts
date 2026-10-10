@@ -38,9 +38,10 @@ export const LAW = {
   /** Сколько даётся игроку, чтобы остановиться. */
   complyGrace: 0.8,
 
-  fines: { running: 5, restricted: 15, insult: 12, fight: 15 },
+  /** Штрафы. zone_curfew — комендантский час в квартале (район, а не весь город): штраф и «по домам», не арест. */
+  fines: { running: 5, restricted: 15, insult: 12, fight: 15, zone_curfew: 15 },
   /** За что арест (иначе штраф). */
-  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot', 'contraband', 'forgery'] as readonly string[],
+  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot', 'contraband', 'forgery', 'murder', 'assault'] as readonly string[],
   /** Дознаватели JURY: проверка быстрее, штраф больше. */
   juryCheckMul: 0.5,
   juryFineMul: 2,
@@ -106,7 +107,14 @@ export type Violation =
   | 'riot'
   | 'contraband'
   | 'fight'
-  | 'forgery';
+  | 'forgery'
+  /** Убийство и нападение с оружием — по делу (Suspects): арест, в тюрьму Протектората. */
+  | 'murder'
+  | 'assault'
+  /** Причина проверки (не нарушение): опознание по ориентировке. Не наказуемо — отпускают, если дело не доказано. */
+  | 'suspect'
+  /** Комендантский час в квартале (Escalation): штраф и «по домам», не арест. */
+  | 'zone_curfew';
 
 export const VIOLATION_NAMES: Record<Violation, string> = {
   running: 'бег',
@@ -124,4 +132,8 @@ export const VIOLATION_NAMES: Record<Violation, string> = {
   contraband: 'контрабанда',
   fight: 'драка на улице',
   forgery: 'поддельный пропуск',
+  murder: 'убийство',
+  assault: 'нападение с оружием',
+  suspect: 'проверка по ориентировке',
+  zone_curfew: 'комендантский час в квартале',
 };

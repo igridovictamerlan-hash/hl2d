@@ -39,6 +39,9 @@ import { StreetLifeSystem } from '../src/systems/StreetLife';
 import { AcademySystem } from '../src/systems/Academy';
 import { Staffing } from '../src/systems/Staffing';
 import { Access } from '../src/systems/Access';
+import { Senses } from '../src/systems/Senses';
+import { Suspects } from '../src/systems/Suspects';
+import { Escalation } from '../src/systems/Escalation';
 import { Radio } from '../src/systems/Radio';
 import { Talk } from '../src/systems/Talk';
 import { Relations } from '../src/systems/Relations';
@@ -100,6 +103,9 @@ export function makeSim(seedOrMap: number | GameMap) {
       radio: null as unknown as Radio,
       talk: null as unknown as Talk,
       relations: null as unknown as Relations,
+      senses: null as unknown as Senses,
+      suspects: null as unknown as Suspects,
+      escalation: null as unknown as Escalation,
   };
   // Распорядок дня в тестах выключен (иначе ночью город спит) — у него свой тест.
   ctx.routine = new Routine(ctx, false);
@@ -142,6 +148,9 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.talk = new Talk(ctx);
   ctx.relations = new Relations(ctx);
   ctx.radio = new Radio(ctx);
+  ctx.suspects = new Suspects(ctx);
+  ctx.escalation = new Escalation(ctx);
+  ctx.senses = new Senses(ctx);
   // Случайные драки в тестах выключены (свой тест) — удары и братва работают.
   ctx.brawls.enabled = false;
   economy.onEmpty = () => labor.noticeEmpty();
@@ -149,6 +158,9 @@ export function makeSim(seedOrMap: number | GameMap) {
   law.panicking = (c) => c.panicUntil > law.now;
   law.trespass = (c) => ctx.access.trespassing(c);
   law.merit = (c, pts) => ctx.staffing.merit(c, pts);
+  law.charge = (c) => ctx.suspects?.charge(c) ?? null;
+  law.zoneCurfew = (c) => ctx.escalation?.curfewViolation(c) ?? false;
+  law.closeCase = (c) => ctx.suspects?.close(c);
   const step = (dt = 1 / 60) => {
     ctx.time += dt;
     updateNpcs(ctx, dt);
@@ -158,6 +170,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     law.update(dt, null);
     economy.update(dt);
     combat.update(dt);
+    ctx.senses!.update(dt);
     war.update(dt);
     insurgency.update(dt);
     labor.update(dt);
@@ -177,6 +190,8 @@ export function makeSim(seedOrMap: number | GameMap) {
     ctx.radio.update(dt);
     ctx.talk.update();
     ctx.relations.update(dt);
+    ctx.suspects!.update();
+    ctx.escalation!.update(dt);
   };
   return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access };
 }

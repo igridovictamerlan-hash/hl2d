@@ -351,6 +351,13 @@ export class Relations {
     return bd.opinion >= RELATIONS.loved.opinion && bd.fam >= RELATIONS.bond.known;
   }
 
+  /** Близкий ли a человек с номером pid (родня или друг) — для тех, кого уже нет в живых (тело). */
+  lovesPid(a: Character, pid: number): boolean {
+    const bd = this.bondP(a.pid, pid);
+    if (!bd) return false;
+    return (bd.flags & BOND.KIN) !== 0 || (bd.opinion >= RELATIONS.loved.opinion && bd.fam >= RELATIONS.bond.known);
+  }
+
   /** Живые друзья и родня (или недруги, если hostile) на одном уровне карты. */
   circle(a: Character, kind: 'friends' | 'rivals', withKin = true): Character[] {
     const out: Character[] = [];
@@ -1233,7 +1240,7 @@ export class Relations {
       return '';
     }
     if (npc.asleep) return fmt(D.log.asleep, { who });
-    const busy = npc.law.phase !== 'none' || (npc.brain instanceof CitizenBrain && ['brawl', 'panic', 'shelter', 'stopped', 'flee'].includes(npc.brain.fsm.current));
+    const busy = npc.law.phase !== 'none' || (npc.brain instanceof CitizenBrain && ['brawl', 'panic', 'shelter', 'stopped', 'flee', 'hide', 'report', 'gawk'].includes(npc.brain.fsm.current));
     if (busy) return fmt(D.log.busy, { who });
     const last = this.talkAt.get(npc.pid) ?? -1e9;
     if (now - last < P.cooldown) return fmt(D.log.cooldown, { who });

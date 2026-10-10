@@ -6,6 +6,7 @@ import { ARBAT } from '../config/arbat';
 import { ITEMS, type ItemId } from '../config/items';
 import { ECONOMY } from '../config/economy';
 import { LOYALTY } from '../config/loyalty';
+import { ESCALATION } from '../config/escalation';
 import { adjustLoyalty, hasLoyalty } from './Loyalty';
 
 /** Лавка, кафе или ларёк на проспекте: где стоит покупатель, что продают, кто за прилавком. */
@@ -129,8 +130,18 @@ export class StreetShops {
     this.soup = Math.round(this.soupCap * S.start);
   }
 
-  /** Лавка работает: у ларька — всегда, у лавки и кафе — пока продавец на месте. */
+  /**
+   * Закрылась раньше времени: квартал опасен (Escalation.dread ≥ 2) и уже closeHour. Без распорядка дня — не в счёт.
+   */
+  closedEarly(s: StreetShop): boolean {
+    const { ctx } = this;
+    if (!ctx.escalation.enabled || !ctx.routine.enabled || ctx.escalation.dread(s.front.x, s.front.y) < 2) return false;
+    return ctx.routine.hour() >= ESCALATION.shops.closeHour;
+  }
+
+  /** Лавка работает: у ларька — всегда, у лавки и кафе — пока продавец на месте (и не закрыта раньше времени). */
   open(s: StreetShop): boolean {
+    if (this.closedEarly(s)) return false;
     if (!s.vendorSpot) return true;
     const v = s.vendor;
     return !!v && v.alive && v.fit && Math.hypot(v.x - s.vendorSpot.x, v.y - s.vendorSpot.y) < ARBAT.staff.reach;
@@ -273,7 +284,7 @@ export class StreetShops {
   /** Покупка у прилавка (игрок или NPC): лавка открыта, товар есть — единица запаса уходит. */
   buy(c: Character, s: StreetShop, id: ItemId): string | null {
     const why = this.refusal(s);
-    if (why === 'closed') return `${s.name}: закрыто — продавца нет на месте.`;
+    if (why === 'closed') return this.closedEarly(s) ? `${s.name}: ${ESCALATION.lines.shopEarly}` : `${s.name}: закрыто — продавца нет на месте.`;
     if (why === 'empty' || s.goods <= 0) return `${s.name}: товар кончился — ждут коробку из штаба ТС.`;
     if (!s.stock.includes(id)) return 'Этого здесь не продают.';
     // Продавец помнит покупателя: своим — скидка, недругам — надбавка, врагу не продаст.
