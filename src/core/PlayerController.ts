@@ -7,6 +7,8 @@ import type { AiContext } from '../ai/AiContext';
 import type { CheckChoice } from '../ui/CheckPanel';
 import type { AlertCode } from '../systems/WarSystem';
 import { WAR } from '../config/war';
+import { ESCALATION } from '../config/escalation';
+import { RELATIONS } from '../config/relations';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
 import { FACTIONS, cpHas, cpUnit } from '../config/factions';
@@ -178,14 +180,17 @@ export class PlayerController {
     if (locked) {
       if (!p.brain) p.wantX = p.wantY = 0;
       p.aiming = false;
+      ctx.combat.melee.guard(p, false);
     } else {
       const { mx, my, len, k } = this.moveDir(i);
       // Прицеливание (ПКМ): медленный шаг, бег невозможен; конус сужается.
       const aw = p.weapon ? WEAPONS[p.weapon] : null;
       p.aiming = i.aimDown && !!aw && aw.mode !== 'melee';
+      // Без оружия или с холодным ПКМ — блок (удар ЛКМ его опускает).
+      const guard = ctx.combat.melee.guard(p, i.aimDown && (!aw || aw.mode === 'melee') && !this.hooks.wheel.open);
       // C — присесть; побежал — встал.
       if (i.wasPressed('crouch')) p.crouch = !p.crouch;
-      const run = (i.isDown('run') || i.moveRun) && len > 0 && !p.aiming;
+      const run = (i.isDown('run') || i.moveRun) && len > 0 && !p.aiming && !guard;
       if (run) p.crouch = false;
       const speed = (p.aiming ? CHARACTER.walkSpeed * aw!.aimMove : run ? CHARACTER.runSpeed : CHARACTER.walkSpeed) * (run ? 1 : k);
       p.wantX = mx * speed;
@@ -226,7 +231,7 @@ export class PlayerController {
       ctx.combat.equip(p, null);
       this.say('Оружие убрано.');
     }
-    // Без оружия в руках — кулаки (ЛКМ).
+    // Без оружия в руках — кулаки (ЛКМ): серия джеб — прямой — хук; нажатый чуть раньше удар выйдет сам.
     if (!p.weapon && i.mouseInside && !wheel.open && i.mousePressed) {
       const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
       ctx.combat.punch(p, m.x, m.y);
@@ -240,7 +245,7 @@ export class PlayerController {
         if (msg) this.say(msg, 'world');
       }
     }
-    // Стрельба: автомат — пока зажата кнопка, остальное — по клику; дубинка — удар.
+    // Стрельба: автомат — пока зажата кнопка, остальное — по клику; дубинка и нож — удар серии.
     const w = p.weapon ? WEAPONS[p.weapon] : null;
     if (w && i.mouseInside && !wheel.open && (w.mode === 'auto' ? i.mouseDown : i.mousePressed)) {
       const m = this.camera.screenToWorld(i.mouseX, i.mouseY);
@@ -487,7 +492,7 @@ export class PlayerController {
     if (street) {
       if (!street.stock.length) return this.say(`${street.name}: сегодня только поглазеть — товара нет.`);
       const why = ctx.shops.refusal(street);
-      if (why === 'closed') return this.say(`${street.name}: закрыто — продавца нет за прилавком.`);
+      if (why === 'closed') return this.say(ctx.shops.closedEarly(street) ? `${street.name}: ${ESCALATION.lines.shopEarly}` : `${street.name}: закрыто — продавца нет за прилавком.`);
       if (why === 'empty') return this.say(`${street.name}: полки пусты — ждут коробку из штаба ТС.`);
       return this.hooks.openShop('street', street);
     }
@@ -710,6 +715,8 @@ export class PlayerController {
         return this.say('Ремонт… не отходите 5 секунд.', 'world');
       }
     }
+    // Человек перед вами: поговорить (раньше очереди за рационом — у окна раздачи всегда кто-то стоит).
+    if (this.talkToFront(p, ctx)) return;
     // Очередь за рационом.
     if (eco.open && d(eco.window) < 200 && p.faction !== 'cp') {
       if (eco.hasBeenServed(p)) return this.say('Вы уже получили рацион в эту раздачу.');
@@ -724,7 +731,20 @@ export class PlayerController {
       }
       return this.say(ctx.arsenal?.present ? 'Аптечка пополнена. Патроны и гранаты — на складе Протектората, у окна выдачи.' : 'Аптечка пополнена.', 'world');
     }
-    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Протектората и тел.');
+    this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Протектората, тел и людей (поговорить).');
+  }
+
+  /**
+   * E перед живым человеком: поговорить (знакомство, новости), ещё раз — угостить голодного, если просит
+   * (Relations.interact). true — обработано.
+   */
+  private talkToFront(p: Character, ctx: AiContext): boolean {
+    if (!ctx.relations?.enabled) return false;
+    const o = this.facingTarget(p, ctx, RELATIONS.player.reach, (x) => x.alive && !x.downed && !x.isPlayer && !(p.disguised && x.faction === 'cp'));
+    if (!o) return false;
+    const msg = ctx.relations.interact(p, o);
+    if (msg) this.say(msg, 'world');
+    return true;
   }
 
   /**
@@ -956,6 +976,7 @@ export class PlayerController {
       if (!target) return this.say('Некого лечить рядом.');
       if (!p.inventory.remove('bandage', 1) && !p.inventory.remove('medkit', 1)) return this.say('Нет бинтов и аптечек — пополните у тайника или на рынке.');
       ctx.combat.heal(target, COMBAT.healAmount);
+      ctx.relations?.event('help', p, target);
       this.healCooldown = COMBAT.healCooldown;
       return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
     }
@@ -999,6 +1020,7 @@ export class PlayerController {
       }
       const target = best ?? (p.health < p.maxHealth ? p : null);
       if (!target || !ctx.combat.heal(target, COMBAT.healAmount)) return this.say('Некого лечить рядом.');
+      ctx.relations?.event('help', p, target);
       this.healCooldown = COMBAT.healCooldown;
       return this.say(target === p ? 'Вы перевязались.' : `Вы подлечили: ${target.name}.`, 'world');
     }

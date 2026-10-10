@@ -22,6 +22,8 @@ export const T = {
   ROCK: 16,
   GARDEN: 17,
   HEDGE: 18,
+  TRENCH: 19,
+  CHASM: 20,
 } as const;
 
 export type TileId = (typeof T)[keyof typeof T];
@@ -59,6 +61,10 @@ export const TILE_DEFS: readonly TileDef[] = [
   // Особняки лоялистов: сад (газон) и живая изгородь — не пройти, но видно поверх.
   { id: T.GARDEN, key: 'garden', char: 'v', name: 'Сад особняка', solid: false, opaque: false },
   { id: T.HEDGE, key: 'hedge', char: 'h', name: 'Живая изгородь', solid: true, opaque: false },
+  // Пограничные КПП-«позиционки»: траншея (проходима, обзор не закрывает; эффекты укрытия — позже) и пропасть
+  // (не пройти, но видно и простреливается насквозь — мост через неё один).
+  { id: T.TRENCH, key: 'trench', char: 'n', name: 'Траншея', solid: false, opaque: false },
+  { id: T.CHASM, key: 'chasm', char: 'c', name: 'Пропасть', solid: true, opaque: false },
 ];
 
 /** Быстрые таблицы: SOLID[tileId] === 1 — непроходим. */

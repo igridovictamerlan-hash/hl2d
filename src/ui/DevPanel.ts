@@ -34,6 +34,8 @@ const PREVIEW_COLORS: Record<number, [number, number, number]> = {
   [T.ROCK]: [50, 42, 32],
   [T.GARDEN]: [70, 110, 60],
   [T.HEDGE]: [40, 80, 40],
+  [T.TRENCH]: [74, 58, 40],
+  [T.CHASM]: [10, 8, 8],
 };
 
 /**

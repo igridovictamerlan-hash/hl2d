@@ -46,8 +46,13 @@ export class CrimeSystem {
     this.stats.stolen += amount;
     this.flag(thief);
     if (thief.isPlayer) this.ctx.bus.emit('log', { text: `Вы вытащили у прохожего ${amount} токенов. Не попадитесь ВС на глаза ${CRIME.seenFor} с.`, kind: 'world' });
-    if (victim.isPlayer) this.ctx.bus.emit('log', { text: `У вас вытащили ${amount} токенов!`, kind: 'law' });
-    else if (rng.chance(P.noticeChance)) this.cry(victim, thief);
+    if (victim.isPlayer) {
+      this.ctx.bus.emit('log', { text: `У вас вытащили ${amount} токенов!`, kind: 'law' });
+      this.ctx.relations?.event('rob', thief, victim);
+    } else if (rng.chance(P.noticeChance)) {
+      this.cry(victim, thief);
+      this.ctx.relations?.event('rob', thief, victim);
+    }
     return amount;
   }
 
@@ -72,6 +77,7 @@ export class CrimeSystem {
     this.stats.robberies++;
     this.stats.stolen += amount;
     this.flag(bandit);
+    this.ctx.relations?.event('rob', bandit, victim);
     if (bandit.isPlayer) this.ctx.bus.emit('log', { text: `Прохожий отдал ${amount} токенов. Уходите, пока не прибежали ВС.`, kind: 'world' });
     if (victim.isPlayer) this.ctx.bus.emit('log', { text: `Вас ограбили на ${amount} токенов!`, kind: 'law' });
     else {
@@ -103,6 +109,8 @@ export class CrimeSystem {
   /**
    * Наблюдатель OBS отсканировал тело: убийца (если не сотрудник Протектората) объявлен в розыск,
    * «Надзор» знает, где он сейчас. Возвращает текст для журнала.
+   * Уголовное дело (Suspects): экспертиза и свидетели называют виновника сами (розыск — при опознании),
+   * скан лишь открывает дело. Без дела (война, Протекторат, не в городе) — как раньше.
    */
   investigate(corpse: Corpse, obs: Character): string {
     corpse.scanned = true;
@@ -110,6 +118,12 @@ export class CrimeSystem {
     const zone = this.ctx.map.zoneAtWorld(corpse.x, corpse.y)?.name ?? 'город';
     if (!k) return `Скан тела: ${corpse.name} — причина смерти не установлена.`;
     if (FACTIONS[k.faction].authority) return `Скан тела: ${corpse.name} — ликвидирован сотрудником Протектората (${k.name}).`;
+    const r = this.ctx.suspects?.enabled ? this.ctx.suspects.forensic(corpse, obs) : null;
+    if (r !== null) {
+      if (!r) return `Надзор: скан тела (${zone}) — ${corpse.name}: виновник не установлен, дело открыто.`;
+      this.ctx.staffing?.merit(obs, STAFFING.merit.investigate);
+      return `Надзор: скан тела (${zone}) — ${corpse.name}: виновник установлен.`;
+    }
     k.law.wanted = true;
     // Заслуга следователя: убийца найден.
     this.ctx.staffing?.merit(obs, STAFFING.merit.investigate);

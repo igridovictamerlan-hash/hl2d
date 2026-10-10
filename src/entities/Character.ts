@@ -9,6 +9,7 @@ import type { Brain } from '../ai/Brain';
 import type { Violation } from '../config/law';
 import type { CadetRecord } from '../config/academy';
 import type { AccessSite } from '../config/access';
+import { newMeleeState, type MeleeState } from './meleeState';
 
 /**
  * Этапы разбирательства с законом:
@@ -75,6 +76,11 @@ export interface CharacterInit {
  */
 export class Character {
   readonly id: number;
+  /**
+   * Номер человека (systems/Relations.ts): устойчивый — возрождённый житель получает прежний (RoleSpec.pid),
+   * по нему помнят знакомства, мнение и характер. У нового персонажа — его id.
+   */
+  pid: number;
   faction: FactionId;
   /** Ранг во фракции (у ВС и повстанцев от него зависит цвет). */
   rank = 0;
@@ -144,6 +150,8 @@ export class Character {
   squadLead: Character | null = null;
   /** Курит (уличная жизнь) — огонёк и дымок у пешки. */
   smoking = false;
+  /** Сидит на месте (только отрисовка, entities/poses.ts): скамейка, стол с картами, столовая — и что делает. */
+  seated: '' | 'sit' | 'cards' | 'eat' = '';
   /** Пишет в блокноте (медик на месте преступления) до этого времени закона — сидит, блокнот в руках. */
   notepadUntil = 0;
 
@@ -155,6 +163,8 @@ export class Character {
   hunger: number = ECONOMY.hunger.max;
   /** Спит (в кровати): сытость тает медленнее (ECONOMY.hunger.sleepMul). */
   asleep = false;
+  /** Кровать, на которой спит (центр и размер, px): пешка рисуется лёжа на ней (только отрисовка); null — у койки без кровати. */
+  sleepAt: { x: number; y: number; w: number; h: number } | null = null;
   /** Оружие в руках (предмет из инвентаря) или null. */
   weapon: WeaponId | null = null;
   /** Надетое снаряжение (шлем, бронежилет, рюкзак) — не в ячейках инвентаря (systems/Gear). */
@@ -213,6 +223,22 @@ export class Character {
   lastZone: 'head' | 'torso' | 'arm' | 'leg' | 'blast' | null = null;
   /** Оглушён (дубинкой) до этого времени. */
   stunUntil = 0;
+  /** Ближний бой: удар и серия, блок, сбит, нокаут (systems/Melee.ts). */
+  readonly melee: MeleeState = newMeleeState();
+  /** Только для отрисовки (entities/poses.ts): когда и куда бил (кулак, дубинка, нож), когда бросал гранату, откуда пришёл удар. */
+  strikeAt = -1e9;
+  strikeAng = 0;
+  strikeKind: '' | 'fist' | 'club' | 'blade' = '';
+  throwAt = -1e9;
+  throwAng = 0;
+  hurtAng = 0;
+  /** Чем занят руками на работе (только отрисовка): инструмент, письмо, нагнулся над чем-то. */
+  task: '' | 'tool' | 'write' | 'crouch' | 'panic' = '';
+  /** Кивает собеседнику с этого времени; отдаёт честь офицеру до этого времени (только отрисовка). */
+  nodAt = -1e9;
+  saluteUntil = 0;
+  /** Строевой шаг (курсанты на плацу) — только отрисовка. */
+  marching = false;
   /** Множитель желаемой скорости (оглушение). Ставит CombatSystem, применяет физика. */
   speedMul = 1;
   /** Сколько секунд ещё проходит сквозь других NPC (разбор затора, Mover); игрока не проходит. */
@@ -228,6 +254,20 @@ export class Character {
   role: RoleSpec | null = null;
   /** До какого времени в панике (бег от стрельбы — не нарушение). */
   panicUntil = 0;
+  /**
+   * Страх (systems/Senses.ts): сколько было на момент fearAt (время закона), спадает сам; откуда угроза (fearX/Y),
+   * кто напугал и через сколько пересказов дошло (fearHop: 0 — видел сам, 1 — услышал крик…).
+   */
+  fear = 0;
+  fearAt = -1e9;
+  fearX = 0;
+  fearY = 0;
+  fearHop = 0;
+  fearBy: Character | null = null;
+  /** Одежда в крови (ударил ножом вплотную) — до этого времени (время закона); заметно свидетелям и ВС. */
+  bloodyUntil = 0;
+  /** Когда последний раз ранил или убил человека оружием (время боя): «только что был с ножом». */
+  lastViolent = -1e9;
   /**
    * Служба ВС (systems/Staffing.ts): заслуги (баллы за задержания, штрафы, бой…) и с какого времени
    * служит (с игры) — по ним повышают на свободную должность.
@@ -275,6 +315,7 @@ export class Character {
 
   constructor(init: CharacterInit) {
     this.id = init.id;
+    this.pid = init.id;
     this.faction = init.faction;
     this.name = init.name;
     this.cid = init.cid;

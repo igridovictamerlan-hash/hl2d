@@ -68,6 +68,22 @@ export const RENDER = {
     /** Скалы пустоши вокруг города. */
     rock: { h: 32, s: 14, l: 14, noise: 3 },
     rockCrack: 'rgba(0,0,0,0.35)',
+    /**
+     * Траншея (позиционные КПП): вырытый канал — тёмная земля с дощатым настилом; кромка с бруствером из
+     * мешков там, где рядом не траншея. Пропасть — чёрная трещина с осыпающейся кромкой.
+     */
+    trench: { h: 30, s: 22, l: 14, noise: 2 },
+    trenchPlank: 'rgba(120,90,55,0.35)',
+    trenchBag: '#8a7a55',
+    trenchBagDark: 'rgba(0,0,0,0.4)',
+    trenchBagLight: 'rgba(255,240,200,0.25)',
+    chasm: { h: 20, s: 10, l: 4, noise: 1 },
+    chasmCrack: 'rgba(60,45,35,0.55)',
+    chasmRim: 'rgba(150,130,100,0.45)',
+    /** Руины (стены в зонах КПП вне бункеров): выщербленная кирпичная кладка без крыши. */
+    ruinWall: { h: 18, s: 14, l: 21, noise: 3 },
+    ruinBrick: 'rgba(0,0,0,0.3)',
+    ruinEdge: 'rgba(200,170,130,0.22)',
     speckle: 'rgba(0,0,0,0.18)',
     /** Тень от зданий на пол (свет с северо-запада). */
     shadow: 'rgba(0,0,0,0.38)',
@@ -298,8 +314,6 @@ export const RENDER = {
     bolt: 'rgba(255,120,60,0.95)',
     rocket: '#4f5a44',
     rocketFlame: '#ffb347',
-    swing: 'rgba(170,210,255,0.55)',
-    swingHit: 'rgba(200,230,255,0.9)',
     slash: 'rgba(235,240,245,0.7)',
   },
   /**
@@ -327,6 +341,8 @@ export const RENDER = {
       muzzle: '#ffd98a',
       muzzleCombine: '#bfefff',
       ring: '#fff0d0',
+      /** Линии удара в ближнем бою (веер чёрточек от точки попадания). */
+      impact: '#fff6e4',
     },
     muzzleSize: { melee: 0, blade: 0, pistol: 5, magnum: 8, smg: 5, rifle: 7, pulse: 7, shotgun: 10, crossbow: 0, sniper: 11, launcher: 14 },
     light: '255,200,120',

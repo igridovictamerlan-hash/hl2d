@@ -48,6 +48,8 @@ export function wear(c: Character, id: GearId): string | null {
     c.inventory.add(id, 1);
     return 'Некуда убрать то, что надето сейчас.';
   }
+  // Свежая одежда на корпус: кровь с прежней смыта (Character.bloodyUntil — по часам закона).
+  if (g.slot === 'torso') c.bloodyUntil = 0;
   return null;
 }
 

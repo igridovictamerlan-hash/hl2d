@@ -22,15 +22,20 @@ export interface HudInfo {
   ration: string;
   /** До готовности клича главы восстания, с (-1 — не глава). */
   rally: number;
+  /** Ориентировка по игроку (Suspects.playerStatus): значок «ищут», текст — в подсказке; null — не ищут. */
+  suspect: string | null;
+  /** Кровь на одежде (bloodyUntil по часам закона). */
+  bloody: boolean;
 }
 
-/** Значок состояния (S1). */
+/** Значок состояния (S1); hint — подсказка при наведении (полный текст). */
 interface Status {
   icon: string;
   label: string;
   key?: string;
   tone: 'red' | 'amber' | 'blue' | 'dark';
   blink?: boolean;
+  hint?: string;
 }
 
 /**
@@ -112,7 +117,7 @@ export class Hud {
 
   update(p: Character, now: number, info: HudInfo): void {
     this.updateRing(p, now, info.look);
-    this.updateStatus(p, now);
+    this.updateStatus(p, now, info);
     this.updateGun(info);
     this.updateText(p, now, info);
   }
@@ -190,15 +195,16 @@ export class Hud {
     if (showFood) num(String(food), c + 5, foodLow ? C.foodLow : C.foodText, 'left');
   }
 
-  private updateStatus(p: Character, now: number): void {
-    const list = statusOf(p, now);
-    const key = list.map((s) => `${s.icon}${s.blink ? '!' : ''}`).join(',');
+  private updateStatus(p: Character, now: number, info: HudInfo): void {
+    const list = statusOf(p, now, info);
+    const key = list.map((s) => `${s.icon}|${s.label}|${s.blink ? '!' : ''}|${s.hint ?? ''}`).join(',');
     if (key === this.lastStatus) return;
     this.lastStatus = key;
     this.statusEl.replaceChildren(
       ...list.map((s) => {
         const d = document.createElement('div');
         d.className = `hud-st st-${s.tone}${s.blink ? ' blink' : ''}`;
+        if (s.hint) d.title = s.hint;
         const img = document.createElement('img');
         img.src = iconUrl(s.icon, HUD.status.icon * 2);
         img.width = img.height = HUD.status.icon;
@@ -239,7 +245,7 @@ export class Hud {
       this.res.textContent = '';
     } else if (w.mode === 'melee') {
       this.mag.textContent = '';
-      this.res.textContent = w.class === 'blade' ? 'в спину — сильнее' : 'оглушает';
+      this.res.textContent = w.class === 'blade' ? 'в спину · ПКМ блок' : 'оглушает · ПКМ блок';
     } else if (info.reloading) {
       this.mag.textContent = '…';
       this.res.textContent = 'перезарядка';
@@ -288,7 +294,7 @@ export class Hud {
 }
 
 /** Значки состояний игрока (S1). */
-function statusOf(p: Character, now: number): Status[] {
+function statusOf(p: Character, now: number, info: HudInfo): Status[] {
   if (!p.alive) return [];
   const out: Status[] = [];
   if (p.bandageUntil > now) out.push({ icon: 'bandage', label: 'перевязка', tone: 'dark' });
@@ -298,7 +304,10 @@ function statusOf(p: Character, now: number): Status[] {
   if (p.suppress >= SUPPRESS.pinned) out.push({ icon: 'suppress', label: 'прижат', tone: 'amber' });
   if (p.crouch) out.push({ icon: 'crouch', label: 'присел', key: 'C', tone: 'dark' });
   if (p.hunger <= HUD.ring.low * 100) out.push({ icon: 'hunger', label: p.hunger <= 0 ? 'голод!' : 'голоден', tone: 'amber', blink: p.hunger <= 0 });
-  if (p.law.wanted) out.push({ icon: 'wanted', label: 'розыск', tone: 'red' });
+  // Розыск и «ищут» не дублируют друг друга: в розыске одна плашка, приметы — в подсказке.
+  if (p.law.wanted) out.push({ icon: 'wanted', label: 'розыск', tone: 'red', hint: info.suspect ?? undefined });
+  else if (info.suspect) out.push({ icon: 'search', label: 'ищут', tone: 'amber', hint: info.suspect });
+  if (info.bloody) out.push({ icon: 'bloody_shirt', label: 'в крови', tone: 'red', hint: 'Кровь на одежде: по ней узнают в ориентировке. Новая одежда на корпус (плащ, бронежилет) её снимает.' });
   if (p.disguised || p.cover) out.push({ icon: 'mask', label: 'личина', tone: 'blue' });
   return out;
 }

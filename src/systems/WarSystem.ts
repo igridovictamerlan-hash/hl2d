@@ -42,6 +42,11 @@ export interface AlarmInfo {
   suspect?: Character | null;
   victim?: { name: string } | null;
   radio?: boolean;
+  /** Приметы и направление для рации (Radio.ReportOpts). */
+  desc?: string;
+  dirText?: string;
+  /** Где прочёсывать (точка тревоги для патрулей); null/нет — место происшествия. Рация — по месту происшествия. */
+  sweep?: { x: number; y: number } | null;
 }
 
 export interface Capture {
@@ -487,7 +492,7 @@ export class WarSystem {
   }
 
   /** В городе ли точка (не КПП, не пустошь, не канализация) — там нападение поднимает тревогу. */
-  private inCity(x: number, y: number): boolean {
+  inCity(x: number, y: number): boolean {
     if (this.ctx.map.levelAt(x, y) !== 'city') return false;
     const kind = this.ctx.map.zoneAtWorld(x, y)?.kind;
     return kind !== 'checkpoint' && kind !== 'outlands' && kind !== 'wasteland' && kind !== 'rebel_camp';
@@ -733,22 +738,54 @@ export class WarSystem {
     }
   }
 
+  /** Тело в городе, о котором может знать Протекторат: убитый ВС или гражданский, не сожжённый. */
+  private bodyCounts(b: Corpse): boolean {
+    return (b.faction === 'cp' || CIVIL.has(b.faction)) && !b.burning && this.inCity(b.x, b.y);
+  }
+
+  /**
+   * Тело заметили (сотрудник Протектората или ВС, которому рассказали): убитый патрульный — код жёлтый;
+   * убитый гражданский — точка тревоги рядом. Проходы перекрывают, на осмотр идут следователь и медик —
+   * когда рядом стихнет стрельба (при штурме Управы — не до того). Гражданского — только убитого (не от голода).
+   */
+  private noteBody(b: Corpse, seer: Character): void {
+    const cp = b.faction === 'cp';
+    if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true, { kind: 'officerDown', reporter: seer, victim: b, suspect: b.killer });
+    // Убитого самим Протекторатом (законное применение силы) не ищут — только осмотр.
+    else if (b.killer && !FACTIONS[b.killer.faction].authority) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`, false, { kind: 'body', reporter: seer, victim: b, suspect: b.killer });
+    if (cp || b.killer) this.sceneQueue.add(b);
+  }
+
+  /**
+   * Гражданин рассказал ВС о теле (Senses: житель нашёл и кричит). Тело уже найдено — ничего.
+   * Убитый ВС — код жёлтый, как при виде; тело гражданского — точка тревоги с докладом, убитого — на осмотр.
+   */
+  bodyReported(k: Corpse, cp: Character): void {
+    if (k.found || !this.bodyCounts(k)) return;
+    k.found = true;
+    k.foundBy = cp.pid;
+    this.seenCorpses.add(k);
+    if (k.faction === 'cp') {
+      this.noteBody(k, cp);
+      return;
+    }
+    // Умер сам (голод, кровотечение без виновника) или убит самим Протекторатом — без прочёсывания, только осмотр.
+    if (k.killer && !FACTIONS[k.killer.faction].authority) this.raiseAlarm(k.x, k.y, 'найдено тело', false, { kind: 'body', reporter: cp, victim: k, suspect: k.killer });
+    if (k.killer) this.sceneQueue.add(k);
+  }
+
   /** Убитый ВС в городе, которого увидел кто-то из Протектората, — код жёлтый. */
   private scanCorpses(): void {
     const { combat, entities, map } = this.ctx;
     for (const b of combat.corpses) {
-      const cp = b.faction === 'cp';
-      if ((!cp && !CIVIL.has(b.faction)) || b.burning || this.seenCorpses.has(b) || !this.inCity(b.x, b.y)) continue;
+      if (!this.bodyCounts(b) || this.seenCorpses.has(b)) continue;
       for (const o of entities.list) {
         if (!o.alive || !FACTIONS[o.faction].authority) continue;
         if (Math.hypot(o.x - b.x, o.y - b.y) > VISION.npcRange || !lineOfSight(map, o.x, o.y, b.x, b.y)) continue;
         this.seenCorpses.add(b);
-        // Убит патрульный — код жёлтый; гражданский — точка тревоги рядом.
-        if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true, { kind: 'officerDown', reporter: o, victim: b, suspect: b.killer });
-        else if (b.killer) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`, false, { kind: 'body', reporter: o, victim: b, suspect: b.killer });
-        // Проходы перекрывают, на осмотр идут следователь и медик — когда рядом стихнет стрельба
-        // (при штурме Управы — не до того). Гражданского — только убитого (не от голода).
-        if (cp || b.killer) this.sceneQueue.add(b);
+        b.found = true;
+        b.foundBy ??= o.pid;
+        this.noteBody(b, o);
         break;
       }
     }
@@ -990,11 +1027,19 @@ export class WarSystem {
    */
   raiseAlarm(x: number, y: number, what: string, yellow = false, info: AlarmInfo = {}): void {
     this.lastAlarmRaise = this.time;
-    this.alarm = { x, y, until: this.time + ALARM.pointTime };
+    const sweep = info.sweep ?? { x, y };
+    this.alarm = { x: sweep.x, y: sweep.y, until: this.time + ALARM.pointTime };
     const zone = this.ctx.map.zoneAtWorld(x, y)?.name ?? 'город';
     // В эфир — рацией (доклад, вызов Надзора, кто едет); без рации — строкой журнала, как раньше.
     const radio = info.radio !== false ? this.ctx.radio : null;
-    const aired = radio?.report(info.kind ?? 'generic', x, y, { what, reporter: info.reporter ?? null, suspect: info.suspect ?? null, victim: info.victim ?? null });
+    const aired = radio?.report(info.kind ?? 'generic', x, y, {
+      what,
+      reporter: info.reporter ?? null,
+      suspect: info.suspect ?? null,
+      victim: info.victim ?? null,
+      desc: info.desc,
+      dirText: info.dirText,
+    });
     if (this.code !== 'green' || !yellow) {
       if (!aired && info.radio !== false) this.ctx.law.log(`Надзор: ${what} — ${zone}. Всем патрулям в квартале — усилить поиск.`, 'radio');
       return;
@@ -1538,8 +1583,10 @@ export class WarSystem {
       this.manualBy = null;
     }
     if (this.code === 'yellow' && this.manualCode !== 'yellow') {
-      // Тревога держится, пока есть нападавшие или КПП в руках повстанцев.
-      this.calm = this.operatives.size === 0 && this.fronts.every((f) => f.held === 0) ? this.calm + dt : 0;
+      // Тревога держится, пока есть нападавшие или КПП в руках повстанцев; серия убийств (Escalation) — тоже:
+      // покой отсчитывается заново, когда серия кончилась.
+      const hold = !!this.ctx.escalation?.holdYellow;
+      this.calm = !hold && this.operatives.size === 0 && this.fronts.every((f) => f.held === 0) ? this.calm + dt : 0;
       if (this.calm >= ALARM.calmToGreen && this.time - this.yellowSince >= ALARM.minTime) this.declareGreen();
     }
     // «Надзор» периодически засекает прорвавшихся.

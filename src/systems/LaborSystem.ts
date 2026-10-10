@@ -289,6 +289,7 @@ export class LaborSystem {
     if (!free && patient.money < M.fee) return `${patient.name}: нет ${M.fee} токенов на лечение.`;
     if (!medic.inventory.remove('bandage', 1) && !medic.inventory.remove('medkit', 1)) return 'Нет бинтов и аптечек.';
     this.ctx.combat.heal(patient, M.heal);
+    this.ctx.relations?.event('help', medic, patient);
     if (!free) {
       patient.money -= M.fee;
       medic.money += M.fee;

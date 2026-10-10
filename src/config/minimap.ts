@@ -40,6 +40,8 @@ export const MINIMAP = {
     [T.ROCK]: [44, 38, 30],
     [T.GARDEN]: [64, 100, 56],
     [T.HEDGE]: [36, 72, 36],
+    [T.TRENCH]: [68, 54, 38],
+    [T.CHASM]: [8, 6, 6],
   } as Record<number, readonly [number, number, number]>,
   colors: {
     player: '#ffd36b',

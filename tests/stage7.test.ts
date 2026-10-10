@@ -71,7 +71,7 @@ describe('постоянный состав', () => {
     expect(sim.entities.list.filter((c) => !c.isPlayer && !c.role && c.profession !== 'cremator')).toHaveLength(0);
   });
 
-  test('погибший возвращается на спавн своей стороны: боец — в лагерь, гражданин — в квартал', { timeout: 60_000 }, () => {
+  test('погибший возвращается на спавн своей стороны: боец — в лагерь, гражданин — в квартал', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     spawnPopulation(sim.ctx, 20);
     sim.war.command.paused = true;

@@ -188,6 +188,16 @@ export class MapRenderer {
           this.color[i] = tone(P.houseWall);
           break;
         }
+        // Стена руин на КПП (не бункер: у бункера рядом пол помещения): кладка без крыши.
+        if (map.zoneAtTile(x, y)?.kind === 'checkpoint') {
+          let bunker = false;
+          for (let dy = -1; dy <= 1 && !bunker; dy++) for (let dx = -1; dx <= 1; dx++) if (map.tileAt(x + dx, y + dy) === T.INTERIOR) bunker = true;
+          if (!bunker) {
+            this.roofPart[i] = 5;
+            this.color[i] = tone(P.ruinWall);
+            break;
+          }
+        }
         const p = this.parcel[i];
         let rc = this.roofColor.get(p);
         if (!rc) {
@@ -242,6 +252,8 @@ export class MapRenderer {
       case T.ROCK: this.color[i] = tone(P.rock); break;
       case T.GARDEN: this.color[i] = tone(P.garden); break;
       case T.HEDGE: this.color[i] = tone(P.hedge); break;
+      case T.TRENCH: this.color[i] = tone(P.trench); break;
+      case T.CHASM: this.color[i] = tone(P.chasm); break;
       default: this.color[i] = '#f0f';
     }
   }
@@ -462,6 +474,21 @@ export class MapRenderer {
               }
               continue;
             }
+            if ((part & 7) === 5) {
+              // Руины: ряды кирпича со смещением, выщербленная кромка.
+              ctx.fillStyle = P.ruinBrick;
+              ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+              ctx.fillRect(x0 + ((ty & 1) ? cw >> 1 : 0), y0, line, ch >> 1);
+              ctx.fillRect(x0 + ((ty & 1) ? 0 : cw >> 1), y0 + (ch >> 1), line, ch >> 1);
+              if (e) {
+                ctx.fillStyle = P.ruinEdge;
+                if (e & 1) ctx.fillRect(x0, y0, cw, line * 2);
+                if (e & 4) ctx.fillRect(x0, y1 - line * 2, cw, line * 2);
+                if (e & 8) ctx.fillRect(x0, y0, line * 2, ch);
+                if (e & 2) ctx.fillRect(x1 - line * 2, y0, line * 2, ch);
+              }
+              continue;
+            }
             // Черепица: штрихи поперёк ската; конёк — светлая линия.
             if (part) {
               const alongX = (part & 8) !== 0;
@@ -559,6 +586,44 @@ export class MapRenderer {
             if ((tx & 1) === 0) ctx.fillRect(x0, y0, line, ch);
             if ((ty & 1) === 0) ctx.fillRect(x0, y0, cw, line);
             break;
+          case T.TRENCH: {
+            // Дощатый настил поперёк канала и бруствер из мешков по кромке (там, где рядом не траншея).
+            ctx.fillStyle = P.trenchPlank;
+            ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+            if ((hv & 3) === 0) ctx.fillRect(x0 + px((hv >> 2) & 7), y0, line, ch);
+            const bag = px(3);
+            const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const;
+            for (const [dx, dy] of dirs) {
+              if (map.tileAt(tx + dx, ty + dy) === T.TRENCH) continue;
+              const bx = dx > 0 ? x1 - bag : x0;
+              const by = dy > 0 ? y1 - bag : y0;
+              const bw = dx !== 0 ? bag : cw;
+              const bh = dy !== 0 ? bag : ch;
+              ctx.fillStyle = P.trenchBag;
+              ctx.fillRect(bx, by, bw, bh);
+              ctx.fillStyle = P.trenchBagDark;
+              if (dx !== 0) ctx.fillRect(dx > 0 ? bx + bag - line : bx, by, line, bh);
+              else ctx.fillRect(bx, dy > 0 ? by + bag - line : by, bw, line);
+              // Швы между мешками.
+              ctx.fillStyle = P.trenchBagLight;
+              if (dx !== 0) ctx.fillRect(bx, by + (ch >> 1), bw, line);
+              else ctx.fillRect(bx + (cw >> 1), by, line, bh);
+            }
+            continue;
+          }
+          case T.CHASM: {
+            // Чёрная щель: осыпающаяся кромка там, где рядом твёрдая земля, трещины в глубине.
+            ctx.fillStyle = P.chasmCrack;
+            ctx.fillRect(x0 + px((hv & 7) + 2), y0 + px(((hv >> 3) & 7) + 3), px(5), line);
+            ctx.fillRect(x0 + px(((hv >> 6) & 7) + 2), y0 + px(((hv >> 9) & 7) + 2), line, px(4));
+            ctx.fillStyle = P.chasmRim;
+            const rimW = px(2);
+            if (map.tileAt(tx, ty - 1) !== T.CHASM) ctx.fillRect(x0, y0, cw, rimW);
+            if (map.tileAt(tx, ty + 1) !== T.CHASM) ctx.fillRect(x0, y1 - rimW, cw, rimW);
+            if (map.tileAt(tx - 1, ty) !== T.CHASM) ctx.fillRect(x0, y0, rimW, ch);
+            if (map.tileAt(tx + 1, ty) !== T.CHASM) ctx.fillRect(x1 - rimW, y0, rimW, ch);
+            continue;
+          }
           case T.ROCK:
             // Трещины и камни.
             ctx.fillStyle = P.rockCrack;

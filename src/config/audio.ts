@@ -61,6 +61,25 @@ export const AUDIO = {
   flesh: { freq: 180, dur: 0.09, gain: 0.55 },
   ricochet: { freq: 3200, dur: 0.12, gain: 0.12, chance: 0.35 },
   /**
+   * Ближний бой рядом с игроком (hitRange px): взмах — свист шума в полосе (from → to Гц за dur с); кулак —
+   * глухой шлепок (thump Гц и шум со срезом body, в голову — headBody); дубинка — ещё треск разряда (zap);
+   * нож — плоть и короткий «вжик» (slice); блок оружием — звон (два обертона clang), руками — глухо (thud);
+   * нокаут — тяжёлое падение (ko).
+   */
+  melee: {
+    swish: {
+      fists: { from: 500, to: 1500, dur: 0.09, gain: 0.14 },
+      baton: { from: 380, to: 1500, dur: 0.13, gain: 0.24 },
+      blade: { from: 1500, to: 5200, dur: 0.1, gain: 0.2 },
+    },
+    punch: { thump: 120, body: 1300, headBody: 2400, dur: 0.075, gain: 0.5 },
+    zap: { freq: 1700, dur: 0.12, gain: 0.12 },
+    slice: { cutoff: 3800, dur: 0.05, gain: 0.18 },
+    clang: { ring: 1950, ring2: 2900, dur: 0.2, gain: 0.16 },
+    thud: { freq: 140, dur: 0.07, gain: 0.32 },
+    ko: { freq: 75, dur: 0.24, gain: 0.55 },
+  },
+  /**
    * Пуля пролетела рядом с игроком: сверхзвуковой щелчок (crack, высокие частоты, crackDur с) и
    * короткий свист (whistle Гц, падает за dur с); громче, чем ближе прошла (power — 0..1).
    */

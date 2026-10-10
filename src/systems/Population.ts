@@ -293,6 +293,8 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   if (ctx.cwuHq) ctx.cwuHq.citizensAtStart = ctx.entities.list.filter((c) => c.faction === 'citizen').length;
   // Приток жителей: граждан меньше, чем было в начале (ушли в академию, в ТС, к повстанцам) — приезжают новые.
   if (ctx.roster) ctx.roster.baseline = ctx.entities.list.filter((c) => !c.isPlayer && c.faction === 'citizen' && c.role?.kind === 'citizen').length;
+  // Живые люди: знакомства, дружба и вражда с первой минуты (семьи, соседи, банды, сослуживцы, товарищи).
+  ctx.relations?.seed();
 }
 
 /** Место работы жителя (дом ищется поближе к нему) или null. */

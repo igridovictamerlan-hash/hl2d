@@ -96,6 +96,8 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     // Без вылазок партизан и дронов: тревога (код жёлтый) распускает строй.
     sim.insurgency.paused = true;
     sim.scanners.update = () => {};
+    // И без дел банд: удар по патрулю — тоже тревога (а свидетели теперь доносят).
+    sim.ctx.gangs.paused = true;
     run(sim, 5);
     // Офицер может быть занят (погоня, проверка) — построение, как только освободится.
     let started = sim.security.startFormation();

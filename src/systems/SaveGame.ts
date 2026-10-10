@@ -7,6 +7,7 @@ import { capacityOf } from './Gear';
 import { ITEMS, WEAPONS } from '../config/items';
 import type { CadetRecord } from '../config/academy';
 import { FACTIONS } from '../config/factions';
+import type { SocialSave } from './Relations';
 
 /**
  * Сохранение игрока (формат версии 1): карта (seed), роль, личность, деньги, лояльность,
@@ -39,6 +40,8 @@ export interface SaveData {
   /** Служба ВС: заслуги; курсант — баллы учёбы (нет в старых сохранениях). */
   merit?: number;
   cadet?: CadetRecord | null;
+  /** Знакомства и память отношений (systems/Relations.ts; нет в старых сохранениях). */
+  social?: SocialSave;
 }
 
 export function capturePlayer(
@@ -48,6 +51,7 @@ export function capturePlayer(
   civilName: string,
   knowledge: { explored: Uint8Array; hatches: Iterable<number> },
   now = Date.now(),
+  social?: SocialSave,
 ): SaveData {
   // Задержанный «сбежать» перезагрузкой не может: он в розыске.
   const caught = p.law.phase !== 'none';
@@ -75,6 +79,7 @@ export function capturePlayer(
     hatches: [...knowledge.hatches],
     merit: p.merit,
     cadet: p.cadet ? { ...p.cadet } : null,
+    social,
   };
 }
 

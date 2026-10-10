@@ -21,6 +21,7 @@ import { apparentFaction, coverAuthority } from '../entities/cover';
 import { PrisonerBrain } from '../ai/brains/PrisonerBrain';
 import { CHARACTER } from '../config/entities';
 import { PARTISANS } from '../config/underground';
+import { SUSPECTS } from '../config/suspects';
 import { ITEMS, type ItemId } from '../config/items';
 import type { Vec2 } from '../core/math';
 
@@ -64,9 +65,12 @@ export function isUnderground(c: Character): boolean {
   return c.faction === 'rebel' && (c.profession === 'partisan' || c.profession === 'spec_agent');
 }
 
-/** Кого ведут в тюрьму Протектората: всех повстанцев — армию, подполье, перебежчиков. */
+/**
+ * Кого ведут в тюрьму Протектората: всех повстанцев — армию, подполье, перебежчиков — и задержанных по делу
+ * за убийство или нападение с оружием (причина ареста — в law.reason, её ставит arrest).
+ */
 export function belongsInPrison(c: Character): boolean {
-  return c.faction === 'rebel';
+  return c.faction === 'rebel' || c.law.reason === 'murder' || c.law.reason === 'assault';
 }
 
 /** Изъятое при водворении в тюрьму: стволы, патроны, гранаты. */
@@ -94,6 +98,8 @@ export class LawSystem {
   prisonGate: Vec2 | null = null;
   /** Куда выводить отпущенного (из тюрьмы — за её ворота; иначе ворота Управы). */
   readonly releaseSpot = new Map<Character, Vec2>();
+  /** Когда человека последний раз оштрафовали за комендантский час в квартале (повторно — арест, LAW.zoneCurfewRepeat). */
+  private readonly zoneCurfewFined = new WeakMap<Character, number>();
 
   constructor(
     private readonly map: GameMap,
@@ -223,6 +229,12 @@ export class LawSystem {
   merit: (c: Character, pts: number) => void = () => {};
   /** Без пропуска на режимном объекте (Access.trespassing) — нарушение «запретная зона». */
   trespass: (c: Character) => boolean = () => false;
+  /** Задаёт Game: обвинение по делу (Suspects) — убийство или нападение с оружием, иначе null. */
+  charge: (c: Character) => 'murder' | 'assault' | null = () => null;
+  /** Задаёт Game: нарушает ли персонаж комендантский час в своём квартале (Escalation). */
+  zoneCurfew: (c: Character) => boolean = () => false;
+  /** Задаёт Game: дело по персонажу закрыто (задержан, водворён в камеру) — Suspects. */
+  closeCase: (c: Character) => void = () => {};
 
   /** Нарушение, которое observer видит прямо сейчас, или null. */
   observe(observer: Character, target: Character): Violation | null {
@@ -249,8 +261,10 @@ export class LawSystem {
     // Режимный объект без пропуска (вошёл, пока вахты не было).
     if (this.trespass(target)) return 'restricted';
     if (this.curfewCheck(target)) return 'curfew';
+    if (this.zoneCurfew(target)) return 'zone_curfew';
     // Лоялистам бегать разрешено.
-    if (target.moveSpeed > LAW.runSpeed && !this.panicking(target) && !loyalistPerk(target, 'run')) return 'running';
+    // Выпад и отброс в драке — не бег (Melee: impulse).
+    if (target.moveSpeed > LAW.runSpeed && target.melee.impulse <= this.now && !this.panicking(target) && !loyalistPerk(target, 'run')) return 'running';
     return null;
   }
 
@@ -275,6 +289,8 @@ export class LawSystem {
       reason === 'running' ? LINES.cpOrderRun
       : reason === 'restricted' ? LINES.cpOrderRestricted
       : reason === 'curfew' ? LINES.cpOrderCurfew
+      : reason === 'zone_curfew' ? LINES.cpOrderZoneCurfew
+      : reason === 'suspect' ? LINES.cpOrderSuspect
       : reason === 'insult' ? LINES.cpOrderInsult
       : reason === 'rebel' || reason === 'weapon' ? LINES.cpOrderRebel
       : LINES.cpOrder;
@@ -321,25 +337,31 @@ export class LawSystem {
     let reason: Violation = law.reason ?? 'routine';
     // Подпольщик под личиной показывает поддельную CID: раскрывают с шансом (в розыске — всегда).
     const fake = target.faction === 'rebel' && target.disguised && !law.wanted && !this.rng.chance(PARTISANS.checkReveal);
+    // Дело по ориентировке (Suspects): убийство или нападение — арест. Нет дела — причина 'suspect' отпустит ниже.
+    const ch = this.charge(target);
     if (target.faction === 'rebel' && !fake) {
       target.disguised = false;
       target.cover = null;
       reason = 'rebel';
     } else if ((target.law.crimeUntil ?? -1) > this.time) reason = 'theft';
     else if ((target.law.riotUntil ?? -1) > this.time) reason = 'riot';
+    else if (ch) reason = ch;
     else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
     else if (!law.hasCid && !fake) reason = 'no_cid';
-    // Свёрток подполья (поручение с доски) — при обыске находят с шансом: контрабанда, арест.
-    if (reason !== 'rebel' && target.inventory.has('parcel_x') && this.rng.chance(ERRANDS.secret.search)) {
+    // Свёрток подполья (поручение с доски) — при обыске находят с шансом: контрабанда, арест (не при деле об убийстве).
+    if (reason !== 'rebel' && !ch && target.inventory.has('parcel_x') && this.rng.chance(ERRANDS.secret.search)) {
       target.inventory.remove('parcel_x', 1);
       reason = 'contraband';
       this.onContraband(target);
       if (target.isPlayer) this.bus.emit('log', { text: ERRANDS.lines.found, kind: 'law' });
     }
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };
-    if (reason === 'running' || reason === 'restricted' || reason === 'insult' || reason === 'fight') {
+    // Комендантский час в квартале: штраф уже был недавно — на этот раз арест.
+    if (reason === 'zone_curfew' && this.time - (this.zoneCurfewFined.get(target) ?? -1e9) < LAW.zoneCurfewRepeat) return { kind: 'arrest', reason, fine: 0 };
+    if (reason === 'running' || reason === 'restricted' || reason === 'insult' || reason === 'fight' || reason === 'zone_curfew') {
       return { kind: 'fine', reason, fine: LAW.fines[reason] };
     }
+    // Причина 'suspect' дошла сюда: по ориентировке не доказано и других нарушений нет — отпускают без штрафа.
     return { kind: 'ok', reason, fine: 0 };
   }
 
@@ -355,11 +377,15 @@ export class LawSystem {
       const paid = Math.min(target.money, verdict.fine);
       target.money -= paid;
       handler.money += Math.floor(paid / 2);
-      handler.say(fill(phrase(this.rng, handler, LINES.cpFine, target), { n: verdict.fine }), this.time);
+      // Комендантский час в квартале — штраф и «по домам».
+      handler.say(fill(phrase(this.rng, handler, verdict.reason === 'zone_curfew' ? LINES.cpGoHome : LINES.cpFine, target), { n: verdict.fine }), this.time);
+      if (verdict.reason === 'zone_curfew') this.zoneCurfewFined.set(target, this.time);
       adjustLoyalty(target, verdict.reason === 'insult' ? LOYALTY.points.insult : LOYALTY.points.fine, 'штраф', this.bus);
       this.log(`${label(handler)} оштрафовал ${who(target)} на ${verdict.fine} токенов (${VIOLATION_NAMES[verdict.reason]})`, 'law');
+      this.onVerdict?.(handler, target, 'fine');
     } else {
-      handler.say(phrase(this.rng, handler, LINES.cpOk, target), this.time);
+      // Ориентировка не подтвердилась — отпускают с другими словами.
+      handler.say(phrase(this.rng, handler, verdict.reason === 'suspect' ? SUSPECTS.lines.released : LINES.cpOk, target), this.time);
       adjustLoyalty(target, LOYALTY.points.checkOk, 'проверка пройдена', this.bus);
     }
     this.clear(target);
@@ -402,6 +428,8 @@ export class LawSystem {
   onFlee: ((handler: Character, target: Character) => void) | null = null;
   onLost: ((handler: Character, target: Character) => void) | null = null;
   onArrest: ((handler: Character, target: Character, fled: boolean) => void) | null = null;
+  /** Решение по проверке (арест, штраф, отпустили) — Relations: обида на ВС у задержанного и его близких. */
+  onVerdict: ((handler: Character, target: Character, kind: 'arrest' | 'fine' | 'ok') => void) | null = null;
 
   arrest(handler: Character, target: Character, reason: Violation): void {
     const law = target.law;
@@ -428,11 +456,15 @@ export class LawSystem {
     // В наручниках не упирается: конвоир и прохожие легко отталкивают.
     target.mass = PRISONER_MASS;
     target.wantX = target.wantY = 0;
+    // Задержан — уже не опасен; дело по нему (Suspects) закрыто.
+    target.hostile = false;
+    this.closeCase(target);
     handler.say(phrase(this.rng, handler, LINES.cpArrest, target), this.time);
     adjustLoyalty(target, LOYALTY.points.arrest, 'задержание', this.bus);
     this.log(`${label(handler)} задержал ${who(target)} (${VIOLATION_NAMES[reason]})`, 'law');
     if (wasPlayerCheck) this.bus.emit('law:checkClosed', { target });
     this.onArrest?.(handler, target, fled);
+    this.onVerdict?.(handler, target, 'arrest');
   }
 
   /** Свободное место (не занято и не зарезервировано) в камере или -1. */
@@ -594,6 +626,8 @@ export class LawSystem {
             slot.reserved = null;
             law.phase = 'jailed';
             law.handler = null;
+            c.hostile = false;
+            this.closeCase(c);
             if (cell.prison) {
               // Тюрьма: бессрочно (игроку — срок LAW.prison.playerTime), оружие — в комнату изъятого.
               law.jailUntil = c.isPlayer ? this.time + LAW.prison.playerTime : Infinity;

@@ -29,6 +29,8 @@ import type { PawnLook } from '../entities/PawnRenderer';
 import { EntityRenderer } from '../entities/EntityRenderer';
 import { WeaponWheel } from '../ui/WeaponWheel';
 import { HUD } from '../config/hud';
+import { MELEE } from '../config/melee';
+import { resetMelee } from '../entities/meleeState';
 import { MINIMAP } from '../config/minimap';
 import { Particles } from '../world/Particles';
 import { SquadArena } from '../systems/SquadArena';
@@ -61,7 +63,12 @@ import { AcademySystem } from '../systems/Academy';
 import { Staffing } from '../systems/Staffing';
 import { Access } from '../systems/Access';
 import { Radio, type Transmission } from '../systems/Radio';
+import { Senses } from '../systems/Senses';
+import { Suspects } from '../systems/Suspects';
+import { Escalation } from '../systems/Escalation';
+import { Memorials } from '../systems/Memorials';
 import { Talk } from '../systems/Talk';
+import { Relations, type PersonInfo } from '../systems/Relations';
 import { serviceHint } from '../systems/Staffing';
 import { StreetShops } from '../systems/StreetShops';
 import { Housing } from '../systems/Housing';
@@ -213,7 +220,10 @@ export class Game {
       chooseCode: (c) => this.ui.code.choose(c),
       closeCodePanel: () => this.ui.code.close(),
       wheel: this.wheel,
-      setSlow: (on) => (this.loop.timeScale = on ? HUD.wheel.slow : 1),
+      setSlow: (on) => {
+        this.wheelSlow = on;
+        this.applyTimeScale();
+      },
       setMarker: (x, y) => (this.ui.mapView.marker = { x, y, level: 'city' }),
     });
     this.touch = new TouchControls(uiRoot, {
@@ -227,7 +237,7 @@ export class Game {
         this.input.releaseAll();
         this.ui.chat.open('');
       },
-      busy: () => this.ui.menu.isOpen || this.ui.roles.isOpen || this.ui.inventory.isOpen || this.ui.mapView.bigOpen || this.ui.shop.isOpen || this.ui.chat.isOpen,
+      busy: () => this.ui.menu.isOpen || this.ui.roles.isOpen || this.ui.inventory.isOpen || this.ui.contacts.isOpen || this.ui.mapView.bigOpen || this.ui.shop.isOpen || this.ui.chat.isOpen,
       playing: () => !this.ui.menu.isOpen && !this.ui.roles.isOpen,
     });
     this.loop = new GameLoop(
@@ -362,6 +372,11 @@ export class Game {
       access: null as unknown as Access,
       radio: null as unknown as Radio,
       talk: null as unknown as Talk,
+      relations: null as unknown as Relations,
+      senses: null as unknown as Senses,
+      suspects: null as unknown as Suspects,
+      escalation: null as unknown as Escalation,
+      memorials: null as unknown as Memorials,
     };
     this.ai.routine = new Routine(this.ai);
     this.ai.errands = new Errands(this.ai);
@@ -390,10 +405,18 @@ export class Game {
     this.ai.academy = new AcademySystem(this.ai);
     this.ai.access = new Access(this.ai);
     this.ai.talk = new Talk(this.ai);
+    this.ai.relations = new Relations(this.ai);
     this.ai.radio = new Radio(this.ai);
+    this.ai.suspects = new Suspects(this.ai);
+    this.ai.escalation = new Escalation(this.ai);
+    this.ai.memorials = new Memorials(this.ai);
+    this.ai.senses = new Senses(this.ai);
+    this.entityRenderer.relations = this.ai.relations;
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
+    this.entityRenderer.senses = this.ai.senses;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
+    this.lighting.memorials = this.ai.memorials.list;
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
     this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
     this.economy.onEmpty = () => this.labor.noticeEmpty();
@@ -405,6 +428,9 @@ export class Game {
     this.law.panicking = (c) => c.panicUntil > this.law.now;
     this.law.trespass = (c) => this.ai.access.trespassing(c);
     this.law.merit = (c, pts) => this.ai.staffing.merit(c, pts);
+    this.law.charge = (c) => this.ai.suspects?.charge(c) ?? null;
+    this.law.zoneCurfew = (c) => this.ai.escalation?.curfewViolation(c) ?? false;
+    this.law.closeCase = (c) => this.ai.suspects?.close(c);
     this.law.onContraband = (c) => this.ai.errands.found(c);
     this.entities.clear();
     resetCids();
@@ -415,6 +441,7 @@ export class Game {
     this.player = createCharacter(this.entities, this.rng, 'citizen', start.x, start.y, true);
     this.civilName = this.player.name;
     this.ai.player = this.player;
+    this.ai.relations.register(this.player);
     spawnPopulation(this.ai, this.opts.npcs);
     const save = this.pendingSave && this.pendingSave.seed === map.seed && source === 'generated' ? this.pendingSave : null;
     this.pendingSave = null;
@@ -468,6 +495,7 @@ export class Game {
     p.cover = null;
     p.carrying = false;
     p.burnUntil = 0;
+    resetMelee(p.melee);
     p.alive = true;
     p.health = p.maxHealth;
     p.hunger = ECONOMY.hunger.max;
@@ -519,6 +547,7 @@ export class Game {
       const gang = p.profession === 'bandit' ? this.ai.gangs?.join(p) ?? null : null;
       if (gang && announce) this.bus.emit('log', { text: `Вы в банде «${gang.def.name}»: район — ${gang.quarter || 'у общаги'}, общак в общаге (E). Чужих на районе не терпят.`, kind: 'system' });
       const d = gang ? H.of(p) : faction === 'citizen' || faction === 'cwu' || faction === 'vort' || underground ? H.house(p, workplaceOf(this.ai, p)) : null;
+      if (d && announce && !underground) this.ai.relations.seedPlayer(p);
       if (d && announce) this.bus.emit('log', { text: underground ? 'Ваша явка в городе отмечена на карте (M): E в комнате — спрятать добычу или взять из тайника.' : 'Ваш дом отмечен на карте (M) кружком.', kind: 'system' });
     }
     if (announce) {
@@ -527,6 +556,7 @@ export class Game {
       const pr = p.profession && p.profession !== DEFAULT_PROFESSION[faction] ? ` · ${PROFESSIONS[p.profession].name}` : '';
       this.bus.emit('log', { text: `Вы теперь: ${FACTIONS[faction].role}${r ? ` (${r.name})` : ''}${div}${pr} — ${p.name}`, kind: 'system' });
       if (p.profession) for (const t of PROFESSIONS[p.profession].perks) this.bus.emit('log', { text: `• ${t}`, kind: 'system' });
+      this.bus.emit('log', { text: 'Жители запоминают, что вы делаете: E перед человеком — поговорить, K — знакомые. Добро помнят — обиды тоже.', kind: 'system' });
     }
   }
 
@@ -555,6 +585,7 @@ export class Game {
     if (ui.shop.isOpen) return ui.shop.close();
     if (ui.code.isOpen) return ui.code.close();
     if (ui.inventory.isOpen) return ui.inventory.toggle();
+    if (ui.contacts.isOpen) return ui.contacts.toggle();
     this.input.releaseAll();
     ui.menu.open('pause');
   }
@@ -646,6 +677,15 @@ export class Game {
     return this.ai?.arsenal ?? null;
   }
 
+  /** Дела о преступлениях (ориентировка по игроку в HUD) и реакция города по зонам (название зоны). */
+  get suspects(): Suspects | null {
+    return this.ai?.suspects ?? null;
+  }
+
+  get escalation(): Escalation | null {
+    return this.ai?.escalation ?? null;
+  }
+
   /** Часы и время суток для HUD: «19:40 · вечер». */
   get clock(): string {
     return `${clockText(dayFraction(this.time))} · ${this.lighting.day(this.time).name}`;
@@ -673,7 +713,7 @@ export class Game {
   /** Сохранить сейчас (если роль выбрана и игрок жив; в «отряд на отряд» — нет). */
   save(): boolean {
     if (!this.role || !this.player?.alive || this.arena) return false;
-    const data = capturePlayer(this.player, this.map.seed, this.role, this.civilName, { explored: this.ui.mapView.explored, hatches: this.ui.mapView.hatches });
+    const data = capturePlayer(this.player, this.map.seed, this.role, this.civilName, { explored: this.ui.mapView.explored, hatches: this.ui.mapView.hatches }, Date.now(), this.ai.relations.serialize());
     try {
       localStorage.setItem(SAVE.key, JSON.stringify(data));
       return true;
@@ -699,6 +739,8 @@ export class Game {
     this.civilName = save.civilName || this.civilName;
     this.applyRole(save.role.faction, save.role.rank, save.role.division, false, save.role.profession ?? null);
     applyToPlayer(this.player, save);
+    // Знакомства и память отношений — тем же людям (карта та же, имена сверяются).
+    this.ai.relations.restore(save.social);
     const p = this.player;
     // Позиция — если там можно стоять (карта та же).
     if (save.pos) {
@@ -795,8 +837,17 @@ export class Game {
     this.canvas.focus();
   }
 
+  /** Знакомые игрока (панель K): кто его знает и как относится. */
+  contacts(): PersonInfo[] {
+    return this.ai?.relations?.enabled ? this.ai.relations.contacts(this.player) : [];
+  }
+
   shopPrice(id: ItemId): number | undefined {
-    return this.economy.shopPrice(this.player, id);
+    // Лавка проспекта: цена зависит от того, как продавец относится к покупателю.
+    const street = this.ui.shop.kind === 'street' ? this.ui.shop.street : null;
+    const v = street && street.sub !== 'cwu' && street.vendor?.alive ? street.vendor : null;
+    const mul = v && this.ai.relations?.enabled ? this.ai.relations.priceMul(v, this.player) : 1;
+    return this.economy.shopPrice(this.player, id, mul);
   }
 
   buyBlack(k: number): string | null {
@@ -829,6 +880,8 @@ export class Game {
     // Силовой блок не возрождается: погибший ВС (и курсант) — в городе появляется новый житель.
     if (this.role?.faction === 'cp') {
       this.civilName = randomName(this.rng);
+      // Новый человек с новым именем: прежние знакомые его не узнают, он их — тоже.
+      this.ai.relations.forget(p.pid);
       this.role = { faction: 'citizen', rank: 0, division: null, profession: DEFAULT_PROFESSION.citizen ?? null };
       this.applyRole('citizen', 0, null, true, this.role.profession ?? null);
       this.bus.emit('announce', { text: 'Ваш юнит погиб. ВС не возрождаются — вы новый житель города' });
@@ -964,6 +1017,11 @@ export class Game {
     this.insurgency.paused = true;
     this.ai.radio.enabled = false;
     this.ai.talk.enabled = false;
+    this.ai.relations.enabled = false;
+    if (this.ai.senses) this.ai.senses.enabled = false;
+    if (this.ai.suspects) this.ai.suspects.enabled = false;
+    if (this.ai.escalation) this.ai.escalation.enabled = false;
+    if (this.ai.memorials) this.ai.memorials.enabled = false;
     this.ui.roles.close();
     this.arena = new SquadArena(this.ai, side, this.player);
     this.arena.startRound();
@@ -1015,6 +1073,7 @@ export class Game {
     this.law.update(dt, this.player);
     this.economy.update(dt);
     this.combat.update(dt);
+    this.ai.senses?.update(dt);
     this.particles.update(this.combat, this.player, dt);
     if (this.arena) {
       // Город пуст: работают только бой, двери, закон и сам режим.
@@ -1041,6 +1100,10 @@ export class Game {
     this.ai.academy.update(dt);
     this.ai.radio.update(dt);
     this.ai.talk.update();
+    this.ai.relations.update(dt);
+    this.ai.suspects?.update();
+    this.ai.escalation?.update(dt);
+    this.ai.memorials?.update();
     // Красный код (штурм Управы) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();
@@ -1066,6 +1129,7 @@ export class Game {
     if (this.input.wasPressed('devPanel')) this.ui.dev.toggle();
     if (this.input.wasPressed('help')) this.ui.help.toggle();
     if (this.input.wasPressed('bigMap')) this.ui.mapView.toggleBig();
+    if (this.input.wasPressed('contacts') && !this.ui.chat.isOpen && !this.ui.roles.isOpen) this.ui.contacts.toggle();
     if (this.input.wasPressed('zoom')) {
       const k = this.camera.cycleZoom();
       this.bus.emit('log', { text: `Масштаб камеры: ×${k}`, kind: 'world' });
@@ -1084,6 +1148,16 @@ export class Game {
     this.input.endTick();
   }
 
+  /** Колесо оружия открыто (мир замедлен); когда был прошлый кадр (реальное время, мс) — для замирания от удара. */
+  private wheelSlow = false;
+  private lastFrame = 0;
+
+  /** Замедление времени: колесо оружия и замирание кадра от удара в ближнем бою (Particles.hitstop). */
+  private applyTimeScale(): void {
+    const stop = this.particles.hitstop > 0 ? MELEE.hitstop.scale : 1;
+    this.loop.timeScale = Math.min(this.wheelSlow ? HUD.wheel.slow : 1, stop);
+  }
+
   /** Тряска экрана: взрывы, свои выстрелы, попадания (сдвиг вида, не камеры; px экрана). */
   private shake(v: View): void {
     const a = this.particles.shake;
@@ -1095,6 +1169,13 @@ export class Game {
 
   private render(alpha: number): void {
     const ctx = this.ctx;
+    // Замирание от удара идёт в реальном времени (логика в это время почти стоит).
+    const ms = performance.now();
+    if (this.particles.hitstop > 0) {
+      this.particles.hitstop = Math.max(0, this.particles.hitstop - Math.min(0.1, (ms - this.lastFrame) / 1000));
+      this.applyTimeScale();
+    } else if (this.loop.timeScale !== (this.wheelSlow ? HUD.wheel.slow : 1)) this.applyTimeScale();
+    this.lastFrame = ms;
     const v = this.camera.view(alpha);
     this.shake(v);
     const dpr = this.camera.dpr;
@@ -1115,6 +1196,7 @@ export class Game {
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.effects.drawScenes(ctx, v, this.war.scenes.list);
+    this.effects.drawMemorials(ctx, v, this.ai.memorials.list, this.law.now);
     this.effects.drawMines(ctx, v, this.combat, this.player, this.map);
     this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.arsenalView.drawCarried(ctx, v, this.ai.arsenal, alpha);
@@ -1134,7 +1216,7 @@ export class Game {
     this.effects.drawShots(ctx, v, this.combat);
     this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);
     this.effects.drawScanners(ctx, v, this.ai.scanners.list, alpha, this.law.now);
-    this.aim.drawSwings(ctx, v, this.combat);
+    this.aim.drawSwings(ctx, v, this.combat, alpha, showAll);
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);
     this.particles.drawOver(ctx, v, this.combat);
     if (!sewer) this.arsenalView.drawShip(ctx, v, this.ai.arsenal, this.law.now);

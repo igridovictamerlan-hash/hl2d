@@ -17,6 +17,8 @@ export interface Dwelling {
   at: Vec2;
   spots: Vec2[];
   bed: Vec2 | null;
+  /** Сама кровать (центр и размер, px) — на ней рисуется спящий (только отрисовка). */
+  bedBox: { x: number; y: number; w: number; h: number } | null;
   /** Сколько семей/одиночек тут живёт (обычно одна). */
   households: number;
   /** Явка подполья: тайник с добычей (оружие, патроны, гранаты). */
@@ -78,6 +80,7 @@ export class Housing {
         at: near(cx, cy),
         spots,
         bed: bed ? near(bed.x + bed.w / 2, bed.y + bed.h / 2) : null,
+        bedBox: bed ? { x: bed.x + bed.w / 2, y: bed.y + bed.h / 2, w: bed.w, h: bed.h } : null,
         households: 0,
         stash: null,
         building: p.kind === 'dorm' ? p.id ?? -1 : -1,

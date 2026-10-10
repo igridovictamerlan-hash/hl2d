@@ -13,7 +13,7 @@
 export type IncidentKind =
   | 'shots' | 'gunfire' | 'armed' | 'attack' | 'contact' | 'unitDown' | 'officerDown' | 'body'
   | 'sabotage' | 'escape' | 'riot' | 'gang' | 'convoy' | 'prison' | 'depot' | 'scanner' | 'tip'
-  | 'fugitive' | 'brawl' | 'generic';
+  | 'fugitive' | 'brawl' | 'generic' | 'murder' | 'stabbing' | 'serial' | 'screams' | 'district';
 
 export interface IncidentDef {
   /** Код вызова (по рации). */
@@ -289,6 +289,58 @@ export const RADIO = {
       code: 'код 1', units: 0, urgent: false, prio: 1, rumor: 'brawl',
       report: ['Надзор, {unit}: драка {where}, разнимаю.', '{unit}: мордобой {where}. Разберусь.', '{unit}: двое сцепились {where}.'],
       dispatch: ['Принято, {unit}. Зачинщиков — штрафовать.', 'Понял. Разнимите и выпишите штраф.'],
+    },
+    murder: {
+      code: 'код 5-А', units: 3, urgent: true, prio: 3, rumor: 'murder',
+      report: [
+        'Надзор, {unit}: гражданин сообщает — убийство {where}. {suspect}, ушёл {dir}.',
+        '{unit} — Надзору: убийство {where}! {suspect}. Направление — {dir}.',
+        'Надзор, {unit}. Свидетель: убит {victim}, {where}. {suspect}, {dir}.',
+      ],
+      dispatch: [
+        'Всем юнитам: {code}, убийство {where}. Приметы: {suspect}. Ушёл {dir}. {units} — бегом, прочесать квартал.',
+        'Надзор — {units}: убийство {where}. {suspect}, {dir}. Задержать, при сопротивлении — огонь.',
+        '{code} {where}! {units}, перекрыть дворы. Ориентировка: {suspect}.',
+      ],
+      onScene: ['{unit} на месте. Тело вижу. Свидетели есть — опрашиваю.', '{unit}: {where}, прочёсываю дворы.'],
+    },
+    stabbing: {
+      code: 'код 9-Г', units: 2, urgent: true, prio: 2, rumor: 'stabbing',
+      report: [
+        'Надзор, {unit}: нападение с оружием {where}. {suspect}, ушёл {dir}.',
+        '{unit}: гражданин ранен {where}. Нападавший — {suspect}.',
+      ],
+      dispatch: [
+        'Надзор — {units}: нападение {where}. {suspect}, {dir}. Найти.',
+        '{code}: ранен гражданин {where}. {units}, выдвигайтесь. Приметы: {suspect}.',
+      ],
+    },
+    serial: {
+      code: 'код 5-С', units: 4, urgent: true, prio: 3, rumor: 'serial',
+      report: [
+        'Надзор, {unit}: снова убийство {where}! Почерк тот же. {suspect}, {dir}.',
+        '{unit} — Надзору: ещё тело {where}. {suspect}. Это серия.',
+      ],
+      dispatch: [
+        'Всем юнитам: {code}! Серия убийств. Новое — {where}. {suspect}, {dir}. {units} — бегом, работать парами.',
+        'Надзор — всем: убийца ходит по городу. {where}, {suspect}. {units} — перекрыть квартал. Вооружённых — огонь без предупреждения.',
+      ],
+      onScene: ['{unit} на месте. Ещё один… Прочёсываю.'],
+    },
+    screams: {
+      code: 'код 2-К', units: 1, urgent: false, prio: 1, rumor: 'screams',
+      report: ['Надзор, {unit}: крики {where}. Проверяю.', '{unit}: кто-то зовёт на помощь {where}.'],
+      dispatch: ['Принято, {unit}. Проверьте и доложите.', 'Понял. {units} — посмотрите, что там {where}.'],
+    },
+    district: {
+      code: 'код 11', units: 2, urgent: false, prio: 2, rumor: 'district',
+      report: [],
+      dispatch: [
+        'Надзор — {units}: {what} — {where}. Прочесать дворы, проверять всех.',
+        'Надзор: {where} — {what}. {units}, выдвигайтесь, документы у всех.',
+        '{code}: {what} {where}. {units} — на маршрут через квартал.',
+      ],
+      onScene: ['{unit}: на маршруте {where}. Проверяю прохожих.', '{unit} в квартале. Тихо пока.'],
     },
     generic: {
       code: 'код 10', units: 2, urgent: false, prio: 2, rumor: 'generic',

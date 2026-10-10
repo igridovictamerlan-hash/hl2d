@@ -39,6 +39,9 @@ export interface Incident {
   suspect: Character | null;
   /** Пострадавший юнит (или его тело). */
   victim: { name: string } | null;
+  /** Приметы со слов свидетелей (Suspects) и куда ушёл — вместо «всевидящего» описания живого подозреваемого. */
+  desc?: string;
+  dirText?: string;
   /** Кого послали (вызов у них — RadioCall с id происшествия). */
   responders: Character[];
   /** Сколько всего посылали (и игрока). */
@@ -182,7 +185,7 @@ export class Radio {
    * подтверждения. Рядом с открытым — то же самое (обновление). null — не в городе, рация выключена или
    * красный код (тогда вся сеть на обороне Управы).
    */
-  report(kind: IncidentKind, x: number, y: number, o: { what?: string; reporter?: Character | null; suspect?: Character | null; victim?: { name: string } | null } = {}): Incident | null {
+  report(kind: IncidentKind, x: number, y: number, o: ReportOpts = {}): Incident | null {
     const { ctx } = this;
     if (!this.enabled || !this.onNet(x, y) || ctx.war?.code === 'red') return null;
     const def = RADIO.kinds[kind];
@@ -203,7 +206,7 @@ export class Radio {
     const zone = ctx.map.zoneAtWorld(x, y);
     const inc: Incident = {
       id: this.nextId++, kind, prio: def.prio, x, y, what: o.what ?? '', where: whereOf(zone), zone: zone?.name ?? 'город',
-      opened: now, signal: now, updated: now, reporter, suspect: o.suspect ?? null, victim: o.victim ?? null,
+      opened: now, signal: now, updated: now, reporter, suspect: o.suspect ?? null, victim: o.victim ?? null, desc: o.desc, dirText: o.dirText,
       responders: [], sent: 0, arrived: new Set(), onScene: false, contact: kind === 'contact', escalations: 0, lastEscalate: -1e9,
       quietSince: now, redispatched: false, closed: false, closedAt: 0, result: '',
     };
@@ -211,7 +214,8 @@ export class Radio {
     this.stats.incidents++;
     this.stats.byKind[kind] = (this.stats.byKind[kind] ?? 0) + 1;
     if (reporter && def.report.length) this.say(reporter, this.pick(def.report), () => this.vars(inc, reporter), def.prio, true, RADIO.reportDelay);
-    if (def.units > 0) this.dispatch(inc, def.units, def.urgent, 'dispatch');
+    const units = o.units ?? def.units;
+    if (units > 0) this.dispatch(inc, units, def.urgent, 'dispatch');
     else {
       // Без выезда (драка): Надзор только отвечает доложившему.
       if (def.dispatch.length) this.nadzor(this.pick(def.dispatch), () => this.vars(inc, reporter), reporter ? [reporter] : [], inc, def.prio, true, RADIO.reply);
@@ -229,11 +233,13 @@ export class Radio {
   }
 
   /** Новый сигнал рядом с открытым происшествием: важнее — повышение и ещё юниты; иначе — обновление. */
-  private merge(inc: Incident, kind: IncidentKind, x: number, y: number, o: { what?: string; reporter?: Character | null; suspect?: Character | null; victim?: { name: string } | null }): void {
+  private merge(inc: Incident, kind: IncidentKind, x: number, y: number, o: ReportOpts): void {
     const def = RADIO.kinds[kind];
     const now = this.now;
     this.stats.merged++;
     if (o.suspect) inc.suspect = o.suspect;
+    if (o.desc) inc.desc = o.desc;
+    if (o.dirText) inc.dirText = o.dirText;
     if (o.victim && !inc.victim) inc.victim = o.victim;
     inc.signal = now;
     if (kind === 'unitDown' || kind === 'attack' || kind === 'contact' || kind === 'gunfire') inc.quietSince = now;
@@ -650,6 +656,16 @@ export class Radio {
     } else nad(F.otaOut);
   }
 
+  /** Объявление Надзора на всю сеть (режим квартала, серия): строка в эфир и в журнал. */
+  announce(text: string, prio: number): void {
+    if (!this.enabled) {
+      this.ctx.law.log(text, 'radio');
+      return;
+    }
+    const p = this.ctx.player;
+    this.nadzor(text, {}, [], p ? { x: p.x, y: p.y } : null, prio, true, [0.2, 0.5]);
+  }
+
   /** Код тревоги сменился — вся сеть. */
   code(code: 'green' | 'yellow' | 'red' | 'nexus'): void {
     const p0 = this.ctx.player;
@@ -894,8 +910,8 @@ export class Radio {
     const def = 'kind' in inc ? RADIO.kinds[inc.kind] : null;
     const v: Record<string, string | number> = {
       where: inc.where, zone: inc.zone, what: inc.what || 'происшествие', code: def?.code ?? 'код 10',
-      units: callsigns(units) || 'ближайшие', by: inc.reporter?.name ?? 'пост', suspect: this.describe(inc.suspect),
-      victim: inc.victim?.name ?? 'юнит', dir: this.dirOf(inc.suspect), ahead: this.aheadOf(inc.suspect, inc.where),
+      units: callsigns(units) || 'ближайшие', by: inc.reporter?.name ?? 'пост', suspect: inc.desc || this.describe(inc.suspect),
+      victim: inc.victim?.name ?? 'юнит', dir: inc.dirText || this.dirOf(inc.suspect), ahead: this.aheadOf(inc.suspect, inc.where),
     };
     if (unit) v.unit = unit.name;
     return v;
@@ -952,6 +968,18 @@ export class Radio {
   }
 }
 
+/** Параметры доклада: что, кто доложил (только Протекторат), подозреваемый, пострадавший, приметы со слов свидетелей. */
+export interface ReportOpts {
+  what?: string;
+  reporter?: Character | null;
+  suspect?: Character | null;
+  victim?: { name: string } | null;
+  desc?: string;
+  dirText?: string;
+  /** Сколько юнитов слать (иначе — по виду происшествия). */
+  units?: number;
+}
+
 interface PseudoIncident {
   x: number;
   y: number;
@@ -961,6 +989,8 @@ interface PseudoIncident {
   reporter: Character | null;
   suspect: Character | null;
   victim: { name: string } | null;
+  desc?: string;
+  dirText?: string;
 }
 
 const nearBuf: Character[] = [];

@@ -4,6 +4,7 @@ import type { Character } from '../entities/Character';
 import type { CombatSystem } from '../systems/CombatSystem';
 import type { Barrel, Lamp } from '../systems/StreetLife';
 import { LIGHTING, type Rgb } from '../config/lighting';
+import { MEMORIALS } from '../config/memorials';
 
 /**
  * Источник света в мире: где, радиус (px мира), цвет, яркость; night — горит только в темноте
@@ -106,6 +107,8 @@ export class Lighting {
   /** Упрощённо (слабая машина): без свечения. */
   lite = false;
   private lights: Light[] = [];
+  /** Памятные места со свечами (Memorials.list — тот же массив): тёплое пятно света у каждого. */
+  memorials: readonly { id: number; x: number; y: number; candles: number }[] = [];
   private lm: HTMLCanvasElement | null = null;
   private g: CanvasRenderingContext2D | null = null;
   /** Буфер свечения (как карта света, мелкий): пятна складываются в нём, на экран — одним проходом. */
@@ -211,6 +214,13 @@ export class Lighting {
       const on = s.night ? lamps : 1;
       if (on <= L.lampsOn) continue;
       this.put(g, v, k, s.x, s.y, s.r, s.color, s.power * on * this.flick(s, time));
+    }
+    // Свечи на памятных местах: чем больше свечей, тем ярче; мерцают.
+    const G = MEMORIALS.glow;
+    for (const m of this.memorials) {
+      if (m.candles <= 0) continue;
+      const fl = 1 - G.flicker * 0.5 * (1 + Math.sin(time * 9 + m.id * 3.1) * Math.sin(time * 5.7 + m.id));
+      this.put(g, v, k, m.x, m.y, G.radius, G.color, Math.min(G.max, G.power + G.perCandle * (m.candles - 1)) * fl);
     }
     // Пламя, взрывы, горящие, вспышки выстрелов.
     for (const f of combat.fires) this.put(g, v, k, f.x, f.y, f.r * L.fire.radiusMul, L.fire.color, L.fire.power * (1 - L.fire.flicker * 0.5 * (1 + Math.sin(time * 13 + f.x))));

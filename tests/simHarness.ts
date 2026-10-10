@@ -1,6 +1,8 @@
 import { resetCids } from '../src/entities/factory';
 import { resetPhrases } from '../src/systems/phrases';
 import { generateCity } from '../src/world/generator/CityGenerator';
+import { setForcedCheckpointTypes } from '../src/world/generator/checkpoints';
+import type { CheckpointType } from '../src/config/generator';
 import { NavGrid } from '../src/world/NavGrid';
 import { EntityManager } from '../src/entities/EntityManager';
 import { PathService } from '../src/ai/PathService';
@@ -39,15 +41,41 @@ import { StreetLifeSystem } from '../src/systems/StreetLife';
 import { AcademySystem } from '../src/systems/Academy';
 import { Staffing } from '../src/systems/Staffing';
 import { Access } from '../src/systems/Access';
+import { Senses } from '../src/systems/Senses';
+import { Suspects } from '../src/systems/Suspects';
+import { Escalation } from '../src/systems/Escalation';
+import { Memorials } from '../src/systems/Memorials';
 import { Radio } from '../src/systems/Radio';
 import { Talk } from '../src/systems/Talk';
+import { Relations } from '../src/systems/Relations';
+
+/**
+ * Города для тестов по сиду: пограничные КПП — классические (checkpoints: ['classic'], карта совпадает с прежней
+ * побитово). Остальные типы (generator/checkpoints.ts) меняют размеры КПП и раскладку всего города, а мир — хаос:
+ * любой сдвиг карты перераспределяет случайность заселения, и тесты, выверенные на одной карте сида, спотыкаются о
+ * драку банд или убитого по дороге медика, к КПП не имея отношения. Типы КПП проверяет tests/checkpoints.test.ts
+ * (свои карты через makeSim(map)); checkpoints: null — случайные типы по сиду, как в игре, либо HL2D_CP=random
+ * для всего набора.
+ */
+export interface SimOptions {
+  checkpoints?: readonly CheckpointType[] | null;
+}
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
-export function makeSim(seedOrMap: number | GameMap) {
+export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   // Номера CID — общий набор модуля: без сброса случайность теста зависит от предыдущих тестов.
   resetCids();
   resetPhrases();
-  const map = typeof seedOrMap === 'number' ? generateCity(seedOrMap) : seedOrMap;
+  let map: GameMap;
+  if (typeof seedOrMap === 'number') {
+    const types = opts.checkpoints !== undefined ? opts.checkpoints : process.env.HL2D_CP === 'random' ? null : (['classic'] as const);
+    setForcedCheckpointTypes(types);
+    try {
+      map = generateCity(seedOrMap);
+    } finally {
+      setForcedCheckpointTypes(null);
+    }
+  } else map = seedOrMap;
   const nav = new NavGrid(map);
   const entities = new EntityManager();
   const bus = new EventBus();
@@ -98,6 +126,11 @@ export function makeSim(seedOrMap: number | GameMap) {
       access: null as unknown as Access,
       radio: null as unknown as Radio,
       talk: null as unknown as Talk,
+      relations: null as unknown as Relations,
+      senses: null as unknown as Senses,
+      suspects: null as unknown as Suspects,
+      escalation: null as unknown as Escalation,
+      memorials: null as unknown as Memorials,
   };
   // Распорядок дня в тестах выключен (иначе ночью город спит) — у него свой тест.
   ctx.routine = new Routine(ctx, false);
@@ -138,7 +171,12 @@ export function makeSim(seedOrMap: number | GameMap) {
   ctx.academy.recruiting = false;
   ctx.access = new Access(ctx);
   ctx.talk = new Talk(ctx);
+  ctx.relations = new Relations(ctx);
   ctx.radio = new Radio(ctx);
+  ctx.suspects = new Suspects(ctx);
+  ctx.escalation = new Escalation(ctx);
+  ctx.memorials = new Memorials(ctx);
+  ctx.senses = new Senses(ctx);
   // Случайные драки в тестах выключены (свой тест) — удары и братва работают.
   ctx.brawls.enabled = false;
   economy.onEmpty = () => labor.noticeEmpty();
@@ -146,6 +184,9 @@ export function makeSim(seedOrMap: number | GameMap) {
   law.panicking = (c) => c.panicUntil > law.now;
   law.trespass = (c) => ctx.access.trespassing(c);
   law.merit = (c, pts) => ctx.staffing.merit(c, pts);
+  law.charge = (c) => ctx.suspects?.charge(c) ?? null;
+  law.zoneCurfew = (c) => ctx.escalation?.curfewViolation(c) ?? false;
+  law.closeCase = (c) => ctx.suspects?.close(c);
   const step = (dt = 1 / 60) => {
     ctx.time += dt;
     updateNpcs(ctx, dt);
@@ -155,6 +196,7 @@ export function makeSim(seedOrMap: number | GameMap) {
     law.update(dt, null);
     economy.update(dt);
     combat.update(dt);
+    ctx.senses!.update(dt);
     war.update(dt);
     insurgency.update(dt);
     labor.update(dt);
@@ -173,6 +215,10 @@ export function makeSim(seedOrMap: number | GameMap) {
     ctx.academy.update(dt);
     ctx.radio.update(dt);
     ctx.talk.update();
+    ctx.relations.update(dt);
+    ctx.suspects!.update();
+    ctx.escalation!.update(dt);
+    ctx.memorials.update();
   };
   return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access };
 }

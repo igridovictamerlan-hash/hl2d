@@ -2,6 +2,7 @@ import type { Character } from './Character';
 import type { WeaponId } from '../config/items';
 import { WEAPON_SPRITES, WEAPON_POSE, type SpritePart, type WeaponSprite } from '../config/weaponSprites';
 import { weaponPose } from './weaponPose';
+import type { MeleeSwing } from './meleePose';
 import { PAWN } from '../config/pawns';
 
 /** Спрайт ствола в кэше: холст, где на нём x = 0, y = 0 модели, и масштаб. */
@@ -79,12 +80,13 @@ function paint(ctx: CanvasRenderingContext2D, sp: WeaponSprite): void {
 /**
  * Оружие в руках пешки (стиль RimWorld): плоская модель сбоку с тёмным контуром, повёрнута за
  * прицелом, влево — отражена; руки — на рукояти и на цевье (у пистолета — обе на рукояти).
- * ox, oy — экранная позиция центра персонажа; s — масштаб вида; hand — цвет рук (перчатки или кожа).
+ * ox, oy — экранная позиция центра персонажа; s — масштаб вида; hand — цвет рук (перчатки или кожа);
+ * swing — дубинка или нож в ударе и блоке.
  */
-export function drawWeapon(ctx: CanvasRenderingContext2D, c: Character, ox: number, oy: number, s: number, reloading: boolean, ang: number = c.facing, hand: string | null = null): void {
+export function drawWeapon(ctx: CanvasRenderingContext2D, c: Character, ox: number, oy: number, s: number, reloading: boolean, ang: number = c.facing, hand: string | null = null, swing: MeleeSwing | null = null): void {
   if (!c.weapon) return;
   const sp = WEAPON_SPRITES[c.weapon];
-  const pose = weaponPose(c, reloading, ang);
+  const pose = weaponPose(c, reloading, ang, swing);
   const k = s * WEAPON_POSE.scale * PAWN.scale;
   const img = sprite(c.weapon, k);
   const f = k / img.k;

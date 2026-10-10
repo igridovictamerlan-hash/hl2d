@@ -516,6 +516,7 @@ export class RebelBrain implements Brain {
     this.mover.stop();
     if (this.healCooldown <= 0 && (self.inventory.remove('bandage', 1) || self.inventory.remove('medkit', 1))) {
       ctx.combat.heal(p, COMBAT.healAmount);
+      ctx.relations?.event('help', self, p);
       this.healCooldown = COMBAT.healCooldown;
       self.say('Держись, брат, латаю.', ctx.law.now, 1.5);
       if (p.health >= p.maxHealth * COMBAT.medicBelow && p.bleed <= 0) {
