@@ -4,7 +4,8 @@ import { CROUCH } from '../config/tactics';
 
 /**
  * Обновляет мозги всех NPC (с уклонением от гранат) и обслуживает очередь поиска пути.
- * Тяжелораненый лежит (мозг ждёт); в бою NPC, стоящий на месте, садится (CROUCH), пошёл — встал.
+ * Тяжелораненый лежит (мозг ждёт); в бою NPC, стоящий на месте, садится (CROUCH), пошёл — встал. Боец линии
+ * фронта сидит на позиции и без боя (Brain.sits).
  */
 export function updateNpcs(ctx: AiContext, dt: number): void {
   const now = ctx.combat.now;
@@ -20,7 +21,7 @@ export function updateNpcs(ctx: AiContext, dt: number): void {
     dodgeGrenades(c, ctx);
     const still = c.wantX * c.wantX + c.wantY * c.wantY < CROUCH.npcStill * CROUCH.npcStill;
     // Поднимая раненого — на колене.
-    c.crouch = c.reviving !== null || c.notepadUntil > now || (still && (c.engagedUntil > now || c.suppress >= 0.3) && c.law.phase === 'none');
+    c.crouch = c.reviving !== null || c.notepadUntil > now || (still && (c.engagedUntil > now || c.suppress >= 0.3 || c.brain.sits === true) && c.law.phase === 'none');
   }
   ctx.paths.process();
 }

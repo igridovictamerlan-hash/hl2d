@@ -266,7 +266,8 @@ export class Gunner {
       self.aiming = false;
       return true;
     }
-    if (d > w.range * 1.1 || !canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius)) {
+    // Цель пропала из виду, ушла из дальности или присела за блоком/бруствером и не стреляет — потеряна (как при поиске цели).
+    if (d > w.range * 1.1 || !canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius) || combat.concealed(t, self.x, self.y)) {
       this.lostFor += dt;
       self.aiming = false;
       if (this.lostFor > this.memory) this.target = null;

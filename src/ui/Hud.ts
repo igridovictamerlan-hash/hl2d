@@ -302,7 +302,7 @@ function statusOf(p: Character, now: number, info: HudInfo): Status[] {
   if (p.limpUntil > now) out.push({ icon: 'leg', label: 'нога', tone: 'dark' });
   if (p.armUntil > now) out.push({ icon: 'arm', label: 'рука', tone: 'dark' });
   if (p.suppress >= SUPPRESS.pinned) out.push({ icon: 'suppress', label: 'прижат', tone: 'amber' });
-  if (p.crouch) out.push({ icon: 'crouch', label: 'присел', key: 'C', tone: 'dark' });
+  if (p.crouch || p.trench) out.push({ icon: 'crouch', label: p.trench ? (p.crouch ? 'в окопе · присел' : 'в окопе') : 'присел', key: 'C', tone: 'dark' });
   if (p.hunger <= HUD.ring.low * 100) out.push({ icon: 'hunger', label: p.hunger <= 0 ? 'голод!' : 'голоден', tone: 'amber', blink: p.hunger <= 0 });
   // Розыск и «ищут» не дублируют друг друга: в розыске одна плашка, приметы — в подсказке.
   if (p.law.wanted) out.push({ icon: 'wanted', label: 'розыск', tone: 'red', hint: info.suspect ?? undefined });

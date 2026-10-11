@@ -204,6 +204,8 @@ export class Character {
   suppressAt = -1e9;
   /** Присел (C у игрока; NPC — сам, когда в бою стоит на месте). */
   crouch = false;
+  /** Стоит в траншее (тайл под центром — T.TRENCH): ставит CombatSystem.update раз в тик, рисует EntityRenderer. */
+  trench = false;
   /** Когда последний раз стрелял (присевшего за блоком снова видно). */
   lastFired = -1e9;
   /** NPC ведёт бой до этого времени (Gunner): стоит — садится. */

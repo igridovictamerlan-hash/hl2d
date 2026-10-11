@@ -19,7 +19,7 @@ import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
 import { apparentFaction, displayName } from './cover';
-import { CROUCH, DOWNED } from '../config/tactics';
+import { CROUCH, DOWNED, TRENCH } from '../config/tactics';
 import type { PawnLook } from './PawnRenderer';
 import { drawFists, fistsShown, flinchOf, meleeSwing } from './meleePose';
 import { MELEE_LOOK } from '../config/melee';
@@ -146,12 +146,13 @@ export class EntityRenderer {
       const cs = Math.cos(lean);
       const si = Math.sin(lean);
       // Присел — ниже ростом (сжат по вертикали к ступням).
-      const k = (c.crouch ? CROUCH.squash : 1) * an.squash;
+      // В траншее — ещё ниже (по пояс за бруствером), ступни скрыты.
+      const k = (c.crouch ? CROUCH.squash : 1) * (c.trench ? TRENCH.squash : 1) * an.squash;
       ctx.setTransform(cs, si, -si * k, cs * k, gx + an.dx * ps + fl.dx * s, gy + footY + (an.drop + an.dy) * ps + fl.dy * s);
       // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
       const x = 0;
       const y = -footY - bob * ps;
-      if (an.feet) drawFeet(ctx, dir, look, ps, walking ? phase : null, amt, marching ? PAWN.anim.march.lift : 1);
+      if (an.feet && !c.trench) drawFeet(ctx, dir, look, ps, walking ? phase : null, amt, marching ? PAWN.anim.march.lift : 1);
       // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу; в ударе и блоке — куда смотрит.
       const swing = c.weapon ? meleeSwing(c, now) : null;
       const hold = swing || c.melee.engaged || pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);

@@ -24,6 +24,8 @@ import { dist, type Vec2 } from '../../core/math';
 import { Gunner } from '../Gunner';
 import { Tactician, followColumn, watchSector } from '../Tactics';
 import { TACTICS } from '../../config/tactics';
+import { WAR } from '../../config/war';
+import { FireDiscipline } from '../FireDiscipline';
 import { COMBAT } from '../../config/combat';
 import { ALARM } from '../../config/underground';
 import { hasLoyalty, loyaltyTier } from '../../systems/Loyalty';
@@ -220,6 +222,49 @@ export class CpBrain implements Brain {
       this.idleState,
     );
     this.scan = ctx.rng.range(0, LAW.scanInterval);
+  }
+
+  /**
+   * Часовой точки КПП пока у КПП стреляют (не тише sitFor с, WarSystem.sinceShot) сидит на посту присев — даже когда врага не видно:
+   * за мешком или в траншее его не разглядеть, а встречная очередь не застаёт стоящим (WAR.line.garrison).
+   */
+  get sits(): boolean {
+    if (this.front < 0 || !this.guardPost || this.medicStation) return false;
+    const cur = this.fsm.current;
+    if (cur !== 'guard' && cur !== 'fight') return false;
+    const f = this.ctx.war.fronts[this.front];
+    return !!f && this.ctx.war.sinceShot(f) < WAR.line.garrison.sitFor;
+  }
+
+  /** Дисциплина огня часового КПП в позиционной перестрелке (WAR.line.garrison.duel). */
+  readonly duel = new FireDiscipline(WAR.line.garrison.duel);
+
+  /** Часовому в затишье не до дисциплины: ранен недавно, прижат огнём или цель вплотную (WAR.line.garrison.answer). */
+  private threatened(self: Character, now: number): boolean {
+    const A = WAR.line.garrison.answer;
+    if (now - self.lastHurt < A.returnFor || self.suppress >= A.returnSuppress) return true;
+    const t = this.gunner.target;
+    return !!t && t.alive && Math.hypot(t.x - self.x, t.y - self.y) < A.closeRange;
+  }
+
+  /** Позиционная перестрелка у этого КПП: линия армии включена, нет капта, наступления и прорыва — часовой на посту. */
+  private positional(): boolean {
+    if (this.front < 0 || !this.guardPost || this.medicStation || this.rally) return false;
+    const { war } = this.ctx;
+    const f = war.fronts[this.front];
+    return !!f && war.command.lineEnabled && f.owner === 'combine' && !f.capture && !war.command.offensive && !war.cityPush;
+  }
+
+  /**
+   * Позиционная перестрелка (линия фронта армии включена): раненый часовой точки КПП, пока у КПП стреляют, не
+   * бежит в бункер через открытый двор под огнём — сидит на посту за мешком и перевязывается; уходит, когда
+   * здоровья осталось меньше WAR.line.garrison.stayAbove доли.
+   */
+  private holdsWounded(): boolean {
+    if (this.front < 0 || !this.guardPost || this.medicStation || this.rally) return false;
+    const { war } = this.ctx;
+    const f = war.fronts[this.front];
+    return !!f && war.command.lineEnabled && this.self.health > this.self.maxHealth * WAR.line.garrison.stayAbove && war.sinceShot(f) < WAR.line.garrison.sitFor;
   }
 
   get stateName(): string {
@@ -557,10 +602,14 @@ export class CpBrain implements Brain {
     this.healCooldown -= dt;
     let cur = this.fsm.current;
     // Бой: гарнизон отстреливается из любого состояния (даже на конвое).
+    // Позиционная перестрелка: часовой стреляет очередями и затаивается, а не бьёт без перерыва (дисциплина огня).
+    // Затишье снимается, если по нему стреляли, прижали или враг вплотную (WAR.line.garrison.answer).
+    if (this.positional()) this.gunner.holdFire = this.duel.update(self, ctx.combat.now) && !this.threatened(self, ctx.combat.now);
+    else if (this.gunner.holdFire && this.front >= 0) this.gunner.holdFire = false;
     const engaged = this.gunner.update(self, ctx, dt);
     if (!engaged && (cur === 'patrol' || cur === 'post' || cur === 'guard') && ctx.rng.chance(BARKS.ambientPerSec * dt)) streetBark(self, ctx);
     if (engaged && this.gunner.target) ctx.war.sighted(this.gunner.target);
-    const wounded = self.health < self.maxHealth * COMBAT.woundedFraction;
+    const wounded = self.health < self.maxHealth * COMBAT.woundedFraction && !this.holdsWounded();
     if (wounded && cur !== 'retreat' && cur !== 'escort') {
       // Отходит — кого остановил или проверял, отпускает (не стоять им до его возвращения).
       const t = this.target;
@@ -1477,7 +1526,16 @@ const FIGHT: State<CpBrain> = {
     b.fightHome = { x: b.self.x, y: b.self.y };
   },
   update(b, dt) {
-    if (!b.gunner.target) return b.idleState;
+    if (!b.gunner.target) {
+      // Часовой КПП потерял стрелка из виду (залёг в траншею, ушёл за блок) — ещё немного давит огнём по месту,
+      // где его видел: пули прижимают, высунуться труднее (WAR.line.garrison). С поста не уходит.
+      if (b.front >= 0 && b.guardPost && !b.duel.cooling(b.ctx.combat.now) && b.ctx.combat.now - b.gunner.lastSeenAt.t < WAR.line.garrison.suppressFor) {
+        b.mover.stop();
+        b.tactics.suppressive(b.self, b.ctx, b.gunner, dt);
+        return;
+      }
+      return b.idleState;
+    }
     const gp = b.guardPost ? postOf(b) : null;
     if (b.tactics.fight(b.self, b.ctx, b.gunner, b.mover, dt, gp ?? b.fightHome, gp ? TACTICS.postLeash : TACTICS.leash)) return;
     // Отошёл от поста — вернуться на пост (там укрытие).

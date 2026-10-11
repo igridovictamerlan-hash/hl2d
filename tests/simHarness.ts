@@ -59,6 +59,11 @@ import { Relations } from '../src/systems/Relations';
  */
 export interface SimOptions {
   checkpoints?: readonly CheckpointType[] | null;
+  /**
+   * Линия фронта армии сопротивления (WAR.line): по умолчанию в тестах выключена — старые тесты войны выверены
+   * на армии, что сидит в лагере и шлёт разведку (HL2D_LINE=1 включает везде); свой тест — tests/positional.test.ts.
+   */
+  line?: boolean;
 }
 
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
@@ -137,6 +142,7 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   ctx.errands = new Errands(ctx);
   const war = new WarSystem(ctx);
   ctx.war = war;
+  war.command.lineEnabled = opts.line ?? process.env.HL2D_LINE === '1';
   const insurgency = new InsurgencySystem(ctx);
   ctx.insurgency = insurgency;
   const labor = new LaborSystem(ctx);

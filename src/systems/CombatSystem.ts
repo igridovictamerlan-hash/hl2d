@@ -8,8 +8,9 @@ import type { Rng } from '../core/rng';
 import type { LawSystem } from './LawSystem';
 import { castRayWith, lineOfSight } from '../world/visibility';
 import { T } from '../world/tiles';
+import { inTrench, parapetDist } from '../world/trench';
 import { COMBAT, GRENADE, FIRE, HITS, ROCKET, MINE, type HitZone } from '../config/combat';
-import { SUPPRESS, CROUCH, DOWNED } from '../config/tactics';
+import { SUPPRESS, CROUCH, DOWNED, TRENCH } from '../config/tactics';
 import { resolveCircleVsTiles } from '../world/collision';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, ITEMS, GEAR, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
@@ -605,12 +606,27 @@ export class CombatSystem {
         }
       }
     }
+    // Цель в траншее: пуля, входящая поперёк, ловит бруствер; огонь вдоль траншеи и сверху (вплотную) не держит.
+    let sheltered = false;
+    if (hit && !rocket && Math.hypot(hit.x - c.x, hit.y - c.y) > TRENCH.exposedWithin) {
+      const pt = parapetDist(this.map, hit.x, hit.y, -dx, -dy);
+      if (pt >= 0) {
+        sheltered = true;
+        const pierce = Math.min(1, w.penetration * TRENCH.pierceMul);
+        if (this.rng.chance((hit.crouch ? TRENCH.crouchStop : TRENCH.standStop) * (1 - pierce))) {
+          // Пуля встаёт на бруствере: расстояние до центра цели вдоль луча минус путь до бруствера.
+          hitT = Math.max(0, Math.min(hitT, (hit.x - ox) * dx + (hit.y - oy) * dy - pt));
+          hit = null;
+          stop = 'barrier';
+        }
+      }
+    }
     // Пуля вылетает из дульного среза (если ствол не упёрся в стену и цель не ближе ствола).
     const m = muzzleWorld(c, w.id);
     const md = (m.x - ox) * dx + (m.y - oy) * dy;
     const fromMuzzle = md > 0 && md < hitT && lineOfSight(this.map, c.x, c.y, m.x, m.y);
     const start = fromMuzzle ? md : 0;
-    const zone = hit ? rollZone(this.rng, c.aim, hit.crouch ? CROUCH.legMul : 1) : 'torso';
+    const zone = hit ? rollZone(this.rng, c.aim, sheltered ? TRENCH.legMul : hit.crouch ? CROUCH.legMul : 1) : 'torso';
     this.bullets.push({
       x: ox + dx * start, y: oy + dy * start, px: ox + dx * start, py: oy + dy * start, ox, oy, dx, dy,
       dist: start, end: hitT, speed: w.speed, w, shooter: c, target: hit, zone,
@@ -896,6 +912,8 @@ export class CombatSystem {
     if (!t.crouch || this.time - t.lastFired < CROUCH.revealAfterShot) return false;
     const d = Math.hypot(ox - t.x, oy - t.y);
     if (d < CROUCH.hideMinDist) return false;
+    // В траншее с бруствером в сторону смотрящего — тоже скрыт (вдоль траншеи — виден).
+    if (parapetDist(this.map, t.x, t.y, (ox - t.x) / d, (oy - t.y) / d) >= 0) return true;
     let block = false;
     castRayWith(this.map, t.x, t.y, (ox - t.x) / d, (oy - t.y) / d, CROUCH.coverReach, (x, y) => {
       if (this.map.tileAt(x, y) === T.BARRIER) block = true;
@@ -1245,8 +1263,10 @@ export class CombatSystem {
       if (!o.alive) continue;
       const d = Math.max(0, Math.hypot(o.x - x, o.y - y) - o.radius * 0.5);
       if (d > reach) continue;
-      const cover = this.blastCover(x, y, o.x, o.y);
+      let cover = this.blastCover(x, y, o.x, o.y);
       if (cover <= 0) continue;
+      // В траншее, а взрыв снаружи (и не рядом) — бруствер гасит волну и осколки.
+      if (inTrench(this.map, o.x, o.y) && !inTrench(this.map, x, y) && Math.hypot(o.x - x, o.y - y) > TRENCH.blastInside) cover *= TRENCH.blastMul;
       const vest = armorOf(o).torso * HITS.blastVest;
       if (d <= R) {
         const k = 1 - (d / R) * (1 - G.edge);
@@ -1395,6 +1415,7 @@ export class CombatSystem {
       const stunned = c.stunUntil > this.time;
       const dressing = this.busy(c);
       const m = c.melee;
+      c.trench = inTrench(this.map, c.x, c.y);
       // Нокаут — лежит; блок — шаг короче; стойка — лицом к противнику (походка).
       if (m.block && !this.melee.guard(c, true)) m.block = false;
       m.engaged = m.stance > this.time;

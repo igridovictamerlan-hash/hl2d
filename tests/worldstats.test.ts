@@ -13,6 +13,10 @@ import { cpUnit } from '../src/config/factions';
  */
 const RUN = !!process.env.WORLDSTATS;
 
+/** Фронт: счётчики одного КПП отдельно вне наступлений армии и в них (выстрелы, потери, время). */
+interface FrontCell { shotsR: number; shotsC: number; deadC: number; deadA: number; downC: number; downA: number; secs: number }
+const frontCell = (): FrontCell => ({ shotsR: 0, shotsC: 0, deadC: 0, deadA: 0, downC: 0, downA: 0, secs: 0 });
+
 /** Группа персонажа для сводки. */
 function group(c: { faction: string; profession: string | null; gang?: number }): string {
   if (c.gang !== undefined && c.gang >= 0) return 'банда';
@@ -28,7 +32,8 @@ const top = (m: Map<string, number>, n = 12) => [...m].sort((a, b) => b[1] - a[1
 
 test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, () => {
   const minutes = Number(process.env.MINUTES ?? 30);
-  const sim = makeSim(Number(process.env.SEED ?? 12345));
+  // Как в игре: типы КПП по сиду и позиционная линия армии (CP=classic — прежняя карта аудитов, LINE=0 — без линии).
+  const sim = makeSim(Number(process.env.SEED ?? 12345), { checkpoints: process.env.CP === 'classic' ? ['classic'] : null, line: process.env.LINE !== '0' });
   sim.ctx.routine.enabled = true;
   sim.ctx.brawls.enabled = true;
   sim.academy.recruiting = true;
@@ -54,6 +59,39 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
     const m = Math.floor(sim.ctx.time / 60);
     victimsByMinute[m] = (victimsByMinute[m] ?? 0) + 1;
   });
+  // Фронт: выстрелы и потери у КПП (зоны КПП и пустоши) по сторонам, вне наступлений и в наступлениях; бойцы линии; рация.
+  const fronts = [[frontCell(), frontCell()], [frontCell(), frontCell()]]; // [запад/восток][вне/в наступлении]
+  const cpTypes = [0, 1].map((i) => sim.map.pois.find((p) => p.type === 'checkpoint_type' && (p.face === 'E') === (i === 1))?.kind ?? '?');
+  const midX = (sim.map.width * 16) / 2;
+  const atFront = (x: number, y: number) => {
+    const k = sim.map.zoneAtWorld(x, y)?.kind;
+    return k === 'checkpoint' || k === 'outlands';
+  };
+  // «В наступлении» — само наступление, прорыв/штурм и 90 с после него (отход, добивание).
+  let lastOffensive = -1e9;
+  const inOffensive = () => {
+    const on = !!sim.war.command.offensive || sim.war.cityPush || sim.war.code === 'red';
+    if (on) lastOffensive = sim.combat.now;
+    return on || sim.combat.now - lastOffensive < 90 ? 1 : 0;
+  };
+  const frontSide = (c: Character) => (c.faction === 'cp' || c.faction === 'ota' ? 'C' : c.faction === 'rebel' && group(c) === 'армия' ? 'A' : '');
+  const frontLoss = (c: Character, down: boolean) => {
+    const side = frontSide(c);
+    if (!side || !atFront(c.x, c.y)) return;
+    const cell = fronts[c.x < midX ? 0 : 1][inOffensive()];
+    if (down) cell[side === 'C' ? 'downC' : 'downA']++;
+    else cell[side === 'C' ? 'deadC' : 'deadA']++;
+  };
+  sim.combat.deathListeners.push((c) => frontLoss(c, false));
+  const downOrig = sim.combat.down.bind(sim.combat);
+  sim.combat.down = (c, by) => {
+    frontLoss(c, true);
+    return downOrig(c, by);
+  };
+  let radioSeq = 0;
+  let radioFront = 0;
+  let holders = 0;
+  let holderSamples = 0;
   const causes = new Map<string, number>();
   const law = new Map<string, number>();
   sim.bus.on('log', ({ text }) => {
@@ -76,6 +114,26 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   const total = minutes * 60 * 60;
   for (let t = 1; t <= total; t++) {
     sim.step(step);
+    // Выстрелы у КПП: список выстрелов короткий (2 с) — читаем каждый тик, только новые.
+    for (let j = sim.combat.shots.length - 1; j >= 0 && sim.combat.shots[j].t >= sim.combat.now - step - 1e-6; j--) {
+      const sh = sim.combat.shots[j];
+      if (sh.weapon === 'blast' || sh.weapon === 'smoke' || !atFront(sh.x, sh.y)) continue;
+      const cell = fronts[sh.x < midX ? 0 : 1][inOffensive()];
+      if (sh.shooter?.faction === 'rebel') cell.shotsR++;
+      else cell.shotsC++;
+    }
+    if (t % 60 === 0) {
+      const o = inOffensive();
+      fronts[0][o].secs++;
+      fronts[1][o].secs++;
+      for (const m of sim.ctx.radio.feed) {
+        if (m.seq <= radioSeq) continue;
+        radioSeq = m.seq;
+        if (atFront(m.x, m.y)) radioFront++;
+      }
+      for (const f of sim.war.fronts) holders += sim.war.command.lineOf(f).length;
+      holderSamples++;
+    }
     if (t % 60 === 0) inc(codeTime, sim.war.code);
     if (t % 600 === 0) {
       maxCorpses = Math.max(maxCorpses, sim.combat.corpses.length);
@@ -140,6 +198,15 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Преступность: ${JSON.stringify((sim.crime as unknown as { stats?: object }).stats ?? {})}`);
   out.push(`Банды: ${JSON.stringify((sim.ctx.gangs as unknown as { stats?: object }).stats ?? {})}; драки: ${JSON.stringify(sim.ctx.brawls.stats)}`);
   out.push(`Подполье: ${JSON.stringify((sim.insurgency as unknown as { stats?: object }).stats ?? {})}`);
+  for (let i = 0; i < 2; i++) {
+    const part = [0, 1].map((o) => {
+      const c = fronts[i][o];
+      const m = Math.max(c.secs / 60, 0.01);
+      return `${o ? 'в наступлениях' : 'вне наступлений'} (${m.toFixed(1)} мин): огонь/мин повстанцы ${(c.shotsR / m).toFixed(0)}, Протекторат ${(c.shotsC / m).toFixed(0)}; погибло ВС/Легион ${c.deadC}, армия ${c.deadA}; тяжело ранено ${c.downC}/${c.downA}`;
+    });
+    out.push(`Фронт ${i ? 'восток' : 'запад'} «${cpTypes[i]}»: ${part.join(' | ')}`);
+  }
+  out.push(`Фронт: на линии в среднем ${(holders / Math.max(holderSamples, 1)).toFixed(1)} бойцов (оба КПП); передач рации у КПП ${(radioFront / minutes).toFixed(1)}/мин; смен на линии ${sim.war.command.stats.lineShifts}, пауз после потерь ${sim.war.command.stats.linePauses}`);
   out.push(`Война: ${JSON.stringify(sim.war.stats)}; места преступлений: ${JSON.stringify(sim.war.scenes.stats)}`);
   out.push(`Труд: ${JSON.stringify(sim.labor.stats)}; склад: ${JSON.stringify(sim.arsenal.stats)}`);
   out.push(`Барыга: ${JSON.stringify(sim.ctx.fence.stats)}`);

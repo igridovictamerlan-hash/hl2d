@@ -13,6 +13,8 @@ import { CHARACTER } from '../../config/entities';
 import { T } from '../../world/tiles';
 import { COMMAND } from '../../config/roster';
 import { poiWorld } from '../../systems/Population';
+import type { LinePos } from '../../systems/FrontLine';
+import { FireDiscipline } from '../FireDiscipline';
 import type { Vec2 } from '../../core/math';
 import type { Front } from '../../systems/WarSystem';
 import { Tactician, followColumn, watchSector } from '../Tactics';
@@ -20,11 +22,12 @@ import { TACTICS, SUPPRESS } from '../../config/tactics';
 import { PRISON } from '../../config/prison';
 import type { Cell } from '../../systems/LawSystem';
 
+const DEG = Math.PI / 180;
 const nearRebels: Character[] = [];
 /** У КПП укрытия ищем только на пустоши перед ним и в самом КПП (не на тропе за скалами). */
 const FRONT_ZONES: ReadonlySet<string> = new Set(['outlands', 'checkpoint']);
 
-export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 'storm' | 'retreat' | 'capture' | 'hold';
+export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 'storm' | 'retreat' | 'capture' | 'hold' | 'line';
 
 /**
  * Боец армии сопротивления (лагерь в пустоши, штурм КПП).
@@ -37,7 +40,9 @@ export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 
  *    много, а на воле мало (PrisonSystem.rescue) — сперва штурм тюрьмы: выбить двери камер;
  *  retreat — ранен или без патронов: уходит тропой в лагерь (там — camp);
  *  capture — идёт капт КПП: занимает позиции в передней части коридора и у внешних ворот;
- *  hold — КПП захвачен: держит пост часового.
+ *  hold — КПП захвачен: держит пост часового;
+ *  line — линия фронта (WAR.line): сидит на огневой позиции напротив поста (траншея, блок), бьёт по часовым
+ *    из укрытия и беспокоит их очередями; не штурмующий — в отряд фронта и счёт каптов не входит.
  * Поверх режимов: клич главы (идёт за ним на штурм), HYDRA держится рядом с главой.
  */
 export class RebelBrain implements Brain {
@@ -84,6 +89,18 @@ export class RebelBrain implements Brain {
   private patient: Character | null = null;
   private healCooldown = 0;
   private medicScan = 0;
+  /** Линия фронта: позиция, когда встал на смену, до какого времени высовывается, сколько выстрелов беспокоящей очереди осталось. */
+  linePos: LinePos | null = null;
+  lineSince = 0;
+  lineHere = false;
+  /** Уходит с линии в лагерь — бегом, а не шагом (тропа простреливается). */
+  private dashBack = false;
+  private harassIn = 0;
+  private harassLeft = 0;
+  private peekUntil = 0;
+  private lineFails = 0;
+  /** Дисциплина огня на линии: очередями, а не до гибели (WAR.line.duel). */
+  private readonly duel = new FireDiscipline(WAR.line.duel);
   /** Тактика боя (углы, укрытия, раненые). */
   readonly tactics = new Tactician();
   /** Колонна звена: шёл за ведущим в прошлом тике, место в колонне, ведущий, накопление у входа. */
@@ -187,6 +204,8 @@ export class RebelBrain implements Brain {
   /** В лагерь (новый или возрождённый боец). */
   toCamp(): void {
     this.mode = 'camp';
+    this.linePos = null;
+    this.dashBack = false;
     this.goal = -1;
     this.restocked = false;
   }
@@ -198,6 +217,47 @@ export class RebelBrain implements Brain {
     this.goal = -1;
     this.assaultAt = Infinity;
     this.restocked = false;
+  }
+
+  /** Из лагеря — на линию фронта: огневая позиция pos на фронте front (WAR.line). */
+  joinLine(front: number, pos: LinePos, now: number): void {
+    if (this.mode !== 'camp') return;
+    this.front = front;
+    this.mode = 'line';
+    this.linePos = pos;
+    this.lineSince = now;
+    this.lineHere = false;
+    this.harassIn = this.ctx.rng.range(WAR.line.harass.every[0], WAR.line.harass.every[1]) * WAR.line.harass.firstMul;
+    this.harassLeft = 0;
+    this.peekUntil = 0;
+    this.lineFails = 0;
+    this.goal = -1;
+    this.assaultAt = Infinity;
+    this.restocked = false;
+  }
+
+  /** Линия сменила точку (held изменился): перейти на новую позицию. */
+  moveLine(pos: LinePos): void {
+    if (this.mode !== 'line') return;
+    this.linePos = pos;
+    this.lineHere = false;
+    this.harassLeft = 0;
+    this.goal = -1;
+    this.lineFails = 0;
+  }
+
+  /** Линия снята (КПП прорван, рвутся в город): к обычной логике отряда — на сбор. */
+  releaseLine(): void {
+    if (this.mode !== 'line') return;
+    this.linePos = null;
+    this.mode = 'gather';
+    this.goal = -1;
+    this.assaultAt = Infinity;
+  }
+
+  /** Сидит ли на позиции (присев всегда, пока не высунулся для беспокоящей очереди) — NpcController. */
+  get sits(): boolean {
+    return this.mode === 'line' && this.lineHere && this.ctx.combat.now >= this.peekUntil;
   }
 
   /** Пост, который держит (режим hold). */
@@ -405,6 +465,8 @@ export class RebelBrain implements Brain {
   /** Раунд окончен (Управа удержан): все бойцы уходят в лагерь. */
   withdraw(): void {
     if (this.mode === 'camp') return;
+    this.dashBack = this.mode === 'line';
+    this.duel.reset();
     this.mode = 'retreat';
     this.goal = -1;
     this.team = -1;
@@ -470,7 +532,7 @@ export class RebelBrain implements Brain {
     const reach = ctx.combat.reach(self);
     const manned = ctx.war.guardPosts(f);
     for (const p of manned) {
-      if (Math.hypot(p.x - self.x, p.y - self.y) <= reach && canSeeCircle(ctx.map, self.x, self.y, p.x, p.y, 6)) {
+      if (Math.hypot(p.x - self.x, p.y - self.y) <= reach && canSeeCircle(ctx.map, self.x, self.y, p.x, p.y, WAR.line.sightRadius)) {
         this.suppressAt = p;
         break;
       }
@@ -481,6 +543,89 @@ export class RebelBrain implements Brain {
     self.aiming = true;
     faceTowards(self, this.suppressAt.x, this.suppressAt.y, 1);
     this.suppressLeft = ctx.rng.int(WAR.suppressBurst[0], WAR.suppressBurst[1]);
+  }
+
+  /**
+   * Дисциплина огня на линии (WAR.line.duel): перестрелка из-за укрытия — не дуэль до смерти. Дал duel.shots
+   * выстрелов подряд (пауза между ними не дольше duel.quiet с) — затаился на duel.cool с: не стреляет и не
+   * высовывается (сидит присев, за бруствером его не видно), потом снова. Так обмен огнём идёт, но не кончается
+   * гибелью одной из сторон за считанные секунды. Прицельно (Gunner) боец линии отвечает только в ответ: ранен
+   * не позже duel.returnFor с назад или прижат (suppress ≥ duel.returnSuppress); сам же беспокоит очередями (harass).
+   */
+  private fireDiscipline(self: Character, ctx: AiContext): void {
+    const D = WAR.line.duel;
+    const now = ctx.combat.now;
+    if (this.duel.update(self, now)) {
+      this.harassLeft = 0;
+      this.peekUntil = 0;
+    }
+    // Огонь на поражение — только в ответ: по нему стреляли (ранен или пули рядом) не позже duel.returnFor с назад.
+    const answering = now - self.lastHurt < D.returnFor || self.suppress >= D.returnSuppress;
+    this.gunner.holdFire = this.duel.cooling(now) || !answering;
+  }
+
+  /** Куда направлен беспокоящий огонь (пост часового) и когда высунулся. */
+  private harassAt: Vec2 | null = null;
+  private peekStart = 0;
+
+  /**
+   * Беспокоящий огонь с линии (WAR.line.harass): раз в every с боец высовывается, наводится на ближайший занятый
+   * часовым пост, который виден отсюда, и даёт короткую очередь с увеличенным разбросом; потом снова присаживается.
+   * Прижатый огнём не высовывается.
+   */
+  private harass(f: Front, dt: number): void {
+    const { ctx, self } = this;
+    const H = WAR.line.harass;
+    const now = ctx.combat.now;
+    if (self.suppress >= SUPPRESS.pinned || this.duel.cooling(now)) {
+      this.harassLeft = 0;
+      this.peekUntil = 0;
+      return;
+    }
+    if (this.harassLeft > 0) {
+      const at = this.harassAt;
+      if (!at || now >= this.peekUntil) {
+        this.harassLeft = 0;
+        return;
+      }
+      self.aiming = true;
+      faceTowards(self, at.x, at.y, 1);
+      if (now - this.peekStart >= H.aim && ctx.combat.canFire(self)) {
+        const w = ctx.combat.weaponOf(self);
+        const dx = at.x - self.x;
+        const dy = at.y - self.y;
+        const err = (ctx.rng.next() + ctx.rng.next() - 1) * (w ? ctx.combat.spreadOf(self, w) : 0) * H.spreadMul * DEG;
+        const c = Math.cos(err);
+        const s = Math.sin(err);
+        ctx.combat.fire(self, self.x + dx * c - dy * s, self.y + dx * s + dy * c);
+        this.harassLeft--;
+      }
+      return;
+    }
+    this.harassIn -= dt;
+    if (this.harassIn > 0) return;
+    this.harassIn = ctx.rng.range(H.every[0], H.every[1]);
+    const reach = ctx.combat.reach(self);
+    let best: Vec2 | null = null;
+    let bestD = Infinity;
+    for (const p of ctx.war.guardPosts(f)) {
+      const d = Math.hypot(p.x - self.x, p.y - self.y);
+      if (d <= reach && d < bestD && canSeeCircle(ctx.map, self.x, self.y, p.x, p.y, WAR.line.sightRadius)) {
+        best = p;
+        bestD = d;
+      }
+    }
+    if (!best) return;
+    // Пустой магазин — перезарядиться сидя, высовываться с полным.
+    const w = ctx.combat.weaponOf(self);
+    if (w?.ammo && self.mag < Math.max(H.minMagFloor, w.magazine * H.minMagShare)) {
+      ctx.combat.reload(self);
+      return;
+    }
+    this.harassAt = best;
+    this.harassLeft = ctx.rng.int(H.burst[0], H.burst[1]);
+    this.peekStart = now;
+    this.peekUntil = now + H.peek;
   }
 
   /** Медик: найти раненого своего и перевязать. true — занят лечением (движение уже задано). */
@@ -613,7 +758,7 @@ export class RebelBrain implements Brain {
     const f = ctx.war.fronts[this.front];
     const outOfAmmo = ctx.combat.maxRange(self) <= 0;
     // В капте раненые не уходят — дерутся до конца (без патронов — уходят).
-    const stays = (this.mode === 'capture' || this.mode === 'storm' || (this.mode === 'assault' && ctx.war.cityPush)) && !outOfAmmo;
+    const stays = (this.mode === 'capture' || this.mode === 'storm' || this.mode === 'line' || (this.mode === 'assault' && ctx.war.cityPush)) && !outOfAmmo;
     if (this.mode !== 'infiltrate' && this.mode !== 'retreat' && this.mode !== 'camp' && !stays && (self.health < self.maxHealth * COMBAT.woundedFraction || outOfAmmo)) {
       this.mode = 'retreat';
       this.goal = -1;
@@ -622,6 +767,8 @@ export class RebelBrain implements Brain {
       this.mode = 'assault';
       this.goal = -1;
     }
+    if (this.mode === 'line') this.fireDiscipline(self, ctx);
+    else if (this.gunner.holdFire) this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
     this.relocate -= dt;
     this.repath -= dt;
@@ -682,7 +829,10 @@ export class RebelBrain implements Brain {
     }
 
     // Сбор и перестрелка: по тропе через пустошь — быстрым шагом, у КПП — обычным.
-    if (this.mode === 'gather' || this.mode === 'raid') {
+    if (this.mode === 'line') {
+      // На позицию — рывком: тропа и открытая пустошь простреливаются с постов.
+      this.mover.speed = CHARACTER.runSpeed * WAR.line.dash;
+    } else if (this.mode === 'gather' || this.mode === 'raid') {
       this.mover.speed = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'wasteland' ? CHARACTER.runSpeed * COMMAND.trailSpeed : this.baseSpeed;
     }
     switch (this.mode) {
@@ -740,6 +890,48 @@ export class RebelBrain implements Brain {
           const home = this.goal >= 0 ? { x: ctx.nav.worldX(this.goal), y: ctx.nav.worldY(this.goal) } : null;
           if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt, home, TACTICS.leash, FRONT_ZONES)) this.mover.stop();
         } else if (this.mover.status === 'idle' && this.goal >= 0) this.go(this.goal);
+        break;
+      }
+      case 'line': {
+        const pos = this.linePos;
+        const L = WAR.line;
+        if (!f || !pos) {
+          this.withdraw();
+          break;
+        }
+        // Запас патронов на исходе — на смену (раненые и без патронов уходят выше).
+        const w = ctx.combat.weaponOf(self);
+        if (w?.ammo && (ctx.combat.reserveAmmo(self) + self.mag) / w.magazine < L.minMags) {
+          this.withdraw();
+          break;
+        }
+        // Ранен — не выбегает из траншеи под огонь: сидит и перевязывается, уходит, когда по нему перестали стрелять.
+        const hurt = self.health < self.maxHealth * COMBAT.woundedFraction;
+        if (hurt && this.lineHere && ctx.combat.now - self.lastHurt > L.hurtCalm) {
+          this.withdraw();
+          break;
+        }
+        const dp = Math.hypot(pos.x - self.x, pos.y - self.y);
+        if (dp > (this.lineHere ? L.leave : L.arrive)) {
+          // Идёт на позицию (стреляет на ходу, если заметили); не дойти — несколько попыток, потом смена.
+          this.lineHere = false;
+          const st = this.mover.status;
+          // Сравнивается цель мувера, а не мозга: rescue/drag гонят мувер на чужую точку мимо this.goal.
+          if (this.mover.goal !== pos.anchor || st === 'failed' || st === 'idle' || st === 'arrived') {
+            if (st === 'failed' && ++this.lineFails > L.failsMax) {
+              this.withdraw();
+              break;
+            }
+            this.go(pos.anchor);
+          }
+        } else {
+          // На месте: сидит в укрытии, по цели на виду стреляет, иначе беспокоит часовых.
+          this.lineHere = true;
+          this.lineFails = 0;
+          this.mover.stop();
+          if (!hurt && !(fighting && this.gunner.target)) this.harass(f, dt);
+          else this.harassLeft = 0;
+        }
         break;
       }
       case 'assault': {
@@ -979,7 +1171,7 @@ export class RebelBrain implements Brain {
         break;
       }
       case 'retreat': {
-        this.mover.speed = CHARACTER.runSpeed * 0.7;
+        this.mover.speed = CHARACTER.runSpeed * (this.dashBack ? WAR.line.dash : 0.7);
         // Отход тропой в лагерь: там лечение и патроны.
         const camp = poiWorld(ctx, 'rebel_camp');
         if (camp) {
@@ -1023,6 +1215,9 @@ export class RebelBrain implements Brain {
     if ((this.mode === 'raid' || this.mode === 'gather') && f && self.moveSpeed < 8) {
       const post = f.posts[0] ?? f.outerGate;
       faceTowards(self, (post.x + f.outerGate.x) / 2, (post.y + f.outerGate.y) / 2, dt);
+    } else if (this.mode === 'line' && this.linePos && self.moveSpeed < 8) {
+      const at = this.harassLeft > 0 && this.harassAt ? this.harassAt : this.linePos.aim;
+      faceTowards(self, at.x, at.y, dt);
     } else if (this.mode === 'hold' && this.holdFace && self.moveSpeed < 8) faceTowards(self, this.holdFace.x, this.holdFace.y, dt);
     else faceMovement(self, ctx, dt);
   }

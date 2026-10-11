@@ -22,6 +22,7 @@ import { CrimeScenes } from './CrimeScenes';
 import { lineOfSight } from '../world/visibility';
 import { VISION } from '../config/vision';
 import type { IncidentKind } from '../config/radio';
+import { computeLinePositions, type LinePos } from './FrontLine';
 
 /** Мозг бойца отряда — если он сейчас «свой» (задержанный ведёт себя как PrisonerBrain). */
 function rebelBrain(r: Character): RebelBrain | null {
@@ -690,7 +691,7 @@ export class WarSystem {
   rebelsAtFronts(): number[] {
     const n = this.fronts.map(() => 0);
     for (const c of this.ctx.entities.list) {
-      if (!c.alive || c.faction !== 'rebel') continue;
+      if (!c.alive || c.faction !== 'rebel' || rebelBrain(c)?.mode === 'line') continue;
       const f = this.frontAt(c.x, c.y);
       if (f) n[f.index]++;
     }
@@ -1464,9 +1465,31 @@ export class WarSystem {
     f.squad.push(c);
   }
 
+  /** Кэш огневых позиций линии фронта: фронт × число удерживаемых точек. */
+  private readonly linePos = new Map<number, LinePos[]>();
+
+  /**
+   * Огневые позиции линии (WAR.line) фронта f при held захваченных точках (по умолчанию — сейчас); считаются
+   * один раз на (фронт, held) — карта и посты не меняются. Пусто — на КПП линии нет.
+   */
+  linePositions(f: Front, held: number = f.held): readonly LinePos[] {
+    const key = f.index * 8 + held;
+    let list = this.linePos.get(key);
+    if (!list) {
+      list = computeLinePositions(this.ctx, f, held);
+      this.linePos.set(key, list);
+    }
+    return list;
+  }
+
   /** Идёт ли сейчас бой у КПП (стреляли недавно). */
   active(f: Front): boolean {
     return this.time - f.lastShot < WAR.activeWindow;
+  }
+
+  /** Сколько секунд у КПП не стреляли. */
+  sinceShot(f: Front): number {
+    return this.time - f.lastShot;
   }
 
   update(dt: number): void {
