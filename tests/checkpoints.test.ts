@@ -39,7 +39,7 @@ function mapOf(seed: number, west: CheckpointType, east: CheckpointType = west):
 }
 
 /** Решётка проходимых клеток шаблона (то же правило, что у стампа: M # B Ж " — непроходимы). */
-const SOLID_TEMPLATE_CHARS = new Set(['M', '#', 'B', 'Ж', '"']);
+const SOLID_TEMPLATE_CHARS = new Set(['M', '#', 'B', 'Ж', '"', 'Σ']);
 
 /** Места КПП на карте: POI checkpoint_type (после пустоши координаты уже сдвинуты). */
 const cpPois = (map: GameMap): Poi[] => map.poisOf('checkpoint_type').sort((a, b) => a.x - b.x);

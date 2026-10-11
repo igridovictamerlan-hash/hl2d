@@ -27,7 +27,10 @@ const nearRebels: Character[] = [];
 /** У КПП укрытия ищем только на пустоши перед ним и в самом КПП (не на тропе за скалами). */
 const FRONT_ZONES: ReadonlySet<string> = new Set(['outlands', 'checkpoint']);
 
-export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 'storm' | 'retreat' | 'capture' | 'hold' | 'line';
+export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 'storm' | 'retreat' | 'capture' | 'hold' | 'line' | 'bunker' | 'supply';
+
+/** Что боец делает в блиндаже: берёт патроны у ящика, отдыхает на койке или ждёт замены в резерве линии. */
+export type BunkerTask = 'restock' | 'rest' | 'ready';
 
 /**
  * Боец армии сопротивления (лагерь в пустоши, штурм КПП).
@@ -42,7 +45,10 @@ export type RebelMode = 'camp' | 'gather' | 'raid' | 'assault' | 'infiltrate' | 
  *  capture — идёт капт КПП: занимает позиции в передней части коридора и у внешних ворот;
  *  hold — КПП захвачен: держит пост часового;
  *  line — линия фронта (WAR.line): сидит на огневой позиции напротив поста (траншея, блок), бьёт по часовым
- *    из укрытия и беспокоит их очередями; не штурмующий — в отряд фронта и счёт каптов не входит.
+ *    из укрытия и беспокоит их очередями; не штурмующий — в отряд фронта и счёт каптов не входит;
+ *  bunker — в передовом блиндаже (WAR.dugout): берёт патроны у ящика, отдыхает на койке, ждёт замены в резерве
+ *    линии (bunkerTask); тоже не штурмующий;
+ *  supply — подносчик: несёт ящик из лагеря в блиндаж (или строитель: отстраивает разрушенный); не штурмующий.
  * Поверх режимов: клич главы (идёт за ним на штурм), HYDRA держится рядом с главой.
  */
 export class RebelBrain implements Brain {
@@ -89,6 +95,14 @@ export class RebelBrain implements Brain {
   private patient: Character | null = null;
   private healCooldown = 0;
   private medicScan = 0;
+  /** Блиндаж: чем занят, сколько ещё отдыхать (с), когда вышел из лагеря (время командования — для WAR.dugout.rotateCamp). */
+  bunkerTask: BunkerTask = 'ready';
+  restLeft = 0;
+  /** Резерв пополняется у ящика не чаще раза в WAR.dugout.restockEvery (иначе при полном рюкзаке — по кругу). */
+  private restockAt = 0;
+  outSince = 0;
+  /** Подносчик несёт ящик (deliver) или отстраивает блиндаж (build). */
+  supplyTask: 'deliver' | 'build' = 'deliver';
   /** Линия фронта: позиция, когда встал на смену, до какого времени высовывается, сколько выстрелов беспокоящей очереди осталось. */
   linePos: LinePos | null = null;
   lineSince = 0;
@@ -167,6 +181,11 @@ export class RebelBrain implements Brain {
     return (this.self.profession?.startsWith('hydra') || this.self.profession === 'commando') ?? false;
   }
 
+  /** Боец при линии: на позиции, в блиндаже или подносчик — не штурмующий (в отряд фронта и счёт каптов не входит). */
+  get onService(): boolean {
+    return this.mode === 'line' || this.mode === 'bunker' || this.mode === 'supply';
+  }
+
   /** Доля пути по двору в капте (HYDRA и клич подтягиваются к главе). */
   get progress(): number {
     return this.advance;
@@ -221,7 +240,9 @@ export class RebelBrain implements Brain {
 
   /** Из лагеря — на линию фронта: огневая позиция pos на фронте front (WAR.line). */
   joinLine(front: number, pos: LinePos, now: number): void {
-    if (this.mode !== 'camp') return;
+    if (this.mode !== 'camp' && this.mode !== 'bunker') return;
+    if (this.mode === 'camp') this.outSince = this.ctx.war.command.now;
+    this.ctx.war.dugouts.releaseBunk(this.self);
     this.front = front;
     this.mode = 'line';
     this.linePos = pos;
@@ -248,11 +269,52 @@ export class RebelBrain implements Brain {
 
   /** Линия снята (КПП прорван, рвутся в город): к обычной логике отряда — на сбор. */
   releaseLine(): void {
-    if (this.mode !== 'line') return;
+    if (this.mode !== 'line' && this.mode !== 'bunker') return;
+    this.ctx.war.dugouts.releaseBunk(this.self);
     this.linePos = null;
     this.mode = 'gather';
     this.goal = -1;
     this.assaultAt = Infinity;
+  }
+
+  /**
+   * С линии — в блиндаж (WAR.dugout: за патронами, отдыхать, в резерв), если он цел и принимает, иначе — в лагерь.
+   * reason: shift — отстоял смену, ammo — мало патронов, hurt — ранен.
+   */
+  leaveLine(reason: 'shift' | 'ammo' | 'hurt'): void {
+    const task = this.ctx.war.dugouts.admit(this.self, this, reason);
+    if (task) this.toBunker(task);
+    else this.withdraw();
+  }
+
+  /** В блиндаж фронта front с задачей task (из лагеря в резерв линии, с линии за патронами или отдыхать). */
+  toBunker(task: BunkerTask, front: number = this.front): void {
+    if (this.mode === 'camp') this.outSince = this.ctx.war.command.now;
+    else if (this.mode !== 'line' && this.mode !== 'bunker') return;
+    this.front = front;
+    this.mode = 'bunker';
+    this.bunkerTask = task;
+    this.restLeft = WAR.dugout.rest.time;
+    this.linePos = null;
+    this.lineHere = false;
+    this.lineFails = 0;
+    this.harassLeft = 0;
+    this.goal = -1;
+    this.assaultAt = Infinity;
+    this.duel.reset();
+    if (task === 'rest') this.ctx.war.dugouts.stats.rests++;
+  }
+
+  /** Из лагеря — подносчиком (ящик в руках) или строителем в блиндаж фронта front. */
+  beginSupply(front: number, task: 'deliver' | 'build'): void {
+    if (this.mode !== 'camp') return;
+    this.outSince = this.ctx.war.command.now;
+    this.front = front;
+    this.mode = 'supply';
+    this.supplyTask = task;
+    this.goal = -1;
+    this.assaultAt = Infinity;
+    this.restocked = false;
   }
 
   /** Сидит ли на позиции (присев всегда, пока не высунулся для беспокоящей очереди) — NpcController. */
@@ -400,13 +462,18 @@ export class RebelBrain implements Brain {
     }
     let best = -1;
     let bestScore = -Infinity;
+    // Цел передовой блиндаж — собираться предпочитают вокруг него (вне видимости постов; от лагеря путь безопаснее).
+    const dug = ctx.war.dugouts.gatherAround(f.index);
+    const G = WAR.dugout.gather;
+    const near = dug ? f.outlands.filter((a) => Math.hypot(ctx.nav.worldX(a) - dug.x, ctx.nav.worldY(a) - dug.y) <= G.radius) : [];
     for (let k = 0; k < 40; k++) {
-      const a = ctx.rng.pick(f.outlands);
+      const a = near.length && k % 2 === 0 ? ctx.rng.pick(near) : ctx.rng.pick(f.outlands);
       const x = ctx.nav.worldX(a);
       const y = ctx.nav.worldY(a);
       const d = Math.hypot(x - f.outerGate.x, y - f.outerGate.y);
       let score = ctx.rng.range(0, 2);
-      if (d < WAR.gatherDist[0] || d > WAR.gatherDist[1]) score -= 8;
+      if (dug && Math.hypot(x - dug.x, y - dug.y) <= G.radius) score += G.bonus;
+      else if (d < WAR.gatherDist[0] || d > WAR.gatherDist[1]) score -= 8;
       if (f.posts.some((p) => canSeeCircle(ctx.map, x, y, p.x, p.y, 10))) score -= 20;
       score -= 4 * this.crowdAt(f, x, y);
       for (const o of f.squad) {
@@ -465,6 +532,7 @@ export class RebelBrain implements Brain {
   /** Раунд окончен (Управа удержан): все бойцы уходят в лагерь. */
   withdraw(): void {
     if (this.mode === 'camp') return;
+    if (this.mode === 'bunker') this.ctx.war.dugouts.releaseBunk(this.self);
     this.dashBack = this.mode === 'line';
     this.duel.reset();
     this.mode = 'retreat';
@@ -752,13 +820,123 @@ export class RebelBrain implements Brain {
     }
   }
 
+  /** К якорю цели, если ещё не идёт к нему (не дойти за несколько попыток — в лагерь). true — не дошёл. */
+  private walkTo(anchor: number): boolean {
+    if (anchor < 0) return false;
+    const st = this.mover.status;
+    if (this.mover.goal !== anchor || st === 'failed' || st === 'idle' || st === 'arrived') {
+      if (st === 'failed' && ++this.lineFails > WAR.line.failsMax) {
+        this.withdraw();
+        return false;
+      }
+      this.go(anchor);
+    }
+    return true;
+  }
+
+  /**
+   * Боец в передовом блиндаже (WAR.dugout): у ящика берёт комплект (restock), потом — на койку отдыхать (rest: лечится,
+   * время выходит) и ждать замены в резерве линии (ready; вызовет RebelCommand.updateLine). Блиндаж разрушен — в лагерь.
+   */
+  private bunkerStep(self: Character, ctx: AiContext, dt: number, fighting: boolean): void {
+    const D = ctx.war.dugouts;
+    const d = D.of(this.front);
+    const R = WAR.dugout;
+    if (!d || !D.usable(d)) {
+      this.withdraw();
+      return;
+    }
+    this.mover.speed = CHARACTER.runSpeed * R.speed;
+    // Враг у входа — стоит и стреляет, а не ходит по землянке.
+    if (fighting && this.gunner.target) {
+      this.mover.stop();
+      return;
+    }
+    if (this.bunkerTask === 'restock') {
+      if (Math.hypot(d.cache.x - self.x, d.cache.y - self.y) > R.reach) {
+        this.walkTo(d.cacheAnchor);
+        return;
+      }
+      this.mover.stop();
+      const got = D.resupply(self, d);
+      this.restockAt = ctx.combat.now + R.restockEvery;
+      if (got) self.say(ctx.rng.pick(R.lines.restock), ctx.law.now, 2);
+      const next = D.afterRestock(self, d);
+      if (!next) {
+        this.withdraw();
+        return;
+      }
+      this.bunkerTask = next;
+      this.restLeft = R.rest.time;
+      this.goal = -1;
+      this.lineFails = 0;
+      if (next === 'rest') D.stats.rests++;
+      return;
+    }
+    // В резерве патроны на исходе, а запас появился — к ящику.
+    if (this.bunkerTask === 'ready' && ctx.combat.now >= this.restockAt && D.canRestock(d, self)) {
+      this.bunkerTask = 'restock';
+      this.goal = -1;
+      this.lineFails = 0;
+      return;
+    }
+    // Отдых и резерв — на койке (нет свободной — посреди пола).
+    const bunk = D.claimBunk(d, self);
+    const ax = bunk ? bunk.anchor : d.centerAnchor;
+    const sx = bunk ? bunk.x : d.x;
+    const sy = bunk ? bunk.y : d.y;
+    if (Math.hypot(sx - self.x, sy - self.y) > R.reach) {
+      this.walkTo(ax);
+      return;
+    }
+    this.lineFails = 0;
+    this.mover.stop();
+    if (this.bunkerTask === 'rest') {
+      this.restLeft -= dt;
+      if (!self.speech && ctx.rng.chance(dt * 0.05)) self.say(ctx.rng.pick(R.lines.rest), ctx.law.now, 2);
+    }
+    if (D.rest(self, dt, this.bunkerTask === 'rest' ? this.restLeft : 0) && this.bunkerTask === 'rest') this.bunkerTask = 'ready';
+  }
+
+  /** Подносчик несёт ящик в блиндаж (deliver) или идёт его отстраивать (build). Погиб/ранен/блиндаж не цел — ящик пропал, назад. */
+  private supplyStep(self: Character, ctx: AiContext): void {
+    const D = ctx.war.dugouts;
+    const d = D.of(this.front);
+    const R = WAR.dugout;
+    const building = this.supplyTask === 'build';
+    if (!d || !D.enabled || (building ? d.owner !== 'ruined' : !D.usable(d) || !self.carrying)) {
+      self.carrying = false;
+      this.withdraw();
+      return;
+    }
+    // Тропа через пустошь — быстрым шагом, дальше — обычным.
+    this.mover.speed = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'wasteland' ? CHARACTER.runSpeed * COMMAND.trailSpeed : this.baseSpeed;
+    const at = building ? { x: d.x, y: d.y } : d.cache;
+    const anchor = building ? d.centerAnchor : d.cacheAnchor;
+    if (Math.hypot(at.x - self.x, at.y - self.y) > R.supply.reach) {
+      this.walkTo(anchor);
+      return;
+    }
+    this.mover.stop();
+    // Строитель стоит в блиндаже, пока Dugouts считает работу; ящик — сдан.
+    if (!building) {
+      D.deliver(self, d);
+      this.withdraw();
+    }
+  }
+
   update(self: Character, ctx: AiContext, dt: number): void {
     this.self = self;
     this.ctx = ctx;
     const f = ctx.war.fronts[this.front];
+    // Линия, блиндаж, подносчики и отход идут по укрытиям: открытое место на виду у постов дороже (WAR.line.route).
+    this.mover.extraCost = this.onService || this.mode === 'retreat' ? ctx.war.coverCost(this.front) : undefined;
     const outOfAmmo = ctx.combat.maxRange(self) <= 0;
     // В капте раненые не уходят — дерутся до конца (без патронов — уходят).
-    const stays = (this.mode === 'capture' || this.mode === 'storm' || this.mode === 'line' || (this.mode === 'assault' && ctx.war.cityPush)) && !outOfAmmo;
+    // Линия без единого патрона — за комплектом в блиндаж (нет блиндажа — в лагерь).
+    if (this.mode === 'line' && outOfAmmo) this.leaveLine('ammo');
+    // В блиндаже раненому и безоружному самое место: за патронами и отдыхать.
+    const stays = ((this.mode === 'capture' || this.mode === 'storm' || this.mode === 'line' || (this.mode === 'assault' && ctx.war.cityPush)) && !outOfAmmo) || this.mode === 'bunker';
     if (this.mode !== 'infiltrate' && this.mode !== 'retreat' && this.mode !== 'camp' && !stays && (self.health < self.maxHealth * COMBAT.woundedFraction || outOfAmmo)) {
       this.mode = 'retreat';
       this.goal = -1;
@@ -899,16 +1077,17 @@ export class RebelBrain implements Brain {
           this.withdraw();
           break;
         }
-        // Запас патронов на исходе — на смену (раненые и без патронов уходят выше).
+        // Запас патронов на исходе — за комплектом в блиндаж, а нет блиндажа — на смену в лагерь.
         const w = ctx.combat.weaponOf(self);
         if (w?.ammo && (ctx.combat.reserveAmmo(self) + self.mag) / w.magazine < L.minMags) {
-          this.withdraw();
+          this.leaveLine('ammo');
           break;
         }
-        // Ранен — не выбегает из траншеи под огонь: сидит и перевязывается, уходит, когда по нему перестали стрелять.
+        // Ранен — не выбегает из траншеи под огонь: сидит и перевязывается, уходит (в блиндаж по ходу сообщения, тяжелораненый — в лагерь),
+        // когда по нему перестали стрелять.
         const hurt = self.health < self.maxHealth * COMBAT.woundedFraction;
         if (hurt && this.lineHere && ctx.combat.now - self.lastHurt > L.hurtCalm) {
-          this.withdraw();
+          this.leaveLine('hurt');
           break;
         }
         const dp = Math.hypot(pos.x - self.x, pos.y - self.y);
@@ -934,6 +1113,12 @@ export class RebelBrain implements Brain {
         }
         break;
       }
+      case 'bunker':
+        this.bunkerStep(self, ctx, dt, fighting);
+        break;
+      case 'supply':
+        this.supplyStep(self, ctx);
+        break;
       case 'assault': {
         if (!f) break;
         // Все точки D наши — сначала сбор волны во внутреннем дворе (он наш), потом все разом на Управу.

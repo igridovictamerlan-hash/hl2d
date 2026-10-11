@@ -74,19 +74,23 @@ describe('подавление огнём', () => {
     sim.entities.rebuildHash();
     sim.combat.explode(p.x, p.y, thrower, 'frag', 1);
     expect(cp.suppress).toBeGreaterThan(0.1);
-    // Игрок у линии огня.
-    const player = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x + 40, p.y + 20, true);
+    // Игрок у линии огня: в стороне от неё на 30 px (больше радиуса тела и разброса, меньше радиуса щелчка).
+    const player = createCharacter(sim.entities, sim.ctx.rng, 'cp', p.x + 40, p.y + 20 + 30, true);
     const shooter = dummy(sim, 'rebel', p.x - 150, p.y + 20, 'rebel_soldier');
     sim.combat.equip(shooter, 'ak74');
     sim.entities.rebuildHash();
     sim.combat.update(1);
     const seq = sim.combat.fxSeq;
-    for (let k = 0; k < 4; k++) {
-      sim.combat.fire(shooter, p.x + 200, p.y + 20 + 34);
+    // Очередь со случайным разбросом: часть пуль уходит мимо радиуса щелчка, часть попадает в игрока (тогда это не пролёт) —
+    // стреляем, пока какая-нибудь не пролетит рядом, а не на четырёх выстрелах «как повезёт со случайностью мира».
+    let whiz = 0;
+    for (let k = 0; k < 16 && !whiz; k++) {
+      player.health = player.maxHealth;
+      sim.combat.fire(shooter, p.x + 200, p.y + 20);
       for (let i = 0; i < 10; i++) sim.combat.update(1 / 60);
+      whiz = sim.combat.fx.filter((f) => f.seq > seq && f.kind === 'whiz' && f.target === player).length;
     }
-    const whiz = sim.combat.fx.filter((f) => f.seq > seq && f.kind === 'whiz' && f.target === player);
-    expect(whiz.length).toBeGreaterThan(0);
+    expect(whiz).toBeGreaterThan(0);
   });
 });
 

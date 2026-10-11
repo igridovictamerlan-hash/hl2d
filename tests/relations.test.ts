@@ -11,6 +11,7 @@ import { EntityRenderer } from '../src/entities/EntityRenderer';
 import { gendered } from '../src/systems/phrases';
 import { fmt } from '../src/systems/Radio';
 import { randomAnchorAround } from '../src/ai/destinations';
+import { lineOfSight } from '../src/world/visibility';
 import type { Character } from '../src/entities/Character';
 
 type Sim = ReturnType<typeof makeSim>;
@@ -47,11 +48,20 @@ function pidWith(trait: (typeof TRAITS)[number], high: boolean, not = -1): numbe
   throw new Error('нет такого характера');
 }
 
-/** Горожане без банды, друг с другом не родня (пары берём по порядку). */
+/**
+ * Горожане без банды, друг с другом не родня и не знакомы: заселение (Relations.seed) связывает родню, соседей и друзей,
+ * а кто окажется «первыми» в списке (и в какой толпе), зависит от карты (любая правка шаблонов КПП сдвигает случайность
+ * мира) — тест не должен зависеть от такого совпадения, поэтому связанных между собой и стоящих в толпе пропускаем.
+ */
 function folks(sim: Sim, n: number): Character[] {
+  const R = sim.ctx.relations;
   const out: Character[] = [];
   for (const c of sim.entities.list) {
-    if (c.alive && c.faction === 'citizen' && c.profession === 'citizen' && c.gang < 0 && c.brain instanceof CitizenBrain && sim.map.levelAt(c.x, c.y) === 'city' && !out.some((o) => o.family >= 0 && o.family === c.family)) out.push(c);
+    if (!c.alive || c.faction !== 'citizen' || c.profession !== 'citizen' || c.gang >= 0 || !(c.brain instanceof CitizenBrain) || sim.map.levelAt(c.x, c.y) !== 'city') continue;
+    if (out.some((o) => (o.family >= 0 && o.family === c.family) || R.bond(o, c) || R.bond(c, o))) continue;
+    // Не в толпе: свидетелей события не больше RELATIONS.witness.max, в давке нужный человек в их число может не попасть.
+    if (sim.entities.near(c.x, c.y, RELATIONS.witness.radius).length > 4) continue;
+    out.push(c);
     if (out.length === n) break;
   }
   expect(out.length).toBe(n);
@@ -60,9 +70,14 @@ function folks(sim: Sim, n: number): Character[] {
 
 /** Поставить b рядом с a (в нескольких пикселях, лицом друг к другу), без мозгов-помех. */
 function near(sim: Sim, a: Character, b: Character, d = 1.5): void {
-  const n = randomAnchorAround(a, sim.ctx, 1, d, new Set());
-  b.x = b.prevX = sim.nav.worldX(n);
-  b.y = b.prevY = sim.nav.worldY(n);
+  // Рядом и на виду друг у друга: за углом (стена между ними) свидетели, соседи в поле зрения и драки не работают, а
+  // подойдёт ли случайная клетка вокруг, зависит от места, где заселение посадило a (то есть от карты) — пробуем другие.
+  for (let i = 0; i < 30; i++) {
+    const n = randomAnchorAround(a, sim.ctx, 1, d, new Set());
+    b.x = b.prevX = sim.nav.worldX(n);
+    b.y = b.prevY = sim.nav.worldY(n);
+    if (lineOfSight(sim.map, a.x, a.y, b.x, b.y)) break;
+  }
   a.facing = Math.atan2(b.y - a.y, b.x - a.x);
   b.facing = Math.atan2(a.y - b.y, a.x - b.x);
   // Пространственный хэш знает прежние места: без этого «кто рядом» не найдёт перенесённого.
@@ -354,8 +369,9 @@ describe('жизнь на улице', () => {
     expect(sim.ctx.brawls.fighting(a)).toBe(false);
     expect(R.stats.confronts + R.stats.revenges).toBe(0);
     expect(R.stats.glares).toBeGreaterThan(0);
-    // ВС ушёл — недруги сцепятся.
+    // ВС ушёл — недруги сцепятся. Пока шли условные 2800 с, обида могла остыть (у незлопамятного — совсем): вражда та же.
     copsAway(sim, a);
+    R.link(a, b, -70, 40, 0, false);
     for (let k = 0; k < 24 && !sim.ctx.brawls.fighting(a); k++) {
       near(sim, a, b);
       idle(a);

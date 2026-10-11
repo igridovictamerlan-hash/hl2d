@@ -113,3 +113,26 @@ export function computeLinePositions(ctx: AiContext, f: Front, held: number): Li
   }
   return out;
 }
+
+/**
+ * Цена прохода по якорю для A* бойцов линии, блиндажа и подносчиков (WAR.line.route): открытое место на виду у постов фронта f
+ * (ближе exposeRange, прямая видимость) стоит дороже на route.exposed, траншея и тень — нет. Путь жмётся к ходу сообщения,
+ * траншеям и укрытиям, а не идёт напрямик под огнём. Видимость считается лениво, по якорю один раз (кэш на фронт).
+ */
+export function makeCoverCost(ctx: AiContext, f: Front): (anchor: number) => number {
+  const L = WAR.line;
+  const { map, nav } = ctx;
+  const watchers = f.posts;
+  const cache = new Map<number, number>();
+  return (a: number): number => {
+    let v = cache.get(a);
+    if (v === undefined) {
+      const x = nav.worldX(a);
+      const y = nav.worldY(a);
+      v = 0;
+      if (watchers.some((p) => Math.hypot(p.x - x, p.y - y) <= L.exposeRange && canSeeCircle(map, x, y, p.x, p.y, L.sightRadius)) && !inTrench(map, x, y)) v = L.route.exposed;
+      cache.set(a, v);
+    }
+    return v;
+  };
+}

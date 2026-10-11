@@ -36,6 +36,8 @@ const PREVIEW_COLORS: Record<number, [number, number, number]> = {
   [T.HEDGE]: [40, 80, 40],
   [T.TRENCH]: [74, 58, 40],
   [T.CHASM]: [10, 8, 8],
+  [T.DUGOUT_WALL]: [92, 62, 36],
+  [T.DUGOUT]: [136, 104, 64],
 };
 
 /**

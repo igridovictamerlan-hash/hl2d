@@ -254,6 +254,8 @@ export class MapRenderer {
       case T.HEDGE: this.color[i] = tone(P.hedge); break;
       case T.TRENCH: this.color[i] = tone(P.trench); break;
       case T.CHASM: this.color[i] = tone(P.chasm); break;
+      case T.DUGOUT_WALL: this.color[i] = tone(P.dugoutWall); break;
+      case T.DUGOUT: this.color[i] = tone(P.dugoutFloor); break;
       default: this.color[i] = '#f0f';
     }
   }
@@ -594,7 +596,8 @@ export class MapRenderer {
             const bag = px(3);
             const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const;
             for (const [dx, dy] of dirs) {
-              if (map.tileAt(tx + dx, ty + dy) === T.TRENCH) continue;
+              const nt = map.tileAt(tx + dx, ty + dy);
+              if (nt === T.TRENCH || nt === T.DUGOUT || nt === T.DUGOUT_WALL) continue;
               const bx = dx > 0 ? x1 - bag : x0;
               const by = dy > 0 ? y1 - bag : y0;
               const bw = dx !== 0 ? bag : cw;
@@ -610,6 +613,60 @@ export class MapRenderer {
               else ctx.fillRect(bx + (cw >> 1), by, line, bh);
             }
             continue;
+          }
+          case T.DUGOUT_WALL: {
+            // Сруб: брёвна вдоль стены (стена шире по горизонтали — брёвна лежат, иначе стоят), швы и блики,
+            // на открытых концах — светлые торцы.
+            const horiz = map.tileAt(tx - 1, ty) === T.DUGOUT_WALL || map.tileAt(tx + 1, ty) === T.DUGOUT_WALL;
+            const third = Math.max(line, Math.round((horiz ? ch : cw) / 3));
+            for (let k = 1; k < 3; k++) {
+              ctx.fillStyle = P.dugoutSeam;
+              if (horiz) ctx.fillRect(x0, y0 + third * k - line, cw, line);
+              else ctx.fillRect(x0 + third * k - line, y0, line, ch);
+              ctx.fillStyle = P.dugoutLight;
+              if (horiz) ctx.fillRect(x0, y0 + third * (k - 1) + line, cw, line);
+              else ctx.fillRect(x0 + third * (k - 1) + line, y0, line, ch);
+            }
+            ctx.fillStyle = P.dugoutLight;
+            if (horiz) ctx.fillRect(x0, y0 + third * 2 + line, cw, line);
+            else ctx.fillRect(x0 + third * 2 + line, y0, line, ch);
+            ctx.fillStyle = P.dugoutEnd;
+            const cap = px(3);
+            if (horiz) {
+              if (e & 8) ctx.fillRect(x0, y0, cap, ch);
+              if (e & 2) ctx.fillRect(x1 - cap, y0, cap, ch);
+            } else {
+              if (e & 1) ctx.fillRect(x0, y0, cw, cap);
+              if (e & 4) ctx.fillRect(x0, y1 - cap, cw, cap);
+            }
+            continue;
+          }
+          case T.DUGOUT: {
+            // Доски: стык посередине и вразбежку; в проёме между срубами — мешки с песком по бокам.
+            ctx.fillStyle = P.dugoutPlank;
+            ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+            ctx.fillRect(x0 + px(2 + (hv & 7)), y0, line, ch >> 1);
+            ctx.fillRect(x0 + px(2 + ((hv >> 4) & 7)), y0 + (ch >> 1), line, ch - (ch >> 1));
+            // Порог (клетка пола, у которой есть сосед снаружи): мешки вдоль примыкающих стен сруба — косяки проёма.
+            const nW = map.tileAt(tx - 1, ty);
+            const nE = map.tileAt(tx + 1, ty);
+            const nN = map.tileAt(tx, ty - 1);
+            const nS = map.tileAt(tx, ty + 1);
+            const outside = (n: number) => n !== T.DUGOUT && n !== T.DUGOUT_WALL;
+            if (outside(nW) || outside(nE) || outside(nN) || outside(nS)) {
+              const bag = px(3);
+              ctx.fillStyle = P.dugoutBag;
+              if (nN === T.DUGOUT_WALL) ctx.fillRect(x0, y0, cw, bag);
+              if (nS === T.DUGOUT_WALL) ctx.fillRect(x0, y1 - bag, cw, bag);
+              if (nW === T.DUGOUT_WALL) ctx.fillRect(x0, y0, bag, ch);
+              if (nE === T.DUGOUT_WALL) ctx.fillRect(x1 - bag, y0, bag, ch);
+              ctx.fillStyle = P.dugoutBagShade;
+              if (nN === T.DUGOUT_WALL) ctx.fillRect(x0, y0 + bag - line, cw, line);
+              if (nS === T.DUGOUT_WALL) ctx.fillRect(x0, y1 - bag, cw, line);
+              if (nW === T.DUGOUT_WALL) ctx.fillRect(x0 + bag - line, y0, line, ch);
+              if (nE === T.DUGOUT_WALL) ctx.fillRect(x1 - bag, y0, line, ch);
+            }
+            break;
           }
           case T.CHASM: {
             // Чёрная щель: осыпающаяся кромка там, где рядом твёрдая земля, трещины в глубине.

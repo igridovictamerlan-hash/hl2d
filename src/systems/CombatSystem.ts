@@ -1292,6 +1292,19 @@ export class CombatSystem {
     }
   }
 
+  /**
+   * Подрыв заряда без поражающего действия (блиндаж, постройка): вспышка, ударная волна, копоть и грохот на всю
+   * округу, но урона нет — внутри никого нет, а закладчик стоит у входа. mul — размер эффекта от осколочной гранаты.
+   */
+  demolition(x: number, y: number, by: Character, mul: number): void {
+    const G = GRENADE;
+    const R = G.radius * mul;
+    this.blasts.push({ x, y, t: COMBAT.blastTime, life: COMBAT.blastTime, r: R, kind: 'frag' });
+    this.addDecal(x, y, 'scorch', COMBAT.decals.scorchTime, this.rng.range(0, Math.PI), mul * 1.5);
+    this.shots.push({ x, y, t: this.time, shooter: by, weapon: 'blast', noise: G.noise });
+    this.emit('blast', x, y, this.rng.range(0, Math.PI * 2), null, by, null, 'blast', R);
+  }
+
   /** Дымовая завеса: тайлы в радиусе (куда дым дотекает, не сквозь стены) непрозрачны. */
   private addSmoke(x: number, y: number): void {
     const S = GRENADE.smoke;

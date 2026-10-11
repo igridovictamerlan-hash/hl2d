@@ -82,6 +82,9 @@ describe('академия ВС: учёба', () => {
     const c = A.recruitNow()!;
     expect(c).toBeTruthy();
     expect(c.brain).toBeInstanceOf(EnlistBrain);
+    // Плановая проверка CID вахтёром у турникета (cp рядом, у кого первый раз) останавливает заявителя, и направление
+    // пропадает (EnlistBrain: law.phase не 'none') — это случайность раскладки города, а не предмет теста: без проверок.
+    c.law.lastCheck = 1e9;
     run(sim, ACADEMY.recruit.walkMax, () => c.faction === 'cp');
     expect(c.faction).toBe('cp');
     expect(c.rank).toBe(CP_UNIT.cdt);

@@ -531,6 +531,9 @@ export class PlayerController {
       this.climbing = { left: UNDERGROUND.climbTime, to: hatch.to, down };
       return this.say(down ? 'Спускаетесь в люк…' : 'Поднимаетесь по лестнице…');
     }
+    // Передовой блиндаж у КПП: ящик с патронами и гранатами (повстанцу — из общего запаса блиндажа).
+    const dugoutMsg = ctx.war.dugouts.playerUse(p);
+    if (dugoutMsg) return this.say(dugoutMsg, 'world');
     // Тайник сопротивления: патроны к своим стволам.
     if (d(ctx.insurgency.cache) < REACH + 8) {
       if (p.faction !== 'rebel') return this.say('Ящики сопротивления. Вам тут ничего не положено.');

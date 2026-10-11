@@ -58,6 +58,9 @@ export type PoiType =
   | 'checkpoint_post'
   | 'gate_post'
   | 'outlands_exit'
+  | 'dugout'
+  | 'dugout_cache'
+  | 'dugout_bunk'
   | 'checkpoint_type'
   | 'recruit_terminal'
   | 'shop_counter'
@@ -180,6 +183,8 @@ export type FacadeUse = 'house' | 'shop' | 'cafe' | 'canteen';
  * задают якорь 2×2 (x, y — его левый верхний тайл, центр — на стыке четырёх тайлов) и связаны
  * попарно одинаковым id. checkpoint_type — пограничный КПП: прямоугольник (x, y, w, h), вид в kind
  * (classic / trenches / suburb / pass) и сторона пустоши в face (W — западный КПП, E — восточный).
+ * dugout — передовой блиндаж повстанцев в полосе пустоши КПП: внутренний пол (x, y, w, h), face — сторона входа;
+ * dugout_cache — ящик, dugout_bunk — место отдыха (по тайлу).
  */
 export interface Poi {
   type: PoiType;

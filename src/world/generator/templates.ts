@@ -309,7 +309,9 @@ export function rotateTemplate(rows: readonly string[], rot: 0 | 180): string[] 
 /**
  * Пограничный КПП (каноническая ориентация: пустошь на западе, город на востоке) — как «война на D»
  * на UnionRP: два отдельных укреплённых двора, соединённых двумя проходами, как в CS.
- *  - пустошь 14 тайлов с завалами-укрытиями (B) — «ничейная земля», где собираются повстанцы;
+ *  - пустошь 14 тайлов с завалами-укрытиями (B) — «ничейная земля», где собираются повстанцы; в северном углу —
+ *    передовой блиндаж (вход с запада, на тропу), вдоль края полосы — ход сообщения (траншея), по нему — к воротам
+ *    внешней точки и к передним траншеям поперёк линии огня (столбцы 0–1, 4–5, 8–9: оттуда через ворота видны посты);
  *  - внешний КПП (D3 / D5): двор за внешними воротами (g), блоки-укрытия, 2 поста (P), бункер ВС;
  *  - шорт — прямой короткий проход 3 тайла от внешнего двора к внутреннему;
  *  - лонг — длинный обход поверху: из внешнего двора на север, на восток, вниз во внутренний двор;
@@ -323,26 +325,26 @@ export function rotateTemplate(rows: readonly string[], rot: 0 | 180): string[] 
 export const CHECKPOINT_TEMPLATE: readonly string[] = [
   'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
   'MMMMMMMMMMMMMMMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
-  'ooooooooooooooMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
-  'ooooooooooooooMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
-  'ooBBooooooooooMMMMMMMMkkkMMMMMMMMMMMMMMMMMMMkkkMMMMMMMMMMMMMMMMMMM',
-  'ooooooooooBoooMMMMMMMMkkkMMMMMMMMMMMMMMMMMMMkkkMMMMMMMMMMMMMMMMMMM',
-  'oooooooooooBooMMkkkkkkkkkkkkMMMMMMMMMMkkkkkkkkkkkkkkMMkkkkkkkkkMMM',
-  'ooooooBoooooooMMkkkkkkkkkkkkMMMMMMMMMMkkkkkkkBkkkkkkMMkkkkkkRkkMMM',
-  'ooooooBoooooooMMkkkkkkkkkBkkMMMMMMMMMMkkkkkkkPkkkBkkMMkkkkkkkkkMMM',
-  'ooooooooooooooMMkkBBPkkkkkkkMMMMMMMMMMkkkBkkkkkkkkkkMMkkkkkkkkkMMM',
-  'ooBooooooooBooMMkkkkkkkkkkkkMMMMMMMMMMkkkBkkkkkkPkkkMMkkkMMMkkkMMM',
-  'ooBooooooooBooggkkkkkkkkkkkkkkkkkkkkkkkkkkPkkkkBkkkkggkkkMMMkkkdkk',
-  'ooooooooooooooggkkkkkkBkkkkkkkkkkkkkkkkkkkkkkkkBkkkkggkkkMMMkkkdkk',
-  'ooooooooBoooooggkkkkkkBkkkkkkkkkBkkkkkkkkkkkkkkkkkkkggkkkMMMkkkdkk',
-  'ooooooooBoooooggkkBkkkkPkkkkMMMMMMMMMMkkkkkkkkkkkkkkggkkkMMMkkkdkk',
-  'ooooooooooooooMMkkkkkkkkkkkkMMMMMMMMMMkkkBBkkkkkkkkkMMkkkkkkkkkMMM',
-  'ooooBooooooBooMMkkkkkkkkBBkkMMMMMMMMMMkkkkkkkkkkkkkkMMkkkkkkkkkMMM',
-  'ooooBooooooBooMM###dd#kkkkkkMMMMMMMMMMkkkkkkk##dd###MMkkkkkkRkkMMM',
-  'ooooooooooooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMkkkkkkkkkMMM',
-  'ooooooooooooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMMMMMMMMMMMM',
-  'ooBBooooooooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMMMMMMMMMMMM',
-  'oooooooooBooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMMMMMMMMMMMM',
+  'λλΣΣΣΣΣΣΣoooooMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
+  'λλΔΘΘΘΘΞΣoooooMMMMMMMMkkkkkkkkkkkkkkkkkkkkkkkkkMMMMMMMMMMMMMMMMMMM',
+  'λλΔΘΘΘΘΘΣoooooMMMMMMMMkkkMMMMMMMMMMMMMMMMMMMkkkMMMMMMMMMMMMMMMMMMM',
+  'λλΣΠΘΠΘΠΣoooooMMMMMMMMkkkMMMMMMMMMMMMMMMMMMMkkkMMMMMMMMMMMMMMMMMMM',
+  'λλΣΣΣΣΣΣΣooBooMMkkkkkkkkkkkkMMMMMMMMMMkkkkkkkkkkkkkkMMkkkkkkkkkMMM',
+  'λλooooBoooooooMMkkkkkkkkkkkkMMMMMMMMMMkkkkkkkBkkkkkkMMkkkkkkRkkMMM',
+  'λλooooBoλλooooMMkkkkkkkkkBkkMMMMMMMMMMkkkkkkkPkkkBkkMMkkkkkkkkkMMM',
+  'λλooooooλλooooMMkkBBPkkkkkkkMMMMMMMMMMkkkBkkkkkkkkkkMMkkkkkkkkkMMM',
+  'λλBoooooλλoBooMMkkkkkkkkkkkkMMMMMMMMMMkkkBkkkkkkPkkkMMkkkMMMkkkMMM',
+  'λλBoooooλλoBooggkkkkkkkkkkkkkkkkkkkkkkkkkkPkkkkBkkkkggkkkMMMkkkdkk',
+  'λλλλλλλλλλλλλλggkkkkkkBkkkkkkkkkkkkkkkkkkkkkkkkBkkkkggkkkMMMkkkdkk',
+  'λλλλλλλλλλλλλλggkkkkkkBkkkkkkkkkBkkkkkkkkkkkkkkkkkkkggkkkMMMkkkdkk',
+  'λλooλλooλλooooggkkBkkkkPkkkkMMMMMMMMMMkkkkkkkkkkkkkkggkkkMMMkkkdkk',
+  'λλooλλooλλooooMMkkkkkkkkkkkkMMMMMMMMMMkkkBBkkkkkkkkkMMkkkkkkkkkMMM',
+  'λλooλλooλλoBooMMkkkkkkkkBBkkMMMMMMMMMMkkkkkkkkkkkkkkMMkkkkkkkkkMMM',
+  'λλooλλooλλoBooMM###dd#kkkkkkMMMMMMMMMMkkkkkkk##dd###MMkkkkkkRkkMMM',
+  'λλooλλooλλooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMkkkkkkkkkMMM',
+  'λλooλλooλλooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMMMMMMMMMMMM',
+  'λλBBλλooooooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMMMMMMMMMMMM',
+  'λλoooooooBooooMM,,,,,,kkkkkkMMMMMMMMMMkkkkkkk,,,,,,,MMMMMMMMMMMMMM',
   'ooooooooooooooMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
   'ooooooooooooooMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
   'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
@@ -380,6 +382,16 @@ export function checkpointSection(x: number, y: number): CheckpointSection {
  *   "  — пропасть (CHASM: не пройти, но видно и простреливается);
  *   Ж  — скала (ROCK);  # — руины и стены бункеров (в зонах КПП вне бункеров рисуются как руины);
  *   k  — бетон/щебень (пол руин, мост, тоннель, уступы), , — пол бункера (медик ВС уходит туда на лечение).
+ * Передовой блиндаж повстанцев (в полосе пустоши `o`, у каждого типа; зеркало восточного КПП работает само):
+ *   Σ  — сруб (DUGOUT_WALL: не пройти, не видно),  Θ — дощатый пол (DUGOUT),  Δ — порог в проёме (пол, 2 тайла),
+ *   Π  — место отдыха (пол + POI dugout_bunk, 2–3 штуки),  Ξ — ящик (пол + POI dugout_cache),
+ *   λ  — ход сообщения и передние траншеи повстанцев (TRENCH, шириной не меньше 2; от `_` отличается только тем,
+ *        что вместе с `o` и блиндажом считается землёй пустоши при выборе outlands_exit).
+ * Блиндаж ~7×5: пол 5×3 (якорь 2×2 проходит везде), вход один и не смотрит на КПП — в западной стене, на тропу (у
+ * «Ничейной полосы» полоса узкая: блиндаж 5×5, пол 3×3, вход в южной стене), поэтому с постов пол не виден
+ * (проверяет tests/dugout.test.ts).
+ * От порога ход сообщения идёт траншеей к передней кромке полосы — воротам внешней точки — мимо передних траншей,
+ * из которых через ворота видны посты (огневые позиции линии, WAR.line).
  * Проходы везде не уже 2 тайлов (якорь 2×2), проломы в руинах — по 2 тайла, бруствер и валуны (B) не оставляют
  * карманов уже двух тайлов — тест связности требует ноль недостижимых тайлов.
  */
@@ -390,23 +402,24 @@ export function checkpointSection(x: number, y: number): CheckpointSection {
  * заграждением из колючей проволоки (x 11, с проходами и воротами) и двумя передовыми позициями из мешков с
  * постами P — это внешняя точка. За траншеей Протектората — руины: дорога по оси (шорт) и фланговый лонг
  * вдоль северной стены через пролом, комната-карман с юга. Внутренняя точка — вторая, короткая траншея с тремя
- * постами и бункер с дверью перед внутренними воротами.
+ * постами и бункер с дверью перед внутренними воротами. В северо-западном углу полосы повстанцев — малый передовой
+ * блиндаж 5×5 (вход на юг: полоса узкая) за траншеей повстанцев, от входа — ход к траншее и к проволочным воротам.
  */
 export const TRENCHES_LEFT: readonly string[] = [
   'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'ooo__ooooo.B........................__...##..##...........',
-  'ooo__ooooo.B........................__...##..##...........',
-  'ooo__Boooo.B................BBB....B__....................',
-  'ooo__Boooo....BB.............B.....B__.............__.....',
-  'ooo__ooooo.....B....................__............B`_.....',
-  'ooo__ooooo.B........BBBB..........____.####kk###..B__.....',
-  'ooo____ooo.B........BP............____.####kk###...__.....',
+  'ΣΣΣΣΣλλooo.B........................__...##..##...........',
+  'ΣΠΘΠΣλλooo.B........................__...##..##...........',
+  'ΣΘΘΘΣλλooo.B................BBB....B__....................',
+  'ΣΠΘΞΣλλooo....BB.............B.....B__.............__.....',
+  'ΣΔΔΣΣλλooo.....B....................__............B`_.....',
+  'oλλλλλλooo.B........BBBB..........____.####kk###..B__.....',
+  'oλλλλ__ooo.B........BP............____.####kk###...__.....',
   'ooo____ooo.B........B..........BBB__...####kk###...____...',
   'ooooo__Boo.B........BBBB.......BBB__...####kk###...____...',
   'ooooo__Boo....B...................__.................__...',
   'ooooo__ooogg......................__................B__...',
-  'ooooo__ooogg.....BB...........BB..____...BB.........B`_...',
-  'ooooo__ooogg.....BB...............____...............__...',
+  'ooooo__λλλgg.....BB...........BB..____...BB.........B`_...',
+  'ooooo__λλλgg.....BB...............____...............__...',
   'ooo____ooogg........................__.......BB......__...',
   'ooo____ooo.........................B__...............__...',
   'ooo__ooooo.B.......................B__.............____...',
@@ -428,22 +441,24 @@ export const TRENCHES_LEFT: readonly string[] = [
  * (дома-скорлупы с проломами в 2 тайла, поперечный переулок) и перекрёсток — внешняя точка (2 поста). Шорт —
  * сама улица. Лонг — подвальный коридор (бетон) вдоль южной кромки: вход со стебля у перекрёстка, выход
  * у заграждения. Внутренняя точка — южные дома и заграждение (3 поста), уцелевший дом с дверью — бункер.
+ * Посты внешней точки спрятаны в домах и из полосы пустоши не видны: огневых позиций линии на пустоши здесь нет,
+ * но блиндаж (северо-запад полосы, вход с запада) и ход сообщения к воротам есть — укрытый подход к улице.
  */
 export const SUBURB_LEFT: readonly string[] = [
   'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
-  'ooooooooooooooMM########....########################',
-  'ooooooooooooooMM#kkkkkk#..P.#kkkkkkkkkk##kkkkkkkkkk#',
-  'ooooooooooooooMM#kPkkkk#....#kkkkkkkkkk##kkkkkkkkkk#',
-  'ooBBooooooooooMM#kkkkkkk....kkkkkkkkkkk##kkkkkkkkkk#',
-  'ooooooooooBoooMM#kkBBkkk....kkkkkBBkkkk##kkkBBkkkkk#',
-  'oooooooooooBooMM#kkkkkk#....#kkkkkkkkkk##kkkkkkkkkk#',
-  'ooooooBoooooooMM#kkkkkk#B...#kkkkkkkkkk##kkkkkkkkkk#',
-  'ooooooBoooooooMM#kkkkkk#B...#kkkkkkkkkk##kkkkkkkkkk#',
-  'ooooooooooooooMM####kk##....####kk##########kk######',
-  'ooBooooooooBooMM...B............................B...',
-  'ooBooooooooBoogg................................B...',
-  'oooooooooooooogg.............BB.....B...............',
-  'ooooooooBooooogg......B.............B............P..',
+  'λλΣΣΣΣΣΣΣoooooMM########....########################',
+  'λλΔΘΘΘΘΞΣoooooMM#kkkkkk#..P.#kkkkkkkkkk##kkkkkkkkkk#',
+  'λλΔΘΘΘΘΘΣoooooMM#kPkkkk#....#kkkkkkkkkk##kkkkkkkkkk#',
+  'λλΣΠΘΠΘΠΣoooooMM#kkkkkkk....kkkkkkkkkkk##kkkkkkkkkk#',
+  'λλΣΣΣΣΣΣΣoooooMM#kkBBkkk....kkkkkBBkkkk##kkkBBkkkkk#',
+  'λλoooooooooBooMM#kkkkkk#....#kkkkkkkkkk##kkkkkkkkkk#',
+  'λλooooooooooooMM#kkkkkk#B...#kkkkkkkkkk##kkkkkkkkkk#',
+  'λλooooooooooooMM#kkkkkk#B...#kkkkkkkkkk##kkkkkkkkkk#',
+  'λλooooooooooooMM####kk##....####kk##########kk######',
+  'λλBooooooooBooMM...B............................B...',
+  'λλBooooooooBoogg................................B...',
+  'λλλλλλλλλλλλλλgg.............BB.....B...............',
+  'λλλλλλλλλλλλλλgg......B.............B............P..',
   'ooooooooBooooogg......B.............................',
   'ooooooooooooooMM...B............................B...',
   'ooooBooooooBooMM...B............................B...',
@@ -464,6 +479,8 @@ export const SUBURB_LEFT: readonly string[] = [
  * в 2 тайла — снайперские позиции (P). Поперёк долины — пропасть (CHASM, видно и простреливается насквозь)
  * с единственным мостом шириной 4 тайла (шорт); у восточного конца моста — мешки с постом и бункер в скале.
  * Лонг — старый тоннель (бетон) в северной скале: стволы входа и выхода по 2 тайла.
+ * Посты внешней точки на уступах видны из полосы пустоши только узкой полосой через ворота (от них вниз-влево);
+ * поперёк неё — передние траншеи повстанцев, ниже — передовой блиндаж (юго-запад полосы, вход с запада).
  */
 export const PASS_LEFT: readonly string[] = [
   'MMMMMMMMMMMMMMЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ',
@@ -478,20 +495,20 @@ export const PASS_LEFT: readonly string[] = [
   'ooooooooooooooЖЖ..............""""..B...............',
   'ooBooooooooBooЖЖ..............""""..BP..............',
   'ooBooooooooBoogg..........BB..kkkk.............BB...',
-  'oooooooooooooogg......B.......kkkk......BB..........',
-  'ooooooooBooooogg......B.......kkkk..................',
-  'ooooooooBooooogg..............kkkk..................',
-  'ooooooooooooooЖЖ...B..........""""..B...............',
-  'ooooBooooooBooЖЖ...B.....BB...""""..B.......BB......',
-  'ooooBooooooBooЖЖ..............""""..................',
-  'ooooooooooooooЖЖ..............""""..................',
-  'ooooooooooooooЖЖЖЖЖkkЖЖЖЖЖЖЖЖЖЖЖЖЖ###dd###ЖЖЖЖЖЖЖkkЖ',
-  'ooBBooooooooooЖЖЖЖЖkkЖЖЖЖЖЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖЖЖЖЖЖkkЖ',
-  'oooooooooBooooЖЖЖЖЖkkkkkPkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkPkkkkkЖ',
-  'ooooooooooooooЖЖЖЖЖkkkkkkkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkkkkkkkЖ',
-  'ooooooooooooooЖЖЖЖЖkkkkkkkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkkkkkkkЖ',
-  'ooooooooooooooЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖЖЖЖЖЖЖЖЖ',
-  'ooooooooooooooЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ########ЖЖЖЖЖЖЖЖЖЖ',
+  'ooooooooλλλλλλgg......B.......kkkk......BB..........',
+  'ooooooooλλλλλλgg......B.......kkkk..................',
+  'ooooooooλλooλλgg..............kkkk..................',
+  'ooooooooλλooλλЖЖ...B..........""""..B...............',
+  'ooooBoooλλoBλλЖЖ...B.....BB...""""..B.......BB......',
+  'oooλλoooλλoBooЖЖ..............""""..................',
+  'oooλλoooλλooooЖЖ..............""""..................',
+  'λλλλλλλλλλλoooЖЖЖЖЖkkЖЖЖЖЖЖЖЖЖЖЖЖЖ###dd###ЖЖЖЖЖЖЖkkЖ',
+  'λλλλλλλλλλλoooЖЖЖЖЖkkЖЖЖЖЖЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖЖЖЖЖЖkkЖ',
+  'λλoλλΣΣΣΣΣΣΣooЖЖЖЖЖkkkkkPkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkPkkkkkЖ',
+  'λλoλλΔΘΘΘΘΞΣooЖЖЖЖЖkkkkkkkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkkkkkkkЖ',
+  'λλoλλΔΘΘΘΘΘΣooЖЖЖЖЖkkkkkkkЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖkkkkkkkЖ',
+  'λλoλλΣΠΘΠΘΠΣooЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ#,,,,,,#ЖЖЖЖЖЖЖЖЖЖ',
+  'oooooΣΣΣΣΣΣΣooЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ########ЖЖЖЖЖЖЖЖЖЖ',
   'MMMMMMMMMMMMMMЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ',
 ];
 

@@ -19,10 +19,11 @@ import { spawnRole } from './Roster';
 import { armySpec } from './Population';
 import type { Corpse } from './CombatSystem';
 import { CrimeScenes } from './CrimeScenes';
+import { Dugouts } from './Dugouts';
 import { lineOfSight } from '../world/visibility';
 import { VISION } from '../config/vision';
 import type { IncidentKind } from '../config/radio';
-import { computeLinePositions, type LinePos } from './FrontLine';
+import { computeLinePositions, makeCoverCost, type LinePos } from './FrontLine';
 
 /** Мозг бойца отряда — если он сейчас «свой» (задержанный ведёт себя как PrisonerBrain). */
 function rebelBrain(r: Character): RebelBrain | null {
@@ -194,11 +195,14 @@ export class WarSystem {
   readonly command: RebelCommand;
   /** Места преступления: оцепление у тел убитых ВС в городе. */
   readonly scenes: CrimeScenes;
+  /** Передовые блиндажи повстанцев у КПП (WAR.dugout): запас, подвоз, отдых, вылазки Протектората. */
+  readonly dugouts: Dugouts;
 
   constructor(private readonly ctx: AiContext) {
     this.command = new RebelCommand(ctx);
     this.scenes = new CrimeScenes(ctx);
     this.buildFronts();
+    this.dugouts = new Dugouts(ctx, this);
     ctx.economy.paused = () => this.curfew;
     ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Протектората', false, { kind: 'sabotage' });
     ctx.combat.onDamage = (target, attacker, killed) => this.onDamage(target, attacker, killed);
@@ -293,7 +297,13 @@ export class WarSystem {
       const gatePosts = map.poisOf('gate_post').map((p) => ({ x: (p.x + 0.5) * ts, y: (p.y + 0.5) * ts })).filter((p) => nearestExit(p) === index);
       const outlands: number[] = [];
       for (const a of nav.walkable) {
-        if (map.zones[nav.zone[a]]?.kind === 'outlands' && dExit({ x: nav.worldX(a), y: nav.worldY(a) }) < 14 * ts) outlands.push(a);
+        if (map.zones[nav.zone[a]]?.kind !== 'outlands' || dExit({ x: nav.worldX(a), y: nav.worldY(a) }) >= 14 * ts) continue;
+        // Пол и порог передового блиндажа — не «открытая пустошь»: ни собираться, ни занимать позицию внутри незачем
+        // (мозги армии научатся пользоваться блиндажом позже).
+        const tx = nav.ax(a);
+        const ty = nav.ay(a);
+        if (map.tileAt(tx, ty) === T.DUGOUT || map.tileAt(tx + 1, ty) === T.DUGOUT || map.tileAt(tx, ty + 1) === T.DUGOUT || map.tileAt(tx + 1, ty + 1) === T.DUGOUT) continue;
+        outlands.push(a);
       }
       const bunker = zonesHere.flatMap((z) => anchorsOf(z).filter((a) => map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1) === T.INTERIOR));
       const byDist = (from: Vec2) => (a: number, b: number) =>
@@ -691,7 +701,7 @@ export class WarSystem {
   rebelsAtFronts(): number[] {
     const n = this.fronts.map(() => 0);
     for (const c of this.ctx.entities.list) {
-      if (!c.alive || c.faction !== 'rebel' || rebelBrain(c)?.mode === 'line') continue;
+      if (!c.alive || c.faction !== 'rebel' || rebelBrain(c)?.onService) continue;
       const f = this.frontAt(c.x, c.y);
       if (f) n[f.index]++;
     }
@@ -1467,6 +1477,7 @@ export class WarSystem {
 
   /** Кэш огневых позиций линии фронта: фронт × число удерживаемых точек. */
   private readonly linePos = new Map<number, LinePos[]>();
+  private readonly coverCosts = new Map<number, (anchor: number) => number>();
 
   /**
    * Огневые позиции линии (WAR.line) фронта f при held захваченных точках (по умолчанию — сейчас); считаются
@@ -1480,6 +1491,18 @@ export class WarSystem {
       this.linePos.set(key, list);
     }
     return list;
+  }
+
+  /** Цена прохода по якорям фронта для A* бойцов линии и блиндажа (открытое под огнём — дороже); undefined — нет такого фронта. */
+  coverCost(front: number): ((anchor: number) => number) | undefined {
+    const f = this.fronts[front];
+    if (!f) return undefined;
+    let fn = this.coverCosts.get(front);
+    if (!fn) {
+      fn = makeCoverCost(this.ctx, f);
+      this.coverCosts.set(front, fn);
+    }
+    return fn;
   }
 
   /** Идёт ли сейчас бой у КПП (стреляли недавно). */
@@ -1514,6 +1537,7 @@ export class WarSystem {
     }
     // Командование сопротивления: лагерь, цель главы, отряды фронтов, клич.
     this.command.update(dt);
+    this.dugouts.update(dt);
     const counts = this.rebelsAtFronts();
     this.otaTimer -= dt;
     if (this.otaTimer <= 0) {

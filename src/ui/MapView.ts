@@ -101,6 +101,7 @@ export class MapView {
       [MINIMAP.waypoint.color, 'ваша метка'],
       [C.scene, 'место происшествия (оцепление)'],
       [C.base, 'лагерь / схрон'],
+      [C.dugout, 'блиндаж сопротивления (у КПП)'],
       [C.market, 'барыга (чёрный рынок)'],
       [GANGS.defs[0].color, 'районы и общаги банд'],
     ]
@@ -557,6 +558,8 @@ export class MapView {
       for (const h of map.hatches) if (player.profession === 'partisan' || player.profession === 'spec_agent' || this.hatches.has(h.id)) dot(h.city.x, h.city.y, 2, C.hatch, true);
       // Лагерь сопротивления в пустоши — своим.
       if (player.faction === 'rebel') for (const p of poi('rebel_camp')) dot(p.x, p.y, 4, C.base);
+      // Передовые блиндажи у КПП — повстанцам; разрушенный — серым кольцом, стройка не закончена.
+      if (player.faction === 'rebel') for (const d of war.dugouts.list) dot(d.x, d.y, 2.6, d.broken ? C.dugoutRuined : C.dugout, d.broken);
       for (const f of war.fronts) {
         const color = f.capture || f.held > 0 ? C.capture : war.active(f) ? C.fight : C.front;
         dot(f.innerGate.x, f.innerGate.y, 3.5, color);

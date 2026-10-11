@@ -24,6 +24,8 @@ export const T = {
   HEDGE: 18,
   TRENCH: 19,
   CHASM: 20,
+  DUGOUT_WALL: 21,
+  DUGOUT: 22,
 } as const;
 
 export type TileId = (typeof T)[keyof typeof T];
@@ -65,6 +67,9 @@ export const TILE_DEFS: readonly TileDef[] = [
   // (не пройти, но видно и простреливается насквозь — мост через неё один).
   { id: T.TRENCH, key: 'trench', char: 'n', name: 'Траншея', solid: false, opaque: false },
   { id: T.CHASM, key: 'chasm', char: 'c', name: 'Пропасть', solid: true, opaque: false },
+  // Передовой блиндаж повстанцев в полосе пустоши перед КПП: сруб (не пройти, не видно) и дощатый пол внутри.
+  { id: T.DUGOUT_WALL, key: 'dugout_wall', char: 'l', name: 'Сруб блиндажа', solid: true, opaque: true },
+  { id: T.DUGOUT, key: 'dugout', char: 'f', name: 'Пол блиндажа', solid: false, opaque: false },
 ];
 
 /** Быстрые таблицы: SOLID[tileId] === 1 — непроходим. */

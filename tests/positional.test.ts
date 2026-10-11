@@ -4,8 +4,11 @@ import { spawnPopulation } from '../src/systems/Population';
 import { RebelBrain } from '../src/ai/brains/RebelBrain';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { WAR } from '../src/config/war';
+import { ROSTER } from '../src/config/roster';
 import { inTrench } from '../src/world/trench';
 import { canSeeCircle } from '../src/world/visibility';
+import { smoothPath } from '../src/ai/smoothing';
+import { poiWorld } from '../src/systems/Population';
 import type { CheckpointType } from '../src/config/generator';
 import type { Character } from '../src/entities/Character';
 
@@ -13,12 +16,22 @@ type Sim = ReturnType<typeof makeSim>;
 
 const SEED = 12345;
 const LINE0 = JSON.parse(JSON.stringify(WAR.line)) as typeof WAR.line;
-afterAll(() => Object.assign(WAR.line, JSON.parse(JSON.stringify(LINE0))));
+const ARMY0 = ROSTER.army.map(([prof, n]) => [prof, n] as typeof ROSTER.army[number]);
+const restoreArmy = () => ROSTER.army.forEach((e, i) => (e[1] = ARMY0[i][1]));
+afterAll(() => {
+  Object.assign(WAR.line, JSON.parse(JSON.stringify(LINE0)));
+  restoreArmy();
+});
 
 /** Город с КПП «Ничейная полоса» и армией; наступлений нет (проверяем время между ними), подполье молчит. */
 function front(type: CheckpointType = 'trenches') {
   // Пауза линии после потерь (WAR.line.losses) — предмет отдельного теста; в остальных линия не снимается.
   Object.assign(WAR.line.losses, { count: 999 });
+  // Дорога к позициям простреливается постами через ворота: на разных сидах и картах первые две минуты уносят из девяти
+  // годных в линию (солдаты и ветераны) от одного до восьми, а замены без паузы идут туда же. Запас вдвое больше — тесты
+  // механики (смена, переход точки, пауза) не зависят от того, сколько бойцов успело погибнуть на подходе.
+  restoreArmy();
+  for (const e of ROSTER.army) if (e[0] === 'rebel_soldier' || e[0] === 'veteran') e[1] *= 2;
   const sim = makeSim(SEED, { checkpoints: [type], line: true });
   spawnPopulation(sim.ctx, 10);
   sim.insurgency.paused = true;
@@ -52,6 +65,15 @@ function watch(sim: Sim) {
 
 const run = (sim: Sim, secs: number, tick: () => void = () => sim.step()) => {
   for (let i = 0; i < secs * 60; i++) tick();
+};
+
+/** Крутить мир, пока cond не станет истиной (не дольше secs); сколько секунд ушло, -1 — не дождались. */
+const until = (sim: Sim, cond: () => boolean, secs: number): number => {
+  for (let i = 0; i < secs * 60; i++) {
+    sim.step();
+    if (cond()) return (i + 1) / 60;
+  }
+  return -1;
 };
 
 const lineOf = (sim: Sim, front: number): Character[] => sim.war.command.lineOf(sim.war.fronts[front]);
@@ -99,12 +121,75 @@ describe('огневые позиции линии (FrontLine)', () => {
   });
 });
 
+describe('путь под огнём: цена открытых мест (WAR.line.route)', () => {
+  test('якорь на виду у постов вне траншеи стоит route.exposed, траншея и невидимое место — нет; мозг службы ищет путь с этой ценой', { timeout: 60_000 }, () => {
+    const sim = front();
+    const L = WAR.line;
+    const f = sim.war.fronts[0];
+    const cost = sim.war.coverCost(0)!;
+    expect(cost).toBeTypeOf('function');
+    let open = 0;
+    let trench = 0;
+    let hidden = 0;
+    for (const a of f.outlands) {
+      const x = sim.nav.worldX(a);
+      const y = sim.nav.worldY(a);
+      const seen = f.posts.some((p) => Math.hypot(p.x - x, p.y - y) <= L.exposeRange && canSeeCircle(sim.map, x, y, p.x, p.y, L.sightRadius));
+      if (inTrench(sim.map, x, y)) {
+        expect(cost(a)).toBe(0);
+        trench++;
+      } else if (seen) {
+        expect(cost(a)).toBe(L.route.exposed);
+        open++;
+      } else {
+        expect(cost(a)).toBe(0);
+        hidden++;
+      }
+    }
+    expect(open).toBeGreaterThan(0);
+    expect(trench).toBeGreaterThan(0);
+    void hidden;
+    // Далеко от постов (площадь) — дешёво.
+    const plazaAt = poiWorld(sim.ctx, 'plaza_center')!;
+    expect(cost(sim.nav.nearestWalkable(plazaAt.x, plazaAt.y, 2))).toBe(0);
+    expect(sim.war.coverCost(99)).toBeUndefined();
+    // Бойцу линии, блиндажа, подносчику и отходящему путь строят с ценой; бойцу в лагере — обычный.
+    run(sim, 20);
+    const line = lineOf(sim, 0)[0];
+    expect(line).toBeTruthy();
+    expect(brain(line).mover.extraCost).toBeTypeOf('function');
+    const camper = sim.war.command.army.find((c) => c.alive && brain(c).mode === 'camp' && !brain(c).onService)!;
+    expect(camper).toBeTruthy();
+    expect(brain(camper).mover.extraCost).toBeUndefined();
+  });
+
+  test('сглаживание пути не срезает через границу классов местности (укрытие — открытое место)', () => {
+    const sim = front();
+    const p = poiWorld(sim.ctx, 'plaza_center')!;
+    const pts = [-64, 0, 64].map((dx) => ({ x: p.x + dx, y: p.y }));
+    // Без классов открытая прямая — два конца.
+    expect(smoothPath(sim.map, pts, 12)).toHaveLength(2);
+    // Из укрытия (класс 0) в открытое (1): промежуточная точка остаётся — путь не спрямляется напрямик.
+    expect(smoothPath(sim.map, pts, 12, 2, [0, 0, 1])).toHaveLength(3);
+    // Один класс на всём пути — спрямляется как обычно.
+    expect(smoothPath(sim.map, pts, 12, 2, [1, 1, 1])).toHaveLength(2);
+  });
+});
+
 describe('позиционная перестрелка у КПП', () => {
   test('армия между наступлениями держит линию: бойцы в траншее, обмен огнём, потери малы', { timeout: 120_000 }, () => {
     const sim = front();
     const cmd = sim.war.command;
     const { w, tick } = watch(sim);
-    run(sim, 100, tick);
+    // Линия выходит из лагеря на позиции за полминуты-минуту (дорога под прицелом постов — часть идущих гибнет, на их
+    // место выходят следующие): ждём, пока на каждом фронте кто-то сел на позицию, а не ровно 100 с — к фиксированному
+    // моменту на карте с ходом сообщения вдоль ворот первая смена могла уже поредеть, а замена ещё идти.
+    let formed = false;
+    for (let i = 0; i < 100 * 60 && !formed; i++) {
+      tick();
+      if (i % 30 === 0) formed = sim.war.fronts.every((f) => lineOf(sim, f.index).some((c) => brain(c).lineHere));
+    }
+    expect(formed, 'на каждом фронте есть боец на позиции').toBe(true);
     const before = { ...w };
     for (const f of sim.war.fronts) {
       const line = lineOf(sim, f.index);
@@ -137,7 +222,7 @@ describe('позиционная перестрелка у КПП', () => {
     expect(sitting.some((c) => c.crouch)).toBe(true);
   });
 
-  test('смена: отстоял shift — уходит в лагерь, на его место приходит свежий', { timeout: 120_000 }, () => {
+  test('смена: отстоял shift — уходит с линии (в блиндаж или в лагерь), на его место приходит свежий', { timeout: 120_000 }, () => {
     Object.assign(WAR.line, { shift: 50, relief: 15 });
     try {
       const sim = front();
@@ -149,14 +234,18 @@ describe('позиционная перестрелка у КПП', () => {
       // Смена коротка, бойцов в запасе мало — прежние могут вернуться; смотрим всё время, а не только в конце.
       let fresh = false;
       let left = false;
+      // Все, кто побывал на линии: подход под огнём стоит жизни части первой смены — уйти с линии живым может и бывший из
+      // подкрепления, смена у всех одна.
+      const seen = new Set<number>(first);
       for (let t = 0; t < 85; t++) {
         run(sim, 1);
+        for (const c of lineOf(sim, 0)) seen.add(c.id);
         if (lineOf(sim, 0).some((c) => !first.includes(c.id))) fresh = true;
-        if (sim.entities.list.some((c) => first.includes(c.id) && c.alive && (c.brain as RebelBrain).mode !== 'line')) {
+        // Сменённый ушёл с линии отдыхать — в блиндаж (WAR.dugout) или в лагерь (отход или уже там).
+        const gone = sim.entities.list.filter((c) => seen.has(c.id) && c.alive && (c.brain as RebelBrain).mode !== 'line');
+        if (gone.length) {
           left = true;
-          // Сменённый ушёл с линии в лагерь (отход или уже там).
-          const gone = sim.entities.list.filter((c) => first.includes(c.id) && c.alive && (c.brain as RebelBrain).mode !== 'line');
-          expect(gone.every((c) => ['retreat', 'camp', 'line'].includes((c.brain as RebelBrain).mode))).toBe(true);
+          expect(gone.every((c) => ['retreat', 'camp', 'line', 'bunker'].includes((c.brain as RebelBrain).mode))).toBe(true);
         }
       }
       expect(cmd.stats.lineShifts).toBeGreaterThanOrEqual(1);
@@ -185,13 +274,33 @@ describe('позиционная перестрелка у КПП', () => {
       // Остальные отходят, замену не шлют — пока пауза.
       run(sim, 15);
       expect(lineOf(sim, 0).length).toBe(0);
-      // Пауза кончилась — линия снова набирается.
-      run(sim, 60);
-      expect(cmd.linePaused(f)).toBe(false);
-      expect(lineOf(sim, 0).length).toBeGreaterThanOrEqual(1);
+      // Пауза кончилась (40 с) — линия снова набирается. Ждём по условию: вернувшиеся на позиции под огнём тоже гибнут, а
+      // при count 1 каждая гибель — снова пауза, так что «ровно через минуту пауза снята» — случайность, а не правило.
+      expect(until(sim, () => !cmd.linePaused(f), 60), 'пауза снята').toBeGreaterThan(0);
+      expect(until(sim, () => lineOf(sim, 0).length >= 1, 60), 'линия набрана снова').toBeGreaterThan(0);
     } finally {
       Object.assign(WAR.line, JSON.parse(JSON.stringify(LINE0)));
     }
+  });
+
+  test('засвеченная позиция (WAR.line.hot): где погиб боец, замену не садят, пока есть другая позиция', { timeout: 120_000 }, () => {
+    const sim = front();
+    const cmd = sim.war.command;
+    const f = sim.war.fronts[0];
+    expect(until(sim, () => lineOf(sim, 0).length >= 2 && lineOf(sim, 0).every((c) => brain(c).linePos), 90), 'линия набрана').toBeGreaterThan(0);
+    const line = lineOf(sim, 0);
+    const victim = line[0];
+    const hot = brain(victim).linePos!;
+    const left = line.slice(1).map((c) => c.id);
+    sim.combat.kill(victim, null, 'тест');
+    expect(cmd['hotness'](f.index, hot)).toBe(1);
+    for (const q of sim.war.linePositions(f, f.held)) if (q !== hot) expect(cmd['hotness'](f.index, q)).toBe(0);
+    // На место погибшего выходит свежий — на другую позицию, а не на ту же.
+    expect(until(sim, () => lineOf(sim, 0).some((c) => !left.includes(c.id)), 60), 'замена вышла').toBeGreaterThan(0);
+    for (const c of lineOf(sim, 0)) expect(brain(c).linePos?.anchor).not.toBe(hot.anchor);
+    // Окно WAR.line.hot.window: потом позиция снова годна.
+    cmd['time'] += WAR.line.hot.window + 1;
+    expect(cmd['hotness'](f.index, hot)).toBe(0);
   });
 
   test('захватили внешнюю точку (held 1) — линия переходит вперёд, КПП прорван — линия снята', { timeout: 120_000 }, () => {
@@ -245,7 +354,7 @@ describe('позиционная перестрелка у КПП', () => {
     // В наступление ушли из лагеря, а не с линии.
     for (const c of line) expect(o.committed.has(c)).toBe(false);
     expect(o.committed.size).toBeGreaterThanOrEqual(WAR.offensive.minReady / 2);
-    for (const c of line.filter((c) => c.alive)) expect(['line', 'retreat', 'camp']).toContain(brain(c).mode);
-    for (const f of sim.war.fronts) for (const c of f.squad) expect(brain(c).mode).not.toBe('line');
+    for (const c of line.filter((c) => c.alive)) expect(['line', 'retreat', 'camp', 'bunker']).toContain(brain(c).mode);
+    for (const f of sim.war.fronts) for (const c of f.squad) expect(brain(c).onService).toBe(false);
   });
 });

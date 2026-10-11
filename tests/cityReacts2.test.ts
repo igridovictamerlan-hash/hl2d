@@ -370,6 +370,13 @@ describe('Город реагирует 2.0', () => {
     expect(cs.witnesses.has(thief.pid)).toBe(true);
     // Молчащий свидетель видел убийство; дальше стоит дома (мозг его не ведёт) — переставим, когда обход назначат.
     thief.brain = still();
+    // Убийца ушёл с места и затаился далеко: дело остаётся нераскрытым. Окровавленного рядом с патрулём берут сразу
+    // (доказано — дело закрыто, обхода нет), а где стоят патрули относительно места, зависит от карты, не от теста.
+    const away = spotAround(sim, c, 1200, 1700);
+    killer.x = killer.prevX = away.x;
+    killer.y = killer.prevY = away.y;
+    killer.brain = still();
+    sim.entities.rebuildHash();
     expect(run(sim, 90, () => cs.known)).toBe(true);
     expect(witnesses.some((w) => cs.witnesses.has(w.pid))).toBe(true);
     expect(run(sim, 30, () => S.canvasses.length > 0)).toBe(true);

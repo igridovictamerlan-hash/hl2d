@@ -65,7 +65,13 @@ export function clockText(f: number): string {
  * Постоянные источники карты: фонари улиц, бочки с огнём, комнаты и места по POI (LIGHTING.pois),
  * узлы Протектората, свет из люков в канализации. Собирается один раз при загрузке карты (без DOM).
  */
-export function staticLights(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[]): Light[] {
+export function staticLights(
+  map: GameMap,
+  lamps: readonly Lamp[],
+  barrels: readonly Barrel[],
+  nodes: readonly { x: number; y: number; broken: boolean }[],
+  dugouts: readonly { x: number; y: number; broken: boolean }[] = [],
+): Light[] {
   const out: Light[] = [];
   const ts = map.tileSize;
   let seed = 1;
@@ -78,6 +84,10 @@ export function staticLights(map: GameMap, lamps: readonly Lamp[], barrels: read
   }
   for (const n of nodes) {
     out.push({ x: n.x, y: n.y, r: L.node.radius, color: L.node.color, power: L.node.power, night: false, flicker: 0, bloom: false, seed: seed++, off: n });
+  }
+  // Блиндажи повстанцев: фонарь внутри, гаснет вместе с разрушением (объект живой — broken читается каждый кадр).
+  for (const g of dugouts) {
+    out.push({ x: g.x, y: g.y, r: L.dugout.radius, color: L.dugout.color, power: L.dugout.power, night: true, flicker: L.dugout.flicker, bloom: true, seed: seed++, off: g });
   }
   for (const p of map.pois) {
     const d = L.pois[p.type];
@@ -120,8 +130,8 @@ export class Lighting {
   private ambientStyle = '';
 
   /** Новая карта: собрать постоянные источники. */
-  setWorld(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[]): void {
-    this.lights = staticLights(map, lamps, barrels, nodes);
+  setWorld(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[], dugouts: readonly { x: number; y: number; broken: boolean }[] = []): void {
+    this.lights = staticLights(map, lamps, barrels, nodes, dugouts);
   }
 
   /** Свет суток сейчас (для HUD и отрисовки уюта). */

@@ -198,11 +198,13 @@ describe('разговоры: беседа в мире', () => {
     expect(T.busy(a) && T.busy(b)).toBe(true);
     expect(T.converse(a, b, 'street')).toBe(false);
     const texts: string[] = [];
-    for (let t = 0; t < 60 * 6; t++) {
+    // Беседа договаривает сама: сколько реплик и как долго — зависит от темы (длинная идёт дольше шести секунд), ждём конца.
+    for (let t = 0; t < 60 * 30 && (t < 60 * 6 || T.busy(a)); t++) {
       sim.step();
       for (const c of [a, b]) if (c.speech && c.speech.kind === 'say' && !texts.includes(c.speech.text)) texts.push(c.speech.text);
     }
     expect(texts.length).toBeGreaterThanOrEqual(2);
+    expect(T.busy(a) || T.busy(b)).toBe(false);
     expect(T.converse(a, b, 'street')).toBe(true);
     b.x = b.prevX = a.x + 2000;
     sim.step();

@@ -99,6 +99,65 @@ export const CHECKPOINTS: Readonly<Record<CheckpointType, CheckpointDef>> = {
   ])),
 };
 
+/**
+ * Передовой блиндаж повстанцев в полосе пустоши (символы шаблона: Σ — сруб, Θ — пол, Π — место отдыха,
+ * Ξ — ящик, Δ — порог): внутренний пол (x, y, w, h — в клетках шаблона) и сторона входа. Вход один, в стене
+ * на стороне, откуда идёт ход сообщения (траншея), — прочь от постов; face считается по порогу, поэтому
+ * для зеркального КПП (восток) сторона отражается сама — подавай ряды уже с учётом зеркала.
+ */
+export interface Dugout {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  face: 'N' | 'S' | 'E' | 'W';
+}
+
+/** Земля пустоши полосы перед КПП: открытая (o), блиндаж повстанцев и их ход сообщения — середина полосы (outlands_exit). */
+const OUTLANDS_GROUND = 'oΣΘΔΠΞλ';
+export const isOutlandsGround = (ch: string): boolean => OUTLANDS_GROUND.includes(ch);
+
+const DUGOUT_FLOOR = 'ΘΞΠ';
+const DUGOUT_DOOR = 'Δ';
+
+export function dugoutsOf(rows: readonly string[]): Dugout[] {
+  const h = rows.length;
+  const w = rows[0]?.length ?? 0;
+  const seen = new Uint8Array(w * h);
+  const out: Dugout[] = [];
+  for (let y0 = 0; y0 < h; y0++) {
+    for (let x0 = 0; x0 < w; x0++) {
+      if (seen[y0 * w + x0] || !DUGOUT_FLOOR.includes(rows[y0][x0])) continue;
+      let minX = x0, maxX = x0, minY = y0, maxY = y0;
+      const stack: [number, number][] = [[x0, y0]];
+      seen[y0 * w + x0] = 1;
+      while (stack.length) {
+        const [cx, cy] = stack.pop()!;
+        minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
+        minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+        for (const [nx, ny] of [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]] as const) {
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h || seen[ny * w + nx] || !DUGOUT_FLOOR.includes(rows[ny][nx])) continue;
+          seen[ny * w + nx] = 1;
+          stack.push([nx, ny]);
+        }
+      }
+      // Порог — клетки Δ вплотную к прямоугольнику пола; сторона — где они.
+      let face: Dugout['face'] = 'S';
+      for (let y = minY - 1; y <= maxY + 1; y++) {
+        for (let x = minX - 1; x <= maxX + 1; x++) {
+          if (rows[y]?.[x] !== DUGOUT_DOOR) continue;
+          if (y > maxY) face = 'S';
+          else if (y < minY) face = 'N';
+          else if (x > maxX) face = 'E';
+          else if (x < minX) face = 'W';
+        }
+      }
+      out.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, face });
+    }
+  }
+  return out;
+}
+
 /** Шаблон и карта частей для КПП с учётом зеркала (восточный конец проспекта). */
 export function checkpointRows(def: CheckpointDef, mirror: boolean): { rows: string[]; sections: string[] } {
   return mirror

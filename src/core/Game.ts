@@ -79,6 +79,7 @@ import { Brawls } from '../systems/Brawls';
 import { GangSystem } from '../systems/Gangs';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { PrisonRenderer } from '../world/PrisonRenderer';
+import { DugoutRenderer } from '../world/DugoutRenderer';
 import { AcademyRenderer } from '../world/AcademyRenderer';
 import { furnishMap, type Furniture } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
@@ -165,6 +166,7 @@ export class Game {
   private readonly ambience = new Ambience();
   private readonly arsenalView = new ArsenalRenderer();
   private readonly prisonView = new PrisonRenderer();
+  private readonly dugoutView = new DugoutRenderer();
   private readonly academyView = new AcademyRenderer();
   private readonly aim = new AimRenderer();
   /** Частицы боя, тряска экрана, маркер попадания (только отрисовка). */
@@ -415,7 +417,7 @@ export class Game {
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
     this.entityRenderer.senses = this.ai.senses;
-    this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes);
+    this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes, this.war.dugouts.list);
     this.lighting.memorials = this.ai.memorials.list;
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
     this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
@@ -1190,6 +1192,7 @@ export class Game {
     this.arsenalView.drawGround(ctx, v, this.ai.arsenal, this.map.tileSize, this.law.now);
     this.prisonView.drawGround(ctx, v, this.ai.prison, this.law.cells, this.map, this.law.evidence.size, this.law.now);
     this.academyView.drawGround(ctx, v, this.ai.academy, this.map, this.law.now);
+    this.dugoutView.drawGround(ctx, v, this.war.dugouts, this.map);
     drawFurnitureList(ctx, v, this.furnishings);
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);

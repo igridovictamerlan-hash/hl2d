@@ -30,9 +30,19 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   '.': T.WASTE,
   _: T.TRENCH,
   '`': T.TRENCH,
+  // Ход сообщения и передние траншеи повстанцев в полосе пустоши перед КПП (отдельный символ: полоса считается
+  // «землёй пустоши» для середины — outlands_exit).
+  λ: T.TRENCH,
   '"': T.CHASM,
   Ж: T.ROCK,
   B: T.BARRIER,
+  // Передовой блиндаж повстанцев в полосе пустоши КПП: Σ — сруб, Θ — дощатый пол, Δ — порог (пол в проёме),
+  // Π — место отдыха и Ξ — ящик (пол + точка интереса).
+  Σ: T.DUGOUT_WALL,
+  Θ: T.DUGOUT,
+  Δ: T.DUGOUT,
+  Π: T.DUGOUT,
+  Ξ: T.DUGOUT,
   P: T.BUNKER,
   R: T.BUNKER,
   T: T.INTERIOR,
@@ -244,6 +254,8 @@ export function stampTemplate(
       if (ch === 'F') pois.push({ type: 'nexus_desk', x: x0 + x, y: y0 + y });
       if (ch === 'P' || ch === '`') pois.push({ type: 'checkpoint_post', x: x0 + x, y: y0 + y });
       if (ch === 'R') pois.push({ type: 'gate_post', x: x0 + x, y: y0 + y });
+      if (ch === 'Π') pois.push({ type: 'dugout_bunk', x: x0 + x, y: y0 + y });
+      if (ch === 'Ξ') pois.push({ type: 'dugout_cache', x: x0 + x, y: y0 + y });
       if (ch === 'T') pois.push({ type: 'code_terminal', x: x0 + x, y: y0 + y });
       if (ch === 'b') pois.push({ type: 'bunk', x: x0 + x, y: y0 + y });
       if (ch === 'w') pois.push({ type: 'clerk_desk', x: x0 + x, y: y0 + y });

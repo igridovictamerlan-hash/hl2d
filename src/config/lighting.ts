@@ -63,6 +63,8 @@ export const LIGHTING = {
   blast: { color: [255, 170, 90] as Rgb, radiusMul: 3.2, power: 1.4 },
   muzzle: { color: [255, 205, 130] as Rgb, radius: 90, power: 0.9, time: 0.07 },
   burning: { color: [255, 120, 40] as Rgb, radius: 70, power: 0.9 },
+  /** Фонарь в передовом блиндаже повстанцев: тёплый, мерцает, горит ночью; разрушен — гаснет (Dugout.broken). */
+  dugout: { color: [255, 186, 108] as Rgb, radius: 62, power: 0.75, flicker: 0.12 },
   /** Люк в канализации: свет сверху. */
   hatch: { color: [210, 205, 180] as Rgb, radius: 70, power: 0.6 },
   /**

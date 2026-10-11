@@ -217,6 +217,8 @@ export const GENERATOR = {
   validation: {
     buildingRatio: [0.5, 0.78] as const,
     attempts: 32,
+    /** Мест отдыха в передовом блиндаже повстанцев у каждого пограничного КПП — не меньше. */
+    dugoutBunks: 2,
   },
 } as const;
 

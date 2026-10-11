@@ -15,7 +15,7 @@ import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, 
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
 import { NEXUS_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, ACADEMY_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate } from './templates';
-import { CHECKPOINTS, checkpointRows, pickCheckpointTypes, type SectionChar } from './checkpoints';
+import { CHECKPOINTS, checkpointRows, dugoutsOf, isOutlandsGround, pickCheckpointTypes, type SectionChar } from './checkpoints';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
@@ -93,6 +93,13 @@ export function validateMap(map: GameMap): string[] {
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   if (!restrictedReachable(map)) out.push('ворота запретной зоны отрезаны');
+  // Каждому пограничному КПП — передовой блиндаж повстанцев с ящиком и местами отдыха.
+  for (const cp of map.poisOf('checkpoint_type')) {
+    const inside = (p: Poi) => p.x >= cp.x && p.y >= cp.y && p.x < cp.x + (cp.w ?? 0) && p.y < cp.y + (cp.h ?? 0);
+    if (!map.poisOf('dugout').some(inside)) out.push(`нет блиндажа у КПП (${cp.x},${cp.y})`);
+    if (!map.poisOf('dugout_cache').some(inside)) out.push(`нет ящика в блиндаже КПП (${cp.x},${cp.y})`);
+    if (map.poisOf('dugout_bunk').filter(inside).length < GENERATOR.validation.dugoutBunks) out.push(`мало мест отдыха в блиндаже КПП (${cp.x},${cp.y})`);
+  }
   return out;
 }
 
@@ -431,8 +438,10 @@ function generateAttempt(seed: number, attempt: number): GameMap {
       if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
     }
     let sx = 0, sy = 0, n = 0;
-    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[0].length; x++) if (rows[y][x] === 'o') { sx += x; sy += y; n++; }
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[0].length; x++) if (isOutlandsGround(rows[y][x])) { sx += x; sy += y; n++; }
     pois.push({ type: 'outlands_exit', x: cp.rect.x + Math.round(sx / n), y: cp.rect.y + Math.round(sy / n) });
+    // Передовой блиндаж повстанцев в полосе пустоши: внутренний пол и сторона входа (ящик и койки — POI из стампа).
+    for (const d of dugoutsOf(rows)) pois.push({ type: 'dugout', x: cp.rect.x + d.x, y: cp.rect.y + d.y, w: d.w, h: d.h, face: d.face });
     pois.push({ type: 'checkpoint_type', x: cp.rect.x, y: cp.rect.y, w: cp.rect.w, h: cp.rect.h, kind: cp.type, face: cp.mirror ? 'E' : 'W' });
   });
 

@@ -4,6 +4,10 @@ import { spawnPopulation } from '../src/systems/Population';
 import { AI } from '../src/config/ai';
 import type { Character } from '../src/entities/Character';
 import { cpUnit } from '../src/config/factions';
+import { WAR } from '../src/config/war';
+import { SUPPRESS } from '../src/config/tactics';
+import { canSeeCircle } from '../src/world/visibility';
+import type { RebelBrain } from '../src/ai/brains/RebelBrain';
 
 /**
  * Аудит живого мира (npm run worldstats; MINUTES — сколько игровых минут, SEED — карта): город целиком,
@@ -34,6 +38,16 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   const minutes = Number(process.env.MINUTES ?? 30);
   // Как в игре: типы КПП по сиду и позиционная линия армии (CP=classic — прежняя карта аудитов, LINE=0 — без линии).
   const sim = makeSim(Number(process.env.SEED ?? 12345), { checkpoints: process.env.CP === 'classic' ? ['classic'] : null, line: process.env.LINE !== '0' });
+  // WARCFG="dugout.sortie.chance=0,dugout.reserve=0" — подмена чисел WAR на прогон (подбор настроек без правки конфига).
+  for (const kv of (process.env.WARCFG ?? '').split(',').filter(Boolean)) {
+    const [path, val] = kv.split('=');
+    const keys = path.split('.');
+    let o = WAR as unknown as Record<string, unknown>;
+    for (const k of keys.slice(0, -1)) o = o[k] as Record<string, unknown>;
+    o[keys[keys.length - 1]] = Number(val);
+  }
+  // DUGOUTS=0 — без передовых блиндажей (здание на карте остаётся): отделить их логику от шаблонов КПП.
+  if (process.env.DUGOUTS === '0') sim.war.dugouts.list.length = 0;
   sim.ctx.routine.enabled = true;
   sim.ctx.brawls.enabled = true;
   sim.academy.recruiting = true;
@@ -75,12 +89,19 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
     return on || sim.combat.now - lastOffensive < 90 ? 1 : 0;
   };
   const frontSide = (c: Character) => (c.faction === 'cp' || c.faction === 'ota' ? 'C' : c.faction === 'rebel' && group(c) === 'армия' ? 'A' : '');
+  // Армия, погибшая у КПП вне наступлений, — по режиму RebelBrain и зоне (понять, где теряют людей: линия, блиндаж, подносчики, подход).
+  const armyModes = new Map<string, number>();
   const frontLoss = (c: Character, down: boolean) => {
     const side = frontSide(c);
     if (!side || !atFront(c.x, c.y)) return;
-    const cell = fronts[c.x < midX ? 0 : 1][inOffensive()];
+    const o = inOffensive();
+    const cell = fronts[c.x < midX ? 0 : 1][o];
     if (down) cell[side === 'C' ? 'downC' : 'downA']++;
     else cell[side === 'C' ? 'deadC' : 'deadA']++;
+    if (!down && side === 'A' && !o) {
+      const mode = (c.brain as { mode?: string } | null)?.mode ?? '?';
+      inc(armyModes, `${c.x < midX ? 'з' : 'в'}:${mode}@${sim.map.zoneAtWorld(c.x, c.y)?.name ?? '?'}`);
+    }
   };
   sim.combat.deathListeners.push((c) => frontLoss(c, false));
   const downOrig = sim.combat.down.bind(sim.combat);
@@ -92,6 +113,8 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   let radioFront = 0;
   let holders = 0;
   let holderSamples = 0;
+  // Чем заняты бойцы линии (замеры раз в секунду): на позиции, прижаты огнём, затаились после очереди, видят пост.
+  const lineState = { n: 0, here: 0, pinned: 0, cooling: 0, sees: 0, ready: 0 };
   const causes = new Map<string, number>();
   const law = new Map<string, number>();
   sim.bus.on('log', ({ text }) => {
@@ -131,7 +154,24 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
         radioSeq = m.seq;
         if (atFront(m.x, m.y)) radioFront++;
       }
-      for (const f of sim.war.fronts) holders += sim.war.command.lineOf(f).length;
+      for (const f of sim.war.fronts) {
+        const line = sim.war.command.lineOf(f);
+        holders += line.length;
+        for (const h of line) {
+          const b = h.brain as RebelBrain;
+          const duel = (b as unknown as { duel: { cooling(now: number): boolean } }).duel;
+          const w = sim.combat.weaponOf(h);
+          const sees = sim.war.guardPosts(f).some((p) => Math.hypot(p.x - h.x, p.y - h.y) <= sim.combat.reach(h) && canSeeCircle(sim.map, h.x, h.y, p.x, p.y, WAR.line.sightRadius));
+          const pinned = h.suppress >= SUPPRESS.pinned;
+          const cooling = duel.cooling(sim.combat.now);
+          lineState.n++;
+          if (b.lineHere) lineState.here++;
+          if (b.lineHere && pinned) lineState.pinned++;
+          if (b.lineHere && cooling) lineState.cooling++;
+          if (b.lineHere && sees) lineState.sees++;
+          if (b.lineHere && sees && !pinned && !cooling && (!w?.ammo || h.mag > 0)) lineState.ready++;
+        }
+      }
       holderSamples++;
     }
     if (t % 60 === 0) inc(codeTime, sim.war.code);
@@ -207,6 +247,10 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
     out.push(`Фронт ${i ? 'восток' : 'запад'} «${cpTypes[i]}»: ${part.join(' | ')}`);
   }
   out.push(`Фронт: на линии в среднем ${(holders / Math.max(holderSamples, 1)).toFixed(1)} бойцов (оба КПП); передач рации у КПП ${(radioFront / minutes).toFixed(1)}/мин; смен на линии ${sim.war.command.stats.lineShifts}, пауз после потерь ${sim.war.command.stats.linePauses}`);
+  out.push(`Линия (замеров ${lineState.n}): на позиции ${((lineState.here / Math.max(lineState.n, 1)) * 100).toFixed(0)}%, из них прижаты ${((lineState.pinned / Math.max(lineState.here, 1)) * 100).toFixed(0)}%, затаились после очереди ${((lineState.cooling / Math.max(lineState.here, 1)) * 100).toFixed(0)}%, видят пост ${((lineState.sees / Math.max(lineState.here, 1)) * 100).toFixed(0)}%, готовы стрелять ${((lineState.ready / Math.max(lineState.here, 1)) * 100).toFixed(0)}%`);
+  out.push(`Армия вне наступлений у КПП погибла (сторона:режим@зона): ${top(armyModes, 20)}`);
+  const dg = sim.war.dugouts;
+  out.push(`Блиндажи: подвезено ящиков ${dg.stats.supplied}, пополнений бойцов ${dg.stats.restocked}, отдыхов ${dg.stats.rests}, вылазок Протектората ${dg.stats.sorties}, разрушено ${dg.stats.ruined}, отстроено ${dg.stats.rebuilt}, подносчиков и строителей потеряно ${dg.stats.crewLost}; запас сейчас ${dg.list.map((d) => `${d.owner === 'ruined' ? 'разрушен' : `${d.kits}к/${d.grenades}г`}`).join(', ')}`);
   out.push(`Война: ${JSON.stringify(sim.war.stats)}; места преступлений: ${JSON.stringify(sim.war.scenes.stats)}`);
   out.push(`Труд: ${JSON.stringify(sim.labor.stats)}; склад: ${JSON.stringify(sim.arsenal.stats)}`);
   out.push(`Барыга: ${JSON.stringify(sim.ctx.fence.stats)}`);
