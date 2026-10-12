@@ -109,7 +109,7 @@ export function callsigns(list: readonly Character[]): string {
   return `${n.slice(0, -1).join(', ')} и ${n[n.length - 1]}`;
 }
 
-/** Короткое имя КПП для эфира: «КПП «Запад»». */
+/** Короткое имя КПП для эфира: «КПП «Север»». */
 export function frontName(f: Pick<Front, 'name'>): string {
   return f.name.replace(/^Пограничный\s+/, '');
 }

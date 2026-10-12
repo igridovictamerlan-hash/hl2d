@@ -39,7 +39,7 @@ export interface StreetPlan {
  * разметки регионов, до лабиринта: рёбра артерий сразу вырезаются (carved), места зданий
  * становятся пустотами — лабиринт их обходит, а переулки подходят к ним снаружи.
  */
-export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect: Rect; side: 'N' | 'S' }, blocked: readonly Rect[], mapW: number, mapH: number, nexus: Rect | null = null): StreetPlan {
+export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], plaza: { rect: Rect; side: 'N' | 'S' }, blocked: readonly Rect[], mapW: number, mapH: number, nexus: Rect | null = null): StreetPlan {
   const S = GENERATOR.streets;
   const arteries: Artery[] = [];
   const inArtery = new Uint8Array(lat.edges.length);
@@ -66,10 +66,16 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
     return out;
   };
   const w3 = GENERATOR.alley.mainWidth;
+  // Главный проспект — первый в hLines (у него площадь; «сторона без стволов» — от него).
+  const hLine = hLines[0];
   for (let i = 0; i < lat.cols; i++) {
-    for (const dir of [-1, 1] as const) {
-      const spine = walk(i, hLine, dir, rng.int(S.branchRow[0], S.branchRow[1]));
-      if (spine.length >= S.minSpine) cands.push({ i, dir, spine, rooted: true });
+    for (const line of hLines) {
+      // Ствол — только от узла на асфальте проспекта (за его концом линия — обычная решётка).
+      if (!lat.node(i, line).onAvenue) continue;
+      for (const dir of [-1, 1] as const) {
+        const spine = walk(i, line, dir, rng.int(S.branchRow[0], S.branchRow[1]));
+        if (spine.length >= S.minSpine) cands.push({ i, dir, spine, rooted: true });
+      }
     }
     // У площади: от её дальнего края — вглубь квартала.
     const dir: -1 | 1 = plaza.side === 'N' ? -1 : 1;
@@ -204,7 +210,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
     }
     return out;
   };
-  const avenueNodes = lat.nodes.filter((n) => n.onAvenue && n.j === hLine);
+  const avenueNodes = lat.nodes.filter((n) => n.onAvenue && hLines.includes(n.j));
   const toAvenue = (r: Rect) => Math.min(...avenueNodes.map((n) => Math.hypot(n.x - (r.x + r.w / 2), n.y - (r.y + r.h / 2))));
   const D = GENERATOR.dorms;
   const V = GENERATOR.villas;
@@ -221,17 +227,45 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   const rootedRects = arteries.filter((a) => a.rooted).flatMap((a) => a.edges.map((id) => lat.edgeBounds(lat.edges[id], a.width)));
   const aw = ARSENAL_TEMPLATE[0].length;
   const ah = ARSENAL_TEMPLATE.length;
+  // Проспектов два: «к проспекту» — к ближайшему по вертикали узлу проспекта у этого места.
+  const avYAt = (x: number, y: number) => {
+    let best = mapH / 2;
+    let bestD = Infinity;
+    for (const n of avenueNodes) {
+      const d = Math.abs(n.y - y) + Math.abs(n.x - x) * 0.25;
+      if (d < bestD) {
+        bestD = d;
+        best = n.y;
+      }
+    }
+    return best;
+  };
   const avY = avenueNodes.length ? avenueNodes[0].y : mapH / 2;
+  const roadTo = (fx: number, fy: number) => {
+    let road = Infinity;
+    for (const r of rootedRects) road = Math.min(road, Math.hypot(Math.max(r.x - fx, 0, fx - r.x - r.w), Math.max(r.y - fy, 0, fy - r.y - r.h)));
+    return road;
+  };
   let arsenal: Placement | null = null;
   let arsenalScore = -Infinity;
   for (let t = 0; t < AR.tries && rootedRects.length && avenueNodes.length; t++) {
-    const rect: Rect = { x: arng.int(margin, mapW - margin - aw), y: arng.int(margin, mapH - margin - ah), w: aw, h: ah };
+    // Склад стоит крыльцом к проспекту (вход сверху/снизу) или, где так не помещается, боком (вход сбоку).
+    const upright = arng.chance(0.5);
+    const w = upright ? aw : ah;
+    const h = upright ? ah : aw;
+    const rect: Rect = { x: arng.int(margin, mapW - margin - w), y: arng.int(margin, mapH - margin - h), w, h };
     if (!fits(rect)) continue;
-    const face: Placement['face'] = rect.y + ah / 2 < avY ? 'S' : 'N';
-    const fx = rect.x + aw / 2;
-    const fy = face === 'S' ? rect.y + ah : rect.y;
-    let road = Infinity;
-    for (const r of rootedRects) road = Math.min(road, Math.hypot(Math.max(r.x - fx, 0, fx - r.x - r.w), Math.max(r.y - fy, 0, fy - r.y - r.h)));
+    let face: Placement['face'];
+    let road: number;
+    if (upright) {
+      face = rect.y + h / 2 < avYAt(rect.x + w / 2, rect.y + h / 2) ? 'S' : 'N';
+      road = roadTo(rect.x + w / 2, face === 'S' ? rect.y + h : rect.y);
+    } else {
+      const east = roadTo(rect.x + w, rect.y + h / 2);
+      const west = roadTo(rect.x, rect.y + h / 2);
+      face = east <= west ? 'E' : 'W';
+      road = Math.min(east, west);
+    }
     if (road > AR.road.reach) continue;
     const score = toAvenue(rect) - road * AR.road.penalty;
     if (score > arsenalScore) {
@@ -252,11 +286,6 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   const ac = arsenal ? centre(arsenal.rect) : null;
   let prison: Placement | null = null;
   let prisonScore = -Infinity;
-  const roadTo = (fx: number, fy: number) => {
-    let road = Infinity;
-    for (const r of rootedRects) road = Math.min(road, Math.hypot(Math.max(r.x - fx, 0, fx - r.x - r.w), Math.max(r.y - fy, 0, fy - r.y - r.h)));
-    return road;
-  };
   // Строгий проход, потом (места не нашлось) — с ослабленными условиями (relax).
   for (const relax of [1, PR.relax]) {
     for (let t = 0; t < PR.tries && rootedRects.length && avenueNodes.length; t++) {
@@ -271,7 +300,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
       let face: Placement['face'];
       let road: number;
       if (upright) {
-        face = rect.y + h / 2 < avY ? 'S' : 'N';
+        face = rect.y + h / 2 < avYAt(rect.x + w / 2, rect.y + h / 2) ? 'S' : 'N';
         road = roadTo(rect.x + w / 2, face === 'S' ? rect.y + h : rect.y);
       } else {
         const east = roadTo(rect.x + w, rect.y + h / 2);
@@ -311,7 +340,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
       let face: Placement['face'];
       let road: number;
       if (upright) {
-        face = rect.y + h / 2 < avY ? 'S' : 'N';
+        face = rect.y + h / 2 < avYAt(rect.x + w / 2, rect.y + h / 2) ? 'S' : 'N';
         road = roadTo(rect.x + w / 2, face === 'S' ? rect.y + h : rect.y);
       } else {
         const east = roadTo(rect.x + w, rect.y + h / 2);

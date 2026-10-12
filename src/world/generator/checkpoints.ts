@@ -158,7 +158,7 @@ export function dugoutsOf(rows: readonly string[]): Dugout[] {
   return out;
 }
 
-/** Шаблон и карта частей для КПП с учётом зеркала (восточный конец проспекта). */
+/** Шаблон и карта частей для КПП с учётом зеркала (пустошь с востока; сейчас оба КПП западные — задел). */
 export function checkpointRows(def: CheckpointDef, mirror: boolean): { rows: string[]; sections: string[] } {
   return mirror
     ? { rows: mirrorTemplate(def.rows), sections: mirrorTemplate(def.sections) }
@@ -166,7 +166,7 @@ export function checkpointRows(def: CheckpointDef, mirror: boolean): { rows: str
 }
 
 /**
- * Типы двух КПП карты — [западный, восточный]. Из GENERATOR.checkpoints.types отдельным потоком случайности
+ * Типы двух КПП карты — [«Север», «Юг»]. Из GENERATOR.checkpoints.types отдельным потоком случайности
  * (seed карты, не зависит от попытки и не сдвигает остальной генератор), разные; forceTypes — как задано.
  */
 export function pickCheckpointTypes(seed: number): [CheckpointType, CheckpointType] {

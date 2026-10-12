@@ -423,6 +423,8 @@ export function carveConnectorChecked(g: GenGrid, exit: Exit, maxLen: number): b
 /**
  * Кольцевая стена запретной зоны с воротами-КПП. Позицию ворот на каждой стороне подбирает
  * перебором: оба прохода (внутрь и наружу) должны прокопаться, прямой обзор — в пределах нормы.
+ * Подъезды к воротам — бетон КПП (`BUNKER`), а не переулок: снаружи и внутри они ложатся на одну
+ * прямую с воротами, и брусчаткой дали бы прямую длиннее нормы почти на любой позиции.
  */
 export function stampRestricted(g: GenGrid, rect: Rect, gates: GateSpec[], rng: Rng, pois: Poi[]): number {
   const t = GENERATOR.restricted.wallThickness;
@@ -482,7 +484,7 @@ export function stampRestricted(g: GenGrid, rect: Rect, gates: GateSpec[], rng: 
       const b = build(pos);
       const snap = g.snapshot(b.area);
       for (const c of b.cells) g.set(c.x, c.y, T.GATE, true);
-      const ok = carveConnector(g, b.outExit, maxLen) && carveConnector(g, b.inExit, maxLen);
+      const ok = carveConnector(g, b.outExit, maxLen, T.BUNKER) && carveConnector(g, b.inExit, maxLen, T.BUNKER);
       const run = ok ? g.maxRunIn(b.area) : Infinity;
       g.restore(snap);
       if (run < bestRun) {
@@ -494,8 +496,8 @@ export function stampRestricted(g: GenGrid, rect: Rect, gates: GateSpec[], rng: 
     if (best >= 0 && bestRun < Infinity) {
       const b = build(best);
       for (const c of b.cells) g.set(c.x, c.y, T.GATE, true);
-      carveConnector(g, b.outExit, maxLen);
-      carveConnector(g, b.inExit, maxLen);
+      carveConnector(g, b.outExit, maxLen, T.BUNKER);
+      carveConnector(g, b.inExit, maxLen, T.BUNKER);
       pois.push({ type: 'restricted_gate', x: b.mid.x, y: b.mid.y });
     } else {
       // Прямой проход не получается — ставим ворота с «фартуком» в 1 клетку,
@@ -503,7 +505,7 @@ export function stampRestricted(g: GenGrid, rect: Rect, gates: GateSpec[], rng: 
       const b = build(positions[0]);
       for (const c of b.cells) g.set(c.x, c.y, T.GATE, true);
       for (const ex of [b.outExit, b.inExit]) {
-        for (const tl of ex.tiles) g.set(tl.x + ex.dx, tl.y + ex.dy, T.FLOOR);
+        for (const tl of ex.tiles) g.set(tl.x + ex.dx, tl.y + ex.dy, T.BUNKER);
       }
       pois.push({ type: 'restricted_gate', x: b.mid.x, y: b.mid.y });
     }

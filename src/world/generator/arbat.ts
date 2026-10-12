@@ -68,8 +68,11 @@ export function constrainAvenueLanes(lat: Lattice, av: Avenue, line: number): vo
     }
     return { lo, hi };
   };
+  const end = av.segs[av.segs.length - 1].to;
   if (av.horizontal) {
     for (let i = 0; i < lat.cols; i++) {
+      // За концом проспекта (если он не доходит до стены) линия — обычная решётка.
+      if (lat.node(i, line).x > end) continue;
       const up = lat.vEdge(i, line - 1);
       if (up) {
         const A = lat.nodes[up.a];

@@ -2,6 +2,7 @@ import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { STAFFING } from '../config/staffing';
+import { ZONE_NAMES } from '../config/names';
 import { cpUnit, CP_UNIT, type CpUnitId } from '../config/factions';
 import { KITS, ITEMS, type ItemId } from '../config/items';
 import { brainFor, type RoleSpec } from './Roster';
@@ -15,12 +16,17 @@ export interface StaffSlot {
   vacantSince: number;
 }
 
+/** «КПП «Север»» по номеру фронта (имя зоны без «Пограничный»). */
+function cpName(front: number | undefined): string {
+  return (ZONE_NAMES.checkpoints[front ?? 0] ?? ZONE_NAMES.checkpoints[0]).replace(/^Пограничный\s+/, '');
+}
+
 /** Описание должности для журнала: «пост у Управы», «ведущий группы 2»… */
 export function postName(spec: RoleSpec): string {
   switch (spec.kind) {
     case 'post': return spec.access === 'nexus' ? 'вахта Управы' : spec.access === 'academy' ? 'вахта академии' : 'пост в городе';
-    case 'gate': return `проходная КПП ${spec.front === 0 ? '«Запад»' : '«Восток»'}`;
-    case 'guard': return `пост на КПП ${spec.front === 0 ? '«Запад»' : '«Восток»'}`;
+    case 'gate': return `проходная ${cpName(spec.front)}`;
+    case 'guard': return `пост на ${cpName(spec.front)}`;
     case 'medic': return 'медпункт КПП';
     case 'squad': return spec.lead ? `ведущий группы ${(spec.squad ?? 0) + 1}` : `группа ${(spec.squad ?? 0) + 1}`;
     case 'officer': return 'офицер PCU';
