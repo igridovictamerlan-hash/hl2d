@@ -189,7 +189,10 @@ describe('штатное расписание ВС', () => {
     const before = sim.entities.list.filter((c) => c.faction === 'cp' && c.alive).length;
     sim.combat.damage(ofc, 9999, null);
     expect(S.vacancies('ofc').length).toBe(1);
-    run(sim, STAFFING.wait + STAFFING.every * 3);
+    // Переводят только свободного от дела (Staffing.free): на сиде 12345 единственный сержант уже на седьмой секунде бросается
+    // в погоню и ведёт задержанного, а повышен был лишь на 64-й — приказ ждёт, пока он освободится, а не фиксированные
+    // wait + 3 такта.
+    run(sim, STAFFING.wait + 180, () => cpUnit(sgt.rank).unit === 'ofc');
     // Офицер не вернулся, его должность занял сержант.
     expect(sim.entities.list.some((c) => c.alive && c.name === name)).toBe(false);
     expect(cpUnit(sgt.rank).unit).toBe('ofc');

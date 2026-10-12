@@ -56,7 +56,8 @@ export const GANGS = {
   feud: { see: 200, time: 25, cooldown: 150, scanEvery: 0.5, cops: 320, barkEvery: 20 },
   /**
    * Дела банды: раз в every с авторитет посылает бойцов (weights — доли):
-   *  racket — дань с лавки неподалёку (take токенов, стоят stay с у прилавка);
+   *  racket — дань с лавки не дальше seek px от общаги (take токенов, стоят stay с у прилавка; город широкий, лавки —
+   *    вдоль проспектов, а общага бывает в углу: при 1600 px у половины банд дани не было вовсе);
    *  raid — налёт на чужой район (size бойцов, до time с);
    *  hit — удар по патрулю ВС у своего района (engage px — достают стволы);
    *  convoy — засада на конвой склада ВС на марше не дальше seek px от общаги;
@@ -68,7 +69,7 @@ export const GANGS = {
     first: [10, 22] as const,
     // Силовые дела (налёт, удар по ВС, засада) — реже, чем дань и торговля: банда живёт делами, а не войной.
     weights: { racket: 3, raid: 1.4, hit: 1, convoy: 1.4, buy: 2, sell: 2 },
-    racket: { take: [8, 16] as const, stay: 5, seek: 1600 },
+    racket: { take: [8, 16] as const, stay: 5, seek: 2600 },
     raid: { size: [2, 3] as const, time: 70 },
     hit: { size: [2, 4] as const, engage: 220, seek: 1800, time: 90 },
     convoy: { size: [3, 4] as const, seek: 2600, engage: 260, time: 100 },

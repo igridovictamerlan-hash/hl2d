@@ -250,35 +250,44 @@ describe('ближний бой: блок, парирование, нокаут'
 });
 
 describe('ближний бой: драка NPC', () => {
-  test('жители в драке обходят друг друга, закрываются и бьют сериями; никто не гибнет', { timeout: 60_000 }, () => {
+  test('жители в драке обходят друг друга, закрываются и бьют сериями; никто не гибнет', { timeout: 90_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
     spawnPopulation(sim.ctx, 40);
     const cits = sim.entities.list.filter((c) => c.faction === 'citizen' && c.gang < 0 && c.brain instanceof CitizenBrain && c.loyalty < 60);
-    const [a, b] = cits;
     // Без ВС: иначе патруль разнимает драку (свой тест — brawl.test).
     for (const c of sim.entities.list) if (c.faction === 'cp') c.brain = null;
-    const n = randomAnchorAround(a, sim.ctx, 1, 2, new Set());
-    b.x = b.prevX = sim.nav.worldX(n);
-    b.y = b.prevY = sim.nav.worldY(n);
-    a.law.lastCheck = b.law.lastCheck = sim.law.now;
-    expect(sim.ctx.brawls.start(a, b)).toBe(true);
     const st = sim.combat.melee.stats;
+    // Исход одной драки — случай: быстрый джеб сбивает чужой замах, и пара способна за 8 с ни разу не закрыться и не
+    // промахнуться (на одной из карт первая пара честно так и билась). Поэтому дерутся три пары подряд, считаем вместе.
     let path = 0;
-    let px = a.x;
-    let py = a.y;
-    for (let t = 0; t < 20 * 60 && sim.ctx.brawls.fighting(a); t++) {
-      sim.step();
-      path += Math.hypot(a.x - px, a.y - py);
-      px = a.x;
-      py = a.y;
+    let minHealth = Infinity;
+    const fighters: Character[] = [];
+    for (let k = 0; k < 3; k++) {
+      const a = cits[k * 2];
+      const b = cits[k * 2 + 1];
+      const n = randomAnchorAround(a, sim.ctx, 1, 2, new Set());
+      b.x = b.prevX = sim.nav.worldX(n);
+      b.y = b.prevY = sim.nav.worldY(n);
+      a.law.lastCheck = b.law.lastCheck = sim.law.now;
+      expect(sim.ctx.brawls.start(a, b)).toBe(true);
+      let px = a.x;
+      let py = a.y;
+      for (let t = 0; t < 20 * 60 && sim.ctx.brawls.fighting(a); t++) {
+        sim.step();
+        path += Math.hypot(a.x - px, a.y - py);
+        px = a.x;
+        py = a.y;
+        minHealth = Math.min(minHealth, a.health, b.health);
+      }
+      fighters.push(a, b);
     }
     expect(st.attacks).toBeGreaterThan(6);
     expect(st.hits).toBeGreaterThan(2);
     // Не машут на месте: закрываются или отшагивают — есть блоки и промахи, и ходят по кругу.
     expect(st.blocks + st.whiffs).toBeGreaterThan(0);
     expect(path).toBeGreaterThan(60);
-    expect(a.alive && b.alive).toBe(true);
-    expect(Math.min(a.health, b.health)).toBeGreaterThanOrEqual(FISTS.floor - 0.01);
+    for (const c of fighters) expect(c.alive).toBe(true);
+    expect(minHealth).toBeGreaterThanOrEqual(FISTS.floor - 0.01);
   });
 });

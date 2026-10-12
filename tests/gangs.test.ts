@@ -91,7 +91,11 @@ describe('банды', () => {
     for (const c of sim.entities.list.filter((o) => o.faction === 'cp')) sim.entities.remove(c);
     const G = sim.ctx.gangs;
     G.paused = true;
-    const g = G.gangs[0];
+    // Дань берут только с лавки не дальше GANGS.ops.racket.seek от общаги, а город широкий — у иной банды такой лавки нет
+    // вовсе (на сиде 12345 первая банда в дальнем углу): берём ту, у которой лавка в пределах досягаемости.
+    const shopsNear = (o: (typeof G.gangs)[number]) => sim.ctx.shops.shops.filter((s) => s.vendorSpot && Math.hypot(s.front.x - o.hq.x, s.front.y - o.hq.y) < GANGS.ops.racket.seek).length;
+    const g = G.gangs.find((o) => shopsNear(o) > 0)!;
+    expect(g, 'есть банда с лавкой в пределах досягаемости').toBeTruthy();
     // И без чужих банд: стычка по дороге к барыге (ранили — дело сорвано) — тоже дело случая.
     for (const o of G.gangs) if (o !== g) for (const c of G.members(o)) sim.entities.remove(c);
     const bank = g.bank;
@@ -204,6 +208,7 @@ describe('по одному — только на районе, в городе 
     const jailed = new Set<number>();
     let samples = 0;
     let solo = 0;
+    let outbound = 0;
     let trips = 0;
     const teams: number[] = [];
     for (let t = 0; t < 180 * 60; t++) {
@@ -217,16 +222,28 @@ describe('по одному — только на районе, в городе 
         if (c.brain?.constructor.name === 'PrisonerBrain') jailed.add(c.id);
         if (jailed.has(c.id)) continue;
         samples++;
-        if (c.brain instanceof CitizenBrain && c.brain.escort.length) trips++;
+        const b = c.brain;
+        if (b instanceof CitizenBrain && b.escort.length) trips++;
         const g = G.of(c)!;
         if (G.inTurf(g, c.x, c.y)) continue;
         const mate = sim.entities.list.some((o) => o !== c && o.alive && o.gang === c.gang && Math.hypot(o.x - c.x, o.y - c.y) < 160);
-        if (!mate) solo++;
+        if (mate) continue;
+        solo++;
+        // Одинокий, что идёт прочь от района, — нарушение; одинокий, что возвращается на район (напарника задержали, дело
+        // кончилось), — норма. Состав пары — ведущий с ведомыми, ведомый или команда дела.
+        const paired = (b instanceof CitizenBrain && (b.escort.length > 0 || !!b.crewLead)) || (!!g.op && g.op.team.includes(c));
+        const goal = b instanceof CitizenBrain ? b.mover.goal : -1;
+        if (!paired && goal >= 0 && !G.anchorInTurf(g, goal)) outbound++;
       }
     }
-    console.log(`пары банд: замеров ${samples}, один вне района ${solo}, ведут напарника ${trips}, дела (состав) ${teams.map((k) => Math.floor(k / 1000)).join(',')}`);
+    console.log(`пары банд: замеров ${samples}, один вне района ${solo} (уходят прочь ${outbound}), ведут напарника ${trips}, дела (состав) ${teams.map((k) => Math.floor(k / 1000)).join(',')}`);
     expect(trips).toBeGreaterThan(0);
-    expect(solo / samples).toBeLessThan(0.05);
+    // Порог был 5% (на прежней карте ~2%). Город шире, барыга — в дальнем углу карты (до ~3000 px от общаги), и пары на
+    // таком пути растягиваются сверх 160 px (ведущий ждёт отставшего не дольше waitMax за выход), а вернуться на район
+    // в одиночку — дольше: замер на сиде 12345 дал ~7%. Потому порог мягче, а главное — отдельно и строго: никто не уходит
+    // от района в одиночку.
+    expect(solo / samples).toBeLessThan(0.1);
+    expect(outbound / samples).toBeLessThan(0.01);
     // Дела — не меньше двоих.
     expect(teams.every((k) => Math.floor(k / 1000) >= GANGS.pairs.min)).toBe(true);
   });
