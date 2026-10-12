@@ -23,11 +23,11 @@ const SEEDS = [12345, 777];
 afterAll(() => setForcedCheckpointTypes(null));
 
 const cache = new Map<string, GameMap>();
-function mapOf(seed: number, west: CheckpointType, east: CheckpointType = west): GameMap {
-  const key = `${seed}:${west}:${east}`;
+function mapOf(seed: number, north: CheckpointType, south: CheckpointType = north): GameMap {
+  const key = `${seed}:${north}:${south}`;
   let m = cache.get(key);
   if (!m) {
-    setForcedCheckpointTypes([west, east]);
+    setForcedCheckpointTypes([north, south]);
     try {
       m = generateCity(seed);
     } finally {
@@ -41,8 +41,8 @@ function mapOf(seed: number, west: CheckpointType, east: CheckpointType = west):
 /** Решётка проходимых клеток шаблона (то же правило, что у стампа: M # B Ж " — непроходимы). */
 const SOLID_TEMPLATE_CHARS = new Set(['M', '#', 'B', 'Ж', '"', 'Σ']);
 
-/** Места КПП на карте: POI checkpoint_type (после пустоши координаты уже сдвинуты). */
-const cpPois = (map: GameMap): Poi[] => map.poisOf('checkpoint_type').sort((a, b) => a.x - b.x);
+/** Места КПП на карте: POI checkpoint_type (после пустоши координаты уже сдвинуты); оба у западной стены — порядок «Север», «Юг» (сверху вниз). */
+const cpPois = (map: GameMap): Poi[] => map.poisOf('checkpoint_type').sort((a, b) => a.y - b.y);
 
 /** Заливка якорей 2×2 внутри прямоугольника r от якоря (ax, ay), только по зонам из allowed (null — любым). */
 function floodIn(map: GameMap, r: { x: number; y: number; w: number; h: number }, from: [number, number], allowed: Set<number> | null): Uint8Array {
@@ -103,7 +103,7 @@ describe('типы КПП: шаблоны', () => {
     expect(CHECKPOINTS.classic.h).toBe(25);
   });
 
-  test('зеркало восточного КПП: шаблон и карта частей отражены вместе', () => {
+  test('зеркало КПП с пустошью с востока (задел; сейчас оба западные): шаблон и карта частей отражены вместе', () => {
     for (const t of TYPES) {
       const d = CHECKPOINTS[t];
       const m = checkpointRows(d, true);
@@ -147,7 +147,10 @@ describe('выбор типов КПП', () => {
     const a = mapOf(12345, 'pass', 'trenches');
     const pois = cpPois(a);
     expect(pois.map((p) => p.kind)).toEqual(['pass', 'trenches']);
-    expect(pois.map((p) => p.face)).toEqual(['W', 'E']);
+    // Оба КПП — у западной стены (пустошь с запада), «Север» выше «Юга».
+    expect(pois.map((p) => p.face)).toEqual(['W', 'W']);
+    expect(pois[0].y).toBeLessThan(pois[1].y);
+    expect(pois[0].x).toBe(pois[1].x);
     expect([pois[0].w, pois[0].h]).toEqual([CHECKPOINTS.pass.w, CHECKPOINTS.pass.h]);
     expect([pois[1].w, pois[1].h]).toEqual([CHECKPOINTS.trenches.w, CHECKPOINTS.trenches.h]);
     setForcedCheckpointTypes(['pass', 'trenches']);
@@ -183,8 +186,9 @@ for (const type of TYPES) {
         const def = CHECKPOINTS[type];
         const w = map.width;
 
-        pois.forEach((p, k) => {
-          const mirror = k === 1;
+        pois.forEach((p) => {
+          // Отражён КПП, у которого пустошь с востока (сейчас оба западные — зеркала нет).
+          const mirror = p.face === 'E';
           expect(p.kind).toBe(type);
           const rect = { x: p.x, y: p.y, w: p.w!, h: p.h! };
           const { rows, sections } = checkpointRows(def, mirror);
@@ -358,14 +362,14 @@ describe('война на разных КПП', () => {
 });
 
 describe('разные типы на одной карте', () => {
-  test('запад — перевал, восток — ничейная полоса: оба фронта целы, города не видно из дворов', { timeout: 120_000 }, () => {
+  test('«Север» — перевал, «Юг» — ничейная полоса: оба фронта целы, города не видно из дворов', { timeout: 120_000 }, () => {
     const map = mapOf(12345, 'pass', 'trenches');
     expect(validateMap(map)).toEqual([]);
     const sim = makeSim(map);
     expect(sim.war.fronts).toHaveLength(2);
     const [a, b] = sim.war.fronts;
-    // Запад левее востока; у каждого свой тип по положению.
-    expect(a.exit.x).toBeLessThan(b.exit.x);
+    // «Север» выше «Юга» (оба у западной стены); у каждого свой тип по положению.
+    expect(a.exit.y).toBeLessThan(b.exit.y);
     const kinds = cpPois(map).map((p) => p.kind);
     expect(kinds).toEqual(['pass', 'trenches']);
     // Чужая часть не мешает: у пересекающихся полотен нет общей стены и каждый КПП ведёт к проспекту.

@@ -19,7 +19,7 @@ import type { GameMap, Poi } from '../src/world/GameMap';
 
 /**
  * Передовые блиндажи повстанцев (generator/checkpoints.ts, символы Σ Θ Δ Π Ξ шаблонов): у каждого пограничного
- * КПП любого типа, и западного, и восточного (зеркало), в полосе пустоши — закрытая землянка с одним входом,
+ * КПП любого типа (оба у западной стены; зеркало для пустоши с востока — задел), в полосе пустоши — закрытая землянка с одним входом,
  * ящиком и местами отдыха, невидимая с постов, и ход сообщения (траншея) от входа к краю полосы у КПП.
  */
 
@@ -45,8 +45,9 @@ function mapOf(seed: number, type: CheckpointType): GameMap {
 }
 
 type Rect = { x: number; y: number; w: number; h: number };
+// Оба КПП — у западной стены: порядок «Север», «Юг» (сверху вниз); зеркальным (пустошь с востока) был бы КПП с face 'E'.
 const cpRects = (map: GameMap): (Rect & { poi: Poi })[] =>
-  map.poisOf('checkpoint_type').sort((a, b) => a.x - b.x).map((p) => ({ x: p.x, y: p.y, w: p.w!, h: p.h!, poi: p }));
+  map.poisOf('checkpoint_type').sort((a, b) => a.y - b.y).map((p) => ({ x: p.x, y: p.y, w: p.w!, h: p.h!, poi: p }));
 const inRect = (r: Rect) => (p: { x: number; y: number }) => p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
 
 /** Якоря 2×2, целиком лежащие на тайлах из набора kinds (центр якоря (ax, ay) — стык четырёх тайлов). */
@@ -83,8 +84,8 @@ for (const type of TYPES) {
         const rects = cpRects(map);
         expect(rects).toHaveLength(2);
         const w = map.width;
-        rects.forEach((r, k) => {
-          const mirror = k === 1;
+        rects.forEach((r) => {
+          const mirror = r.poi.face === 'E';
           const { rows } = checkpointRows(def, mirror);
           const expected = dugoutsOf(rows);
           expect(expected).toHaveLength(1);
@@ -165,8 +166,8 @@ for (const type of TYPES) {
         const ts = map.tileSize;
         const from = nav.nearestWalkable((camp.x + 0.5) * ts, (camp.y + 0.5) * ts, 6);
         expect(from).toBeGreaterThanOrEqual(0);
-        cpRects(map).forEach((r, k) => {
-          const mirror = k === 1;
+        cpRects(map).forEach((r) => {
+          const mirror = r.poi.face === 'E';
           const d = map.poisOf('dugout').filter(inRect(r))[0];
           // Якорь внутри блиндажа: тайл (d.x + 1, d.y + 1) и тайлы справа-снизу, чтобы вошёл 2×2.
           const to = nav.nearestWalkable((d.x + d.w! / 2) * ts, (d.y + d.h! / 2) * ts, 2);
@@ -348,26 +349,35 @@ describe('блиндаж: подвоз', () => {
     // Первый подносчик по умолчанию выходит не сразу (supply.first: в первые минуты на тропе и у ворот и без того людно), а
     // дорога по ходу сообщения под прицелом — не короткая: время ожидания — первый выход плюс дорога. «Классика»: на
     // «Ничейной полосе» подход к блиндажу пересекает полосу огня постов через ворота, и подносчики там гибнут (см. тест ниже).
+    // Оба КПП — у западной стены и подход к обоим блиндажам похож (тропа от лагеря в предгорьях → проход в пустошь КПП → траншея
+    // к входу), и подносчика на нём может подстрелить пост через ворота: тогда следующего шлют не раньше lossBackoff с (см. тест
+    // ниже) — это не поломка подвоза. Поэтому блиндажи пусты оба, а проверяем тот, куда ящик дошёл первым (без привязки к «Северу»).
     const S = WAR.dugout.supply;
     const sim = front('classic');
     const D = sim.war.dugouts;
-    const d = D.of(0)!;
-    d.kits = 0;
-    d.grenades = 0;
-    let carried: Character | null = null;
-    let near = Infinity;
-    // Пока ящик не сдан в этот блиндаж (второй фронт подвозит свой — смотрим по запасу именно этого).
+    for (const x of D.list) {
+      x.kits = 0;
+      x.grenades = 0;
+    }
+    // По каждому блиндажу: подносчик с ящиком в руках и как близко он подошёл к ящику блиндажа.
+    const track = D.list.map(() => ({ carried: null as Character | null, near: Infinity }));
     // Крутим до первой сдачи ящика: дальше запас расходуют бойцы линии и выходит следующий подносчик.
     until(
       sim,
       () => {
-        if (d.kits > 0) return D.stats.supplied >= 1;
-        if (d.porter?.carrying) carried = d.porter;
-        if (carried) near = Math.min(near, Math.hypot(carried.x - d.cache.x, carried.y - d.cache.y));
-        return false;
+        D.list.forEach((x, k) => {
+          if (x.porter?.carrying) track[k].carried = x.porter;
+          const t = track[k];
+          if (t.carried) t.near = Math.min(t.near, Math.hypot(t.carried.x - x.cache.x, t.carried.y - x.cache.y));
+        });
+        return D.stats.supplied >= 1 && D.list.some((x) => x.kits > 0);
       },
       S.first + 200,
     );
+    const k = D.list.findIndex((x) => x.kits > 0);
+    expect(k, 'ящик дошёл хотя бы до одного блиндажа').toBeGreaterThanOrEqual(0);
+    const d = D.list[k];
+    const { carried, near } = track[k];
     expect(carried, 'подносчик с ящиком').not.toBeNull();
     expect(brain(carried!).supplyTask).toBe('deliver');
     expect(D.stats.supplied).toBeGreaterThanOrEqual(1);
@@ -645,7 +655,9 @@ describe('блиндаж: вылазка Протектората, разруш�
     Object.assign(WAR.dugout.rebuild, { time: 4 });
     Object.assign(WAR.dugout.sortie, { chance: 0 });
     Object.assign(WAR.dugout, { reserveFrom: 0 });
-    const sim = front();
+    // «Классика», а не «Ничейная полоса»: там подход к блиндажу пересекает полосу огня постов через ворота (см. тест подвоза), и
+    // строителя по дороге из лагеря может убить пост — тогда отстройка откладывается на lossBackoff с, а проверяется здесь она.
+    const sim = front('classic');
     const D = sim.war.dugouts;
     const d = D.of(0)!;
     const cmd = sim.war.command;
