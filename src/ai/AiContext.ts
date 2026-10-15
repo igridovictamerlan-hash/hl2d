@@ -43,12 +43,17 @@ import type { Talk } from '../systems/Talk';
 import type { Relations } from '../systems/Relations';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
-/** Фокус упрощённой симуляции: вокруг (x, y) в радиусе √r2 — всё каждый тик; tick — счётчик тиков (такт по id). */
+/**
+ * Фокус упрощённой симуляции: вокруг (x, y) в радиусе √r2 — всё каждый тик, дальше — раз в every тиков, дальше √farR2 —
+ * раз в farEvery; tick — счётчик тиков (такт по id).
+ */
 export interface LodFocus {
   x: number;
   y: number;
   r2: number;
+  farR2: number;
   every: number;
+  farEvery: number;
   tick: number;
 }
 

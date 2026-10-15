@@ -9,7 +9,7 @@ const tmp: Character[] = [];
 /**
  * Шаг физики: разгон к желаемой скорости → перемещение → расталкивание кружков
  * (по массам: игрок тяжелее; NPC-«призрак» из затора — сквозь NPC) → выталкивание из стен (стены всегда побеждают).
- * Упрощённая симуляция (Character.lodFar — вдали от игрока): пара дальних расталкивается один проход из двух,
+ * Упрощённая симуляция (Character.lodFar — вдали от игрока): дальний расталкивает соседей один проход из двух,
  * походка дальнего не считается (её не видно).
  */
 /** Связанная пара (конвоир и задержанный, охранник и подопечный, ведущий и ведомый) — друг другу не помеха. */
@@ -44,12 +44,11 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
   entities.rebuildHash();
   for (let iter = 0; iter < 2; iter++) {
     for (const a of list) {
-      if (!a.alive) continue;
+      if (!a.alive || (iter > 0 && a.lodFar)) continue;
       entities.near(a.x, a.y, a.radius * 2 + 2, tmp);
       for (const b of tmp) {
         // Лежащий раненый не мешает проходу (через него переступают).
         if (b.id <= a.id || !b.alive || a.downed || b.downed) continue;
-        if (iter > 0 && a.lodFar && b.lodFar) continue;
         // Разбор затора: «призрак» проходит сквозь NPC, но не сквозь игрока.
         if ((a.ghost > 0 || b.ghost > 0) && !a.isPlayer && !b.isPlayer) continue;
         // Конвоир и его задержанный не толкают друг друга: в переулке в 2 тайла задержанный иначе

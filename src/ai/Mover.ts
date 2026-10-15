@@ -1,4 +1,5 @@
 import { linked } from '../entities/physics';
+import { LOD } from '../config/population';
 import type { Character } from '../entities/Character';
 import type { AiContext } from './AiContext';
 import type { PathRequest } from './PathService';
@@ -109,7 +110,9 @@ export class Mover {
 
   private requestPath(self: Character, ctx: AiContext): void {
     this.req?.cancel();
-    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, extraCost: this.extraCost, blocked: ctx.access?.blockerFor(self) });
+    // Вдали от игрока (упрощённая симуляция) — «жадный» поиск: дешевле, путь чуть длиннее (его не видно).
+    const weight = self.lodFar ? LOD.paths.weight : undefined;
+    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, extraCost: this.extraCost, blocked: ctx.access?.blockerFor(self), weight });
     this.status = 'pending';
     this.path = [];
     this.wp = 0;

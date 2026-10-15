@@ -11,6 +11,11 @@ export interface PathOptions {
   /** Закрытые якоря (режимный объект без пропуска): снаружи в них не входят, изнутри — выходят. */
   blocked?: (anchor: number) => boolean;
   maxNodes?: number;
+  /**
+   * Вес эвристики (≥ 1): больше 1 — «жадный» A*, раскрывает в разы меньше узлов, путь длиннее не больше чем во столько
+   * раз. Дальним от игрока NPC (config/population.ts, LOD.paths.weight) — их путей не видно.
+   */
+  weight?: number;
 }
 
 const SQRT2 = Math.SQRT2;
@@ -54,11 +59,12 @@ export class AStar {
     const blocked = opts.blocked;
     if (blocked && blocked(goal) && !blocked(start)) return null;
     const maxNodes = opts.maxNodes ?? AI.pathMaxNodes;
+    const hw = opts.weight ?? 1;
     const heur = (i: number) => {
       const x = i % w;
       const dx = Math.abs(x - gx);
       const dy = Math.abs((i - x) / w - gy);
-      return dx > dy ? dx + (SQRT2 - 1) * dy : dy + (SQRT2 - 1) * dx;
+      return hw * (dx > dy ? dx + (SQRT2 - 1) * dy : dy + (SQRT2 - 1) * dx);
     };
     const heap = this.heap;
     heap.clear();

@@ -8,7 +8,8 @@ import { CROUCH } from '../config/tactics';
  * Тяжелораненый лежит (мозг ждёт); в бою NPC, стоящий на месте, садится (CROUCH), пошёл — встал. Боец линии
  * фронта сидит на позиции и без боя (Brain.sits).
  * Упрощённая симуляция (`ctx.lod`, config/population.ts — LOD): NPC вдали от игрока, не в кадре и не занятый
- * (`busy`) думает раз в `every` тиков с шагом × `every`, в остальные тики идёт, куда шёл (wantX/wantY остаются).
+ * (`busy`) думает раз в `every` тиков с шагом × `every` (совсем далеко — раз в `farEvery`), в остальные тики идёт,
+ * куда шёл (wantX/wantY остаются).
  */
 export function updateNpcs(ctx: AiContext, dt: number): void {
   const now = ctx.combat.now;
@@ -26,10 +27,12 @@ export function updateNpcs(ctx: AiContext, dt: number): void {
     if (lod) {
       const dx = c.x - lod.x;
       const dy = c.y - lod.y;
-      c.lodFar = dx * dx + dy * dy > lod.r2 && !c.visible && !busy(c, now);
+      const d2 = dx * dx + dy * dy;
+      c.lodFar = d2 > lod.r2 && !c.visible && !busy(c, now);
       if (c.lodFar) {
-        if ((lod.tick + c.id) % lod.every !== 0) continue;
-        step = dt * lod.every;
+        const every = d2 > lod.farR2 ? lod.farEvery : lod.every;
+        if ((lod.tick + c.id) % every !== 0) continue;
+        step = dt * every;
       }
     } else c.lodFar = false;
     c.brain.update(c, ctx, step);

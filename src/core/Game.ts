@@ -515,7 +515,7 @@ export class Game {
     spawnPopulation(this.ai, plan.citizens, plan.scale);
     this.builtPop = this.popLevel;
     // Упрощённая симуляция вдали от игрока (LOD) и поисков пути за тик — по числу NPC.
-    this.ai.lod = { x: this.player.x, y: this.player.y, r2: LOD.radius * LOD.radius, every: LOD.every, tick: 0 };
+    this.ai.lod = { x: this.player.x, y: this.player.y, r2: LOD.radius ** 2, farR2: (LOD.radius * LOD.farMul) ** 2, every: LOD.every, farEvery: LOD.farEvery, tick: 0 };
     this.ai.paths.budget = Math.min(LOD.paths.max, LOD.paths.base + Math.floor(this.entities.list.length / LOD.paths.perNpcs));
     const save = this.pendingSave && this.pendingSave.seed === map.seed && source === 'generated' ? this.pendingSave : null;
     this.pendingSave = null;
@@ -1150,6 +1150,7 @@ export class Game {
       lod.y = this.player.y;
       const r = Math.max(LOD.radius, Math.hypot(this.camera.viewWidth, this.camera.viewHeight) / 2 + LOD.margin);
       lod.r2 = r * r;
+      lod.farR2 = (r * LOD.farMul) ** 2;
     }
     updateNpcs(this.ai, dt);
     this.doors.update(this.entities, dt);
