@@ -87,6 +87,9 @@ import { StreetLifeSystem } from '../systems/StreetLife';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
 import { SAVE } from '../config/save';
+import { POPULATION, LOD, type PopulationLevelId } from '../config/population';
+import { AI } from '../config/ai';
+import { WORLD } from '../config/world';
 import { capturePlayer, parseSave, applyToPlayer, decodeBits, type SaveData } from '../systems/SaveGame';
 import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
@@ -103,7 +106,8 @@ import { Ambience } from '../world/Ambience';
 import { COZY } from '../config/lighting';
 
 export interface GameOptions {
-  npcs: number;
+  /** Граждан ровно столько (?npcs=); null — по уровню населения из настроек (config/population.ts). */
+  npcs: number | null;
 }
 
 /**
@@ -205,6 +209,7 @@ export class Game {
     } catch {
       /* по умолчанию включена */
     }
+    this.popLevel = Game.loadPopulation();
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.input = new Input(canvas);
     this.zones = new ZoneSystem(this.bus);
@@ -311,6 +316,68 @@ export class Game {
 
   get npcCount(): number {
     return this.entities.list.length - 1;
+  }
+
+  /** Уровень населения (настройка в меню) и с каким собран нынешний город. */
+  private popLevel: PopulationLevelId = 'normal';
+  private builtPop: PopulationLevelId | null = null;
+
+  /** Уровень из браузера; нет — по устройству (телефон и планшет — ниже, config/population.ts). */
+  private static loadPopulation(): PopulationLevelId {
+    const P = POPULATION;
+    try {
+      const v = localStorage.getItem(P.storageKey);
+      if (v && P.levels.some((l) => l.id === v)) return v as PopulationLevelId;
+    } catch {
+      /* нет хранилища — по устройству */
+    }
+    let touch = false;
+    try {
+      touch = matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches;
+    } catch {
+      /* старый браузер — как компьютер */
+    }
+    return touch ? P.defaultLevel.touch : P.defaultLevel.desktop;
+  }
+
+  /**
+   * Сколько людей при уровне: множитель городских ролей (уровень × площадь города к базовой, config/population.ts)
+   * и число граждан (?npcs= — ровно столько, состав прежний).
+   */
+  private populationPlan(level: PopulationLevelId = this.popLevel): { citizens: number; scale: number } {
+    const P = POPULATION;
+    if (this.opts.npcs !== null) return { citizens: Math.min(P.maxCitizens, this.opts.npcs), scale: 1 };
+    const area = Math.min(P.maxAreaMul, Math.max(1, (WORLD.widthTiles * WORLD.heightTiles) / P.baseArea));
+    const scale = (P.levels.find((l) => l.id === level)?.scale ?? 1) * area;
+    return { citizens: Math.min(P.maxCitizens, Math.round(AI.citizens * scale)), scale };
+  }
+
+  /** Подпись уровня населения для меню: «МНОГО · 240 жителей»; применится при возврате в город — с пометкой. */
+  get populationLabel(): string {
+    const lvl = POPULATION.levels.find((l) => l.id === this.popLevel)!;
+    const n = this.populationPlan().citizens;
+    const pending = this.builtPop !== null && this.builtPop !== this.popLevel ? ' · после возврата' : '';
+    return this.opts.npcs !== null ? `?npcs=${this.opts.npcs}` : `${lvl.label.toUpperCase()} · ${n} жит.${pending}`;
+  }
+
+  /** Следующий уровень населения по кругу (запоминается в браузере; город пересоберётся при возврате в игру). */
+  cyclePopulation(): void {
+    const L = POPULATION.levels;
+    const k = L.findIndex((l) => l.id === this.popLevel);
+    this.popLevel = L[(k + 1) % L.length].id;
+    try {
+      localStorage.setItem(POPULATION.storageKey, this.popLevel);
+    } catch {
+      /* без хранилища — до перезагрузки */
+    }
+  }
+
+  /** Уровень сменили — тот же город заново с новым населением (роль, вещи и знакомства — из сохранения). */
+  private applyPopulation(): void {
+    if (this.arena || this.builtPop === this.popLevel || this.opts.npcs !== null) return;
+    const saved = this.save() ? Game.readSave() : null;
+    if (saved) this.resume(saved);
+    else this.regenerate(this.map.seed);
   }
 
   /** Новая карта по seed (или случайному). */
@@ -444,7 +511,12 @@ export class Game {
     this.civilName = this.player.name;
     this.ai.player = this.player;
     this.ai.relations.register(this.player);
-    spawnPopulation(this.ai, this.opts.npcs);
+    const plan = this.populationPlan();
+    spawnPopulation(this.ai, plan.citizens, plan.scale);
+    this.builtPop = this.popLevel;
+    // Упрощённая симуляция вдали от игрока (LOD) и поисков пути за тик — по числу NPC.
+    this.ai.lod = { x: this.player.x, y: this.player.y, r2: LOD.radius * LOD.radius, every: LOD.every, tick: 0 };
+    this.ai.paths.budget = Math.min(LOD.paths.max, LOD.paths.base + Math.floor(this.entities.list.length / LOD.paths.perNpcs));
     const save = this.pendingSave && this.pendingSave.seed === map.seed && source === 'generated' ? this.pendingSave : null;
     this.pendingSave = null;
     this.ui.mapView.reset(map, save ? decodeBits(save.explored, map.width * map.height) : null, save?.hatches);
@@ -598,6 +670,7 @@ export class Game {
   }
 
   continueGame(): void {
+    this.applyPopulation();
     if (!this.role) this.ui.roles.open(true);
     this.canvas.focus();
   }
@@ -1025,6 +1098,8 @@ export class Game {
     if (this.ai.escalation) this.ai.escalation.enabled = false;
     if (this.ai.memorials) this.ai.memorials.enabled = false;
     this.ui.roles.close();
+    // Учения — все рядом: без упрощённой симуляции.
+    this.ai.lod = null;
     this.arena = new SquadArena(this.ai, side, this.player);
     this.arena.startRound();
     this.camera.snapTo(this.player.x, this.player.y);
@@ -1068,6 +1143,14 @@ export class Game {
     // Телефон: стики и кнопки → Input (шаг, прицел, огонь) — до управления игроком.
     this.touch.tick(this.player, this.combat.now);
     this.playerCtl.update(this.player, this.ai, dt);
+    // Фокус упрощённой симуляции — игрок; радиус не меньше половины обзора камеры с запасом (прицел отдаляет).
+    const lod = this.ai.lod;
+    if (lod) {
+      lod.x = this.player.x;
+      lod.y = this.player.y;
+      const r = Math.max(LOD.radius, Math.hypot(this.camera.viewWidth, this.camera.viewHeight) / 2 + LOD.margin);
+      lod.r2 = r * r;
+    }
     updateNpcs(this.ai, dt);
     this.doors.update(this.entities, dt);
     stepPhysics(this.entities, this.map, dt);

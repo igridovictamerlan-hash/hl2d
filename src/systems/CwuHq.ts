@@ -29,6 +29,8 @@ export class CwuHqSystem {
   private progress = 0;
   private lastInspection = -1e9;
   /** Граждан при заселении (город не пустеет: hire.minCitizenShare). */
+  /** Предел рабочих ТС для найма (CWU_HQ.hire.maxWorkers × множитель населения — Population). */
+  maxWorkers: number = CWU_HQ.hire.maxWorkers;
   citizensAtStart = 0;
   stats = { applied: 0, hired: 0, rejected: 0, inspections: 0 };
 
@@ -80,7 +82,7 @@ export class CwuHqSystem {
       if (c.profession !== 'vendor' && c.profession !== 'canteen_cook') workers++;
       count[c.profession] = (count[c.profession] ?? 0) + 1;
     }
-    if (workers >= H.maxWorkers || citizens <= this.citizensAtStart * H.minCitizenShare) return null;
+    if (workers >= this.maxWorkers || citizens <= this.citizensAtStart * H.minCitizenShare) return null;
     let best: ProfessionId | null = null;
     let bestGap = 0;
     for (const [prof, need] of Object.entries(H.needs) as [ProfessionId, number][]) {

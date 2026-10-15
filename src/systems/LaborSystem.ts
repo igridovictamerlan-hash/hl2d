@@ -55,8 +55,9 @@ export class LaborSystem {
   /** Столы канцелярии Управы (бумажная работа лоялистов) и кто за каким сидит. */
   readonly desks: { x: number; y: number; who: Character | null }[] = [];
   /** Санитар (синтет, сжигает тела) и когда выпустить следующего из Управы. */
-  /** Санитары на улицах (LABOR.cremator.count). */
+  /** Санитары на улицах; сколько их (LABOR.cremator.count × множитель населения — Population). */
   readonly cremators: Character[] = [];
+  crematorCount: number = LABOR.cremator.count;
   private crematorAt = 0;
 
   /** Первый живой санитар (для тестов и подсказок). */
@@ -314,7 +315,7 @@ export class LaborSystem {
       this.cremators.splice(i, 1);
       this.crematorAt = Math.max(this.crematorAt, this.time + L.respawn);
     }
-    if (this.cremators.length >= L.count || this.time < this.crematorAt || this.ctx.war.code === 'red') return;
+    if (this.cremators.length >= this.crematorCount || this.time < this.crematorAt || this.ctx.war.code === 'red') return;
     const gate = poiWorld(this.ctx, 'nexus_gate');
     if (!gate) return;
     const a = this.ctx.nav.nearestWalkable(gate.x, gate.y, 6);

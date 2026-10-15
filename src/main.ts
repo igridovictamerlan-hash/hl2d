@@ -3,14 +3,14 @@ import './ui/styles.css';
 import './ui/menus.css';
 import './ui/touch.css';
 import { Game } from './core/Game';
-import { AI } from './config/ai';
+import { POPULATION } from './config/population';
 import { fetchMap } from './world/mapIO';
 
 /**
  * Точка входа. Параметры адреса:
  *   ?seed=123   — сгенерировать карту по seed (записывается автоматически)
  *   ?map=city1  — загрузить public/maps/city1.json
- *   ?npcs=40    — число NPC-граждан
+ *   ?npcs=40    — ровно столько NPC-граждан (в обход уровня населения из меню)
  *   ?debug=1    — сразу включить отладку ИИ
  *   ?mode=squad — экспериментальный режим «отряд на отряд» (&side=combine — за Протекторат)
  *   ?touch=1    — сенсорное управление и с мышью (на телефоне включается само при первом касании)
@@ -21,7 +21,8 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui')!;
 const loading = document.getElementById('loading');
 
-const npcs = params.has('npcs') ? Math.max(0, Math.min(200, Number(params.get('npcs')) || 0)) : AI.citizens;
+// ?npcs= — ровно столько граждан (в обход уровня населения из настроек); без него — по уровню.
+const npcs = params.has('npcs') ? Math.max(0, Math.min(POPULATION.maxCitizens, Number(params.get('npcs')) || 0)) : null;
 const game = new Game(canvas, uiRoot, { npcs });
 // Для отладки из консоли браузера.
 (window as unknown as { game: Game }).game = game;

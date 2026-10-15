@@ -43,6 +43,15 @@ import type { Talk } from '../systems/Talk';
 import type { Relations } from '../systems/Relations';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
+/** Фокус упрощённой симуляции: вокруг (x, y) в радиусе √r2 — всё каждый тик; tick — счётчик тиков (такт по id). */
+export interface LodFocus {
+  x: number;
+  y: number;
+  r2: number;
+  every: number;
+  tick: number;
+}
+
 export interface AiContext {
   map: GameMap;
   nav: NavGrid;
@@ -52,6 +61,11 @@ export interface AiContext {
   entities: EntityManager;
   rng: Rng;
   player: Character | null;
+  /**
+   * Упрощённая симуляция вдали от игрока (config/population.ts, LOD): точка (игрок), радиус² и раз в сколько
+   * тиков думает дальний NPC; null — все NPC каждый тик (безголовые тесты, «отряд на отряд»).
+   */
+  lod?: LodFocus | null;
   /** Время игры, с. */
   time: number;
   law: LawSystem;

@@ -54,6 +54,9 @@ export interface GameMenuHost {
   readonly lightingOn: boolean;
   /** Упрощена под слабую машину. */
   readonly lightingLite: boolean;
+  /** Население города: подпись уровня и следующий уровень по кругу (город пересобирается при возврате в игру). */
+  readonly populationLabel: string;
+  cyclePopulation(): void;
   /** Экспериментальный режим «отряд на отряд»: начать за сторону, идёт ли, выйти в город. */
   startArena(side: 'combine' | 'rebel'): void;
   readonly inArena: boolean;
@@ -222,6 +225,9 @@ export class GameMenu {
       case 'light':
         h.toggleLighting();
         break;
+      case 'population':
+        h.cyclePopulation();
+        break;
       case 'controls':
         this.screen = 'controls';
         break;
@@ -339,6 +345,7 @@ export class GameMenu {
     } else {
       const sound: Item = { act: 'sound', label: L.sound, on: !h.soundMuted, value: h.soundMuted ? 'ВЫКЛ' : 'ВКЛ' };
       const light: Item = { act: 'light', label: L.light, on: h.lightingOn, value: h.lightingOn ? (h.lightingLite ? L.lightLite.toUpperCase() : 'ВКЛ') : 'ВЫКЛ' };
+      const people: Item = { act: 'population', label: L.population, value: h.populationLabel };
       items = main
         ? [
             { act: 'continue', label: h.canContinue() ? L.continue : L.register, primary: true },
@@ -348,6 +355,7 @@ export class GameMenu {
             { act: 'controls', label: L.controls },
             sound,
             light,
+            people,
           ]
         : h.inArena
           ? [{ act: 'continue', label: L.resume, primary: true }, { act: 'controls', label: L.controls }, sound, light, { act: 'leaveArena', label: L.leaveArena }]
@@ -358,6 +366,7 @@ export class GameMenu {
               { act: 'controls', label: L.controls },
               sound,
               light,
+              people,
               { act: 'exit', label: L.exit },
             ];
     }

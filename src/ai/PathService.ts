@@ -32,6 +32,8 @@ export class PathRequest {
 export class PathService {
   private readonly astar: AStar;
   private queue: PathRequest[] = [];
+  /** Поисков за тик (Game поднимает по числу NPC — config/population.ts, LOD.paths). */
+  budget: number = AI.pathBudgetPerTick;
 
   constructor(
     private readonly map: GameMap,
@@ -50,7 +52,7 @@ export class PathService {
     return req;
   }
 
-  process(budget = AI.pathBudgetPerTick): void {
+  process(budget = this.budget): void {
     let done = 0;
     while (this.queue.length > 0 && done < budget) {
       const req = this.queue.shift()!;

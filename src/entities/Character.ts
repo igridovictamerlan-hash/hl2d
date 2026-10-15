@@ -245,6 +245,8 @@ export class Character {
   speedMul = 1;
   /** Сколько секунд ещё проходит сквозь других NPC (разбор затора, Mover); игрока не проходит. */
   ghost = 0;
+  /** Вдали от игрока и не занят — упрощённая симуляция (LOD: мозг реже, физика проще). Ставит updateNpcs. */
+  lodFar = false;
   /** Когда последний раз ранили и кто. */
   lastHurt = -1e9;
   lastAttacker: Character | null = null;

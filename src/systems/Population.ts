@@ -14,6 +14,8 @@ import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import { ROSTER } from '../config/roster';
 import { ECONOMY } from '../config/economy';
 import { HOUSING } from '../config/housing';
+import { LABOR } from '../config/labor';
+import { CWU_HQ } from '../config/cwuHq';
 import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
 
 /** Выдать набор предметов роли; первое оружие из набора — в руки, магазин заряжен. */
@@ -84,9 +86,13 @@ export function armyKit(profession: ProfessionId): string {
  * подпольщики, патрули ВС, часовые на всех постах КПП и медики, резерв OTA на ГЭС,
  * Комендант, армия сопротивления в лагере (глава, ветераны, солдаты, пиро, подрывник, HYDRA),
  * партизаны и торговец в схроне. У каждого — роль (RoleSpec): погибнув, он появляется снова.
+ * scale — множитель городских ролей (config/population.ts): рабочие ТС, поднадзорные, посты и патрули ВС,
+ * следователи и техники, бойцы банд, санитары и предел найма ТС (граждан задаёт citizens). 1 — прежний состав.
  */
-export function spawnPopulation(ctx: AiContext, citizens: number): void {
+export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): void {
   const P = AI.population;
+  // Сколько при множителе: при 1 — ровно как в конфиге; было хоть одно — останется хоть одно.
+  const sc = (n: number): number => (scale === 1 ? n : n > 0 ? Math.max(1, Math.round(n * scale)) : 0);
   const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
@@ -121,7 +127,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   const factory = ctx.labor?.factory;
   const none0 = new Set<number>();
-  for (const prof of P.cwuProfessions) {
+  for (const prof of scaledList(P.cwuProfessions, scale)) {
     const depot = (prof === 'loader' || prof === 'armorer') && ctx.arsenal?.waitSpot;
     const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : depot ? freeSpot(ctx, depot, 0, 4, none0, 20) : freeSpot(ctx, plaza, 3, 30, civAvoid);
     put({ kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'cwu' }, at);
@@ -143,7 +149,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   // Жители — семьями: фамилия, цвет повязки, дом (Арбат, общежитие или особняк). Рабочие ТС — на работе.
   ctx.families?.assign(residents);
-  for (let k = 0; k < P.vorts; k++) {
+  for (let k = 0; k < sc(P.vorts); k++) {
     put({ kind: 'vort', faction: 'vort', profession: 'vort_slave', division: null, rank: 0, kit: 'vort' }, freeSpot(ctx, anywhere, 10, 110, civAvoid));
   }
   // Подпольщики в городе — без оружия на виду.
@@ -179,7 +185,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
     const desk = acad.desk ?? acad.placCenter;
     for (let k = 0; k < ACADEMY.instructors && desk; k++) put(cpSpec('instructor', 'instr'), freeSpot(ctx, desk, 0, 3, none0, 20) ?? desk);
   }
-  for (let k = 0; k < C.publicPosts; k++) {
+  for (let k = 0; k < sc(C.publicPosts); k++) {
     const onPlaza = k % 2 === 0;
     let at: { x: number; y: number } | null = null;
     if (onPlaza) at = postSpot(plaza, 4, 8, cityAvoid);
@@ -191,20 +197,21 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   }
   // Патрульные группы: ведущий PCU.02 или сержант PCU.01, за ним PCU.03; следователи SU.01 — в группах.
   const squadAt: ({ x: number; y: number } | null)[] = [];
-  for (let s = 0; s < C.squads; s++) {
+  const squads = sc(C.squads);
+  for (let s = 0; s < squads; s++) {
     const at = freeSpot(ctx, anywhere, 0, 110, patrolAvoid) ?? postSpot(plaza, 3, 12, cityAvoid);
     squadAt.push(at);
     if (!at) continue;
     put(cpSpec('squad', s % 2 === 0 ? 'pcu2' : 'pcu1', { squad: s, lead: true }), at);
     for (let k = 0; k < C.squadFollowers; k++) put(cpSpec('squad', 'pcu3', { squad: s, lead: false }), freeSpot(ctx, at, 0, 3, patrolAvoid, 24));
   }
-  for (let k = 0; k < C.investigators; k++) {
-    const s = k % Math.max(1, C.squads);
+  for (let k = 0; k < sc(C.investigators); k++) {
+    const s = k % Math.max(1, squads);
     // Следователь — сразу при своей группе.
     const at = squadAt[s];
     put(cpSpec('squad', 'su1', { squad: s, lead: false }), at ? freeSpot(ctx, at, 0, 4, patrolAvoid, 24) : freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
   }
-  for (let k = 0; k < C.technicians; k++) put(cpSpec('tech', 'su2'), freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
+  for (let k = 0; k < sc(C.technicians); k++) put(cpSpec('tech', 'su2'), freeSpot(ctx, anywhere, 0, 110, patrolAvoid));
   // Командование в Управе: офицеры на плацу, инспекторы у канцелярии, охрана и глава — у кабинета.
   const yard = poiWorld(ctx, 'nexus_yard') ?? nexus;
   const office = poiWorld(ctx, 'nexus_desk') ?? nexus;
@@ -286,7 +293,10 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   // Схрон партизан в канализации: партизаны и торговец чёрного рынка.
   ctx.insurgency?.populate();
   // Банды: авторитет у общака и бойцы по комнатам своей общаги.
-  ctx.gangs?.populate();
+  ctx.gangs?.populate(scale);
+  // Санитары и предел найма ТС — по населению.
+  if (ctx.labor) ctx.labor.crematorCount = sc(LABOR.cremator.count);
+  if (ctx.cwuHq) ctx.cwuHq.maxWorkers = sc(CWU_HQ.hire.maxWorkers);
   // Свой дом — каждому жителю (семьи уже заселены), явка — каждому подпольщику.
   settleAll(ctx);
   // Штаб ТС: сколько граждан было (город не пустеет от найма — CWU_HQ.hire.minCitizenShare).
@@ -295,6 +305,30 @@ export function spawnPopulation(ctx: AiContext, citizens: number): void {
   if (ctx.roster) ctx.roster.baseline = ctx.entities.list.filter((c) => !c.isPlayer && c.faction === 'citizen' && c.role?.kind === 'citizen').length;
   // Живые люди: знакомства, дружба и вражда с первой минуты (семьи, соседи, банды, сослуживцы, товарищи).
   ctx.relations?.seed();
+}
+
+/**
+ * Список ролей при множителе: при 1 — как есть; иначе каждой профессии round(n × scale), но не меньше одной,
+ * по кругу в прежнем порядке (повара, фасовщики, курьеры… — чередуясь).
+ */
+function scaledList<T>(list: readonly T[], scale: number): T[] {
+  if (scale === 1) return [...list];
+  const counts = new Map<T, number>();
+  for (const p of list) counts.set(p, (counts.get(p) ?? 0) + 1);
+  const left = new Map<T, number>();
+  for (const [p, n] of counts) left.set(p, Math.max(1, Math.round(n * scale)));
+  const out: T[] = [];
+  for (let more = true; more; ) {
+    more = false;
+    for (const p of counts.keys()) {
+      const n = left.get(p)!;
+      if (n <= 0) continue;
+      out.push(p);
+      left.set(p, n - 1);
+      more = true;
+    }
+  }
+  return out;
 }
 
 /** Место работы жителя (дом ищется поближе к нему) или null. */

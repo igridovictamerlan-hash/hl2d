@@ -9,6 +9,8 @@ const tmp: Character[] = [];
 /**
  * Шаг физики: разгон к желаемой скорости → перемещение → расталкивание кружков
  * (по массам: игрок тяжелее; NPC-«призрак» из затора — сквозь NPC) → выталкивание из стен (стены всегда побеждают).
+ * Упрощённая симуляция (Character.lodFar — вдали от игрока): пара дальних расталкивается один проход из двух,
+ * походка дальнего не считается (её не видно).
  */
 /** Связанная пара (конвоир и задержанный, охранник и подопечный, ведущий и ведомый) — друг другу не помеха. */
 export function linked(a: Character, b: Character): boolean {
@@ -47,6 +49,7 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
       for (const b of tmp) {
         // Лежащий раненый не мешает проходу (через него переступают).
         if (b.id <= a.id || !b.alive || a.downed || b.downed) continue;
+        if (iter > 0 && a.lodFar && b.lodFar) continue;
         // Разбор затора: «призрак» проходит сквозь NPC, но не сквозь игрока.
         if ((a.ghost > 0 || b.ghost > 0) && !a.isPlayer && !b.isPlayer) continue;
         // Конвоир и его задержанный не толкают друг друга: в переулке в 2 тайла задержанный иначе
@@ -77,7 +80,7 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
     const mx = c.x - c.prevX;
     const my = c.y - c.prevY;
     c.moveSpeed = Math.hypot(mx, my) / dt;
-    updateGait(c, mx, my, dt);
+    if (!c.lodFar) updateGait(c, mx, my, dt);
     // Упёрлись — гасим скорость, чтобы не «разгоняться в стену».
     if (c.moveSpeed < Math.hypot(c.vx, c.vy) * 0.5) {
       c.vx = mx / dt;
