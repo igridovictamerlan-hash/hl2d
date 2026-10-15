@@ -248,7 +248,11 @@ export class Game {
       playing: () => !this.ui.menu.isOpen && !this.ui.roles.isOpen,
     });
     this.loop = new GameLoop(
-      (dt) => this.update(dt),
+      (dt) => {
+        const t0 = performance.now();
+        this.update(dt);
+        this.adaptLod(performance.now() - t0);
+      },
       (a) => this.render(a),
     );
     window.addEventListener('resize', () => this.resize());
@@ -369,6 +373,31 @@ export class Game {
       localStorage.setItem(POPULATION.storageKey, this.popLevel);
     } catch {
       /* без хранилища — до перезагрузки */
+    }
+  }
+
+  /** Средний тик логики (мс) и сколько ещё до проверки подстройки упрощённой симуляции. */
+  private tickMs = 0;
+  private adaptIn: number = LOD.adapt.period;
+
+  /**
+   * Подстройка упрощённой симуляции под машину (LOD.adapt): тик логики в среднем дольше slowMs — дальние думают реже,
+   * быстрее fastMs — обратно к исходному такту.
+   */
+  private adaptLod(ms: number): void {
+    const lod = this.ai?.lod;
+    if (!lod) return;
+    this.tickMs = this.tickMs * 0.97 + ms * 0.03;
+    this.adaptIn -= 1 / 60;
+    if (this.adaptIn > 0) return;
+    const A = LOD.adapt;
+    this.adaptIn = A.period;
+    if (this.tickMs > A.slowMs) {
+      lod.every = Math.min(A.maxEvery, lod.every + 1);
+      lod.farEvery = Math.min(A.maxFarEvery, lod.farEvery + 2);
+    } else if (this.tickMs < A.fastMs) {
+      lod.every = Math.max(LOD.every, lod.every - 1);
+      lod.farEvery = Math.max(LOD.farEvery, lod.farEvery - 2);
     }
   }
 

@@ -10,7 +10,7 @@ const tmp: Character[] = [];
  * Шаг физики: разгон к желаемой скорости → перемещение → расталкивание кружков
  * (по массам: игрок тяжелее; NPC-«призрак» из затора — сквозь NPC) → выталкивание из стен (стены всегда побеждают).
  * Упрощённая симуляция (Character.lodFar — вдали от игрока): дальний расталкивает соседей один проход из двух,
- * походка дальнего не считается (её не видно).
+ * стоящего на месте не выталкивают из стен заново, походка дальнего не считается (её не видно).
  */
 /** Связанная пара (конвоир и задержанный, охранник и подопечный, ведущий и ведомый) — друг другу не помеха. */
 export function linked(a: Character, b: Character): boolean {
@@ -75,7 +75,8 @@ export function stepPhysics(entities: EntityManager, map: GameMap, dt: number): 
 
   for (const c of list) {
     if (!c.alive) continue;
-    resolveCircleVsTiles(map, c, c.radius);
+    // Дальний и с места не сдвинулся (стоит, сидит, спит) — из стен его выталкивали в прошлый раз.
+    if (!c.lodFar || c.x !== c.prevX || c.y !== c.prevY) resolveCircleVsTiles(map, c, c.radius);
     const mx = c.x - c.prevX;
     const my = c.y - c.prevY;
     c.moveSpeed = Math.hypot(mx, my) / dt;
