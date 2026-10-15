@@ -185,7 +185,8 @@ describe('барыга — вся связь подполья с улицей', 
     const op = sim.insurgency.startOperation('fence')!;
     expect(op.kind).toBe('fence');
     const before = F.stats.boughtIn;
-    for (let t = 0; t < 180 * 60 && F.stats.boughtIn === before; t++) sim.step();
+    // Явка может быть на другом конце города от хаты барыги: туда, потом через весь город — до 300 с.
+    for (let t = 0; t < 300 * 60 && F.stats.boughtIn === before; t++) sim.step();
     console.log(`барыга: ${JSON.stringify(F.stats)}, товар ${JSON.stringify(F.wares.slots)}, выручка подполья ${sim.insurgency.funds}, заказов ${F.orders}`);
     expect(F.wares.count('mp7')).toBe(wares + 2);
     expect(stash.slots).toHaveLength(0);

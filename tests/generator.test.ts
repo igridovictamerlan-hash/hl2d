@@ -60,8 +60,9 @@ describe('генератор переулочного города', () => {
         expect(map.worldHeight).toBe((W.top + WORLD.heightTiles + W.bottom) * ts);
         expect(city.w).toBeGreaterThanOrEqual(6000);
         expect(city.w).toBeLessThanOrEqual(6400);
-        expect(map.worldHeight).toBeGreaterThanOrEqual(3600);
-        expect(map.worldHeight).toBeLessThanOrEqual(3900);
+        // С севера и юга — хребты долины (по 13 рядов скал).
+        expect(map.worldHeight).toBeGreaterThanOrEqual(3900);
+        expect(map.worldHeight).toBeLessThanOrEqual(4200);
         // Лагерь сопротивления в пустоши и ровно два люка — в запретной зоне.
         expect(map.poisOf('rebel_camp')).toHaveLength(1);
         expect(map.hatches).toHaveLength(2);
@@ -73,6 +74,27 @@ describe('генератор переулочного города', () => {
           expect(map.isSolid(x, 0)).toBe(true);
           expect(map.isSolid(x, map.height - 1)).toBe(true);
         }
+      });
+
+      test('хребты по северу и югу: сплошная скала у края, кромка заходит в глухую застройку, проходимого не трогает', () => {
+        const map = get(seed);
+        const W = GENERATOR.wastes;
+        const x1 = W.west + WORLD.widthTiles + W.east;
+        // Полосы хребтов — сплошные скалы по всей ширине поверхности.
+        for (let x = 0; x < x1; x++) {
+          for (let y = 0; y < W.top; y++) expect(map.tileAt(x, y)).toBe(T.ROCK);
+          for (let y = map.height - W.bottom; y < map.height; y++) expect(map.tileAt(x, y)).toBe(T.ROCK);
+        }
+        // Скала, зашедшая в город, есть, и ни одна её клетка не касается проходимого (переулки, дворы, комнаты).
+        let bitten = 0;
+        for (let y = W.top; y < W.top + WORLD.heightTiles; y++) {
+          for (let x = W.west; x < W.west + WORLD.widthTiles; x++) {
+            if (map.tileAt(x, y) !== T.ROCK || map.zoneAtTile(x, y)?.kind === 'wasteland' || map.zoneAtTile(x, y)?.kind === 'checkpoint' || map.zoneAtTile(x, y)?.kind === 'outlands') continue;
+            bitten++;
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) expect(map.isSolid(x + dx, y + dy)).toBe(true);
+          }
+        }
+        expect(bitten).toBeGreaterThan(200);
       });
 
       test('связность: одна компонента, нет недостижимых мест', () => {

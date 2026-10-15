@@ -8,6 +8,8 @@ import type { GangSystem } from '../systems/Gangs';
 import type { Fence } from '../systems/Fence';
 import type { InsurgencySystem } from '../systems/InsurgencySystem';
 import { MINIMAP } from '../config/minimap';
+import { RENDER } from '../config/render';
+import { rockRelief } from '../world/relief';
 import { FACTIONS } from '../config/factions';
 
 export interface MapViewHost {
@@ -246,6 +248,9 @@ export class MapView {
     this.sewerFull = null;
     this.sewerImg = null;
     const levels: Level[] = map.underground ? ['city', 'sewer'] : ['city'];
+    // Горы — уступами, как на карте: выше светлее, на гребне снег.
+    const relief = rockRelief(map.tiles, map.width, map.height, map.seed | 0);
+    const RR = RENDER.tiles.ridge;
     for (const level of levels) {
       const r = this.levelRect(level);
       const cv = document.createElement('canvas');
@@ -256,7 +261,18 @@ export class MapView {
       const full = new Uint8ClampedArray(r.w * r.h * 4);
       for (let y = 0; y < r.h; y++) {
         for (let x = 0; x < r.w; x++) {
-          const [cr, cg, cb] = MINIMAP.tiles[map.tiles[(r.y + y) * map.width + r.x + x]] ?? [255, 0, 255];
+          const ti = (r.y + y) * map.width + r.x + x;
+          let [cr, cg, cb] = MINIMAP.tiles[map.tiles[ti]] ?? [255, 0, 255];
+          const lv = relief[ti];
+          if (lv !== 255) {
+            if (lv >= RR.snowLevel) [cr, cg, cb] = MINIMAP.snow;
+            else {
+              const k = lv * MINIMAP.ridgeLight;
+              cr += k;
+              cg += k;
+              cb += k * 1.1;
+            }
+          }
           const i = (y * r.w + x) * 4;
           full[i] = cr;
           full[i + 1] = cg;

@@ -7,6 +7,7 @@ import { computeLots, type Lot } from './houses';
 import { ARBAT } from '../config/arbat';
 import { ZONE_NAMES } from '../config/names';
 import type { Poi } from './GameMap';
+import { rockRelief } from './relief';
 
 /** Дом в ряду вдоль улицы (POI facade) для отрисовки: цвет штукатурки и маркизы, вывеска. */
 interface FacadeLook {
@@ -77,6 +78,8 @@ export class MapRenderer {
   private readonly decor: Uint8Array;
   private readonly cobble: Uint8Array;
   private readonly kiosks: Poi[];
+  /** Уступ скалы (world/relief.ts): 0 — подножие, выше — светлее; 255 — не скала. */
+  private readonly relief: Uint8Array;
 
   constructor(private readonly map: GameMap) {
     const { width: w, height: h } = map;
@@ -124,6 +127,7 @@ export class MapRenderer {
     this.noise = new Uint32Array(n);
     this.floor = new Uint8Array(n);
     const seed = map.seed | 0;
+    this.relief = rockRelief(map.tiles, w, h, seed);
     this.placeChimneys(seed);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.computeTile(x, y);
     for (let i = 0; i < n; i++) if (map.tiles[i] === T.DOOR) this.doorTiles.push(i);
@@ -249,7 +253,14 @@ export class MapRenderer {
       case T.SEWER: this.color[i] = tone(P.sewer); break;
       case T.SEWER_WATER: this.color[i] = tone(P.sewerWater); break;
       case T.SEWER_WALL: this.color[i] = tone(P.sewerWall); break;
-      case T.ROCK: this.color[i] = tone(P.rock); break;
+      case T.ROCK: {
+        // Уступы гор: выше — светлее и холоднее, на гребне — снег.
+        const R = P.ridge;
+        const lv = this.relief[i];
+        if (lv >= R.snowLevel) this.color[i] = tone(R.snow);
+        else this.color[i] = hsl(P.rock.h + lv * R.hueShift, P.rock.s + lv * R.satShift, P.rock.l + lv * R.light + jit * P.rock.noise);
+        break;
+      }
       case T.GARDEN: this.color[i] = tone(P.garden); break;
       case T.HEDGE: this.color[i] = tone(P.hedge); break;
       case T.TRENCH: this.color[i] = tone(P.trench); break;
@@ -681,12 +692,29 @@ export class MapRenderer {
             if (map.tileAt(tx + 1, ty) !== T.CHASM) ctx.fillRect(x1 - rimW, y0, rimW, ch);
             continue;
           }
-          case T.ROCK:
+          case T.ROCK: {
             // Трещины и камни.
             ctx.fillStyle = P.rockCrack;
             ctx.fillRect(x0 + px((hv & 15) * 0.8), y0 + px(((hv >> 4) & 15) * 0.8), px(4), px(1));
             ctx.fillRect(x0 + px(((hv >> 8) & 15) * 0.8), y0 + px(((hv >> 12) & 15) * 0.8), px(1), px(3));
+            // Уступы: обрыв к нижнему соседу с юга и востока — тень, с севера и запада — светлая кромка.
+            const R = P.ridge;
+            const lv = this.relief[i];
+            const lower = (j: number) => j >= 0 && j < this.relief.length && this.relief[j] < lv;
+            const cliff = px(R.cliffSize);
+            ctx.fillStyle = R.cliff;
+            if (ty + 1 < map.height && lower(i + w)) ctx.fillRect(x0, y1 - cliff, cw, cliff);
+            if (tx + 1 < w && lower(i + 1)) ctx.fillRect(x1 - cliff + line, y0, cliff - line, ch);
+            ctx.fillStyle = R.rim;
+            if (ty > 0 && lower(i - w)) ctx.fillRect(x0, y0, cw, line * 2);
+            if (tx > 0 && lower(i - 1)) ctx.fillRect(x0, y0, line * 2, ch);
+            if (lv === 0) {
+              ctx.fillStyle = R.scree;
+              ctx.fillRect(x0 + px(((hv >> 16) & 7) + 3), y0 + px(((hv >> 19) & 7) + 3), px(2), px(2));
+              ctx.fillRect(x0 + px(((hv >> 22) & 7) + 2), y0 + px(((hv >> 25) & 7) + 5), px(3), px(2));
+            }
             continue;
+          }
           case T.FLOOR:
           case T.WASTE:
           case T.COURTYARD:

@@ -97,6 +97,15 @@ function scene(sim: Sim, n: number, centers: readonly number[] = sim.nav.walkabl
   throw new Error('нет подходящей сцены');
 }
 
+/** Проходимые якоря по удалению от площади раздачи — сцены в людной середине города. */
+function nearPlaza(sim: Sim): number[] {
+  const pc = sim.map.poisOf('plaza_center')[0];
+  const px = (pc.x + 0.5) * sim.map.tileSize;
+  const py = (pc.y + 0.5) * sim.map.tileSize;
+  const d = (i: number) => Math.hypot(sim.nav.worldX(i) - px, sim.nav.worldY(i) - py);
+  return [...sim.nav.walkable].sort((a, b) => d(a) - d(b));
+}
+
 /** Точка в городе в кольце [rMin, rMax] вокруг p (без требования видимости). */
 function spotAround(sim: Sim, p: P, rMin: number, rMax: number): P {
   const s = ring(sim, p, rMin, rMax, false)[0];
@@ -179,7 +188,8 @@ describe('Город реагирует', () => {
 
   test('донос: свидетель идёт к ВС, которого не было на месте — дело становится известным', () => {
     const sim = setup();
-    const s = scene(sim, 3);
+    // Место — в городе у площади (не в переулке у подножия хребта, где до ВС кругом через полквартала).
+    const s = scene(sim, 3, nearPlaza(sim));
     const victim = citizen(sim, s.c);
     const killer = citizen(sim, s.killer, s.c);
     const ws = s.around.map((p) => citizen(sim, p, s.c));

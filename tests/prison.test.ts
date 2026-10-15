@@ -86,6 +86,8 @@ describe('тюрьма Протектората', () => {
     const ts = sim.map.tileSize;
     expect(Math.hypot(gate.x - (nx.x + 0.5) * ts, gate.y - (nx.y + 0.5) * ts)).toBeGreaterThan(40 * ts);
     // Охрана при обходе остаётся в тюрьме.
+    // (Банды не мешают: удар банды по патрулю рядом увёл бы охрану в бой — это уже не обход.)
+    sim.ctx.gangs!.paused = true;
     run(sim, 30);
     for (const j of jailers) expect(sim.prison.inside(j.x, j.y)).toBe(true);
   });

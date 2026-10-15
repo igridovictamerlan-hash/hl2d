@@ -382,6 +382,8 @@ export class UndergroundBrain implements Brain {
             this.plantAndLeave(self, ctx);
           }
         } else if (st === 'failed') this.goHome(self, ctx);
+        // «Пришёл», но не у двери (оттолкнули, уступил дорогу) — снова к ней, иначе стоял бы у камер до конца.
+        else if (st === 'arrived' || st === 'idle') this.travel.start(self, ctx, this.mover, { x: cell.frontX, y: cell.frontY });
         break;
       }
       case 'mine': {

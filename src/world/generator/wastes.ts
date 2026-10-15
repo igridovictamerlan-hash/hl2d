@@ -1,7 +1,7 @@
 import { Rng, hash2 } from '../../core/rng';
 import { GENERATOR } from '../../config/generator';
 import { ZONE_NAMES } from '../../config/names';
-import { T } from '../tiles';
+import { T, SOLID } from '../tiles';
 import { GameMap, type Poi, type Zone } from '../GameMap';
 
 /**
@@ -11,6 +11,8 @@ import { GameMap, type Poi, type Zone } from '../GameMap';
  *    до прохода КПП «Юг»; у её западной обочины — карманы-выемки и редкие камни;
  *  - лагерь сопротивления у западной кромки, посередине между проходами, и дорога от него к тропе — развилка:
  *    из лагеря на север к одному КПП и на юг к другому.
+ * По северу и югу — хребты (top / bottom): город лежит в долине, скала с неровной кромкой заходит в глухую
+ * застройку у края (biteRidges), проходимого не трогает.
  * Проходимое только добавляется — связность по построению (проверяет тест).
  */
 export function addWastes(city: GameMap, seed: number): GameMap {
@@ -40,6 +42,7 @@ export function addWastes(city: GameMap, seed: number): GameMap {
   for (let y = top; y < top + ch; y++) for (let x = L; x < L + cw; x++) cityZone[y * W + x] = 1;
   for (let i = 0; i < W * H; i++) if (!cityZone[i]) zoneGrid[i] = zTrail;
   const pois: Poi[] = city.pois.map((p) => ({ ...p, x: p.x + L, y: p.y + top }));
+  biteRidges(tiles, W, L, top, cw, ch, new Rng(hash2(seed, 0x51d6e, 3)));
 
   const set = (x: number, y: number, t: number, zone = zTrail) => {
     if (x < 0 || y < 0 || x >= W || y >= H) return;
@@ -135,4 +138,52 @@ export function addWastes(city: GameMap, seed: number): GameMap {
   }
 
   return new GameMap(W, H, city.tileSize, tiles, zoneGrid, zones, pois, city.seed, city.name, city.stats);
+}
+
+/**
+ * Неровная кромка хребтов: у северного и южного края города скала заходит в глухую застройку на глубину
+ * плавного шума (ridge.bite, период ridge.period). В столбце скала растёт от края, пока клетка — стена, а в
+ * ridge.clear тайлах от неё нет проходимого; первая же неподходящая клетка останавливает столбец (скала —
+ * сплошной склон, без островов среди домов). Проходимое и двери не меняются.
+ */
+function biteRidges(tiles: Uint8Array, W: number, x0: number, y0: number, cw: number, ch: number, rng: Rng): void {
+  const R = GENERATOR.wastes.ridge;
+  const clear = R.clear;
+  const free = (x: number, y: number) => {
+    for (let dy = -clear; dy <= clear; dy++) {
+      for (let dx = -clear; dx <= clear; dx++) {
+        const t = tiles[(y + dy) * W + x + dx];
+        if (t !== undefined && SOLID[t] === 0) return false;
+      }
+    }
+    return true;
+  };
+  for (const north of [true, false]) {
+    const depth = ridgeProfile(rng, cw, R.bite[0], R.bite[1], rng.int(R.period[0], R.period[1]));
+    for (let k = 0; k < cw; k++) {
+      const x = x0 + k;
+      for (let d = 0; d < depth[k]; d++) {
+        const y = north ? y0 + d : y0 + ch - 1 - d;
+        const i = y * W + x;
+        if (tiles[i] !== T.WALL || !free(x, y)) break;
+        tiles[i] = T.ROCK;
+      }
+    }
+  }
+}
+
+/** Плавный профиль глубины: значения в узлах через period тайлов, между ними — сглаженная интерполяция. */
+function ridgeProfile(rng: Rng, n: number, lo: number, hi: number, period: number): Int16Array {
+  const knots = Math.ceil(n / period) + 2;
+  const v = Array.from({ length: knots }, () => rng.range(lo, hi));
+  const out = new Int16Array(n);
+  for (let k = 0; k < n; k++) {
+    const t = k / period;
+    const j = Math.floor(t);
+    const f = t - j;
+    const s = f * f * (3 - 2 * f);
+    // Мелкая рябь поверх — кромка не по линейке.
+    out[k] = Math.round(v[j] * (1 - s) + v[j + 1] * s + rng.range(-0.6, 0.6));
+  }
+  return out;
 }

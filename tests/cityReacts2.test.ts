@@ -9,6 +9,7 @@ import { Mover } from '../src/ai/Mover';
 import type { Brain } from '../src/ai/Brain';
 import { CP_UNIT, cpUnit } from '../src/config/factions';
 import { ESCALATION } from '../src/config/escalation';
+import { LOYALTY } from '../src/config/loyalty';
 import { MEMORIALS } from '../src/config/memorials';
 import { ZONE_NAMES } from '../src/config/names';
 import { BOND } from '../src/systems/Relations';
@@ -244,6 +245,9 @@ describe('Город реагирует 2.0', () => {
     stubborn.x = pair.at.x;
     stubborn.y = pair.at.y;
     stubborn.brain = still();
+    // Документы в порядке и лоялен: на приказ ВС не бежит (иначе бросок случайности давал арест за неподчинение
+    // вместо штрафа за час в квартале), но домой всё равно не идёт.
+    stubborn.loyalty = LOYALTY.uniform.min;
     // ВС в квартале: постовой смотрит на упрямца (стоит на месте), патрульный ходит по улицам — им есть кого окликнуть.
     const streetPts = (sim.nav.anchorsByZone.get(zid) ?? []).map((a) => ({ x: sim.nav.worldX(a), y: sim.nav.worldY(a) })).filter((q) => outdoors(sim, q));
     postCop(sim, pair.cop, pair.at);
