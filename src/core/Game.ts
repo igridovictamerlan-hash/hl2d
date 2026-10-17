@@ -67,6 +67,8 @@ import { Senses } from '../systems/Senses';
 import { Suspects } from '../systems/Suspects';
 import { Escalation } from '../systems/Escalation';
 import { Memorials } from '../systems/Memorials';
+import { Neighborhoods } from '../systems/Neighborhoods';
+import { CrowdMap } from '../systems/Crowd';
 import { Talk } from '../systems/Talk';
 import { Relations, type PersonInfo } from '../systems/Relations';
 import { serviceHint } from '../systems/Staffing';
@@ -89,7 +91,6 @@ import { LOYALTY } from '../config/loyalty';
 import { SAVE } from '../config/save';
 import { POPULATION, LOD, type PopulationLevelId } from '../config/population';
 import { AI } from '../config/ai';
-import { WORLD } from '../config/world';
 import { capturePlayer, parseSave, applyToPlayer, decodeBits, type SaveData } from '../systems/SaveGame';
 import { EffectsRenderer } from '../world/EffectsRenderer';
 import { ECONOMY } from '../config/economy';
@@ -351,8 +352,7 @@ export class Game {
   private populationPlan(level: PopulationLevelId = this.popLevel): { citizens: number; scale: number } {
     const P = POPULATION;
     if (this.opts.npcs !== null) return { citizens: Math.min(P.maxCitizens, this.opts.npcs), scale: 1 };
-    const area = Math.min(P.maxAreaMul, Math.max(1, (WORLD.widthTiles * WORLD.heightTiles) / P.baseArea));
-    const scale = (P.levels.find((l) => l.id === level)?.scale ?? 1) * area;
+    const scale = P.levels.find((l) => l.id === level)?.scale ?? 1;
     return { citizens: Math.min(P.maxCitizens, Math.round(AI.citizens * scale)), scale };
   }
 
@@ -475,7 +475,11 @@ export class Game {
       suspects: null as unknown as Suspects,
       escalation: null as unknown as Escalation,
       memorials: null as unknown as Memorials,
+      hoods: null as unknown as Neighborhoods,
+      crowd: null as unknown as CrowdMap,
     };
+    this.ai.hoods = new Neighborhoods(this.ai);
+    this.ai.crowd = new CrowdMap(this.ai);
     this.ai.routine = new Routine(this.ai);
     this.ai.errands = new Errands(this.ai);
     this.war = new WarSystem(this.ai);
@@ -1126,6 +1130,8 @@ export class Game {
     if (this.ai.suspects) this.ai.suspects.enabled = false;
     if (this.ai.escalation) this.ai.escalation.enabled = false;
     if (this.ai.memorials) this.ai.memorials.enabled = false;
+    if (this.ai.hoods) this.ai.hoods.enabled = false;
+    if (this.ai.crowd) this.ai.crowd.enabled = false;
     this.ui.roles.close();
     // Учения — все рядом: без упрощённой симуляции.
     this.ai.lod = null;
@@ -1219,6 +1225,7 @@ export class Game {
     this.ai.suspects?.update();
     this.ai.escalation?.update(dt);
     this.ai.memorials?.update();
+    this.ai.crowd?.update(dt);
     // Красный код (штурм Управы) — возрождения нет ни у кого, игрока тоже.
     if (!this.player.alive && this.combat.now >= this.player.respawnAt && this.war.code !== 'red') this.respawn();
     this.updateVisibility();

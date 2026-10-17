@@ -49,6 +49,8 @@ import type { Tip } from '../../systems/Suspects';
 import { T } from '../../world/tiles';
 import { ESCALATION } from '../../config/escalation';
 import type { Memorial } from '../../systems/Memorials';
+import { HOODS, CROWD } from '../../config/crowd';
+import { workplaceOf } from '../../systems/Population';
 
 /** Работа по профессии (ТС, поднадзорный, отброс общества). */
 type Job =
@@ -233,6 +235,8 @@ export class CitizenBrain implements Brain {
     const [smin, smax] = CHARACTER.npcWalkSpeed;
     this.walkSpeed = ctx.rng.range(smin, smax);
     this.mover = new Mover(this.walkSpeed);
+    // Людное место — в обход по соседним улицам (карта толпы; выключена — путь прежний).
+    this.mover.crowdAware = true;
     this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
@@ -311,7 +315,8 @@ export class CitizenBrain implements Brain {
       } else if ((this.hungerCheck -= dt) <= 0) {
         // Голод отвлекает от досуга (не от работы и не от сна): бросить и решить заново — за едой.
         this.hungerCheck = 1;
-        if (LEISURE.has(cur) && !this.nightSleep && this.starving()) {
+        // Взять негде (раздача кончилась, магазин закрыт) — досуг не бросает: иначе ходил бы по кругу к закрытой двери.
+        if (LEISURE.has(cur) && !this.nightSleep && this.starving() && this.foodReachable()) {
           this.idleLeft = 0.1;
           this.fsm.change('idle');
         }
@@ -439,6 +444,28 @@ export class CitizenBrain implements Brain {
     this.mover.update(self, ctx, dt);
     if (!g.look(self, ctx, dt)) faceMovement(self, ctx, dt);
     return true;
+  }
+
+  /**
+   * Магазин ТС торгует: продавец на месте и товар есть (лавка проспекта; магазин-комната старых карт — всегда).
+   * Закрыт — голодный к нему не идёт: раньше вечером, когда продавец уходил со смены, голодные со всего города
+   * каждую секунду снова шли к закрытой двери и стояли у площади до утра.
+   */
+  private shopSells(): boolean {
+    const c = this.ctx.economy.shopCounter;
+    if (!c) return false;
+    const s = this.ctx.shops?.shopAt(c, 40);
+    return !s || !this.ctx.shops.refusal(s);
+  }
+
+  /** Есть куда пойти за едой сейчас: раздача (ещё не получал), столовая (суп или свой паёк), открытый магазин ТС. */
+  private foodReachable(): boolean {
+    const { self, ctx } = this;
+    const eco = ctx.economy;
+    if (eco.open && !eco.hasBeenServed(self) && self.faction !== 'rebel') return true;
+    const hustler = self.profession === 'thief' || self.profession === 'bandit' || self.gang >= 0;
+    if (self.faction === 'citizen' && !hustler && ctx.shops?.wantsMeal(self)) return true;
+    return this.shopSells() && self.money >= (ITEMS.bread.price ?? 6);
   }
 
   /** Голоден и нечего съесть (поднадзорных кормит Протекторат; при красном коде — не до еды). */
@@ -1021,7 +1048,7 @@ export class CitizenBrain implements Brain {
       }
       const hustler = self.profession === 'thief' || self.profession === 'bandit' || self.gang >= 0;
       if (self.faction === 'citizen' && !hustler && ctx.shops?.wantsMeal(self)) return 'canteen';
-      if (eco.shopCounter && self.money >= (ITEMS.bread.price ?? 6) && this.pairedFor(eco.shopCounter)) return 'shop';
+      if (this.shopSells() && self.money >= (ITEMS.bread.price ?? 6) && this.pairedFor(eco.shopCounter!)) return 'shop';
     }
     const job = this.pickJob();
     if (job) {
@@ -1040,7 +1067,7 @@ export class CitizenBrain implements Brain {
     // своя столовая в штабе).
     const hustler = self.profession === 'thief' || self.profession === 'bandit' || self.gang >= 0;
     if (self.faction === 'citizen' && !hustler && ctx.war.code !== 'red' && ctx.shops?.wantsMeal(self) && ctx.rng.chance(ctx.shops.foodOf(self) ? ARBAT.meal.chance : ARBAT.meal.soupChance)) return 'canteen';
-    if (eco.shopCounter && self.money >= 6 && self.hunger < 75 && ctx.rng.chance(ECONOMY.shop.npcVisitChance) && this.pairedFor(eco.shopCounter)) return 'shop';
+    if (eco.shopCounter && self.money >= 6 && self.hunger < 75 && ctx.rng.chance(ECONOMY.shop.npcVisitChance) && this.shopSells() && this.pairedFor(eco.shopCounter)) return 'shop';
     return this.streetActivity() ?? 'walk';
   }
 
@@ -1368,9 +1395,10 @@ export class CitizenBrain implements Brain {
     return this.calmGoal(this.cityGoal(this.leisureAvoid));
   }
 
-  /** Прогулка по городу: любимое место или точка вокруг. */
+  /** Прогулка по городу: любимое место или точка вокруг (люди живут своим районом — hoodGoal). */
   private cityGoal(avoid: ReadonlySet<number> = this.avoid): number {
     const { ctx, profile } = this;
+    if (this.livesLocally()) return this.hoodGoal(avoid);
     // Распорядок: «по делам» — к осмысленной цели, а не в случайную точку.
     if (ctx.routine.enabled && ctx.rng.chance(ROUTINE.purpose)) {
       const g = this.errandGoal(avoid);
@@ -1383,17 +1411,63 @@ export class CitizenBrain implements Brain {
     const C = AI.citizen;
     return randomAnchorAround(this.self, ctx, C.wanderDistance[0], C.wanderDistance[1], avoid);
   }
+  /**
+   * Живёт ли своим районом (HOODS): горожанин, ТС, поднадзорный — не боец банды (у него свой район и выходы в
+   * город парами) и не повстанец.
+   */
+  private livesLocally(): boolean {
+    const f = this.self.faction;
+    return !!this.ctx.hoods?.enabled && this.self.gang < 0 && (f === 'citizen' || f === 'cwu' || f === 'vort');
+  }
+
+  /**
+   * Прогулка своим районом: по делам (у дома), ТС — иногда к месту работы, изредка — в центр города, иначе у
+   * районного центра, у дома или вокруг себя (ушёл далеко от дома — к нему). Клетка цели полна (карта толпы) —
+   * пересобрать, не больше CROWD.repick раз.
+   */
+  private hoodGoal(avoid: ReadonlySet<number>): number {
+    let goal = this.hoodPick(avoid);
+    for (let k = 0; k < CROWD.repick && goal >= 0 && this.ctx.crowd.fullAnchor(goal); k++) goal = this.hoodPick(avoid);
+    return goal;
+  }
+
+  private hoodPick(avoid: ReadonlySet<number>): number {
+    const { ctx, self } = this;
+    const hoods = ctx.hoods;
+    if (ctx.routine.enabled && ctx.rng.chance(ROUTINE.purpose)) {
+      const g = this.errandGoal(avoid);
+      if (g >= 0) return g;
+    }
+    if (self.faction === 'cwu' && ctx.rng.chance(HOODS.work)) {
+      const w = workplaceOf(ctx, self);
+      if (w) {
+        const g = randomAnchorAround(w, ctx, 0, 12, avoid);
+        if (g >= 0) return g;
+      }
+    }
+    if (ctx.rng.chance(HOODS.center)) {
+      const g = hoods.centerGoal(avoid);
+      if (g >= 0) return g;
+    }
+    const r = ctx.rng.range(0, 1);
+    const g = r < HOODS.hub ? hoods.localGoal(self, avoid) : r < HOODS.hub + HOODS.near ? hoods.homeGoal(self, avoid) : -1;
+    return g >= 0 ? g : hoods.wanderGoal(self, avoid);
+  }
+
   /** Цель «по делам»: лавка или ларёк, доска объявлений, площадь, дом родни, свой дом. */
   private errandGoal(avoid: ReadonlySet<number> = this.avoid): number {
     const { ctx, self } = this;
     const pts: Vec2[] = [];
-    const R = ROUTINE.reach;
+    // Своим районом — дела у дома (не дальше HOODS.errand тайлов от него), площадь — изредка.
+    const local = this.livesLocally();
+    const base = local ? ctx.hoods.homeOf(self) : self;
+    const R = local ? HOODS.errand * ctx.map.tileSize : ROUTINE.reach;
     const add = (p: Vec2 | null | undefined): void => {
-      if (p && Math.hypot(p.x - self.x, p.y - self.y) < R && Math.hypot(p.x - self.x, p.y - self.y) > 160) pts.push(p);
+      if (p && Math.hypot(p.x - base.x, p.y - base.y) < R && Math.hypot(p.x - self.x, p.y - self.y) > 160) pts.push(p);
     };
     for (const sh of ctx.shops?.shops ?? []) add(sh.front);
     for (const b of ctx.street?.boards ?? []) add(b.stand);
-    add(ctx.street?.plaza);
+    if (!local || ctx.rng.chance(HOODS.plaza)) add(ctx.street?.plaza);
     for (const k of ctx.families?.kin(self) ?? []) add(ctx.housing?.of(k)?.at);
     add(ctx.housing?.of(self)?.at);
     if (!pts.length) return -1;

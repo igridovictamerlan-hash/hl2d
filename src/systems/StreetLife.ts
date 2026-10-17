@@ -70,6 +70,8 @@ export class StreetLifeSystem {
   readonly plaza: Vec2 | null;
   private time = 0;
   private nextBroadcast: number = STREET.broadcast.first;
+  /** Час прошлого тика (обращения по часам распорядка); -1 — ещё не было. */
+  private lastHour = -1;
   private nextLine = 0;
   private line = 0;
   /** Сколько бесед и сборов у бочек было (для тестов и отладки). */
@@ -346,7 +348,16 @@ export class StreetLifeSystem {
     const ctx = this.ctx;
     // Во время красного кода обращений нет (комендантский час, свои объявления).
     if (!this.plaza || ctx.war.curfew) return;
-    if (this.time >= this.nextBroadcast) {
+    const R = ctx.routine;
+    let due = false;
+    if (R?.enabled) {
+      // По часам: час перешёл через один из B.hours (через полночь — тоже).
+      const h = R.hour();
+      const prev = this.lastHour;
+      this.lastHour = h;
+      due = prev >= 0 && B.hours.some((x) => (h >= prev ? prev < x && x <= h : prev < x || x <= h));
+    } else due = this.time >= this.nextBroadcast;
+    if (due) {
       this.nextBroadcast = this.time + B.every;
       this.broadcast++;
       this.broadcastUntil = this.time + B.duration;

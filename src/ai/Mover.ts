@@ -31,6 +31,8 @@ export class Mover {
   avoidCost: number | undefined;
   /** Доп. цена входа в якорь для A* (например, открытые места под огнём — WAR.line.route); undefined — нет. */
   extraCost: ((anchor: number) => number) | undefined;
+  /** Обходить людные места (карта толпы ctx.crowd, если включена) — жители города. */
+  crowdAware = false;
   /** Целевой якорь, -1 — нет цели. */
   goal = -1;
   path: Vec2[] = [];
@@ -112,7 +114,8 @@ export class Mover {
     this.req?.cancel();
     // Вдали от игрока (упрощённая симуляция) — «жадный» поиск: дешевле, путь чуть длиннее (его не видно).
     const weight = self.lodFar ? LOD.paths.weight : undefined;
-    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, extraCost: this.extraCost, blocked: ctx.access?.blockerFor(self), weight });
+    const crowdCost = this.crowdAware && ctx.crowd?.enabled ? ctx.crowd.cost : undefined;
+    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, extraCost: this.extraCost, crowdCost, blocked: ctx.access?.blockerFor(self), weight });
     this.status = 'pending';
     this.path = [];
     this.wp = 0;

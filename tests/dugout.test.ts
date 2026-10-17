@@ -665,7 +665,8 @@ describe('блиндаж: вылазка Протектората, разруш�
     const cmd = sim.war.command;
     const f0 = sim.war.fronts[0];
     run(sim, 40);
-    expect(cmd.bunkerOf(f0).length).toBeGreaterThanOrEqual(1);
+    // Резервист мог только что уйти на место погибшего бойца линии — замена из лагеря в пути: ждём её.
+    expect(until(sim, () => cmd.bunkerOf(f0).length >= 1, 40)).toBeGreaterThanOrEqual(0);
     D.ruin(d);
     run(sim, 2);
     expect(d.owner).toBe('ruined');

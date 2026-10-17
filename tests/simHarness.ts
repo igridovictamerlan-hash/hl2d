@@ -48,6 +48,8 @@ import { Memorials } from '../src/systems/Memorials';
 import { Radio } from '../src/systems/Radio';
 import { Talk } from '../src/systems/Talk';
 import { Relations } from '../src/systems/Relations';
+import { Neighborhoods } from '../src/systems/Neighborhoods';
+import { CrowdMap } from '../src/systems/Crowd';
 
 /**
  * Города для тестов по сиду: пограничные КПП — классические (checkpoints: ['classic'], карта совпадает с прежней
@@ -136,6 +138,8 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
       suspects: null as unknown as Suspects,
       escalation: null as unknown as Escalation,
       memorials: null as unknown as Memorials,
+      hoods: null as unknown as Neighborhoods,
+      crowd: null as unknown as CrowdMap,
   };
   // Распорядок дня в тестах выключен (иначе ночью город спит) — у него свой тест.
   ctx.routine = new Routine(ctx, false);
@@ -182,6 +186,11 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   ctx.suspects = new Suspects(ctx);
   ctx.escalation = new Escalation(ctx);
   ctx.memorials = new Memorials(ctx);
+  // Районная жизнь и карта толпы — как распорядок дня: в тестах выключены (свои тесты включают).
+  ctx.hoods = new Neighborhoods(ctx);
+  ctx.hoods.enabled = false;
+  ctx.crowd = new CrowdMap(ctx);
+  ctx.crowd.enabled = false;
   ctx.senses = new Senses(ctx);
   // Случайные драки в тестах выключены (свой тест) — удары и братва работают.
   ctx.brawls.enabled = false;
@@ -225,6 +234,7 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
     ctx.suspects!.update();
     ctx.escalation!.update(dt);
     ctx.memorials.update();
+    ctx.crowd.update(dt);
   };
   return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access };
 }

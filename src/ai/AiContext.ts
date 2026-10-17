@@ -41,6 +41,8 @@ import type { Access } from '../systems/Access';
 import type { Radio } from '../systems/Radio';
 import type { Talk } from '../systems/Talk';
 import type { Relations } from '../systems/Relations';
+import type { Neighborhoods } from '../systems/Neighborhoods';
+import type { CrowdMap } from '../systems/Crowd';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 /**
@@ -139,4 +141,8 @@ export interface AiContext {
   escalation: Escalation;
   /** Памятные места: цветы и свечи на месте убийства мирного жителя (systems/Memorials.ts). */
   memorials: Memorials;
+  /** Районные центры: жители гуляют у своего дома, в центр — изредка (systems/Neighborhoods.ts). */
+  hoods: Neighborhoods;
+  /** Карта толпы: полные места не выбирают, людное обходят (systems/Crowd.ts). */
+  crowd: CrowdMap;
 }

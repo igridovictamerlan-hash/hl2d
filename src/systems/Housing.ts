@@ -6,6 +6,7 @@ import { Inventory } from '../entities/Inventory';
 import { furnishMap } from '../world/furnish';
 import { ZONE_NAMES } from '../config/names';
 import { HOUSING, type DwellingKind } from '../config/housing';
+import { HOODS } from '../config/crowd';
 
 /** Жилище: комната дома, общежития или особняка. */
 export interface Dwelling {
@@ -119,6 +120,17 @@ export class Housing {
     return null;
   }
 
+  /**
+   * Расселение по всему городу (HOODS.homes): любое свободное жильё из видов prefs (у near — ближайшее), а не
+   * первый вид целиком — иначе вдоль главного проспекта жила бы треть города. Свободного нет — null.
+   */
+  spread(prefs: readonly DwellingKind[], near: Vec2 | null = null): Dwelling | null {
+    const list = this.dwellings.filter((d) => prefs.includes(d.kind) && !d.households && !d.reserved);
+    if (!list.length) return null;
+    if (!near) return this.ctx.rng.pick(list);
+    return list.reduce((a, b) => (Math.hypot(b.at.x - near.x, b.at.y - near.y) < Math.hypot(a.at.x - near.x, a.at.y - near.y) ? b : a));
+  }
+
   /** Поселить (одного или семью) в d: дом в деле роли — возрождаются здесь же. */
   settle(members: readonly Character[], d: Dwelling): void {
     d.households++;
@@ -164,7 +176,11 @@ export class Housing {
   house(c: Character, near: Vec2 | null = null): Dwelling | null {
     if (c.home >= 0) return this.of(c);
     const underground = c.faction === 'rebel';
-    const d = this.pick(this.prefsOf(c), near, underground ? this.safeOk : undefined) ?? (underground ? this.pick(this.prefsOf(c), near) : null);
+    const d = underground
+      ? this.pick(this.prefsOf(c), near, this.safeOk) ?? this.pick(this.prefsOf(c), near)
+      : this.ctx.hoods?.enabled
+        ? this.spread(this.prefsOf(c), near && this.ctx.rng.chance(HOODS.homes.workNear) ? near : null)
+        : this.pick(this.prefsOf(c), near);
     if (!d) return null;
     if (underground && !d.stash) d.stash = new Inventory(HOUSING.safe.stash);
     this.settle([c], d);

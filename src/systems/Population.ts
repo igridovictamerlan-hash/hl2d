@@ -14,6 +14,7 @@ import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import { ROSTER } from '../config/roster';
 import { ECONOMY } from '../config/economy';
 import { HOUSING } from '../config/housing';
+import { HOODS } from '../config/crowd';
 import { LABOR } from '../config/labor';
 import { CWU_HQ } from '../config/cwuHq';
 import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
@@ -367,9 +368,20 @@ export function settleAll(ctx: AiContext): void {
   const H = ctx.housing;
   if (!H) return;
   for (const c of ctx.entities.list) if (needsHome(c) && c.home < 0) H.house(c, workplaceOf(ctx, c));
+  // Куда горожанину не встать на старте (как в CitizenBrain): режимные объекты, фронт, пустошь.
+  const closed = ctx.hoods?.enabled ? zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']) : null;
   for (const c of ctx.entities.list) {
-    if (c.isPlayer || c.faction !== 'citizen' || c.profession !== 'citizen' || c.home < 0 || !ctx.rng.chance(HOUSING.startHome)) continue;
+    if (c.isPlayer || c.faction !== 'citizen' || c.profession !== 'citizen' || c.home < 0) continue;
     const d = H.of(c)!;
+    if (!ctx.rng.chance(HOUSING.startHome)) {
+      // Люди живут своим районом: не дома — на улице у дома (HOODS.start), а не где попало.
+      if (!closed) continue;
+      const a = randomAnchorAround(d.at, ctx, HOODS.start[0], HOODS.start[1], closed);
+      if (a < 0) continue;
+      c.x = c.prevX = ctx.nav.worldX(a);
+      c.y = c.prevY = ctx.nav.worldY(a);
+      continue;
+    }
     const p = ctx.rng.pick(d.spots);
     if (ctx.entities.list.some((o) => o !== c && Math.hypot(o.x - p.x, o.y - p.y) < 20)) continue;
     c.x = c.prevX = p.x;

@@ -8,6 +8,7 @@ import { WAR } from '../src/config/war';
 import { SUPPRESS } from '../src/config/tactics';
 import { canSeeCircle } from '../src/world/visibility';
 import type { RebelBrain } from '../src/ai/brains/RebelBrain';
+import { CROWD } from '../src/config/crowd';
 
 /**
  * Аудит живого мира (npm run worldstats; MINUTES — сколько игровых минут, SEED — карта): город целиком,
@@ -53,6 +54,8 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   sim.academy.recruiting = true;
   // RELATIONS=0 — без живых людей (для сравнения: драки, смерти, занятия).
   sim.ctx.relations.enabled = process.env.RELATIONS !== '0';
+  // HOODS=0 — прежняя жизнь без районов (прогулки по всему городу, площадь — любимое место, Арбат заселяется первым).
+  sim.ctx.hoods.enabled = sim.ctx.crowd.enabled = process.env.HOODS !== '0';
   spawnPopulation(sim.ctx, AI.citizens);
   const out: string[] = [];
   const start = new Map<string, number>();
@@ -131,6 +134,7 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   const stuck = new Map<string, number>();
   const prev = new Map<Character, { x: number; y: number }>();
   let samples = 0;
+  const crowd = { n: 0, near: 0, over: 0, peak: 0, peakSum: 0 };
   const codeTime = new Map<string, number>();
   let maxCorpses = 0;
   const step = 1 / 60;
@@ -185,6 +189,13 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
         if (g === 'горожанин' || g === 'cwu' || g === 'вор' || g === 'банда') inc(states, `${g}:${st}`);
       }
       samples++;
+      // Толпа: жители у площади и в переполненных клетках, самая полная клетка.
+      const cs = sim.ctx.crowd.snapshot();
+      crowd.n++;
+      crowd.near += cs.nearPlaza / Math.max(1, cs.people);
+      crowd.over += cs.over / Math.max(1, cs.people);
+      crowd.peak = Math.max(crowd.peak, cs.peak);
+      crowd.peakSum += cs.peak;
     }
     // Раз в 30 с: кто не сдвинулся дальше 12 px, и кто «идёт», но стоит.
     if (t % 1800 === 0) {
@@ -267,6 +278,9 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
     const m = R.mood(c);
     inc(moods, m <= -28 ? 'подавлены' : m <= -9 ? 'хмурые' : m <= 34 ? 'спокойные' : 'в духе');
   }
+  out.push(
+    `Толпа: жителей у площади (ближе ${CROWD.near} тайлов) ${((crowd.near / Math.max(1, crowd.n)) * 100).toFixed(0)}%, в переполненных клетках ${((crowd.over / Math.max(1, crowd.n)) * 100).toFixed(0)}%; самая полная клетка ${CROWD.cell}×${CROWD.cell} — в среднем ${(crowd.peakSum / Math.max(1, crowd.n)).toFixed(1)}, максимум ${crowd.peak}`,
+  );
   out.push(`Живые люди: связи ${top(tiers)}; настроение ${top(moods)}; события ${JSON.stringify(R.stats)}`);
   const vac: Record<string, number> = {};
   for (const s of sim.staffing.vacancies()) vac[cpUnit(s.spec.rank).short] = (vac[cpUnit(s.spec.rank).short] ?? 0) + 1;
