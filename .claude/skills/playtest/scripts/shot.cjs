@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Скриншот игры: node .claude/skills/playtest/scripts/shot.cjs --out /tmp/a.png [--seed 12345] [--at 192,162 | --poi plaza_center]
-//   [--hour 13] [--zoom 0..] [--wait 3] [--level crowd | --npcs 40] [--role citizen] [--nofog] [--nohud] [--width 1280 --height 800]
+//   [--hour 13] [--zoom 0..3] [--wait 3] [--level crowd | --npcs 40] [--role citizen] [--nofog] [--nohud | --nolog] [--width 1280 --height 800]
 //   [--js "game.camera.cycleZoom()"]  — выполнить в странице перед снимком (window.game доступен как game).
 // Печатает, где стоял игрок, и ошибки страницы (если были). Несколько снимков одного города — --shots "x,y,hour;x,y,hour".
 const { parseArgs, openGame, placePlayer, setHour } = require('./lib.cjs');
@@ -15,6 +15,7 @@ const { parseArgs, openGame, placePlayer, setHour } = require('./lib.cjs');
   try {
     if (a.nofog) await page.evaluate(() => (window.game.fog.draw = () => {}));
     if (a.nohud) await page.addStyleTag({ content: '#ui { display: none !important; }' });
+    if (a.nolog) await page.addStyleTag({ content: '.event-log { display: none !important; }' });
     const shots = a.shots ? String(a.shots).split(';') : [null];
     for (let k = 0; k < shots.length; k++) {
       const spec = shots[k];
@@ -30,6 +31,11 @@ const { parseArgs, openGame, placePlayer, setHour } = require('./lib.cjs');
       if (k === 0 && a.zoom) await page.evaluate((n) => { for (let i = 0; i < n; i++) window.game.camera.cycleZoom(); }, Number(a.zoom));
       if (a.js) await page.evaluate((code) => { const game = window.game; return eval(code); }, String(a.js));
       await page.waitForTimeout(Number(a.wait ?? 3) * 1000);
+      // За ожидание часы ушли вперёд (игровой час ≈ 45 с): свет и часы HUD — ровно на заданный час.
+      if (hour !== undefined) {
+        await setHour(page, hour);
+        await page.waitForTimeout(300);
+      }
       const out = shots.length > 1 ? String(a.out).replace(/(\.png)?$/, `_${k}.png`) : String(a.out);
       await page.screenshot({ path: out });
       console.log(`снимок ${out}${where ? ` · игрок ${where}` : ''}${hour !== undefined ? ` · ${hour} ч` : ''}`);
