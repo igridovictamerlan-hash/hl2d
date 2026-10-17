@@ -46,6 +46,7 @@ export const PLACES = {
     sewer: 'в канализации',
     rebel_base: 'в схроне',
     black_market: 'на чёрном рынке',
+    ges: 'на ГЭС',
   } as Record<string, string>,
   /** Когда ничего не подошло. */
   fallback: 'в районе «{name}»',

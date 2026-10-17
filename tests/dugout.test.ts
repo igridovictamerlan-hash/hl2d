@@ -4,6 +4,7 @@ import { spawnPopulation } from '../src/systems/Population';
 import { createCharacter } from '../src/entities/factory';
 import { RebelBrain } from '../src/ai/brains/RebelBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
+import { CpBrain } from '../src/ai/brains/CpBrain';
 import { WAR } from '../src/config/war';
 import { ITEMS } from '../src/config/items';
 import type { Character } from '../src/entities/Character';
@@ -493,6 +494,13 @@ describe('блиндаж: пользование линией', () => {
     // Резерв пополняют из лагеря не сразу (reserveFrom — в первые минуты все идут на линию), сам порядок смены — предмет теста.
     Object.assign(WAR.dugout, { reserveFrom: 0 });
     const sim = front();
+    // Тест — про порядок резерва и отдыха в блиндаже, не про огонь гарнизона: подход к блиндажу простреливается, и на
+    // части раскладок мира резерв выкашивает по дороге. Протекторат (часовые и Легион) — без оружия.
+    for (const c of sim.entities.list) {
+      if (!(c.brain instanceof CpBrain || c.brain instanceof OtaBrain)) continue;
+      c.inventory.clear();
+      c.weapon = null;
+    }
     const D = sim.war.dugouts;
     const d = D.of(0)!;
     const cmd = sim.war.command;
@@ -512,10 +520,11 @@ describe('блиндаж: пользование линией', () => {
     let hpMax = 0;
     let old: Character | undefined;
     // Смену отстоит боец, которого ранило: после смены он не в лагерь, а на койку. Убили по дороге — берём следующего.
-    for (let attempt = 0; attempt < 3 && !rested; attempt++) {
+    // Подход к блиндажу простреливается (см. «Линия фронта»): попыток с запасом, нового бойца на линии ждём дольше.
+    for (let attempt = 0; attempt < 6 && !rested; attempt++) {
       old = cmd.lineOf(f0).find((c) => c.fit && !c.downed && brain(c).lineHere);
       if (!old) {
-        run(sim, 15);
+        run(sim, 30);
         continue;
       }
       old.health = old.maxHealth * 0.5;

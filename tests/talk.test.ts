@@ -29,7 +29,12 @@ function city(seed = 12345): Sim {
 /** Двое горожан (не банды, не лоялисты), стоящие рядом: B приводим к A. */
 function pair(sim: Sim, loyA = 0, loyB = 0): [Character, Character] {
   const list = sim.entities.list.filter((c) => c.alive && c.faction === 'citizen' && c.profession === 'citizen' && c.brain instanceof CitizenBrain && c.family < 0 && sim.map.levelAt(c.x, c.y) === 'city');
-  const [a, b] = list;
+  // Первый — тот, рядом с кем (на 20 px правее) есть место для второго: у стены собеседника вытолкнуло бы прочь.
+  const ts = sim.map.tileSize;
+  const free = (x: number, y: number) =>
+    [[-13, -13], [13, -13], [-13, 13], [13, 13]].every(([dx, dy]) => !sim.map.isSolid(Math.floor((x + dx) / ts), Math.floor((y + dy) / ts)));
+  const a = list.find((c) => free(c.x, c.y) && free(c.x + 20, c.y))!;
+  const b = list.find((c) => c !== a)!;
   expect(a && b).toBeTruthy();
   for (const c of [a, b]) {
     c.brain = null;

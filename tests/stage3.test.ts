@@ -92,11 +92,14 @@ describe('экономика', () => {
 
   test('ТС чинит поломку и получает оплату', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
-    const spot = sim.economy.repairs[0];
+    // Щиток (узлы Протектората чинят отдельно), чинит уборщик ТС; перерывы — по случайности мира, тест не про них.
+    const spot = sim.economy.repairs.find((r) => r.kind === 'fuse')!;
     spot.broken = true;
+    (sim.ctx.cwuHq.restSpots as unknown[]).length = 0;
     const a = sim.nav.nearestWalkable(spot.x, spot.y, 6);
     const w = createCharacter(sim.entities, sim.ctx.rng, 'cwu', sim.nav.worldX(a), sim.nav.worldY(a));
     equipKit(w, 'cwu', sim.ctx);
+    w.profession = 'janitor';
     w.brain = new CitizenBrain(w, sim.ctx);
     (w.brain as CitizenBrain).idleLeft = 0;
     const money = w.money;

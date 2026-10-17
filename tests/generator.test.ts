@@ -9,6 +9,7 @@ import { CHECKPOINTS } from '../src/world/generator/checkpoints';
 import { T, SOLID } from '../src/world/tiles';
 import { NavGrid } from '../src/world/NavGrid';
 import type { GameMap, ZoneKind } from '../src/world/GameMap';
+import { buildAnchorWalk, labelComponents } from '../src/world/connectivity';
 
 const SEEDS = [12345, 7919, 424242, 31337, 2024];
 const maps = new Map<number, GameMap>();
@@ -55,11 +56,11 @@ describe('генератор переулочного города', () => {
         expect(WORLD.widthTiles * ts).toBeLessThanOrEqual(7800);
         expect(WORLD.heightTiles * ts).toBeGreaterThanOrEqual(4200);
         expect(WORLD.heightTiles * ts).toBeLessThanOrEqual(4400);
-        // Поверхность = пустошь + город + пустошь; уровень «город» заканчивается зазором перед канализацией.
-        expect(city.w).toBe((W.west + WORLD.widthTiles + W.east + WORLD.underground.gap) * ts);
+        // Поверхность = пустошь + город + пустошь + ГЭС; уровень «город» заканчивается зазором перед канализацией.
+        expect(city.w).toBe((W.west + WORLD.widthTiles + W.east + GENERATOR.ges.width + WORLD.underground.gap) * ts);
         expect(map.worldHeight).toBe((W.top + WORLD.heightTiles + W.bottom) * ts);
-        expect(city.w).toBeGreaterThanOrEqual(8300);
-        expect(city.w).toBeLessThanOrEqual(8600);
+        expect(city.w).toBeGreaterThanOrEqual(9600);
+        expect(city.w).toBeLessThanOrEqual(10000);
         // С севера и юга — хребты долины (по 13 рядов скал).
         expect(map.worldHeight).toBeGreaterThanOrEqual(4600);
         expect(map.worldHeight).toBeLessThanOrEqual(4900);
@@ -164,6 +165,34 @@ describe('генератор переулочного города', () => {
         let leaks = 0;
         for (let y = 0; y < map.height; y++) if (!SOLID[map.tileAt(ux - 1, y)] && !inGate(ux - 1, y) && map.districtAt(ux - 2, y) === 'old') leaks++;
         expect(leaks).toBe(0);
+      });
+
+      test('ГЭС на востоке: ворота с проспекта, машинный зал, турбины, трансформаторы, плотина, водохранилище', () => {
+        const map = get(seed);
+        const ges = map.poisOf('ges')[0];
+        expect(ges).toBeTruthy();
+        // Восточнее города и западнее канализации.
+        expect(ges.x).toBeGreaterThan(map.poisOf('plaza_center')[0].x);
+        expect(map.poisOf('ges_gate')).toHaveLength(1);
+        expect(map.poisOf('ges_post')).toHaveLength(2);
+        expect(map.poisOf('ges_hall')).toHaveLength(1);
+        expect(map.poisOf('ges_turbine').length).toBeGreaterThanOrEqual(3);
+        expect(map.poisOf('ges_transformer').length).toBeGreaterThanOrEqual(4);
+        const res = map.poisOf('reservoir')[0];
+        let water = 0;
+        for (let y = res.y; y < res.y + res.h!; y++) for (let x = res.x; x < res.x + res.w!; x++) if (map.tileAt(x, y) === T.WATER) water++;
+        expect(water / (res.w! * res.h!)).toBeGreaterThan(0.8);
+        // Машинный зал и гребень плотины достижимы из города (якорем 2×2).
+        const walk = buildAnchorWalk(map.tiles as Uint8Array, map.width, map.height);
+        const { labels } = labelComponents(walk, map.width - 1, map.height - 1);
+        const lab = (x: number, y: number) => labels[y * (map.width - 1) + x];
+        const pc = map.poisOf('plaza_center')[0];
+        const hall = map.poisOf('ges_hall')[0];
+        const dam = map.poisOf('ges_dam')[0];
+        const crestX = dam.x + ((dam.w! - GENERATOR.ges.crest) >> 1);
+        expect(lab(hall.x, hall.y)).toBe(lab(pc.x, pc.y));
+        expect(lab(crestX, dam.y + (dam.h! >> 1))).toBe(lab(pc.x, pc.y));
+        expect(map.zoneAtTile(hall.x, hall.y)?.kind).toBe('ges');
       });
 
       test('есть узкие проходы (только один персонаж), переулки, дворы, арки, жилые дома', () => {

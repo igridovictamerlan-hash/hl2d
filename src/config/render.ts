@@ -92,6 +92,13 @@ export const RENDER = {
     chasm: { h: 20, s: 10, l: 4, noise: 1 },
     chasmCrack: 'rgba(60,45,35,0.55)',
     chasmRim: 'rgba(150,130,100,0.45)',
+    /** ГЭС: вода (рябь — блики, у берега — светлая кромка), бетон откосов плотины (швы плит, тень к воде). */
+    water: { h: 200, s: 32, l: 26, noise: 1.2 },
+    waterRipple: 'rgba(170,205,220,0.22)',
+    waterShore: 'rgba(200,215,210,0.35)',
+    dam: { h: 40, s: 6, l: 56, noise: 1 },
+    damSeam: 'rgba(60,58,52,0.35)',
+    damShade: 'rgba(30,40,45,0.35)',
     /**
      * Передовой блиндаж повстанцев (полоса пустоши перед КПП): сруб — бревно к бревну со швами, светлым
      * бликом и торцами на краях; пол — доски со стыками вразбежку; в проёме по бокам — мешки с песком.
@@ -148,6 +155,8 @@ export const RENDER = {
     landmark: {
       stone: '#8f877b', rim: '#b4aa98', water: '#3f6f86', waterLight: '#5f93a8', jet: '#d8eef4',
       edge: '#3a2c22', deck: '#7a5a3c', banner: '#8e2b2b', pole: '#2b2b2b', lectern: '#4a3626', text: '#f2e3c4',
+      // ГЭС: турбина (кожух, обод, огонёк), трансформатор (корпус, рёбра, изоляторы).
+      turbine: '#5d6a70', turbineRim: '#2e3539', signal: '#e05040', transformer: '#6b7560', rib: '#404838', insulator: '#c8c2b0',
     },
     planter: { rim: '#8c8378', soil: '#4a3a2a', leaf: '#4f7a3a', leafDark: '#355a28', flowers: ['#d8594a', '#e8c14a', '#d98ab8', '#f2efe6'] as readonly string[] },
     cobble: { h: 30, s: 9, l: 31, noise: 2.5, joint: 'rgba(0,0,0,0.28)', w: 8, h2: 6 },

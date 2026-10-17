@@ -213,7 +213,7 @@ export class CpBrain implements Brain {
     this.lead = opts.lead ?? false;
     // Городская полиция PCU на бойню у КПП не ходит: КПП держат SU и OTA.
     const pcu = self.faction === 'cp' && cpUnit(self.rank).group === 'pcu' && this.front < 0;
-    this.patrolAvoid = zoneIds(ctx, pcu ? ['outlands', 'wasteland', 'rebel_camp', 'checkpoint', 'arsenal', 'prison', 'academy'] : ['outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
+    this.patrolAvoid = zoneIds(ctx, pcu ? ['outlands', 'wasteland', 'rebel_camp', 'checkpoint', 'arsenal', 'prison', 'academy', 'ges'] : ['outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy', 'ges']);
     this.mover = new Mover(LAW.cpWalkSpeed);
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(

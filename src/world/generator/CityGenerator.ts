@@ -20,6 +20,7 @@ import { CHECKPOINTS, checkpointRows, dugoutsOf, isOutlandsGround, pickCheckpoin
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
+import { addDam } from './dam';
 
 /**
  * Генератор переулочного города. Порядок шагов:
@@ -36,7 +37,7 @@ import { addWastes } from './wastes';
 const DEBUG_GEN = (globalThis as { __HL2D_DEBUG_GEN?: boolean }).__HL2D_DEBUG_GEN === true;
 
 export function generateCity(seed: number): GameMap {
-  return addSewers(addWastes(generateSurface(seed), seed), seed);
+  return addSewers(addDam(addWastes(generateSurface(seed), seed), seed), seed);
 }
 
 /** Город без канализации (несколько попыток, лучшая по требованиям). */

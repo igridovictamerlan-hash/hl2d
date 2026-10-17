@@ -26,6 +26,8 @@ export const T = {
   CHASM: 20,
   DUGOUT_WALL: 21,
   DUGOUT: 22,
+  WATER: 23,
+  DAM: 24,
 } as const;
 
 export type TileId = (typeof T)[keyof typeof T];
@@ -70,6 +72,9 @@ export const TILE_DEFS: readonly TileDef[] = [
   // Передовой блиндаж повстанцев в полосе пустоши перед КПП: сруб (не пройти, не видно) и дощатый пол внутри.
   { id: T.DUGOUT_WALL, key: 'dugout_wall', char: 'l', name: 'Сруб блиндажа', solid: true, opaque: true },
   { id: T.DUGOUT, key: 'dugout', char: 'f', name: 'Пол блиндажа', solid: false, opaque: false },
+  // ГЭС на востоке: вода водохранилища и нижнего бьефа (не пройти, видно и простреливается), откосы плотины (бетон).
+  { id: T.WATER, key: 'water', char: 'W', name: 'Вода', solid: true, opaque: false },
+  { id: T.DAM, key: 'dam', char: 'D', name: 'Тело плотины', solid: true, opaque: false },
 ];
 
 /** Быстрые таблицы: SOLID[tileId] === 1 — непроходим. */

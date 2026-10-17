@@ -35,6 +35,8 @@ function worker(sim: Sim, faction: FactionId, prof: ProfessionId, at: { x: numbe
 function calm(sim: Sim): void {
   sim.war.command.paused = true;
   sim.insurgency.paused = true;
+  // Перерыв в комнате отдыха — по случайности мира; тесты цепочки снабжения — про работу, не про перерывы.
+  (sim.ctx.cwuHq.restSpots as unknown[]).length = 0;
 }
 
 describe('профессии ТС: цепочка снабжения', () => {

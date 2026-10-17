@@ -47,7 +47,7 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     // RCT: у ворот Управы, в проходных КПП, в людных местах и на вахте академии; на постах КПП — только SU.03.
     const rct = by('rct');
     // …и на постах стены Верхнего города (по RCT на место часового).
-    expect(rct.length).toBe(ROSTER.cp.nexusPosts + ROSTER.cp.publicPosts + sim.war.fronts.reduce((n, f) => n + f.gatePosts.length, 0) + (sim.academy.present ? ACADEMY.vakhta : 0) + sim.map.poisOf('border_post').length);
+    expect(rct.length).toBe(ROSTER.cp.nexusPosts + ROSTER.cp.publicPosts + sim.war.fronts.reduce((n, f) => n + f.gatePosts.length, 0) + (sim.academy.present ? ACADEMY.vakhta : 0) + sim.map.poisOf('border_post').length + sim.map.poisOf('ges_post').length);
     const gate = poiWorld(sim.ctx, 'nexus_gate')!;
     expect(rct.some((c) => Math.hypot(c.x - gate.x, c.y - gate.y) < 100)).toBe(true);
     for (const f of sim.war.fronts) for (const p of f.posts) expect(cps(sim).some((c) => c.rank === CP_UNIT.su3 && brain(c).guardPost === p)).toBe(true);

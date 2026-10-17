@@ -38,6 +38,8 @@ const PREVIEW_COLORS: Record<number, [number, number, number]> = {
   [T.CHASM]: [10, 8, 8],
   [T.DUGOUT_WALL]: [92, 62, 36],
   [T.DUGOUT]: [136, 104, 64],
+  [T.WATER]: [52, 84, 98],
+  [T.DAM]: [150, 148, 140],
 };
 
 /**

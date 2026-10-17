@@ -212,7 +212,7 @@ function pickCityHatches(city: GameMap, rng: Rng, count: number, spacing: number
   for (let y = 0; y < city.height; y++) {
     for (let x = 0; x < w; x++) {
       const k = city.zoneAtTile(x, y)?.kind;
-      if (k === 'wasteland' || k === 'rebel_camp') continue;
+      if (k === 'wasteland' || k === 'rebel_camp' || k === 'ges') continue;
       cx0 = Math.min(cx0, x); cy0 = Math.min(cy0, y); cx1 = Math.max(cx1, x); cy1 = Math.max(cy1, y);
     }
   }

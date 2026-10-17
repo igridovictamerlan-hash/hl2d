@@ -79,6 +79,7 @@ export class MapRenderer {
   private readonly facades: FacadeLook[] = [];
   /** Фонтаны и трибуны площади (рисуются поверх тайлов). */
   private landmarks: Poi[] = [];
+  private machines: Poi[] = [];
   private readonly decor: Uint8Array;
   private readonly cobble: Uint8Array;
   private readonly kiosks: Poi[];
@@ -117,6 +118,7 @@ export class MapRenderer {
       }
     }
     this.landmarks = [...map.poisOf('fountain'), ...map.poisOf('tribune')];
+    this.machines = [...map.poisOf('ges_turbine'), ...map.poisOf('ges_transformer')];
     for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER], [this.landmarks, DECOR_PLAZA]] as const) {
       for (const p of list) for (let y = p.y; y < p.y + p.h!; y++) for (let x = p.x; x < p.x + p.w!; x++) this.decor[y * w + x] = kind;
     }
@@ -272,6 +274,8 @@ export class MapRenderer {
       case T.CHASM: this.color[i] = tone(P.chasm); break;
       case T.DUGOUT_WALL: this.color[i] = tone(P.dugoutWall); break;
       case T.DUGOUT: this.color[i] = tone(P.dugoutFloor); break;
+      case T.WATER: this.color[i] = tone(P.water); break;
+      case T.DAM: this.color[i] = tone(P.dam); break;
       default: this.color[i] = '#f0f';
     }
   }
@@ -684,6 +688,29 @@ export class MapRenderer {
             }
             break;
           }
+          case T.WATER: {
+            // Рябь — короткие блики вразбежку; у берега — светлая кромка пены.
+            ctx.fillStyle = P.waterRipple;
+            ctx.fillRect(x0 + px((hv & 7) + 2), y0 + px(((hv >> 3) & 7) + 3), px(5), line);
+            ctx.fillRect(x0 + px(((hv >> 6) & 7) + 1), y0 + px(((hv >> 9) & 7) + 6), px(3), line);
+            ctx.fillStyle = P.waterShore;
+            const foam = px(2);
+            if (map.tileAt(tx, ty - 1) !== T.WATER) ctx.fillRect(x0, y0, cw, foam);
+            if (map.tileAt(tx, ty + 1) !== T.WATER) ctx.fillRect(x0, y1 - foam, cw, foam);
+            if (map.tileAt(tx - 1, ty) !== T.WATER) ctx.fillRect(x0, y0, foam, ch);
+            if (map.tileAt(tx + 1, ty) !== T.WATER) ctx.fillRect(x1 - foam, y0, foam, ch);
+            continue;
+          }
+          case T.DAM: {
+            // Бетонные плиты откоса: горизонтальный шов, вертикальный вразбежку; тень у воды.
+            ctx.fillStyle = P.damSeam;
+            ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+            ctx.fillRect(x0 + ((ty & 1) ? cw >> 1 : 0), y0, line, ch);
+            ctx.fillStyle = P.damShade;
+            if (map.tileAt(tx + 1, ty) === T.WATER) ctx.fillRect(x1 - px(3), y0, px(3), ch);
+            if (map.tileAt(tx - 1, ty) === T.WATER) ctx.fillRect(x0, y0, px(3), ch);
+            continue;
+          }
           case T.CHASM: {
             // Чёрная щель: осыпающаяся кромка там, где рядом твёрдая земля, трещины в глубине.
             ctx.fillStyle = P.chasmCrack;
@@ -996,6 +1023,40 @@ export class MapRenderer {
         ctx.fillStyle = L.lectern;
         ctx.fillRect(x + (w - lw) / 2, ly, lw, Math.round(h * 0.35));
         text('ПРОТЕКТОРАТ', x + w / 2, back + Math.round(h * 0.15), Math.min(h * 0.22, w * 0.11), L.text);
+      }
+    }
+    // ГЭС: турбины (кожух генератора, ступица, огонёк) и трансформаторы (рёбра, изоляторы).
+    for (const p of this.machines) {
+      if (!near(p, 1)) continue;
+      const x = X(p.x * ts);
+      const y = Y(p.y * ts);
+      const w = Math.round(p.w! * ts * s);
+      const h = Math.round(p.h! * ts * s);
+      if (p.type === 'ges_turbine') {
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const r = Math.min(w, h) / 2;
+        ctx.fillStyle = L.turbineRim;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.98, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.turbine;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.turbineRim;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.signal;
+        ctx.fillRect(cx + r * 0.45, cy - r * 0.55, Math.max(2, r * 0.16), Math.max(2, r * 0.16));
+      } else {
+        ctx.fillStyle = L.transformer;
+        ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.fillStyle = L.rib;
+        for (let k = 1; k < 5; k++) ctx.fillRect(x + Math.round((w * k) / 5), y + 2, Math.max(1, Math.round(w / 24)), h - 4);
+        ctx.fillStyle = L.insulator;
+        for (const fx of [0.25, 0.5, 0.75]) ctx.fillRect(x + w * fx - 2, y + 2, 4, Math.round(h * 0.18));
       }
     }
     for (const k of this.kiosks) {

@@ -94,7 +94,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
   const P = AI.population;
   // Сколько при множителе: при 1 — ровно как в конфиге; было хоть одно — останется хоть одно.
   const sc = (n: number): number => (scale === 1 ? n : n > 0 ? Math.max(1, Math.round(n * scale)) : 0);
-  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
+  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'ges', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   // Силовой блок — постоянный состав: не нашлось места у точки — появляется там же, где при возрождении.
@@ -164,7 +164,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
     const rank = CP_UNIT[unit];
     return { kind, faction: 'cp', profession: null, division: cpUnit(rank).group, rank, kit: cpUnit(rank).kit, ...extra };
   };
-  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'arsenal', 'prison', 'academy']);
+  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'ges', 'arsenal', 'prison', 'academy']);
   const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
   // RCT.PCU на постах: у ворот Управы (лицом наружу) и в людных местах — площадь и улицы.
   const inside = zoneIds(ctx, ['nexus', 'cells']);
@@ -187,7 +187,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
     for (let k = 0; k < ACADEMY.instructors && desk; k++) put(cpSpec('instructor', 'instr'), freeSpot(ctx, desk, 0, 3, none0, 20) ?? desk);
   }
   // Посты на стене Верхнего города: по RCT на место часового (проём на проспекте, лицом к Старому городу).
-  for (const p of ctx.map.poisOf('border_post')) {
+  for (const p of [...ctx.map.poisOf('border_post'), ...ctx.map.poisOf('ges_post')]) {
     const post = { x: (p.x + 1) * ctx.map.tileSize, y: (p.y + 1) * ctx.map.tileSize };
     const facing = p.face === 'W' ? Math.PI : p.face === 'E' ? 0 : p.face === 'N' ? -Math.PI / 2 : Math.PI / 2;
     put(cpSpec('post', 'rct', { post, facing }), freeSpot(ctx, post, 0, 2, none0, 16) ?? post);
@@ -375,7 +375,7 @@ export function settleAll(ctx: AiContext): void {
   if (!H) return;
   for (const c of ctx.entities.list) if (needsHome(c) && c.home < 0) H.house(c, workplaceOf(ctx, c));
   // Куда горожанину не встать на старте (как в CitizenBrain): режимные объекты, фронт, пустошь.
-  const closed = ctx.hoods?.enabled ? zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']) : null;
+  const closed = ctx.hoods?.enabled ? zoneIds(ctx, ['nexus', 'cells', 'restricted', 'ges', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']) : null;
   for (const c of ctx.entities.list) {
     if (c.isPlayer || c.faction !== 'citizen' || c.profession !== 'citizen' || c.home < 0) continue;
     const d = H.of(c)!;
@@ -411,7 +411,7 @@ export function roleSpawn(ctx: AiContext, faction: FactionId, profession: Profes
     spot = freeSpot(ctx, poiWorld(ctx, 'rebel_camp')!, 0, 6, none, 30);
   } else if (faction === 'rebel') {
     // Подальше от Управы, в жилых кварталах.
-    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
+    const avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'ges', 'checkpoint', 'outlands', 'plaza', 'avenue', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
     const nexus = poiWorld(ctx, 'nexus_gate') ?? plaza;
     for (let k = 0; k < 20 && !spot; k++) {
       const s = freeSpot(ctx, { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 }, 20, 110, avoid);

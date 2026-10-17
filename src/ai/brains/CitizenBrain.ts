@@ -237,7 +237,7 @@ export class CitizenBrain implements Brain {
     this.mover = new Mover(this.walkSpeed);
     // Людное место — в обход по соседним улицам (карта толпы; выключена — путь прежний).
     this.mover.crowdAware = true;
-    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
+    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'ges', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];

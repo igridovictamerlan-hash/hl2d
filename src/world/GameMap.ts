@@ -22,7 +22,9 @@ export type ZoneKind =
   | 'arsenal'
   | 'canteen'
   | 'prison'
-  | 'academy';
+  | 'academy'
+  /** ГЭС за восточной стеной города: двор, машинный зал, плотина (посторонним нельзя). */
+  | 'ges';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -151,6 +153,18 @@ export type PoiType =
   /** Трибуна Коменданта на площади (помост; face — куда смотрит), фонтан посередине площади. */
   | 'tribune'
   | 'fountain'
+  /**
+   * ГЭС (generator/dam.ts): прямоугольник полосы, ворота с проспекта (x, y, w, h; face — сторона ГЭС), места часовых,
+   * машинный зал (x, y, w, h), турбины и трансформаторы, плотина и водохранилище (прямоугольники), съезд на гребень.
+   */
+  | 'ges'
+  | 'ges_gate'
+  | 'ges_post'
+  | 'ges_hall'
+  | 'ges_turbine'
+  | 'ges_transformer'
+  | 'ges_dam'
+  | 'reservoir'
   | 'academy'
   | 'academy_target'
   | 'academy_line'

@@ -708,8 +708,8 @@ export class ArsenalSystem {
     const { ctx } = this;
     const p = this.pad!;
     const s = this.ship;
-    // Прилетает со стороны ГЭС (Управы), уходит дальше.
-    const nx = ctx.map.poisOf('nexus_gate')[0];
+    // Прилетает со стороны ГЭС (на старых картах без неё — от Управы), уходит дальше.
+    const nx = ctx.map.poisOf('ges_hall')[0] ?? ctx.map.poisOf('nexus_gate')[0];
     const ts = ctx.map.tileSize;
     const dir = nx ? Math.atan2((nx.y + 0.5) * ts - p.y, (nx.x + 0.5) * ts - p.x) : -Math.PI / 2;
     const R = 900;
