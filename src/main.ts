@@ -20,6 +20,12 @@ const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui')!;
 const loading = document.getElementById('loading');
+// Ошибка при запуске — текстом на экране загрузки (иначе «Генерация города…» висит без объяснений).
+const showError = (msg: string): void => {
+  if (loading) loading.textContent = `Ошибка запуска: ${msg}`;
+};
+window.addEventListener('error', (e) => showError(String(e.message || e.error)));
+window.addEventListener('unhandledrejection', (e) => showError(String((e.reason as Error)?.stack ?? e.reason)));
 
 // ?npcs= — ровно столько граждан (в обход уровня населения из настроек); без него — по уровню.
 const npcs = params.has('npcs') ? Math.max(0, Math.min(POPULATION.maxCitizens, Number(params.get('npcs')) || 0)) : null;
@@ -56,4 +62,4 @@ async function boot(): Promise<void> {
   game.loop.start();
 }
 
-void boot();
+boot().catch((e: Error) => showError(e.stack ?? String(e)));
