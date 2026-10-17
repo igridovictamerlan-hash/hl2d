@@ -45,24 +45,24 @@ describe('генератор переулочного города', () => {
 
   for (const seed of SEEDS) {
     describe(`seed ${seed}`, () => {
-      test('город 340×230 тайлов (~5400×3700 px) в пустоши (западные предгорья, скалы по краям), справа — канализация; стена по краю', () => {
+      test('город 480×270 тайлов (~7700×4300 px) в пустоши (западные предгорья, скалы по краям), справа — канализация; стена по краю', () => {
         const map = get(seed);
         const city = map.levelBounds('city');
         const ts = map.tileSize;
         const W = GENERATOR.wastes;
-        // Город 340×230 тайлов (5440×3680 px); с запада — предгорья (оба КПП западные), с остальных сторон — скальная кромка.
-        expect(WORLD.widthTiles * ts).toBeGreaterThanOrEqual(5300);
-        expect(WORLD.widthTiles * ts).toBeLessThanOrEqual(5600);
-        expect(WORLD.heightTiles * ts).toBeGreaterThanOrEqual(3600);
-        expect(WORLD.heightTiles * ts).toBeLessThanOrEqual(3800);
+        // Город 480×270 тайлов (7680×4320 px); с запада — предгорья (оба КПП западные), с остальных сторон — скальная кромка.
+        expect(WORLD.widthTiles * ts).toBeGreaterThanOrEqual(7500);
+        expect(WORLD.widthTiles * ts).toBeLessThanOrEqual(7800);
+        expect(WORLD.heightTiles * ts).toBeGreaterThanOrEqual(4200);
+        expect(WORLD.heightTiles * ts).toBeLessThanOrEqual(4400);
         // Поверхность = пустошь + город + пустошь; уровень «город» заканчивается зазором перед канализацией.
         expect(city.w).toBe((W.west + WORLD.widthTiles + W.east + WORLD.underground.gap) * ts);
         expect(map.worldHeight).toBe((W.top + WORLD.heightTiles + W.bottom) * ts);
-        expect(city.w).toBeGreaterThanOrEqual(6000);
-        expect(city.w).toBeLessThanOrEqual(6400);
+        expect(city.w).toBeGreaterThanOrEqual(8300);
+        expect(city.w).toBeLessThanOrEqual(8600);
         // С севера и юга — хребты долины (по 13 рядов скал).
-        expect(map.worldHeight).toBeGreaterThanOrEqual(3900);
-        expect(map.worldHeight).toBeLessThanOrEqual(4200);
+        expect(map.worldHeight).toBeGreaterThanOrEqual(4600);
+        expect(map.worldHeight).toBeLessThanOrEqual(4900);
         // Лагерь сопротивления в пустоши и ровно два люка — в запретной зоне.
         expect(map.poisOf('rebel_camp')).toHaveLength(1);
         expect(map.hatches).toHaveLength(2);
@@ -130,14 +130,40 @@ describe('генератор переулочного города', () => {
         expect(map.zones.filter((z) => z.kind === 'checkpoint')).toHaveLength(10);
       });
 
-      test('открытые пространства ≤ 300×300 px: площадь и двор Управы', () => {
+      test('открытые пространства: площадь — центр города не больше заданного, двор Управы ≤ 300×300 px; на площади трибуна и фонтан', () => {
         const map = get(seed);
-        const maxTiles = Math.floor(300 / map.tileSize);
-        for (const kind of ['plaza', 'nexus'] as ZoneKind[]) {
-          const b = bbox(map, T.PLAZA, kind);
-          expect(b.w).toBeLessThanOrEqual(maxTiles);
-          expect(b.h).toBeLessThanOrEqual(maxTiles);
-        }
+        const plaza = bbox(map, T.PLAZA, 'plaza');
+        expect(plaza.w).toBeLessThanOrEqual(GENERATOR.plaza.size[1]);
+        expect(plaza.h).toBeLessThanOrEqual(GENERATOR.plaza.size[1]);
+        expect(plaza.w).toBeGreaterThanOrEqual(GENERATOR.plaza.size[0]);
+        const yard = bbox(map, T.PLAZA, 'nexus');
+        expect(yard.w).toBeLessThanOrEqual(Math.floor(300 / map.tileSize));
+        expect(yard.h).toBeLessThanOrEqual(Math.floor(300 / map.tileSize));
+        for (const t of ['tribune', 'fountain', 'ration_window'] as const) expect(map.poisOf(t), t).toHaveLength(1);
+        // Столовая — фасадом на площадь или главный проспект, со столами.
+        expect(map.poisOf('canteen_table').length).toBeGreaterThanOrEqual(2);
+      });
+
+      test('полосы достатка: Слобода — Старый город — Верхний город за стеной; сквозь стену — только проспекты с постами', () => {
+        const map = get(seed);
+        const ds = map.poisOf('district');
+        expect(ds.map((d) => d.kind).sort()).toEqual(['old', 'slum', 'upper']);
+        const at = (k: string) => ds.find((d) => d.kind === k)!;
+        expect(at('slum').x).toBeLessThan(at('old').x);
+        expect(at('old').x).toBeLessThan(at('upper').x);
+        // Площадь и Управа — в Старом городе.
+        const pc = map.poisOf('plaza_center')[0];
+        expect(map.districtAt(pc.x, pc.y)).toBe('old');
+        // Посты — на обоих проспектах, у каждого два места часовых.
+        const gates = map.poisOf('border_gate');
+        expect(gates).toHaveLength(2);
+        expect(map.poisOf('border_post')).toHaveLength(4);
+        // Стену не пересекает ни один проходимый тайл, кроме проёмов постов.
+        const ux = at('upper').x;
+        const inGate = (x: number, y: number) => gates.some((g) => x >= g.x && y >= g.y && x < g.x + g.w! && y < g.y + g.h!);
+        let leaks = 0;
+        for (let y = 0; y < map.height; y++) if (!SOLID[map.tileAt(ux - 1, y)] && !inGate(ux - 1, y) && map.districtAt(ux - 2, y) === 'old') leaks++;
+        expect(leaks).toBe(0);
       });
 
       test('есть узкие проходы (только один персонаж), переулки, дворы, арки, жилые дома', () => {

@@ -62,7 +62,7 @@ export const RADIO = {
    * с); открытых не больше maxOpen. Юнитов ищут не дальше seek px; вызов держится callTime с; прибыл — ближе
    * arrive px; на месте calm с без боя — «чисто»; не закрыли за maxTime с — отбой по таймеру.
    */
-  incident: { merge: 520, updateEvery: 25, maxOpen: 5, seek: 3200, callTime: 120, arrive: 230, calm: 22, maxTime: 150 },
+  incident: { merge: 520, updateEvery: 25, maxOpen: 5, seek: 4200, callTime: 120, arrive: 230, calm: 22, maxTime: 150 },
   /** Подмога в перестрелке: сколько юнитов дослать, не чаще every с на происшествие, не больше times раз. */
   escalate: { units: 2, every: 25, times: 2 },
   /** Юнит в бою в городе без вызова — сам докладывает «контакт» (не чаще every с на юнит). */

@@ -3309,7 +3309,7 @@ const LISTEN: State<CitizenBrain> = {
   name: 'listen',
   enter(b) {
     const { ctx } = b;
-    const p = ctx.street.plaza;
+    const p = ctx.street.stage;
     const S = STREET.broadcast.spread;
     b.leisureRoute();
     const a = p ? randomAnchorAround(p, ctx, S[0], S[1], b.leisureAvoid) : -1;

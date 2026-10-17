@@ -820,8 +820,12 @@ export class CpBrain implements Brain {
       }
     }
     if (ctx.war.code === 'red' || this.medicStation) return;
-    // Плановые проверки CID — работа PCU (и следователей), не командования и не охраны.
+    // Плановые проверки CID — работа PCU (и следователей), не командования и не охраны. Юнит с постом проверяет только у
+    // поста: идущий на пост через город (часовой КПП после повышения) по дороге документы не спрашивает.
     if (!this.checksPeople) return;
+    if (this.guardPost && !atCheckpoint && dist(this.guardPost.x, this.guardPost.y, self.x, self.y) > SECURITY.postReach) return;
+    // Едет на вызов по рации — не до плановых проверок.
+    if (this.call && this.call.until > ctx.law.now) return;
     for (const o of near) {
       // Работника ТС на раздаче плановой проверкой не дёргают.
       if (o === self || !law.checkable(o) || o === ctx.economy.dispenser) continue;

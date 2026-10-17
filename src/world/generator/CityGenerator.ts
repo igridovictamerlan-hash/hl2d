@@ -8,7 +8,8 @@ import { GameMap, type Poi, type Zone, type ZoneKind } from '../GameMap';
 import { ensureConnectivity, buildAnchorWalk, labelComponents } from '../connectivity';
 import { buildingRatio, longestAlleyRun, type MapStats } from '../mapStats';
 import { GenGrid } from './GenGrid';
-import { planLayout, avenueOffsetAt, avenueRects, facadeReach, type Avenue } from './layout';
+import { planLayout, avenueOffsetAt, avenueRects, facadeReach, districtOfX, type Avenue } from './layout';
+import { buildBorderWall } from './border';
 import { avenueFrontages, arteryFrontages, buildFacades, constrainAvenueLanes, fillForecourt, placeAvenueDecor, rectFrontages } from './arbat';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked, carveAccessRoad } from './stamps';
@@ -163,6 +164,8 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     restrictedInner,
     voids: [layout.nexus, ...(layout.cwuHq ? [layout.cwuHq.rect] : []), ...layout.checkpoints.map((c) => c.rect)],
     industrial: layout.industrial,
+    // Граница Верхнего города: на её линии решётки узлов нет — переулки и улицы стену не пересекают.
+    voidCols: [layout.upperLine],
   });
   // Улицы-артерии от проспекта и места под общежития и особняки (до лабиринта: он их обходит).
   // Проспект — вместе с рядами домов по сторонам.
@@ -174,7 +177,9 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     const vb = layout.vAvenue.band;
     streetBlocked.push({ x: vb.x - R, y: vb.y, w: vb.w + 2 * R, h: vb.h });
   }
-  const streets = planStreets(lat, rng.fork(11), [layout.hLine, layout.hLine2], { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H, layout.nexus);
+  // Здания не встают на стену Верхнего города.
+  streetBlocked.push({ x: layout.upperX - 2, y: 0, w: G.wealth.wall + 4, h: H });
+  const streets = planStreets(lat, rng.fork(11), [layout.hLine, layout.hLine2], { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H, layout.nexus, layout.upperX);
   const starts: number[] = [];
   lat.nodes.forEach((n, k) => n.onAvenue && starts.push(k));
   for (const a of streets.arteries) for (const n of a.nodes) if (!starts.includes(n)) starts.push(n);
@@ -208,6 +213,8 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
   for (const av of avenues) for (const r of avenueRects(av)) g.fillRect(r, T.STREET);
   const arteryRects = carveArteries(g, lat, streets);
   removeWallSpikes(g);
+  // Стена Верхнего города с постами на проспектах.
+  buildBorderWall(g, layout.upperX, [layout.hAvenue, layout.hAvenue2], pois);
 
   // 4. Зоны.
   const zones: Zone[] = [];
@@ -218,10 +225,15 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     zones.push({ id: zones.length, kind, name, char });
     return zones.length - 1;
   };
-  const names = rng.fork(7).shuffle([...QUARTER_NAMES]);
-  const quarterZones = layout.quarterSeeds.map((_, k) =>
-    addZone('residential', names[k % names.length], String.fromCharCode(97 + k)),
-  );
+  // Названия кварталов — по полосе достатка.
+  const nrng = rng.fork(7);
+  const names = { slum: nrng.shuffle([...QUARTER_NAMES.slum]), old: nrng.shuffle([...QUARTER_NAMES.old]), upper: nrng.shuffle([...QUARTER_NAMES.upper]) };
+  const used = { slum: 0, old: 0, upper: 0 };
+  const quarterZones = layout.quarterSeeds.map((_, k) => {
+    const d = layout.quarterDistricts[k];
+    const list = names[d];
+    return addZone('residential', list[used[d]++ % list.length], String.fromCharCode(97 + k));
+  });
   const zHAv = addZone('avenue', ZONE_NAMES.avenue[0], 'A');
   const zVAv = layout.vAvenue ? addZone('avenue', ZONE_NAMES.avenue[1], 'B') : zHAv;
   const zHAv2 = addZone('avenue', ZONE_NAMES.avenue[2], null);
@@ -246,12 +258,14 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
   const zOut = addZone('outlands', ZONE_NAMES.outlands, 'O');
   const zShop = addZone('shop', ZONE_NAMES.shop, 'S');
 
+  // Квартал тайла — ближайшее семя своей полосы достатка (квартал не перетекает через стену).
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
+      const band = districtOfX(layout, x);
       let best = 0;
       let bestD = Infinity;
       layout.quarterSeeds.forEach((s, k) => {
-        const d = (s.x - x) ** 2 + (s.y - y) ** 2;
+        const d = (s.x - x) ** 2 + (s.y - y) ** 2 + (layout.quarterDistricts[k] === band ? 0 : 1e9);
         if (d < bestD) {
           bestD = d;
           best = k;
@@ -260,6 +274,11 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
       g.zones[y * W + x] = quarterZones[best];
     }
   }
+  // Полосы достатка — прямоугольники на всю высоту города.
+  const DS = G.wealth;
+  pois.push({ type: 'district', kind: 'slum', x: 0, y: 0, w: layout.oldX, h: H });
+  pois.push({ type: 'district', kind: 'old', x: layout.oldX, y: 0, w: layout.upperX + DS.wall - layout.oldX, h: H });
+  pois.push({ type: 'district', kind: 'upper', x: layout.upperX + DS.wall, y: 0, w: W - layout.upperX - DS.wall, h: H });
   g.setZoneRect(layout.industrial, zInd);
   g.setZoneRect(layout.restricted, zRes);
   const hRects = avenueRects(layout.hAvenue);

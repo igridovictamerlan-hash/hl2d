@@ -3,6 +3,7 @@ import { rectsOverlap, type Rect } from '../../core/math';
 import { GENERATOR } from '../../config/generator';
 import { T } from '../tiles';
 import type { GenGrid } from './GenGrid';
+import { areaMul } from './features';
 import type { Lattice, LEdge } from './lattice';
 import { ACADEMY_TEMPLATE, ARSENAL_TEMPLATE, DORM_TEMPLATE, PRISON_TEMPLATE, VILLA_TEMPLATE } from './templates';
 
@@ -39,7 +40,7 @@ export interface StreetPlan {
  * разметки регионов, до лабиринта: рёбра артерий сразу вырезаются (carved), места зданий
  * становятся пустотами — лабиринт их обходит, а переулки подходят к ним снаружи.
  */
-export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], plaza: { rect: Rect; side: 'N' | 'S' }, blocked: readonly Rect[], mapW: number, mapH: number, nexus: Rect | null = null): StreetPlan {
+export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], plaza: { rect: Rect; side: 'N' | 'S' }, blocked: readonly Rect[], mapW: number, mapH: number, nexus: Rect | null = null, upperX: number | null = null): StreetPlan {
   const S = GENERATOR.streets;
   const arteries: Artery[] = [];
   const inArtery = new Uint8Array(lat.edges.length);
@@ -200,13 +201,21 @@ export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], p
       return fits(rect) ? { rect, face } : null;
     }
   };
-  const place = (tpl: readonly string[], n: number, gap: number, tries: number): Placement[] => {
+  // Полосы достатка: общежития — западнее стены Верхнего города (Слобода и Старый город), особняки — за ней.
+  const DS = GENERATOR.wealth;
+  const west = (r: Rect) => upperX === null || r.x + r.w <= upperX - 2;
+  const east = (r: Rect) => upperX === null || r.x >= upperX + DS.wall + 2;
+  const place = (tpl: readonly string[], n: number, gap: number, tries: number, where: (r: Rect) => boolean): Placement[] => {
     const out: Placement[] = [];
-    for (let t = 0; t < tries && out.length < n && streetEdges.length; t++) {
-      const p = candidate(tpl, gap, streetEdges);
-      if (!p) continue;
-      taken.push(p.rect);
-      out.push(p);
+    // Сперва — в своей полосе; не набралось нужного минимума (проверка карты) — где придётся.
+    for (const strict of [true, false]) {
+      for (let t = 0; t < tries && out.length < n && streetEdges.length; t++) {
+        const p = candidate(tpl, gap, streetEdges);
+        if (!p || (strict && !where(p.rect))) continue;
+        taken.push(p.rect);
+        out.push(p);
+      }
+      if (out.length >= 2) break;
     }
     return out;
   };
@@ -214,8 +223,10 @@ export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], p
   const toAvenue = (r: Rect) => Math.min(...avenueNodes.map((n) => Math.hypot(n.x - (r.x + r.w / 2), n.y - (r.y + r.h / 2))));
   const D = GENERATOR.dorms;
   const V = GENERATOR.villas;
-  const dorms = place(DORM_TEMPLATE, rng.int(D.count[0], D.count[1]), D.gap, D.tries);
-  const villas = place(VILLA_TEMPLATE, rng.int(V.count[0], V.count[1]), V.gap, V.tries);
+  // Общежитий и особняков — по площади города (числа конфига — на GENERATOR.areaBase).
+  const k = areaMul(mapW, mapH);
+  const dorms = place(DORM_TEMPLATE, Math.round(rng.int(D.count[0], D.count[1]) * k), D.gap, Math.round(D.tries * k), west);
+  const villas = place(VILLA_TEMPLATE, Math.round(rng.int(V.count[0], V.count[1]) * k), V.gap, Math.round(V.tries * k), east);
 
   // Склад Протектората — последним и на своём генераторе (fork не сдвигает общий — штаб, общежития и
   // особняки остаются где были). Здание с крыльцом велико для места «вдоль улицы», поэтому — любое
@@ -267,7 +278,8 @@ export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], p
       road = Math.min(east, west);
     }
     if (road > AR.road.reach) continue;
-    const score = toAvenue(rect) - road * AR.road.penalty;
+    // Склад — в Верхнем городе (ближе к ГЭС и порту), если там нашлось место.
+    const score = toAvenue(rect) - road * AR.road.penalty + (east(rect) ? AR.upperBonus : 0);
     if (score > arsenalScore) {
       arsenal = { rect, face };
       arsenalScore = score;
@@ -309,7 +321,8 @@ export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], p
         road = Math.min(east, west);
       }
       if (road > PR.road.reach * relax) continue;
-      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - PR.nexusIdeal) - road * PR.road.penalty;
+      // Тюрьма — западнее стены (ближе к фронту, откуда ведут пленных), если там нашлось место.
+      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - PR.nexusIdeal) - road * PR.road.penalty - (west(rect) ? 0 : PR.upperPenalty);
       if (score > prisonScore) {
         prison = { rect, face };
         prisonScore = score;
@@ -349,7 +362,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], p
         road = Math.min(east, west);
       }
       if (road > AC.road.reach * relax) continue;
-      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - AC.nexusIdeal) - road * AC.road.penalty;
+      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - AC.nexusIdeal) - road * AC.road.penalty - (west(rect) ? 0 : AC.upperPenalty);
       if (score > academyScore) {
         academy = { rect, face };
         academyScore = score;

@@ -189,12 +189,20 @@ describe('Город реагирует', () => {
   test('донос: свидетель идёт к ВС, которого не было на месте — дело становится известным', () => {
     const sim = setup();
     // Место — в городе у площади (не в переулке у подножия хребта, где до ВС кругом через полквартала).
-    const s = scene(sim, 3, nearPlaza(sim));
+    // В квартале у площади: на самой площади (большой и открытой) ВС на постах видны — свидетель окликнул бы сразу.
+    const s = scene(sim, 3, nearPlaza(sim).filter((i) => sim.map.zoneAtWorld(sim.nav.worldX(i), sim.nav.worldY(i))?.kind === 'residential'));
     const victim = citizen(sim, s.c);
     const killer = citizen(sim, s.killer, s.c);
+    // Свидетели — лоялисты (донести или промолчать решает характер, а тест — про дорогу доноса к ВС).
     const ws = s.around.map((p) => citizen(sim, p, s.c));
-    // ВС — в 300–380 px от места: за радиусом убийства (260) и не видит его.
-    cop(sim, spotAround(sim, s.c, 300, 380), s.c);
+    for (const w of ws) w.loyalty = 90;
+    // Без раздачи: очередь к окну на площади уводила бы свидетелей от доноса.
+    sim.economy.paused = () => true;
+    sim.economy.forceClose();
+    // ВС — за радиусом убийства (260 px) и за углом: не видит места и не слышит оклика свидетеля.
+    const hidden = ring(sim, s.c, 320, 520, false).filter((q) => !lineOfSight(sim.map, q.x, q.y, s.c.x, s.c.y));
+    expect(hidden.length).toBeGreaterThan(0);
+    cop(sim, hidden[0], s.c);
     stab(sim, killer, victim);
     run(sim, 1);
     const cs = sim.ctx.suspects.caseOf(killer) as Case;

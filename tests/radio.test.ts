@@ -6,6 +6,8 @@ import { RADIO } from '../src/config/radio';
 import { whereOf } from '../src/world/places';
 import { fmt, Radio } from '../src/systems/Radio';
 import type { Character } from '../src/entities/Character';
+import { spawnRole } from '../src/systems/Roster';
+import { CP_UNIT, cpUnit } from '../src/config/factions';
 
 type Sim = ReturnType<typeof makeSim>;
 const run = (sim: Sim, sec: number, until?: () => boolean) => {
@@ -135,6 +137,9 @@ describe('рация: вызов и выезд', () => {
     // Фоновые вызовы города (погоня на площади) тоже открыты — считаем разницу, а не абсолют.
     const openAfterFirst = R.open.length;
     const before = inc.responders.length;
+    // Свободная патрульная группа неподалёку — подмоге есть кого слать (город большой, свободных юнитов мало).
+    const lead = CP_UNIT.pcu2;
+    spawnRole(sim.ctx, { kind: 'squad', faction: 'cp', profession: null, division: cpUnit(lead).group, rank: lead, kit: cpUnit(lead).kit, squad: 99, lead: true }, spotFrom(sim, u, 300));
     const again = R.report('attack', p.x + 40, p.y, { what: 'нападение на сотрудника' });
     expect(again).toBe(inc);
     expect(inc.kind).toBe('attack');
@@ -214,15 +219,18 @@ describe('рация: эфир и плановое', () => {
     const sim = city();
     run(sim, 2);
     const R = sim.ctx.radio;
-    const post = sim.entities.list.find((c) => c.alive && c.brain instanceof CpBrain && c.brain.duty === 'post' && c.brain.guardPost)!;
+    // Вахтёр у ворот Управы (на постах стены Верхнего города мимо идёт весь проспект — там и свои доклады).
+    const post = sim.entities.list.find((c) => c.alive && c.brain instanceof CpBrain && c.brain.duty === 'post' && c.brain.guardPost && c.role?.access === 'nexus')!;
     expect(post).toBeTruthy();
     expect(R.status(post)).toMatch(/пост|стою|ночь|Людно|пусто/i);
     // Эфир свободен (плановая перекличка не чаще RADIO.routine.checkIn) — пост выходит на связь, второй раз сразу — нет.
-    const before = said(sim, post).length;
+    // Считаем только доклады о посте: пока ждём, пост может и задержать прохожего («конвоирую задержанного»).
+    const reports = () => said(sim, post).filter((t) => /пост|стою|ночь|Людно|пусто/i.test(t)).length;
+    const before = reports();
     expect(run(sim, 90, () => R.queued === 0 && R.checkIn(post))).toBe(true);
     expect(R.checkIn(post)).toBe(false);
     run(sim, 6);
-    expect(said(sim, post).length).toBe(before + 1);
+    expect(reports()).toBe(before + 1);
     expect(R.feed.some((f) => f.from === null && /Принято|Понял/.test(f.text))).toBe(true);
   });
 

@@ -68,6 +68,8 @@ export class StreetLifeSystem {
   broadcastUntil = 0;
   /** Где слушают: центр площади. */
   readonly plaza: Vec2 | null;
+  /** Где слушают обращение Коменданта: перед трибуной (или центр площади). */
+  readonly stage: Vec2 | null;
   private time = 0;
   private nextBroadcast: number = STREET.broadcast.first;
   /** Час прошлого тика (обращения по часам распорядка); -1 — ещё не было. */
@@ -79,6 +81,10 @@ export class StreetLifeSystem {
 
   constructor(private readonly ctx: AiContext) {
     this.plaza = poiWorld(ctx, 'plaza_center');
+    // Слушатели обращения — перед трибуной (на площадях без трибуны — вокруг центра).
+    const tr = ctx.map.poisOf('tribune')[0];
+    const ts = ctx.map.tileSize;
+    this.stage = tr ? { x: (tr.x + tr.w! / 2) * ts, y: (tr.face === 'S' ? tr.y + tr.h! + STREET.broadcast.stage : tr.y - STREET.broadcast.stage) * ts } : this.plaza;
     this.placeBarrels();
     this.placeAvenue();
     this.placeTables();

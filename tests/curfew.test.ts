@@ -138,6 +138,8 @@ describe('Комендантский час в квартале', () => {
     const walker = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'citizen', division: null, rank: 0, kit: 'citizen' }, q.at)!;
     walker.law.wanted = false;
     walker.law.hasCid = true;
+    // Плановую проверку CID он уже прошёл (тест — про комендантский час, а не про проверки документов).
+    walker.law.lastCheck = sim.law.now + 600;
     const cop = postCop(sim, q.cop, q.at);
     heat(sim, q.zone, 200);
     run(sim, 2);

@@ -216,7 +216,11 @@ describe('Город реагирует 2.0', () => {
     }
     const zid = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
     // Жители квартала: по одному в доме (до 14), на улице рядом с дверью — выходят из дома на улицу.
-    const homes = H.dwellings.filter((d) => sim.map.zoneAtWorld(d.at.x, d.at.y)?.id === zid && !d.reserved).slice(0, 14);
+    // Сперва дома квартала (дверь — в переулок квартала): у домов вдоль улицы дверь выходит на улицу — другая зона.
+    const homes = H.dwellings
+      .filter((d) => sim.map.zoneAtWorld(d.at.x, d.at.y)?.id === zid && !d.reserved)
+      .sort((a, b) => Number(b.kind === 'house') - Number(a.kind === 'house') || a.id - b.id)
+      .slice(0, 14);
     const taken: P[] = [];
     for (const d of homes) {
       const list = (sim.nav.anchorsByZone.get(zid) ?? [])
@@ -358,6 +362,10 @@ describe('Город реагирует 2.0', () => {
     // Свидетели: трое видят убийство издалека и идут донести; вор — видит и молчит (закрытый рот).
     const wp = spread(seen, 3, 30);
     const witnesses = wp.map((p) => citizen(sim, p, c));
+    // Свидетели-лоялисты точно донесут (иначе характер решает), раздача закрыта — очередь не уводит их.
+    for (const w of witnesses) w.loyalty = 90;
+    sim.economy.paused = () => true;
+    sim.economy.forceClose();
     const thief = spawnRole(sim.ctx, THIEF, apart(seen, wp, 30))!;
     thief.law.hasCid = true;
     thief.facing = Math.atan2(c.y - thief.y, c.x - thief.x);

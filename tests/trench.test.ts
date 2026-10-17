@@ -24,7 +24,14 @@ function arena(sim: Sim): Arena {
   const tx0 = Math.floor(p.x / TS) - 30;
   const ty0 = Math.floor(p.y / TS) - 12;
   const m = sim.map;
-  for (let y = ty0; y < ty0 + 25; y++) for (let x = tx0; x < tx0 + 60; x++) m.tiles[y * m.width + x] = T.PLAZA;
+  // Полигон на месте площади: всё — плиты (и двери фасадов, что попали в прямоугольник, — не закрытые).
+  for (let y = ty0; y < ty0 + 25; y++) {
+    for (let x = tx0; x < tx0 + 60; x++) {
+      m.tiles[y * m.width + x] = T.PLAZA;
+      m.doorClosed[y * m.width + x] = 0;
+      m.doorLocked[y * m.width + x] = 0;
+    }
+  }
   const tc = tx0 + 24;
   for (let y = ty0 + 2; y <= ty0 + 22; y++) {
     m.tiles[y * m.width + tc] = T.TRENCH;

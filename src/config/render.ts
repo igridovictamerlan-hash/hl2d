@@ -144,6 +144,11 @@ export const RENDER = {
     woodTop: '#9a7048',
     woodEdge: 'rgba(30,18,8,0.55)',
     kiosk: { body: '#3d6b52', roof: '#29493a', window: '#e9d9a8', sign: '#f3ead6' },
+    /** Фонтан и трибуна площади (MapRenderer.overlays). */
+    landmark: {
+      stone: '#8f877b', rim: '#b4aa98', water: '#3f6f86', waterLight: '#5f93a8', jet: '#d8eef4',
+      edge: '#3a2c22', deck: '#7a5a3c', banner: '#8e2b2b', pole: '#2b2b2b', lectern: '#4a3626', text: '#f2e3c4',
+    },
     planter: { rim: '#8c8378', soil: '#4a3a2a', leaf: '#4f7a3a', leafDark: '#355a28', flowers: ['#d8594a', '#e8c14a', '#d98ab8', '#f2efe6'] as readonly string[] },
     cobble: { h: 30, s: 9, l: 31, noise: 2.5, joint: 'rgba(0,0,0,0.28)', w: 8, h2: 6 },
   },

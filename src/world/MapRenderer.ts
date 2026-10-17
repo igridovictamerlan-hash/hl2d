@@ -23,6 +23,8 @@ const DECOR_KIOSK = 2;
 const DECOR_PLANTER = 3;
 /** Мебель тюрьмы и академии (BARRIER): под ней пол, саму мебель рисуют PrisonRenderer и AcademyRenderer. */
 const DECOR_FLOOR = 4;
+/** Трибуна и фонтан площади (BARRIER): под ними — плиты площади, сами рисуются поверх (overlays). */
+const DECOR_PLAZA = 5;
 const PRISON_FURNITURE = [
   'prison_rack', 'prison_ammo', 'prison_cot', 'prison_table', 'prison_locker', 'prison_counter', 'prison_bench', 'prison_itable', 'prison_desk', 'prison_shelf',
   // Академия ВС: рубеж тира, парты, койки, шкафчики, столы, ограждение и стойка вахты, стол начальника (AcademyRenderer).
@@ -75,6 +77,8 @@ export class MapRenderer {
   /** Дом вдоль улицы на тайл (индекс в facades, -1 — нет), укрытие-мебель, брусчатка проспекта. */
   private readonly facadeOf: Int16Array;
   private readonly facades: FacadeLook[] = [];
+  /** Фонтаны и трибуны площади (рисуются поверх тайлов). */
+  private landmarks: Poi[] = [];
   private readonly decor: Uint8Array;
   private readonly cobble: Uint8Array;
   private readonly kiosks: Poi[];
@@ -112,7 +116,8 @@ export class MapRenderer {
         if (map.tiles[i] === T.BARRIER) this.decor[i] = DECOR_FLOOR;
       }
     }
-    for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER]] as const) {
+    this.landmarks = [...map.poisOf('fountain'), ...map.poisOf('tribune')];
+    for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER], [this.landmarks, DECOR_PLAZA]] as const) {
       for (const p of list) for (let y = p.y; y < p.y + p.h!; y++) for (let x = p.x; x < p.x + p.w!; x++) this.decor[y * w + x] = kind;
     }
     const avenues = new Set(map.zones.filter((z) => z.kind === 'avenue' && (ZONE_NAMES.avenue as readonly string[]).includes(z.name)).map((z) => z.id));
@@ -247,7 +252,7 @@ export class MapRenderer {
       case T.BARRIER: {
         const d = this.decor[i];
         const F = RENDER.facade;
-        this.color[i] = d === DECOR_WOOD ? F.wood : d === DECOR_KIOSK ? F.kiosk.body : d === DECOR_PLANTER ? F.planter.rim : d === DECOR_FLOOR ? tone(P.tileFloor) : P.barrier;
+        this.color[i] = d === DECOR_WOOD ? F.wood : d === DECOR_KIOSK ? F.kiosk.body : d === DECOR_PLANTER ? F.planter.rim : d === DECOR_FLOOR ? tone(P.tileFloor) : d === DECOR_PLAZA ? tone(P.plaza) : P.barrier;
         break;
       }
       case T.SEWER: this.color[i] = tone(P.sewer); break;
@@ -935,6 +940,62 @@ export class MapRenderer {
         ctx.fillStyle = b.awning[0];
         ctx.fillRect(X(rx + rw / 2 - tw / 2), Y(ry + rh * 0.12), X(rx + rw / 2 + tw / 2) - X(rx + rw / 2 - tw / 2), Y(ry + rh * 0.88) - Y(ry + rh * 0.12));
         text(b.sign, X(rx + rw / 2), Y(ry + rh / 2), size, F.sign);
+      }
+    }
+    // Площадь: фонтан (каменная чаша, вода, струя) и трибуна Коменданта (помост, знамёна, кафедра).
+    const L = F.landmark;
+    for (const p of this.landmarks) {
+      if (!near(p, 1)) continue;
+      const x = X(p.x * ts);
+      const y = Y(p.y * ts);
+      const w = Math.round(p.w! * ts * s);
+      const h = Math.round(p.h! * ts * s);
+      if (p.type === 'fountain') {
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const r = Math.min(w, h) / 2;
+        ctx.fillStyle = L.stone;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.98, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.rim;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.86, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.water;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.74, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.waterLight;
+        ctx.beginPath();
+        ctx.arc(cx - r * 0.18, cy - r * 0.2, r * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.stone;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.jet;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.11, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Помост с краем, полосой знамени по заднему краю и кафедрой спереди посередине.
+        const back = p.face === 'S' ? y : y + h - Math.round(h * 0.3);
+        ctx.fillStyle = L.edge;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = L.deck;
+        ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+        ctx.fillStyle = L.banner;
+        ctx.fillRect(x + 2, back, w - 4, Math.round(h * 0.3));
+        for (const fx of [x + 3, x + w - 6]) {
+          ctx.fillStyle = L.pole;
+          ctx.fillRect(fx, back - Math.round(h * 0.2), 3, Math.round(h * 0.5));
+        }
+        const lw = Math.round(w * 0.18);
+        const ly = p.face === 'S' ? y + h - Math.round(h * 0.45) : y + Math.round(h * 0.1);
+        ctx.fillStyle = L.lectern;
+        ctx.fillRect(x + (w - lw) / 2, ly, lw, Math.round(h * 0.35));
+        text('ПРОТЕКТОРАТ', x + w / 2, back + Math.round(h * 0.15), Math.min(h * 0.22, w * 0.11), L.text);
       }
     }
     for (const k of this.kiosks) {

@@ -148,6 +148,9 @@ export type PoiType =
   | 'cafe_table'
   | 'kiosk'
   | 'planter'
+  /** Трибуна Коменданта на площади (помост; face — куда смотрит), фонтан посередине площади. */
+  | 'tribune'
+  | 'fountain'
   | 'academy'
   | 'academy_target'
   | 'academy_line'
@@ -173,7 +176,17 @@ export type PoiType =
   | 'academy_barracks'
   | 'academy_mess'
   | 'academy_vakhta'
-  | 'academy_lobby';
+  | 'academy_lobby'
+  | 'district'
+  | 'border_gate'
+  | 'border_post'
+  | 'border_booth';
+
+/**
+ * Полоса достатка (вариант B): Слобода у фронта — Старый город у площади — Верхний город за стеной Протектората.
+ * POI district — прямоугольник полосы (kind), GameMap.districtAt — полоса тайла.
+ */
+export type District = 'slum' | 'old' | 'upper';
 
 /** Чем занят дом в ряду вдоль улицы (POI facade). */
 export type FacadeUse = 'house' | 'shop' | 'cafe' | 'canteen';
@@ -195,7 +208,7 @@ export interface Poi {
   w?: number;
   h?: number;
   /** Жилая комната: в общежитии или в особняке (id — номер здания), иначе — отдельный дом. */
-  kind?: 'dorm' | 'villa' | CheckpointType;
+  kind?: 'dorm' | 'villa' | CheckpointType | District;
   /** Дом в ряду вдоль улицы и ларёк: куда смотрит фасад (окно), чем занят, какая лавка (ARBAT). */
   face?: 'N' | 'S' | 'E' | 'W';
   use?: FacadeUse;
@@ -339,6 +352,21 @@ export class GameMap {
 
   poisOf(type: PoiType): Poi[] {
     return this.pois.filter((p) => p.type === type);
+  }
+
+  private districts: Poi[] | null = null;
+
+  /** Полоса достатка тайла (по POI district), null — вне города или карта без полос. */
+  districtAt(tx: number, ty: number): District | null {
+    this.districts ??= this.poisOf('district');
+    for (const d of this.districts) {
+      if (tx >= d.x && ty >= d.y && tx < d.x + (d.w ?? 0) && ty < d.y + (d.h ?? 0)) return d.kind as District;
+    }
+    return null;
+  }
+
+  districtAtWorld(x: number, y: number): District | null {
+    return this.districtAt(Math.floor(x / this.tileSize), Math.floor(y / this.tileSize));
   }
 
   /** Центр тайла в пикселях мира. */

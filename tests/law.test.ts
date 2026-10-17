@@ -161,7 +161,9 @@ describe('живой город со всеми фракциями', () => {
     const prison = sim.ctx.prison.present ? PRISON.guards + 1 : 0;
     // Академия ВС — вахтёры RCT и инструкторы.
     const academy = sim.academy.present ? ACADEMY.vakhta + ACADEMY.instructors : 0;
-    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison + academy);
+    // Посты стены Верхнего города — по RCT на место часового.
+    const border = sim.map.poisOf('border_post').length;
+    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison + academy + border);
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['pcu', 'su', 'cmd']) expect(divisions.has(d as never)).toBe(true);
     // Армия в лагере + HYDRA + подпольщики и спецагент в схроне.

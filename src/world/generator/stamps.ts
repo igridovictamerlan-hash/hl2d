@@ -381,18 +381,45 @@ export function carveConnector(g: GenGrid, exit: Exit, maxLen: number, tile: Til
 export function stampPlaza(g: GenGrid, plaza: Rect, side: 'N' | 'S', zone: number, pois: Poi[]): void {
   g.fillRect(plaza, T.PLAZA);
   g.setZoneRect(plaza, zone);
+  const P = GENERATOR.plaza;
+  const cx = plaza.x + Math.floor(plaza.w / 2);
+  // Дальний от проспекта край площади и направление от него к проспекту.
+  const farRow = (h: number) => (side === 'N' ? plaza.y : plaza.y + plaza.h - h);
+  const solid = (r: Rect) => {
+    g.fillRect(r, T.BARRIER, true);
+    g.lockRect(r);
+  };
+  // Будка раздачи — в левой четверти дальнего края: очередь от окна уходит к проспекту, мимо фонтана.
   const bw = 6;
   const bh = 3;
-  const cx = plaza.x + Math.floor(plaza.w / 2);
-  // Дальний от магистрали край площади.
-  const by = side === 'N' ? plaza.y : plaza.y + plaza.h - bh;
-  const booth = { x: cx - bw / 2, y: by, w: bw, h: bh };
+  const bcx = plaza.x + Math.floor(plaza.w / 4);
+  const booth = { x: bcx - bw / 2, y: farRow(bh), w: bw, h: bh };
   g.fillRect(booth, T.METAL, true);
   g.lockRect(booth);
-  const wy = side === 'N' ? by + bh : by - 1;
-  pois.push({ type: 'ration_window', x: cx, y: wy });
+  pois.push({ type: 'ration_window', x: bcx, y: side === 'N' ? booth.y + bh : booth.y - 1 });
   pois.push({ type: 'plaza_center', x: cx, y: plaza.y + Math.floor(plaza.h / 2) });
-  // Терминал найма — в углу площади у будки.
+  // Трибуна Коменданта — посередине дальнего края, лицом к проспекту.
+  const tw = P.tribune.w;
+  const th = P.tribune.h;
+  const tribune = { x: cx - (tw >> 1), y: farRow(th), w: tw, h: th };
+  solid(tribune);
+  pois.push({ type: 'tribune', ...tribune, face: side === 'N' ? 'S' : 'N' });
+  // Фонтан — посередине, ближе к проспекту: перед трибуной остаётся место слушателям.
+  const f = P.fountain;
+  const depth = Math.round(plaza.h * P.fountainAt);
+  const fy = side === 'N' ? plaza.y + depth - (f >> 1) : plaza.y + plaza.h - depth - (f >> 1);
+  const fountain = { x: cx - (f >> 1), y: fy, w: f, h: f };
+  solid(fountain);
+  pois.push({ type: 'fountain', ...fountain });
+  // Клумбы у углов со стороны проспекта.
+  const pl = P.planter;
+  const nearRow = side === 'N' ? plaza.y + plaza.h - P.inset - pl : plaza.y + P.inset;
+  for (const x of [plaza.x + P.inset, plaza.x + plaza.w - P.inset - pl]) {
+    const r = { x, y: nearRow, w: pl, h: pl };
+    solid(r);
+    pois.push({ type: 'planter', ...r });
+  }
+  // Терминал найма — у будки, в углу площади.
   pois.push({ type: 'recruit_terminal', x: plaza.x + 1, y: side === 'N' ? plaza.y + 1 : plaza.y + plaza.h - 2 });
 }
 
