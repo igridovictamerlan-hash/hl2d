@@ -3,7 +3,9 @@ import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
 import type { Rng } from '../core/rng';
 import { ARBAT } from '../config/arbat';
-import { ITEMS, type ItemId } from '../config/items';
+import { ITEMS, type GearId, type ItemId } from '../config/items';
+import { CLOTHES } from '../config/clothes';
+import { dressIn, tierRank, wearsClothes } from './Gear';
 import { ECONOMY } from '../config/economy';
 import { LOYALTY } from '../config/loyalty';
 import { ESCALATION } from '../config/escalation';
@@ -81,7 +83,7 @@ export class StreetShops {
     const { map, nav } = ctx;
     const ts = map.tileSize;
     const S = ARBAT.supply;
-    const names = new Map<string, string>([...ARBAT.shops, ...ARBAT.cafes, ...ARBAT.kiosks].map((d) => [d.id, d.name]));
+    const names = new Map<string, string>([...ARBAT.shops, ...ARBAT.upperShops, ...ARBAT.cafes, ...ARBAT.kiosks].map((d) => [d.id, d.name]));
     const anchor = (x: number, y: number, r = 2): Vec2 | null => {
       const a = nav.nearestWalkable(x, y, r);
       return a >= 0 ? { x: nav.worldX(a), y: nav.worldY(a) } : null;
@@ -96,7 +98,8 @@ export class StreetShops {
       const stock = ARBAT.stock[p.sub ?? ''] ?? [];
       const rack = v ? backRack(map, p.x, p.y, v.x, v.y) : { tiles: [], dir: { x: 0, y: 1 } };
       // Полка вмещает, сколько видно на стеллаже: perTile штук на тайл, на товар — от perItem до perItemMax.
-      const per = stock.length ? Math.max(S.perItem, Math.min(S.perItemMax, Math.floor((rack.tiles.length * S.perTile) / stock.length))) : S.perItem;
+      // В ателье вещей много — на вешалке по CLOTHES.perItem каждой.
+      const per = CLOTHES.shops[p.sub ?? ''] ? CLOTHES.perItem : stock.length ? Math.max(S.perItem, Math.min(S.perItemMax, Math.floor((rack.tiles.length * S.perTile) / stock.length))) : S.perItem;
       this.shops.push({
         id: p.id ?? -1,
         sub: p.sub ?? '',
@@ -393,7 +396,14 @@ export class StreetShops {
     const list = want.length ? want : afford;
     if (!list.length) return null;
     const id = rng.pick(list);
+    // Одежда: только своего достатка или дешевле и чтобы осталось на еду (CLOTHES.npc.reserve); купил — надел.
+    const g = ITEMS[id].gear;
+    if (g?.cloth && (!wearsClothes(c) || tierRank(g.tier) > tierRank(c.clothes?.tier) || (eco.shopPrice(c, id) ?? Infinity) > c.money - CLOTHES.npc.reserve)) return null;
     if (this.buy(c, s, id) !== null) return null;
+    if (g?.cloth && c.inventory.remove(id, 1)) {
+      dressIn(c, id as GearId);
+      return id;
+    }
     // Газету прочёл, мыло и цветы унёс домой — в инвентаре NPC не копятся.
     if (!ITEMS[id].food && ITEMS[id].kind !== 'medical') c.inventory.remove(id, 1);
     return id;

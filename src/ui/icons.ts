@@ -1,4 +1,5 @@
 import { WEAPON_SPRITES, WEAPON_POSE, type SpritePart } from '../config/weaponSprites';
+import { CLOTH_ITEMS, CLOTH_SLOTS, type ClothSlot } from '../config/clothes';
 import type { ItemId, WeaponId } from '../config/items';
 
 /**
@@ -416,6 +417,89 @@ I.mag_straight = (c) => {
 };
 
 /** Какой рисунок у предмета инвентаря (стволы — моделью, см. drawGunIcon). */
+/**
+ * Одежда каталога (config/clothes.ts): силуэт по слоту и фасону, цветом вещи. Пустой слот одежды в инвентаре —
+ * тот же силуэт бледным (ghost_<слот>).
+ */
+const LONG_COATS = new Set(['ragcoat', 'trench', 'camel', 'fur']);
+const DRESSES = new Set(['dress', 'chintz', 'gown']);
+function clothIcon(c: C2, slot: ClothSlot, fashion: string, col: string): void {
+  const dark = shade(col, -0.3);
+  switch (slot) {
+    case 'hat':
+      if (fashion === 'fedora' || fashion === 'bowler' || fashion === 'tophat') {
+        shp(c, dark, () => c.ellipse(0, 10, 28, 7, 0, 0, TAU));
+        const top = fashion === 'tophat' ? -26 : -12;
+        shp(c, col, () => { c.moveTo(-14, 10); c.lineTo(-13, top); c.quadraticCurveTo(0, top - (fashion === 'bowler' ? 10 : 2), 13, top); c.lineTo(14, 10); c.closePath(); });
+        fl(c, dark, () => c.rect(-13, 2, 26, 5));
+      } else if (fashion === 'kerchief') {
+        shp(c, col, () => { c.moveTo(-24, 14); c.quadraticCurveTo(-22, -22, 0, -22); c.quadraticCurveTo(22, -22, 24, 14); c.lineTo(0, 24); c.closePath(); });
+        fl(c, 'rgba(255,255,255,0.55)', () => { for (const [x, y] of [[-10, -8], [6, -12], [12, 4], [-4, 6], [-14, 10]]) { c.moveTo(x + 2, y); c.arc(x, y, 2, 0, TAU); } });
+      } else if (fashion === 'flatcap' || fashion === 'beret' || fashion === 'pillbox') {
+        shp(c, col, () => c.ellipse(0, 0, 24, 12, -0.1, 0, TAU));
+        shp(c, dark, () => { c.moveTo(-6, 8); c.quadraticCurveTo(14, 18, 26, 6); c.quadraticCurveTo(14, 10, -6, 4); c.closePath(); });
+      } else {
+        // Вязаная шапка, ушанка: купол с отворотом.
+        shp(c, col, () => { c.moveTo(-20, 10); c.quadraticCurveTo(-20, -22, 0, -22); c.quadraticCurveTo(20, -22, 20, 10); c.closePath(); });
+        shp(c, dark, () => c.roundRect(-22, 4, 44, 12, 4));
+        if (fashion === 'ushanka') { shp(c, col, () => c.roundRect(-26, 8, 9, 18, 4)); shp(c, col, () => c.roundRect(17, 8, 9, 18, 4)); }
+        if (fashion === 'pompom') shp(c, '#ece6d6', () => c.arc(0, -24, 7, 0, TAU));
+      }
+      return;
+    case 'outer': {
+      const bottom = LONG_COATS.has(fashion) ? 28 : 16;
+      shp(c, col, () => { c.moveTo(-10, -24); c.lineTo(10, -24); c.lineTo(24, -14); c.lineTo(24, bottom - 4); c.lineTo(14, bottom); c.lineTo(10, 6); c.lineTo(-10, 6); c.lineTo(-14, bottom); c.lineTo(-24, bottom - 4); c.lineTo(-24, -14); c.closePath(); });
+      if (fashion === 'fur' || fashion === 'camel') shp(c, fashion === 'fur' ? shade(col, 0.15) : '#5a4434', () => { c.moveTo(-12, -26); c.lineTo(12, -26); c.lineTo(4, -8); c.lineTo(-4, -8); c.closePath(); }, 2);
+      else fl(c, shade(col, -0.15), () => { c.moveTo(-10, -24); c.lineTo(0, -10); c.lineTo(10, -24); c.closePath(); });
+      ln(c, [[0, -10], [0, bottom - 2]], 1.6, dark);
+      if (fashion === 'quilted') for (const x of [-16, -8, 8, 16]) ln(c, [[x, -12], [x, bottom - 4]], 1.2, dark);
+      return;
+    }
+    case 'top':
+      if (DRESSES.has(fashion)) {
+        shp(c, col, () => { c.moveTo(-10, -24); c.lineTo(10, -24); c.lineTo(14, -4); c.lineTo(24, 26); c.lineTo(-24, 26); c.lineTo(-14, -4); c.closePath(); });
+        ln(c, [[-14, -4], [14, -4]], 2.4, dark);
+      } else {
+        shp(c, col, () => { c.moveTo(-12, -22); c.lineTo(-22, -14); c.lineTo(-16, -6); c.lineTo(-14, 22); c.lineTo(14, 22); c.lineTo(16, -6); c.lineTo(22, -14); c.lineTo(12, -22); c.quadraticCurveTo(0, -14, -12, -22); c.closePath(); });
+        if (fashion === 'telnyashka') for (const y of [-10, -2, 6, 14]) ln(c, [[-15, y], [15, y]], 2.4, col === '#e2ddd0' ? dark : '#2f3c52');
+        if (fashion === 'argyle') fl(c, '#c9a86a', () => { c.moveTo(0, -6); c.lineTo(6, 2); c.lineTo(0, 10); c.lineTo(-6, 2); c.closePath(); });
+      }
+      return;
+    case 'neck':
+      if (fashion === 'pearls') {
+        for (let k = 0; k < 9; k++) {
+          const a = Math.PI * (k / 8);
+          shp(c, '#efeae0', () => c.arc(-Math.cos(a) * 18, -8 + Math.sin(a) * 18, 3.6, 0, TAU), 1.6);
+        }
+      } else if (fashion === 'tie' || fashion === 'bow') {
+        if (fashion === 'bow') {
+          shp(c, col, () => { c.moveTo(0, 0); c.lineTo(-20, -12); c.lineTo(-20, 12); c.closePath(); c.moveTo(0, 0); c.lineTo(20, -12); c.lineTo(20, 12); c.closePath(); });
+          shp(c, dark, () => c.arc(0, 0, 4, 0, TAU), 2);
+        } else shp(c, col, () => { c.moveTo(-5, -24); c.lineTo(5, -24); c.lineTo(8, 16); c.lineTo(0, 26); c.lineTo(-8, 16); c.closePath(); });
+      } else {
+        shp(c, col, () => c.roundRect(-22, -16, 44, 12, 6));
+        shp(c, col, () => c.roundRect(-16, -8, 11, 32, 3));
+        for (const y of [6, 14]) ln(c, [[-15, y], [-6, y]], 2, shade(col, 0.3));
+      }
+      return;
+    case 'feet':
+      for (const sx of [-1, 1]) shp(c, col, () => { c.moveTo(sx * 4, -18); c.lineTo(sx * 16, -18); c.lineTo(sx * 16, 6); c.lineTo(sx * (fashion === 'shoes' ? 26 : 24), 12); c.lineTo(sx * 4, 14); c.closePath(); });
+      if (fashion === 'shoes') fl(c, 'rgba(255,255,255,0.35)', () => { c.rect(-14, -2, 3, 8); c.rect(11, -2, 3, 8); });
+      return;
+  }
+}
+
+/** #rrggbb светлее (k > 0) или темнее. */
+function shade(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v: number) => Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k));
+  return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
+for (const it of CLOTH_ITEMS) I[it.id] = (c) => clothIcon(c, it.fashion.slot, it.fashion.id, it.color[2]);
+const GHOST: Record<ClothSlot, string> = { hat: 'beanie', outer: 'zip', top: 'tee', neck: 'scarf', feet: 'boots' };
+for (const slot of CLOTH_SLOTS) I[`ghost_${slot}`] = (c) => clothIcon(c, slot, GHOST[slot], '#8b8662');
+
 const ITEM_ICON: Partial<Record<ItemId, string>> = {
   ammo_ar2: 'cell_ar2',
   ammo_357: 'rounds',

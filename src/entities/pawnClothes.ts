@@ -1004,9 +1004,9 @@ function wear(ctx: Ctx, d: PawnDir, C: ClothesLook): void {
 // ——————————————————————————— Голова ———————————————————————————
 
 /** После головы: головной убор и очки. */
-export function clothesHead(ctx: Ctx, d: PawnDir, C: ClothesLook, hx: number): void {
+export function clothesHead(ctx: Ctx, d: PawnDir, C: ClothesLook, hx: number, hat = true): void {
   const col = C.hatColor ?? '#4a4440';
-  switch (C.hat) {
+  switch (hat ? C.hat : undefined) {
     case 'ushanka': ushanka(ctx, d, col, C.hatTrim ?? tint(col, 0.2), hx); break;
     case 'beanie': beanie(ctx, d, col, C.hatTrim, hx, (C.holes ?? 0) > 0); break;
     case 'kerchief': kerchief(ctx, d, col, C.hatTrim, hx); break;

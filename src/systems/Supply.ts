@@ -4,11 +4,21 @@ import type { Vec2 } from '../core/math';
 import type { Rng } from '../core/rng';
 import type { Barge } from './Port';
 import { SUPPLY } from '../config/port';
+import { CLOTHES } from '../config/clothes';
+import { ARBAT } from '../config/arbat';
 import { ITEMS, type ItemId } from '../config/items';
 import { LOYALTY } from '../config/loyalty';
 import { adjustLoyalty } from './Loyalty';
 
 /** Ящик товара: что и сколько штук. */
+/** Вещи ателье, которые привозят баржи (ассортимент обоих ателье без повторов). */
+const CLOTHES_POOL: readonly ItemId[] = [...new Set(Object.keys(CLOTHES.shops).flatMap((sub) => ARBAT.stock[sub] ?? []))];
+
+/** Штук товара в одном ящике. */
+function crateSize(id: ItemId): number {
+  return SUPPLY.crate[id] ?? (ITEMS[id].gear?.cloth ? CLOTHES.supply.crate : 1);
+}
+
 export interface Crate {
   item: ItemId;
   qty: number;
@@ -105,6 +115,7 @@ export class SupplySystem {
     this.waitSpot = this.docks[0] ? this.docks[Math.min(1, this.docks.length - 1)].spot : q ? anchor((q.x + q.w! / 2) * ts, (q.y + q.h! / 2) * ts, 4) : null;
     const W = SUPPLY.warehouse;
     for (const [id] of SUPPLY.manifest) this.stock.set(id, (SUPPLY.crate[id] ?? 1) * (id === 'ration' ? W.startRations : W.start));
+    for (const id of CLOTHES_POOL) this.stock.set(id, CLOTHES.supply.start);
   }
 
   get now(): number {
@@ -123,12 +134,12 @@ export class SupplySystem {
 
   /** Предел склада по товару (штук). */
   cap(id: ItemId): number {
-    return (SUPPLY.crate[id] ?? 1) * SUPPLY.warehouse.crates;
+    return crateSize(id) * SUPPLY.warehouse.crates;
   }
 
   /** Ящиков товара на складе (вверх) — для отрисовки штабелей. */
   crateCount(id: ItemId): number {
-    return Math.ceil(this.count(id) / (SUPPLY.crate[id] ?? 1));
+    return Math.ceil(this.count(id) / crateSize(id));
   }
 
   /** Положить на склад (предел мягкий: докеры не грузят товар, которого на складе под завязку, — привезённое кладут). */
@@ -232,8 +243,17 @@ export class SupplySystem {
   // ——— Баржи ———
 
   private crate(): Crate {
-    const total = SUPPLY.manifest.reduce((s, [, w]) => s + w, 0);
+    const total = SUPPLY.manifest.reduce((s, [, w]) => s + w, 0) + (CLOTHES_POOL.length ? CLOTHES.supply.weight : 0);
     let r = this.rng.next() * total;
+    // Ящик одежды: вещь из ассортимента ателье — та, которой на складе меньше всего (из нескольких наугад).
+    if (r >= total - (CLOTHES_POOL.length ? CLOTHES.supply.weight : 0)) {
+      let id = this.rng.pick(CLOTHES_POOL);
+      for (let k = 1; k < 3; k++) {
+        const o = this.rng.pick(CLOTHES_POOL);
+        if (this.count(o) < this.count(id)) id = o;
+      }
+      return { item: id, qty: crateSize(id) };
+    }
     let id = SUPPLY.manifest[0][0];
     for (const [m, w] of SUPPLY.manifest) {
       r -= w;
@@ -242,7 +262,7 @@ export class SupplySystem {
         break;
       }
     }
-    return { item: id, qty: SUPPLY.crate[id] ?? 1 };
+    return { item: id, qty: crateSize(id) };
   }
 
   private cargo(): Crate[] {

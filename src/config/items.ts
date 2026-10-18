@@ -1,3 +1,5 @@
+import { CLOTH_ITEMS, CLOTHES, type ClothSlot, type ClothTier, type ClothesLook } from './clothes';
+
 /** Предметы, оружие и боеприпасы. Цены — в токенах (undefined — в магазине не продаётся). */
 export type AmmoType = 'pistol' | 'smg' | 'ar2' | 'magnum' | 'buckshot' | 'bolt' | 'r556' | 'r545' | 'r338' | 'rocket';
 export type WeaponId =
@@ -37,12 +39,20 @@ export type ItemId =
   | GearId
   | WeaponId;
 
-/** Снаряжение, которое можно надеть (слоты пешки в инвентаре). */
-export type GearId = 'helmet' | 'helmet_cp' | 'vest' | 'plate_vest' | 'backpack' | 'coat' | 'cap';
-/** Куда надевается: голова, корпус, спина. */
-export type GearSlot = 'head' | 'torso' | 'back';
+/** Вещь одежды из каталога (config/clothes.ts): `cl_<фасон>_<цвет>`. */
+export type ClothId = `cl_${string}`;
+/** Снаряжение, которое можно надеть (слоты пешки в инвентаре); плащ и кепка — тоже одежда. */
+export type GearId = 'helmet' | 'helmet_cp' | 'vest' | 'plate_vest' | 'backpack' | 'coat' | 'cap' | ClothId;
+/**
+ * Куда надевается: броня — голова, корпус; спина — рюкзак; одежда — убор, верх, низ, шея, обувь (ClothSlot). Броня
+ * надевается поверх одежды.
+ */
+export type GearSlot = 'head' | 'torso' | 'back' | ClothSlot;
 export interface GearDef {
   slot: GearSlot;
+  /** Одежда: что вещь даёт комплекту пешки (ClothesLook) и достаток (цена, ателье, кто носит). */
+  cloth?: Partial<ClothesLook>;
+  tier?: ClothTier;
   /** Броня зоны (0..1): надетое заменяет форму роли, если крепче. */
   head?: number;
   torso?: number;
@@ -267,8 +277,8 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   plate_vest: { id: 'plate_vest', name: 'Плитник', desc: 'Бронежилет с пластинами: крепче, но редкость.', kind: 'gear', stack: 1, price: 110, gear: { slot: 'torso', torso: 0.55, color: '#5d6b3a', worn: 'плитнике' } },
   backpack: { id: 'backpack', name: 'Рюкзак', desc: 'Больше места: +4 ячейки инвентаря, пока надет.', kind: 'gear', stack: 1, price: 40, gear: { slot: 'back', capacity: 4, color: '#5a6238' } },
   // Одежда без брони: по ней свидетели и ВС узнают вас в ориентировке. Плащ занимает место бронежилета.
-  coat: { id: 'coat', name: 'Плащ', desc: 'Длинный плащ. Брони не даёт, но по нему узнают в ориентировке. Занимает место бронежилета.', kind: 'gear', stack: 1, price: 25, gear: { slot: 'torso', color: '#6a5a46', worn: 'плаще' } },
-  cap: { id: 'cap', name: 'Кепка', desc: 'Кепка. Брони не даёт, но по ней узнают в ориентировке.', kind: 'gear', stack: 1, price: 10, gear: { slot: 'head', color: '#3b4048', worn: 'кепке' } },
+  coat: { id: 'coat', name: 'Плащ', desc: 'Длинный плащ. Брони не даёт, но по нему узнают в ориентировке. Надевается под бронежилет.', kind: 'gear', stack: 1, price: 25, gear: { slot: 'outer', color: '#6a5a46', worn: 'плаще', tier: 'middle', cloth: { outer: 'trench', outerColor: '#6a5a46' } } },
+  cap: { id: 'cap', name: 'Кепка', desc: 'Кепка. Брони не даёт, но по ней узнают в ориентировке.', kind: 'gear', stack: 1, price: 10, gear: { slot: 'hat', color: '#3b4048', worn: 'кепке', tier: 'middle', cloth: { hat: 'flatcap', hatColor: '#3b4048' } } },
   lockpick: { id: 'lockpick', name: 'Отмычка', desc: 'Для взлома раздатчика рационов (вор). Ломается.', kind: 'tool', stack: 5 },
   grenade: { id: 'grenade', name: 'Осколочная граната', desc: 'T — бросить к курсору (взрыв через 2 с), Y — сменить гранату.', kind: 'misc', stack: 3 },
   smoke_grenade: { id: 'smoke_grenade', name: 'Дымовая граната', desc: 'Дымовая завеса: сквозь неё не видно (пули летят).', kind: 'misc', stack: 3 },
@@ -306,6 +316,21 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   rebel_pistol: { id: 'rebel_pistol', name: 'Самодельный пистолет', desc: 'Оружие сопротивления.', kind: 'weapon', stack: 1 },
   rebel_smg: { id: 'rebel_smg', name: 'Трофейный MP7', desc: 'Отбит у ВС.', kind: 'weapon', stack: 1 },
 };
+
+// Одежда каталога — предметы `cl_<фасон>_<цвет>` (надеваются в слоты одежды, продаются в ателье).
+for (const it of CLOTH_ITEMS) {
+  const f = it.fashion;
+  const who = f.who === 'f' ? ' Женское.' : f.who === 'm' ? ' Мужское.' : '';
+  ITEMS[it.id] = {
+    id: it.id,
+    name: `${f.name} · ${it.color[1]}`,
+    desc: `${CLOTHES.tierWord[f.tier][0].toUpperCase()}${CLOTHES.tierWord[f.tier].slice(1)}.${who} По одежде узнают в ориентировке; броня надевается поверх.`,
+    kind: 'gear',
+    stack: 1,
+    price: f.price,
+    gear: { slot: f.slot, color: it.color[2], worn: f.worn, tier: f.tier, cloth: it.piece },
+  };
+}
 
 export const AMMO_ITEM: Record<AmmoType, ItemId> = {
   pistol: 'ammo_pistol', smg: 'ammo_smg', ar2: 'ammo_ar2', magnum: 'ammo_357', buckshot: 'ammo_buckshot', bolt: 'ammo_bolt',

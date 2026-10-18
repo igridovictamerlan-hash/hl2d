@@ -1,3 +1,4 @@
+import type { Wardrobe } from '../systems/Wardrobe';
 import type { Senses } from '../systems/Senses';
 import type { Suspects } from '../systems/Suspects';
 import type { Escalation } from '../systems/Escalation';
@@ -115,6 +116,8 @@ export interface AiContext {
   port: PortSystem | null;
   supply: SupplySystem;
   /** Жильё: свой дом у каждого жителя, явки подполья с тайниками. */
+  /** Гардероб горожан: одежда по достатку дома (systems/Wardrobe). */
+  wardrobe?: Wardrobe;
   housing: Housing;
   /** Барыга — чёрный рынок в хате у запретной зоны. */
   fence: Fence;

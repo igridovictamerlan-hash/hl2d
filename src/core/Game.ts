@@ -1,3 +1,4 @@
+import { Wardrobe } from '../systems/Wardrobe';
 import { EventBus } from './EventBus';
 import { Camera, type View } from './Camera';
 import { Input } from './Input';
@@ -511,6 +512,7 @@ export class Game {
     this.ai.shops = new StreetShops(this.ai);
     this.ai.supply = new SupplySystem(this.ai);
     this.ai.housing = new Housing(this.ai);
+    this.ai.wardrobe = new Wardrobe(this.ai);
     this.ai.fence = new Fence(this.ai);
     this.ai.gangs = new GangSystem(this.ai);
     this.ai.brawls = new Brawls(this.ai);
@@ -668,6 +670,8 @@ export class Game {
       if (d && announce && !underground) this.ai.relations.seedPlayer(p);
       if (d && announce) this.bus.emit('log', { text: underground ? 'Ваша явка в городе отмечена на карте (M): E в комнате — спрятать добычу или взять из тайника.' : 'Ваш дом отмечен на карте (M) кружком.', kind: 'system' });
     }
+    // Горожанин — в одежде по достатку своего дома (переодеться — в ателье, Tab — надеть купленное).
+    this.ai.wardrobe?.dress(p);
     if (announce) {
       const r = rankOf(faction, rank);
       const div = p.division ? ` · ${CP_DIVISIONS[p.division].name}` : '';

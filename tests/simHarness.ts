@@ -1,3 +1,4 @@
+import { Wardrobe } from '../src/systems/Wardrobe';
 import { resetCids } from '../src/entities/factory';
 import { resetPhrases } from '../src/systems/phrases';
 import { generateCity } from '../src/world/generator/CityGenerator';
@@ -178,6 +179,7 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   ctx.port = new PortSystem(map, map.seed);
   ctx.supply = new SupplySystem(ctx);
   ctx.housing = new Housing(ctx);
+  ctx.wardrobe = new Wardrobe(ctx);
   ctx.fence = new Fence(ctx);
   ctx.gangs = new GangSystem(ctx);
   ctx.brawls = new Brawls(ctx);

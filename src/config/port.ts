@@ -38,11 +38,11 @@ export const SUPPLY = {
   manifest: [
     ['ration', 34], ['provisions', 12], ['bread', 12], ['water', 10], ['canned', 5], ['cigarettes', 7],
     ['bandage', 5], ['medkit', 3], ['newspaper', 4], ['soap', 3], ['flowers', 2], ['toolkit', 1],
-    ['coat', 1], ['cap', 1],
   ] as [ItemId, number][],
+  // Ящик одежды — отдельно (CLOTHES.supply: вес, штук в ящике): вещь из ассортимента ателье.
   crate: {
     ration: 10, provisions: 6, bread: 8, water: 10, canned: 6, cigarettes: 10, bandage: 6, medkit: 3,
-    newspaper: 10, soap: 6, flowers: 6, toolkit: 2, coat: 2, cap: 3,
+    newspaper: 10, soap: 6, flowers: 6, toolkit: 2,
   } as Partial<Record<ItemId, number>>,
   /** Склад штаба ТС: на товар не больше crates ящиков (лишнее ждёт на набережной); при старте — start ящиков. */
   warehouse: { crates: 8, start: 2, startRations: 5 },

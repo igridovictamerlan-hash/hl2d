@@ -2,6 +2,65 @@ import type { Character } from '../entities/Character';
 import type { Stack } from '../entities/Inventory';
 import { ITEMS, type GearId, type GearSlot, type ItemId } from '../config/items';
 import { ECONOMY } from '../config/economy';
+import { CLOTHES, CLOTH_SLOTS, type ClothSlot, type ClothesLook, type ClothTier } from '../config/clothes';
+
+const TIERS: readonly ClothTier[] = ['poor', 'middle', 'rich'];
+/** Порядок сборки комплекта: низ, верх, шея, убор, обувь (поношенность — от верха поверх низа). */
+const ORDER: readonly ClothSlot[] = ['top', 'outer', 'neck', 'hat', 'feet'];
+
+/** Вещь одежды (не броня и не рюкзак). */
+export function isCloth(id: ItemId): boolean {
+  const s = ITEMS[id]?.gear?.slot;
+  return !!s && (CLOTH_SLOTS as readonly string[]).includes(s);
+}
+
+/**
+ * Комплект пешки из надетой одежды (низ и/или верх; без них — undefined: одежда фракции). Достаток комплекта — по
+ * низу, иначе по верху. Поношенность складывается (заплаты, дыры, пятна — что больше).
+ */
+export function clothesOf(gear: Character['gear']): ClothesLook | undefined {
+  if (!gear.top && !gear.outer) return undefined;
+  const base = (gear.top ?? gear.outer)!;
+  const look: ClothesLook = { tier: ITEMS[base].gear?.tier ?? 'middle', top: 'tee', topColor: CLOTHES.defaultTop };
+  for (const slot of ORDER) {
+    const id = gear[slot];
+    const piece = id ? ITEMS[id].gear?.cloth : undefined;
+    if (!piece) continue;
+    const { patches, holes, stains, ...rest } = piece;
+    Object.assign(look, rest);
+    if (patches) look.patches = [...(look.patches ?? []), ...patches];
+    if (holes) look.holes = Math.max(look.holes ?? 0, holes);
+    if (stains) look.stains = Math.max(look.stains ?? 0, stains);
+  }
+  return look;
+}
+
+/** Пересобрать комплект пешки после смены одежды (Character.clothes и ключ кэша спрайтов). */
+export function refreshClothes(c: Character): void {
+  c.clothes = clothesOf(c.gear) ?? null;
+  c.clothesKey = c.clothes ? CLOTH_SLOTS.map((s) => c.gear[s] ?? '').join('|') : '';
+}
+
+/** Надеть вещь без инвентаря (заселение, покупка NPC): прежняя в этом слоте выброшена. */
+export function dressIn(c: Character, id: GearId): void {
+  const g = ITEMS[id].gear;
+  if (!g) return;
+  c.gear[g.slot] = id;
+  if (g.slot === 'top' || g.slot === 'outer' || g.slot === 'torso') c.bloodyUntil = 0;
+  refreshClothes(c);
+  // В деле роли — возродится в том же.
+  if (c.role) c.role.outfit = CLOTH_SLOTS.map((s) => c.gear[s]).filter((x): x is GearId => !!x);
+}
+
+/** Носит ли NPC гражданскую одежду (горожанин без своей одежды профессии). */
+export function wearsClothes(c: Character): boolean {
+  return c.faction === 'citizen' && (!c.profession || CLOTHES.npc.professions.includes(c.profession));
+}
+
+/** Достаток вещи: 0 — бедное, 1 — среднее, 2 — богатое. */
+export function tierRank(t: ClothTier | undefined): number {
+  return Math.max(0, TIERS.indexOf(t ?? 'middle'));
+}
 
 /**
  * Снаряжение: шлем, бронежилет, рюкзак надеваются из инвентаря в слоты пешки (Character.gear) и
@@ -49,7 +108,8 @@ export function wear(c: Character, id: GearId): string | null {
     return 'Некуда убрать то, что надето сейчас.';
   }
   // Свежая одежда на корпус: кровь с прежней смыта (Character.bloodyUntil — по часам закона).
-  if (g.slot === 'torso') c.bloodyUntil = 0;
+  if (g.slot === 'torso' || g.slot === 'top' || g.slot === 'outer') c.bloodyUntil = 0;
+  refreshClothes(c);
   return null;
 }
 
@@ -65,6 +125,7 @@ export function takeOff(c: Character, slot: GearSlot): string | null {
   }
   c.inventory.capacity = cap;
   c.inventory.add(id, 1);
+  refreshClothes(c);
   return null;
 }
 
@@ -74,5 +135,6 @@ export function gearLoot(c: Character): Stack[] {
   for (const id of Object.values(c.gear)) if (id) out.push({ id, qty: 1 });
   c.gear = {};
   c.inventory.capacity = ECONOMY.inventorySlots;
+  refreshClothes(c);
   return out;
 }

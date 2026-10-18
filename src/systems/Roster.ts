@@ -9,6 +9,8 @@ import { AI } from '../config/ai';
 import { WAR } from '../config/war';
 import { createCharacter } from '../entities/factory';
 import { equipKit, poiWorld } from './Population';
+import { dressIn } from './Gear';
+import { ITEMS, type GearId } from '../config/items';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
@@ -60,6 +62,8 @@ export interface RoleSpec {
   gang?: number;
   /** Номер человека (Character.pid): возрождённый — тот же, по нему помнят знакомства и характер. */
   pid?: number;
+  /** Одежда (вещи каталога в слотах одежды): возрождается в ней же (Wardrobe, Gear.dressIn). */
+  outfit?: GearId[];
   /** Часовой / RCT проходной / медик КПП: фронт, пост и взгляд, место медика. */
   front?: number;
   post?: Vec2;
@@ -166,6 +170,7 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   c.facing = spec.facing ?? ctx.rng.range(0, Math.PI * 2);
   c.hunger = ctx.rng.range(40, 100);
   equipKit(c, spec.kit, ctx);
+  for (const id of spec.outfit ?? []) if (ITEMS[id]?.gear) dressIn(c, id);
   // Жители оружие на виду не носят (бандит достаёт ствол только для грабежа).
   if (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'trader' || spec.kind === 'gang') ctx.combat.equip(c, null);
   // ВС — здоровье по юниту (RCT.PCU 75 … CMD.EPU 200), остальные — по профессии.
@@ -283,6 +288,7 @@ export function newcomer(ctx: AiContext): Character | null {
   c.loyalty = loyalty;
   const d = ctx.housing?.house(c, null);
   if (d && c.role) c.role.home = c.home;
+  ctx.wardrobe?.dress(c);
   return c;
 }
 

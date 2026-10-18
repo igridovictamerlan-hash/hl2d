@@ -139,7 +139,7 @@ describe('банды', () => {
     // Патрульный — рядом с командой (по дороге через район их может остановить другой патруль), но не у самой
     // общаги: там банда ВС не трогает (GANGS.ops.hit.homeClear).
     const lead = op.team[0];
-    const clear = GANGS.ops.hit.homeClear + 40;
+    const clear = GANGS.ops.hit.homeClear + 120;
     let near = -1;
     let bestD = Infinity;
     for (const a of g.anchors) {
@@ -153,8 +153,12 @@ describe('банды', () => {
       cp.x = cp.prevX = sim.nav.worldX(near);
       cp.y = cp.prevY = sim.nav.worldY(near);
     }
+    // Патрульный стоит, где поставили: сам он может уйти к общаге, а там банда его не тронет.
+    const [px, py] = [cp.x, cp.y];
     let attacked = false;
     for (let t = 0; t < 120 * 60 && !attacked; t++) {
+      cp.x = cp.prevX = px;
+      cp.y = cp.prevY = py;
       sim.step();
       attacked = op.team.some((c) => c.hostile);
     }

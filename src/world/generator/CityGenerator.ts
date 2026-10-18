@@ -487,6 +487,7 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     plazaCenter: pc,
     addZone: (kind, name) => (kind === 'shop' && name === ZONE_NAMES.shop ? zShop : addZone(kind, name, null)),
     pois,
+    upperX: layout.upperX + G.wealth.wall,
   });
   const decor = rng.fork(13);
   // От проходных западных КПП до восточного конца проспектов.

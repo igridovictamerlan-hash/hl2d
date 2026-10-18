@@ -3,7 +3,7 @@ import type { FactionId, DivisionId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import type { Stack } from '../entities/Inventory';
 import type { ItemId, WeaponId, GearId, GearSlot } from '../config/items';
-import { capacityOf } from './Gear';
+import { capacityOf, refreshClothes } from './Gear';
 import { ITEMS, WEAPONS } from '../config/items';
 import type { CadetRecord } from '../config/academy';
 import { FACTIONS } from '../config/factions';
@@ -111,9 +111,12 @@ export function applyToPlayer(p: Character, d: SaveData): void {
   p.inventory.clear();
   // Снаряжение — до вещей: рюкзак добавляет ячейки.
   p.gear = {};
-  for (const [slot, id] of Object.entries(d.gear ?? {}) as [GearSlot, GearId][]) {
-    if (id in ITEMS && ITEMS[id].gear?.slot === slot) p.gear[slot] = id;
+  for (const [, id] of Object.entries(d.gear ?? {}) as [GearSlot, GearId][]) {
+    // Слот — по предмету: плащ и кепка из старых сохранений (были на месте брони) переходят в слоты одежды.
+    const slot = id in ITEMS ? ITEMS[id].gear?.slot : undefined;
+    if (slot && !p.gear[slot]) p.gear[slot] = id;
   }
+  refreshClothes(p);
   p.inventory.capacity = capacityOf(p);
   for (const s of d.inventory) p.inventory.add(s.id as ItemId, s.qty);
   p.mags = { ...(d.mags ?? {}) };

@@ -1,11 +1,12 @@
 import type { ItemId } from './items';
+import { atelierStock } from './clothes';
 
 /**
  * Главный проспект — улица старого города: лавки, кафе, общая столовая, ларьки. Здесь — каталог
  * (названия зон для баннера, вывески на фасадах). Геометрия — GENERATOR.avenue/facades.
  */
 
-export type ShopId = 'cwu' | 'tobacco' | 'pharmacy' | 'hardware' | 'bakery' | 'tailor';
+export type ShopId = 'cwu' | 'tobacco' | 'pharmacy' | 'hardware' | 'bakery' | 'tailor' | 'tailor_up';
 export type CafeId = 'cafe' | 'coffee';
 export type KioskId = 'press' | 'water' | 'smokes' | 'flowers';
 
@@ -25,7 +26,14 @@ export const ARBAT = {
     { id: 'pharmacy', name: 'Аптека', sign: 'АПТЕКА' },
     { id: 'bakery', name: 'Булочная', sign: 'ХЛЕБ' },
     { id: 'hardware', name: 'Хозтовары', sign: 'ХОЗТОВАРЫ' },
-    { id: 'tailor', name: 'Ателье', sign: 'АТЕЛЬЕ' },
+    { id: 'tailor', name: 'Ателье «Старый город»', sign: 'АТЕЛЬЕ' },
+  ] as readonly ShopDef<ShopId>[],
+  /**
+   * Лавки Верхнего города (за стеной Протектората): ставятся на главном проспекте за стеной (иначе — на любой улице
+   * Верхнего города), ближе к блок-посту.
+   */
+  upperShops: [
+    { id: 'tailor_up', name: 'Салон одежды «Верхний город»', sign: 'САЛОН' },
   ] as readonly ShopDef<ShopId>[],
   cafes: [
     { id: 'cafe', name: 'Кафе «Старый город»', sign: 'КАФЕ' },
@@ -47,7 +55,9 @@ export const ARBAT = {
     pharmacy: ['bandage', 'medkit', 'soap'],
     bakery: ['bread', 'water'],
     hardware: ['toolkit', 'soap'],
-    tailor: ['coat', 'cap'],
+    // Ателье — одежда из каталога (config/clothes.ts: фасоны своего достатка, первые цвета); плащ и кепка — в центре.
+    tailor: ['coat', 'cap', ...atelierStock('tailor')],
+    tailor_up: atelierStock('tailor_up'),
     cafe: ['water', 'bread'],
     coffee: ['water', 'bread'],
     press: ['newspaper'],

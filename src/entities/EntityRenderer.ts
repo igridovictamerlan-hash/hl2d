@@ -73,7 +73,10 @@ export class EntityRenderer {
     const loyalist = isLoyalistUniform(c);
     const fam = !c.disguised ? this.families?.of(c) ?? null : null;
     const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
-    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso') };
+    // Гражданская одежда — только у того, кто выглядит горожанином; лоялиста в ней узнают по фиолетовой повязке.
+    const dressed = c.clothes && faction === 'citizen' ? c.clothes : null;
+    const band = gang?.def.color ?? (dressed && loyalist ? LOYALTY.uniform.color : fam?.color);
+    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, clothesKey: dressed ? c.clothesKey : undefined };
   }
 
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {

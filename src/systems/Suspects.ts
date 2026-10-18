@@ -210,8 +210,9 @@ export class Suspects {
     return {
       side,
       female: female(c),
-      torso: c.gear.torso ?? `form:${prof ?? fac}`,
-      head: c.gear.head ?? 'none',
+      // Видно сверху вниз: бронежилет поверх верха, верх поверх низа; шлем вместо убора.
+      torso: c.gear.torso ?? c.gear.outer ?? c.gear.top ?? `form:${prof ?? fac}`,
+      head: c.gear.head ?? c.gear.hat ?? 'none',
       band: gang?.def.color ?? fam?.color ?? '',
       weapon: w && w.class !== 'melee' ? w.class : null,
       bloody: c.bloodyUntil > this.now,

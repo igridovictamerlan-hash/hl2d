@@ -2,7 +2,7 @@ import type { View } from '../core/Camera';
 import type { PortSystem } from '../systems/Port';
 import type { SupplySystem } from '../systems/Supply';
 import type { StreetShop } from '../systems/StreetShops';
-import type { ItemId } from '../config/items';
+import { ITEMS, type ItemId } from '../config/items';
 import { PORT_LOOK as L, SUPPLY, SUPPLY_LOOK as G } from '../config/port';
 import { ARBAT } from '../config/arbat';
 
@@ -170,10 +170,22 @@ function crate(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, t
   ctx.fillRect(x - 1.6 * s, y - 1.2 * s, 3.2 * s, 2.4 * s);
 }
 
+const clothGoods = new Map<ItemId, [string, 'cloth'] | null>();
+/** Вещь из ателье на вешалке — цветом вещи (кэш, без выделения памяти на кадр). */
+function clothGood(id: ItemId): [string, 'cloth'] | null {
+  let g = clothGoods.get(id);
+  if (g === undefined) {
+    const gear = ITEMS[id]?.gear;
+    g = gear?.cloth && gear.color ? [gear.color, 'cloth'] : null;
+    clothGoods.set(id, g);
+  }
+  return g;
+}
+
 /** Одна штука товара на полке (мелко, по форме и цвету товара). */
 function good(ctx: CanvasRenderingContext2D, x: number, y: number, s0: number, id: ItemId): void {
   const s = s0 * G.glyph;
-  const g = G.goods[id];
+  const g = G.goods[id] ?? clothGood(id);
   if (!g) return;
   const [color, shape] = g;
   ctx.fillStyle = color;

@@ -193,7 +193,7 @@ export class EffectsRenderer {
       ctx.translate(x + ox, y + oy + pivot);
       ctx.rotate((seed % 2 ? Math.PI / 2 : -Math.PI / 2) * (e + FALL.bounce * Math.sin(f * Math.PI)));
       ctx.globalAlpha = PAWN.corpseAlpha;
-      drawPawnCached(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession }, 0, -2 * s * e - pivot, s * PAWN.scale, 'S');
+      drawPawnCached(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession, clothes: c.dressed?.clothes, clothesKey: c.dressed?.clothesKey }, 0, -2 * s * e - pivot, s * PAWN.scale, 'S');
       ctx.restore();
       ctx.globalAlpha = 1;
       if (c.loot.length) {

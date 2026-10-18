@@ -81,14 +81,18 @@ export class ShopPanel {
     this.el.classList.toggle('black', kind === 'black');
     if (kind === 'cwu' || kind === 'street') {
       this.title.textContent = kind === 'street' && street ? street.name.toUpperCase() : 'МАГАЗИН ТС';
-      this.list.innerHTML = (kind === 'street' && street ? street.stock : ECONOMY.shop.stock)
+      // Лавка проспекта — что лежит на полках (в ателье — только то, что висит сейчас: вещей много).
+      const atelier = !!street && street.stock.some((id) => ITEMS[id].gear?.cloth);
+      const ids = kind === 'street' && street ? street.stock.filter((id) => !atelier || (street.shelf.get(id) ?? 0) > 0) : ECONOMY.shop.stock;
+      this.list.innerHTML = ids
         .map((id) => {
           const d = ITEMS[id];
           const price = this.h.price(id) ?? d.price;
           const sale = price !== d.price ? ` <s>${d.price}</s>` : '';
-          return `<div class="inv-row"><div><b>${d.name}</b><div class="inv-desc">${d.desc}</div></div><button data-buy="${id}">${price}${sale} ток.</button></div>`;
+          const left = kind === 'street' && street ? ` · на полке ${street.shelf.get(id) ?? 0}` : '';
+          return `<div class="inv-row"><div><b>${d.name}</b><div class="inv-desc">${d.desc}${left}</div></div><button data-buy="${id}">${price}${sale} ток.</button></div>`;
         })
-        .join('');
+        .join('') || '<div class="inv-desc">Полки пусты — ждут привоза со склада ТС.</div>';
     } else {
       this.title.textContent = 'БАРЫГА · ЧЁРНЫЙ РЫНОК';
       this.list.innerHTML = ECONOMY.blackMarket.stock

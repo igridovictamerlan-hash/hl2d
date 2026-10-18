@@ -646,6 +646,9 @@ describe('блиндаж: вылазка Протектората, разруш�
     const D = sim.war.dugouts;
     const d = D.of(0)!;
     sim.war.command.paused = true;
+    // Армии нет — как в тесте выше: иначе легионеры по дороге мимо лагеря ввязываются в бой с ним.
+    sim.roster.paused = true;
+    for (const c of sim.war.command.army) if (c.alive) sim.combat.kill(c, null, 'тест');
     run(sim, 2);
     d.nextSortie = 0;
     // Ждём, пока легионеры начнут закладку; тогда рядом оказывается повстанец.

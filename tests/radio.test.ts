@@ -100,19 +100,32 @@ describe('рация: вызов и выезд', () => {
     const sim = city();
     run(sim, 2);
     const R = sim.ctx.radio;
-    const reporter = freeUnit(sim);
-    const p = spotFrom(sim, reporter, 600);
-    const inc = R.report('shots', p.x, p.y, { reporter, what: 'выстрелы в квартале' })!;
-    expect(inc).toBeTruthy();
-    expect(inc.where.length).toBeGreaterThan(3);
-    // Послали ближайших (доложивший тоже идёт — молча).
-    const sent = inc.responders.filter((c) => c !== reporter);
-    expect(sent.length).toBeGreaterThan(0);
-    const u = sent[0];
-    expect((u.brain as CpBrain).call?.id).toBe(inc.id);
-    // Эфир: доклад доложившего, потом вызов Надзора с местом и позывными, потом «принял».
-    // Частота одна, и фоновые передачи города идут впереди очереди — ждём, пока дойдёт до нашего вызова.
-    expect(run(sim, 45, () => said(sim, reporter).length > 0 && said(sim, null).some((t) => t.includes(u.name)) && said(sim, u).length > 0)).toBe(true);
+    // Частота одна, и фоновые передачи города идут впереди очереди — ждём, пока дойдёт до нашего вызова. В живом
+    // городе дело могут закрыть раньше, чем доклад выйдет в эфир (с ним слилась погоня рядом и беглеца взяли), —
+    // тогда новый вызов.
+    let reporter!: Character;
+    let inc!: ReturnType<typeof R.report> & object;
+    let u!: Character;
+    const aired = () => {
+      const f = R.feed;
+      const i = f.findIndex((t) => t.from === null && t.text.includes(inc.where) && t.text.includes(u.name));
+      return i >= 0 && f.some((t) => t.from === reporter && t.text.includes(inc.where)) && f.slice(i + 1).some((t) => t.from === u);
+    };
+    for (let k = 0; k < 3; k++) {
+      reporter = freeUnit(sim);
+      const p = spotFrom(sim, reporter, 600);
+      inc = R.report('shots', p.x, p.y, { reporter, what: 'выстрелы в квартале' })!;
+      expect(inc).toBeTruthy();
+      expect(inc.where.length).toBeGreaterThan(3);
+      // Послали ближайших (доложивший тоже идёт — молча).
+      const sent = inc.responders.filter((c) => c !== reporter);
+      expect(sent.length).toBeGreaterThan(0);
+      u = sent[0];
+      expect((u.brain as CpBrain).call?.id).toBe(inc.id);
+      // Эфир: доклад доложившего, потом вызов Надзора с местом и позывными, потом «принял».
+      if (run(sim, 45, () => aired() || inc.closed) && !inc.closed) break;
+    }
+    expect(aired()).toBe(true);
     const rep = said(sim, reporter);
     expect(rep.some((t) => t.includes(inc.where))).toBe(true);
     const nad = said(sim, null);

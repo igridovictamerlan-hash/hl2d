@@ -19,10 +19,16 @@ import { HOODS } from '../config/crowd';
 import { LABOR } from '../config/labor';
 import { CWU_HQ } from '../config/cwuHq';
 import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
+import { refreshClothes } from './Gear';
+import { CLOTH_SLOTS } from '../config/clothes';
 
 /** Выдать набор предметов роли; первое оружие из набора — в руки, магазин заряжен. */
 export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat'>): void {
-  c.gear = {};
+  // Снаряжение (броня, рюкзак) снимается, одежда остаётся на человеке (видна, пока он выглядит горожанином).
+  const kept: Character['gear'] = {};
+  for (const s of CLOTH_SLOTS) if (c.gear[s]) kept[s] = c.gear[s];
+  c.gear = kept;
+  refreshClothes(c);
   c.inventory.capacity = ECONOMY.inventorySlots;
   c.inventory.clear();
   c.weapon = null;
@@ -314,6 +320,8 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
   if (ctx.cwuHq) ctx.cwuHq.citizensAtStart = ctx.entities.list.filter((c) => c.faction === 'citizen').length;
   // Приток жителей: граждан меньше, чем было в начале (ушли в академию, в ТС, к повстанцам) — приезжают новые.
   if (ctx.roster) ctx.roster.baseline = ctx.entities.list.filter((c) => !c.isPlayer && c.faction === 'citizen' && c.role?.kind === 'citizen').length;
+  // Одежда по достатку дома (свой поток случайности).
+  ctx.wardrobe?.dressAll();
   // Живые люди: знакомства, дружба и вражда с первой минуты (семьи, соседи, банды, сослуживцы, товарищи).
   ctx.relations?.seed();
 }

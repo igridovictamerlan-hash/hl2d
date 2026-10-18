@@ -154,7 +154,10 @@ describe('командование сопротивления', () => {
     expect(cmd.stats.broken).toBe(1);
     expect(cmd.nextOffensive).toBeGreaterThan(cmd.now + WAR.offensive.interval[0] - 5);
     const alive = cmd.army.filter((c) => c.alive);
-    expect(alive.every((c) => ['retreat', 'camp'].includes((c.brain as RebelBrain).mode))).toBe(true);
+    // Отходят все, кроме разведки: между наступлениями к КПП снова ходят до COMMAND.scouts (как в начале теста).
+    const out = alive.filter((c) => !['retreat', 'camp'].includes((c.brain as RebelBrain).mode));
+    expect(out.length).toBeLessThanOrEqual(COMMAND.scouts);
+    expect(out.every((c) => (c.brain as RebelBrain).mode === 'raid')).toBe(true);
   });
 
   test('клич главы: бойцы рядом идут за ним на штурм', { timeout: 60_000 }, () => {

@@ -27,8 +27,9 @@ export interface PawnLook {
   /** Надетые шлем и бронежилет (systems/Gear): цвет; поверх гражданской одежды. */
   helmet?: string;
   vest?: string;
-  /** Гражданская одежда по достатку (config/clothes.ts) — вместо одежды фракции. */
-  clothes?: ClothesLook;
+  /** Гражданская одежда по достатку (config/clothes.ts) — вместо одежды фракции; ключ — для кэша спрайтов. */
+  clothes?: ClothesLook | null;
+  clothesKey?: string;
 }
 
 type Outfit = Record<string, string | boolean | number>;
@@ -205,6 +206,17 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
     if (hairOn && d !== 'N') backHair(ctx, d, style, hair, hx);
     if (hairOn && style === 'bun' && !C.hat) bun(ctx, hair, hx);
     clothedBody(ctx, d, C, skin, look.band);
+    // Надетый бронежилет — поверх одежды (пластины внутри контура туловища и наплечники).
+    if (look.vest) {
+      ctx.save();
+      bodyPath(ctx, d);
+      ctx.clip();
+      clothes(ctx, d, O, C.topColor, look.vest, true);
+      ctx.restore();
+      bodyPath(ctx, d);
+      stroke(ctx, PAWN.outlineWidth);
+      shoulderPads(ctx, d, look.vest);
+    }
     headPath(ctx, d, hx);
     ctx.fillStyle = skin;
     ctx.fill();
@@ -218,7 +230,9 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
     stroke(ctx, PAWN.outlineWidth);
     if (d !== 'N') face(ctx, d, hx);
     if (hairOn) frontHair(ctx, d, style, hair, hx);
-    clothesHead(ctx, d, C, hx);
+    // Шлем — вместо головного убора.
+    clothesHead(ctx, d, C, hx, !look.helmet);
+    if (look.helmet) michHelmet(ctx, d, { helmet: look.helmet }, hx, look.seed);
     ctx.restore();
     return;
   }
