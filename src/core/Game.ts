@@ -81,6 +81,7 @@ import { Brawls } from '../systems/Brawls';
 import { GangSystem } from '../systems/Gangs';
 import { PortRenderer } from '../world/PortRenderer';
 import { PortSystem } from '../systems/Port';
+import { SupplySystem } from '../systems/Supply';
 import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { PrisonRenderer } from '../world/PrisonRenderer';
 import { DugoutRenderer } from '../world/DugoutRenderer';
@@ -464,6 +465,8 @@ export class Game {
       arsenal: null as unknown as ArsenalSystem,
       prison: null as unknown as PrisonSystem,
       shops: null as unknown as StreetShops,
+      port: null,
+      supply: null as unknown as SupplySystem,
       housing: null as unknown as Housing,
       fence: null as unknown as Fence,
       gangs: null as unknown as GangSystem,
@@ -503,8 +506,10 @@ export class Game {
     this.ai.cwuHq = new CwuHqSystem(this.ai);
     this.ai.arsenal = new ArsenalSystem(this.ai);
     this.port = new PortSystem(this.map, this.map.seed);
+    this.ai.port = this.port;
     this.ai.prison = new PrisonSystem(this.ai);
     this.ai.shops = new StreetShops(this.ai);
+    this.ai.supply = new SupplySystem(this.ai);
     this.ai.housing = new Housing(this.ai);
     this.ai.fence = new Fence(this.ai);
     this.ai.gangs = new GangSystem(this.ai);
@@ -779,6 +784,7 @@ export class Game {
     const cadet = ai.academy?.hint(p);
     if (cadet) out.push(cadet.text);
     else if (p.faction === 'cp' && ai.staffing) out.push(serviceHint(p, ai.staffing));
+    if (p.faction === 'cwu' && ai.supply) out.push(ai.supply.summary());
     return out.join('\n');
   }
 
@@ -1219,6 +1225,7 @@ export class Game {
     this.ai.security.update(dt);
     this.ai.cwuHq.update(dt);
     this.ai.shops.update();
+    this.ai.supply.update(dt);
     this.ai.gangs.update(dt);
     this.ai.brawls.update(dt);
     this.ai.arsenal.update(dt);
@@ -1321,6 +1328,7 @@ export class Game {
     this.academyView.drawGround(ctx, v, this.ai.academy, this.map, this.law.now);
     this.dugoutView.drawGround(ctx, v, this.war.dugouts, this.map);
     this.portView.drawGround(ctx, v, this.port, this.map.tileSize);
+    this.portView.drawCargo(ctx, v, this.ai.supply, this.ai.shops.shops);
     drawFurnitureList(ctx, v, this.furnishings);
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);

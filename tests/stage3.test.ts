@@ -53,6 +53,10 @@ describe('экономика', () => {
     // И без стычек банд у площади: перестрелка разгоняет очередь, и итог зависит от случая.
     sim.ctx.gangs.paused = true;
     (sim.ctx.gangs as unknown as { scan: number }).scan = Infinity;
+    // Повар ТС к открытию — у окна (иначе итог зависит от того, где повара застал случай: драка, перекур).
+    const cook = sim.entities.list.find((c) => c.profession === 'cook')!;
+    cook.x = cook.prevX = sim.economy.dispenserSpot.x;
+    cook.y = cook.prevY = sim.economy.dispenserSpot.y + 30;
     const before = new Map(sim.entities.list.map((c) => [c, c.money]));
     run(sim, ECONOMY.rations.firstDelay + ECONOMY.rations.duration - 1);
     const served = sim.entities.list.filter((c) => sim.economy.hasBeenServed(c));

@@ -582,7 +582,7 @@ describe('мелочи живых людей', () => {
     expect(shop).toBeTruthy();
     const v = shop.vendor!;
     const [b] = folks(sim, 1);
-    shop.goods = shop.cap;
+    sim.ctx.shops.restock(shop);
     sim.ctx.shops.update();
     const id = shop.stock.find((i) => ITEMS[i].price !== undefined && !ITEMS[i].gear)!;
     const base = sim.economy.shopPrice(b, id)!;
@@ -647,6 +647,12 @@ describe('мелочи живых людей', () => {
     expect(view.lookOf(c).seed).toBe(look);
     // Горе тормозит шаг, довольный идёт бодрее.
     withPid(sim, c, pidWith('temper', false));
+    // Сыт, не в розыске, без недавних мыслей (гибель a могла задеть его же родню) — горе видно на фоне покоя.
+    c.hunger = 100;
+    c.law.wanted = false;
+    const ps = (R as unknown as { psy(p: number): { thoughts: unknown[]; moodAt: number } }).psy(c.pid);
+    ps.thoughts.length = 0;
+    ps.moodAt = -1e9;
     const calm = R.paceMul(c);
     R.think(c, 'kinDied', 1);
     R.think(c, 'kinDied', 2);

@@ -19,7 +19,7 @@ import { FACTIONS } from '../../config/factions';
 import { apparentFaction } from '../../entities/cover';
 import { ECONOMY } from '../../config/economy';
 import { ARBAT } from '../../config/arbat';
-import type { CanteenSeat, StreetShop, SupplyTarget } from '../../systems/StreetShops';
+import { goodsOf, type CanteenSeat, type StreetShop, type SupplyTarget } from '../../systems/StreetShops';
 import { ROUTINE } from '../../config/routine';
 import { BRAWL } from '../../config/brawl';
 import { MELEE } from '../../config/melee';
@@ -31,6 +31,8 @@ import type { TrashPile } from '../../systems/LaborSystem';
 import type { Corpse } from '../../systems/CombatSystem';
 import { CrimeScenes } from '../../systems/CrimeScenes';
 import { LABOR } from '../../config/labor';
+import { SUPPLY } from '../../config/port';
+import type { Dock } from '../../systems/Supply';
 import { CRIME } from '../../config/crime';
 import type { Vec2 } from '../../core/math';
 import { STREET } from '../../config/street';
@@ -57,7 +59,8 @@ type Job =
   | { kind: 'dispense' }
   | { kind: 'repair'; spot: RepairSpot }
   | { kind: 'clerk'; until: number }
-  | { kind: 'pack'; until: number; station: Vec2 | null; belt: Vec2 | null }
+  /** Докер порта: штабель у пирса → тележка → склад штаба ТС. */
+  | { kind: 'dock'; until: number; dock: Dock | null; t: number }
   | { kind: 'apply'; until: number }
   | { kind: 'rest'; spot: Vec2; until: number; lines: readonly string[] }
   | { kind: 'office'; until: number }
@@ -80,7 +83,7 @@ type Job =
   | { kind: 'armory'; task: ArmorerTask; stage: 'pick' | 'bench' | 'drop'; until: number; t: number; done?: boolean; fails?: number };
 
 /** Что делает руками на работе (отрисовка): инструмент, письмо, нагнулся. */
-const WORK_TASK: Partial<Record<string, 'tool' | 'write' | 'crouch'>> = { pack: 'tool', repair: 'tool', armory: 'tool', cookpot: 'tool', clean: 'tool', scavenge: 'tool', paper: 'write', clerk: 'write', office: 'write', heal: 'crouch', loot: 'crouch' };
+const WORK_TASK: Partial<Record<string, 'tool' | 'write' | 'crouch'>> = { repair: 'tool', armory: 'tool', cookpot: 'tool', clean: 'tool', scavenge: 'tool', paper: 'write', clerk: 'write', office: 'write', heal: 'crouch', loot: 'crouch' };
 
 /** Чем отличаются гражданин, рабочий ТС и повстанец в поведении «на улице». */
 export interface StreetProfile {
@@ -1020,7 +1023,7 @@ export class CitizenBrain implements Brain {
     const { ctx, self } = this;
     if (!ctx.routine.enabled || self.isPlayer || self.faction === 'rebel' || self.faction === 'vort') return false;
     if (this.inCrew || this.escort.length || self.law.wanted || ctx.war.code === 'red') return false;
-    if (self.profession === 'loader' || self.profession === 'armorer' || self.profession === 'cook') return false;
+    if (self.profession === 'loader' || self.profession === 'armorer' || self.profession === 'cook' || self.profession === 'packer') return false;
     return ctx.routine.asleepTime(self);
   }
 
@@ -1140,9 +1143,15 @@ export class CitizenBrain implements Brain {
         return null;
       }
       case 'packer': {
-        if (!labor.factory || labor.boxes >= LABOR.factory.maxBoxes) return null;
-        const st = labor.claimStation(self);
-        return st ? { kind: 'pack', until: ctx.law.now + ctx.rng.range(40, 90), station: st, belt: st.belt } : null;
+        // Докер: тележка гружёная — на склад штаба ТС; иначе штабель у пирса, где есть что везти; нет — ждать баржу.
+        const P = ctx.supply;
+        if (!P.store || !P.present) return null;
+        const until = ctx.law.now + SUPPLY.cart.giveUp;
+        if (self.cart && self.load.length) return { kind: 'dock', until, dock: null, t: 0 };
+        const k = P.claim(self);
+        if (k) return { kind: 'dock', until, dock: k, t: 0 };
+        if (!P.waitSpot) return null;
+        return { kind: 'rest', spot: { x: P.waitSpot.x + P.rng.range(-24, 24), y: P.waitSpot.y + P.rng.range(-24, 24) }, until: ctx.law.now + P.rng.range(6, 12), lines: SUPPLY.lines.wait };
       }
       case 'loader': {
         // Склад Протектората: маяк, ящики с крыльца — по местам, расходный стеллаж у окна, конвой на КПП.
@@ -1168,17 +1177,26 @@ export class CitizenBrain implements Brain {
       case 'courier': {
         // Будка раздачи почти пуста — туда; иначе лавки, ларьки и столовая проспекта, где товара меньше
         // всего; им ничего не нужно — снова будка, пока есть место.
-        const boothRoom = eco.rationStock + LABOR.factory.boxRations <= LABOR.booth.maxStock;
+        // Коробки — со склада штаба ТС (товар с барж): рационы в будку, остальное — по полкам лавок.
+        const P = ctx.supply;
         const boothUrgent = eco.rationStock < LABOR.booth.maxStock * LABOR.booth.urgent;
-        const haveBox = self.carrying || (!!labor.factoryStore && labor.boxes > 0);
-        if (boothUrgent && haveBox) return { kind: 'deliver', carry: self.carrying };
-        const t = ctx.war.code !== 'red' && haveBox ? ctx.shops?.supplyNeed() : null;
+        if (self.carrying) {
+          if (self.load.some((r) => r.item === 'ration')) return { kind: 'deliver', carry: true };
+          const t = ctx.shops?.supplyNeed();
+          if (t) {
+            ctx.shops.claimSupply(self, t);
+            return { kind: 'supply', target: t, carry: true };
+          }
+          return { kind: 'deliver', carry: true };
+        }
+        if (!P.store) return null;
+        if (boothUrgent && P.count('ration') > 0) return { kind: 'deliver', carry: false };
+        const t = ctx.war.code !== 'red' ? ctx.shops?.supplyNeed() : null;
         if (t) {
           ctx.shops.claimSupply(self, t);
-          return { kind: 'supply', target: t, carry: self.carrying };
+          return { kind: 'supply', target: t, carry: false };
         }
-        if (self.carrying) return { kind: 'deliver', carry: true };
-        return boothRoom && labor.factoryStore && labor.deliveryNeeded ? { kind: 'deliver', carry: false } : null;
+        return labor.deliveryNeeded ? { kind: 'deliver', carry: false } : null;
       }
       case 'vendor': {
         // Смена за прилавком своей лавки, потом перерыв (дом, столовая, прогулка).
@@ -1878,20 +1896,22 @@ const WORK: State<CitizenBrain> = {
     const labor = b.ctx.labor;
     if (job.kind === 'dispense') b.goToPoint(eco.dispenserSpot);
     else if (job.kind === 'repair') b.goToPoint(job.spot);
-    else if (job.kind === 'pack') {
-      const f = job.station ?? labor.factory;
-      if (f) b.goToPoint(f);
+    else if (job.kind === 'dock') {
+      const to = b.self.cart ? b.ctx.supply.store : job.dock?.spot;
+      if (b.self.cart) b.mover.speed = b.walkSpeed * SUPPLY.cart.speedMul;
+      b.mover.avoidZones = undefined;
+      if (to) b.goToPoint(to);
     } else if (job.kind === 'rest') b.goToPoint(job.spot);
     else if (job.kind === 'office' || job.kind === 'hire' || job.kind === 'apply') {
       const hq = b.ctx.cwuHq;
       const to = job.kind === 'office' ? hq.desk : job.kind === 'hire' ? hq.counter : hq.queueSpot(b.self);
       if (to) b.goToPoint(to);
     } else if (job.kind === 'deliver') {
-      const to = job.carry ? labor.boothDrop : labor.factoryStore;
+      const to = job.carry ? labor.boothDrop : b.ctx.supply.store;
       if (to) b.goToPoint(to);
     } else if (job.kind === 'supply') {
       if (job.carry) b.mover.speed = b.walkSpeed * LABOR.booth.carrySpeedMul;
-      const to = job.carry ? b.ctx.shops.dropOf(job.target) : labor.factoryStore;
+      const to = job.carry ? b.ctx.shops.dropOf(job.target) : b.ctx.supply.store;
       if (to) b.goToPoint(to);
     } else if (job.kind === 'vend') {
       if (job.shop.vendorSpot) b.goToPoint(job.shop.vendorSpot);
@@ -1927,10 +1947,7 @@ const WORK: State<CitizenBrain> = {
       if (job?.kind === 'dispense') eco.releaseDispenser(b.self);
       if (job?.kind === 'repair' && job.spot.worker === b.self) job.spot.worker = null;
       if (job?.kind === 'clean' && job.pile.worker === b.self) job.pile.worker = null;
-      if (job?.kind === 'pack') {
-        labor.stopPacking(b.self);
-        labor.releaseStation(b.self);
-      }
+      if (job?.kind === 'dock') b.ctx.supply.release(b.self);
       if (job?.kind === 'apply') b.ctx.cwuHq.leave(b.self);
       if (job?.kind === 'paper') labor.releaseDesk(b.self);
       if (job?.kind === 'haul' && !job.done) b.ctx.arsenal.abandon(b.self, job.task);
@@ -2048,25 +2065,40 @@ const WORK: State<CitizenBrain> = {
         } else if (st === 'idle' || st === 'arrived' || b.fsm.time % 2 < dt) b.goToPoint(spot);
         return;
       }
-      case 'pack': {
-        const f = job.station ?? labor.factory;
-        const belt = job.belt ?? (f ? { x: f.x, y: f.y - 20 } : null);
-        if (!f || !belt || b.ctx.law.now > job.until) return done();
-        if (Math.hypot(f.x - b.self.x, f.y - b.self.y) < 26) {
+      case 'dock': {
+        // Докер: у штабеля — погрузить тележку (loadTime с), потом на склад штаба ТС и сдать.
+        const P = b.ctx.supply;
+        if (!P.store || b.ctx.law.now > job.until) return done();
+        if (!b.self.cart) {
+          const k = job.dock;
+          if (!k || !k.crates.length) return done();
+          if (Math.hypot(k.spot.x - b.self.x, k.spot.y - b.self.y) < 26) {
+            b.mover.stop();
+            faceTowards(b.self, k.pile.x, k.pile.y, dt);
+            b.ctx.economy.markWorked(b.self);
+            job.t += dt;
+            if (job.t < SUPPLY.cart.loadTime) return;
+            if (!P.loadCart(b.self, k)) return done();
+            if (P.rng.chance(0.3)) b.self.say(P.rng.pick(SUPPLY.lines.docker), b.ctx.law.now, 2);
+            b.mover.speed = b.walkSpeed * SUPPLY.cart.speedMul;
+            b.goToPoint(P.store);
+          } else if (st === 'idle' || st === 'arrived') b.goToPoint(k.spot);
+          return;
+        }
+        if (Math.hypot(P.store.x - b.self.x, P.store.y - b.self.y) < 30) {
           b.mover.stop();
-          faceTowards(b.self, belt.x, belt.y, dt);
-          labor.packStep(b.self, dt);
-          if (labor.boxes >= LABOR.factory.maxBoxes) return done();
-        } else if (st === 'idle' || st === 'arrived') b.goToPoint(f);
+          P.unloadCart(b.self);
+          return done();
+        } else if (st === 'idle' || st === 'arrived') b.goToPoint(P.store);
         return;
       }
       case 'deliver': {
-        const to = job.carry ? labor.boothDrop : labor.factoryStore;
+        const to = job.carry ? labor.boothDrop : b.ctx.supply.store;
         if (!to) return done();
         if (Math.hypot(to.x - b.self.x, to.y - b.self.y) < 26) {
           b.mover.stop();
           if (!job.carry) {
-            if (!labor.takeBox(b.self)) return done();
+            if (!b.ctx.supply.take(b.self, labor.boothBox())) return done();
             job.carry = true;
             b.mover.speed = b.walkSpeed * LABOR.booth.carrySpeedMul;
             b.goToPoint(labor.boothDrop);
@@ -2085,12 +2117,12 @@ const WORK: State<CitizenBrain> = {
       case 'supply': {
         // Коробка из штаба ТС: склад цеха → лавка (ларёк, столовая), где товара меньше всего.
         const shops = b.ctx.shops;
-        const to = job.carry ? shops.dropOf(job.target) : labor.factoryStore;
+        const to = job.carry ? shops.dropOf(job.target) : b.ctx.supply.store;
         if (!to) return done();
         if (Math.hypot(to.x - b.self.x, to.y - b.self.y) < 26) {
           b.mover.stop();
           if (!job.carry) {
-            if (!labor.takeBox(b.self)) return done();
+            if (!b.ctx.supply.take(b.self, shops.boxFor(job.target))) return done();
             job.carry = true;
             b.mover.speed = b.walkSpeed * LABOR.booth.carrySpeedMul;
             const drop = shops.dropOf(job.target);
@@ -2120,7 +2152,7 @@ const WORK: State<CitizenBrain> = {
             const S = ARBAT.staff;
             job.nextLine = now + b.ctx.rng.range(S.lineEvery[0], S.lineEvery[1]);
             const L = ARBAT.lines;
-            const lines = job.kind === 'cookpot' ? L.cook : job.shop.stock.length && job.shop.goods <= 0 ? L.vendorEmpty : L.vendor;
+            const lines = job.kind === 'cookpot' ? L.cook : job.shop.stock.length && goodsOf(job.shop) <= 0 ? L.vendorEmpty : L.vendor;
             const busy = look && b.ctx.entities.near(look.x, look.y, 60).some((o) => o !== b.self && o.alive);
             if (busy || b.ctx.rng.chance(0.3)) b.self.say(b.ctx.rng.pick(lines), now, 2.4);
           }
@@ -2368,10 +2400,7 @@ const WORK: State<CitizenBrain> = {
     if (job?.kind === 'dispense') b.ctx.economy.releaseDispenser(b.self);
     if (job?.kind === 'repair' && job.spot.worker === b.self) job.spot.worker = null;
     if (job?.kind === 'clean' && job.pile.worker === b.self) job.pile.worker = null;
-    if (job?.kind === 'pack') {
-      b.ctx.labor.stopPacking(b.self);
-      b.ctx.labor.releaseStation(b.self);
-    }
+    if (job?.kind === 'dock') b.ctx.supply.release(b.self);
     if (job?.kind === 'apply') b.ctx.cwuHq.leave(b.self);
     if (job?.kind === 'paper') b.ctx.labor.releaseDesk(b.self);
     // Склад: груз на землю (подберут и донесут), брони ячеек и места в конвое снимаются.

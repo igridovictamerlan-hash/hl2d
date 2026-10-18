@@ -127,11 +127,11 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
     if (c.role) c.role.loyalty = c.loyalty;
     if (prof !== 'fugitive') residents.push(c);
   }
-  const factory = ctx.labor?.factory;
+  const dock = ctx.supply?.shift;
   const none0 = new Set<number>();
   for (const prof of scaledList(P.cwuProfessions, scale)) {
     const depot = (prof === 'loader' || prof === 'armorer') && ctx.arsenal?.waitSpot;
-    const at = prof === 'packer' && factory ? freeSpot(ctx, factory, 0, 8, civAvoid) : depot ? freeSpot(ctx, depot, 0, 4, none0, 20) : freeSpot(ctx, plaza, 3, 30, civAvoid);
+    const at = prof === 'packer' && dock ? freeSpot(ctx, dock, 0, 8, civAvoid) : depot ? freeSpot(ctx, depot, 0, 4, none0, 20) : freeSpot(ctx, plaza, 3, 30, civAvoid);
     put({ kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'cwu' }, at);
   }
   // Глава ТС — за столом в кабинете штаба.
@@ -307,6 +307,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
   // Санитары и предел найма ТС — по населению.
   if (ctx.labor) ctx.labor.crematorCount = sc(LABOR.cremator.count);
   if (ctx.cwuHq) ctx.cwuHq.maxWorkers = sc(CWU_HQ.hire.maxWorkers);
+  if (ctx.supply) ctx.supply.scale = scale;
   // Свой дом — каждому жителю (семьи уже заселены), явка — каждому подпольщику.
   settleAll(ctx);
   // Штаб ТС: сколько граждан было (город не пустеет от найма — CWU_HQ.hire.minCitizenShare).
@@ -352,9 +353,10 @@ export function workplaceOf(ctx: AiContext, c: Character): { x: number; y: numbe
     case 'armorer':
       return ctx.arsenal?.waitSpot ?? null;
     case 'packer':
+      return ctx.supply?.waitSpot ?? ctx.supply?.store ?? ctx.cwuHq?.desk ?? null;
     case 'courier':
     case 'cwu_head':
-      return ctx.labor?.factory ?? ctx.cwuHq?.desk ?? null;
+      return ctx.supply?.store ?? ctx.cwuHq?.desk ?? null;
     case 'cook':
       return ctx.economy.window;
     default:

@@ -7,6 +7,8 @@ import type { CwuHqSystem } from '../systems/CwuHq';
 import type { ArsenalSystem } from '../systems/Arsenal';
 import type { PrisonSystem } from '../systems/Prison';
 import type { StreetShops } from '../systems/StreetShops';
+import type { PortSystem } from '../systems/Port';
+import type { SupplySystem } from '../systems/Supply';
 import type { FamilySystem } from '../systems/Families';
 import type { Housing } from '../systems/Housing';
 import type { Fence } from '../systems/Fence';
@@ -109,6 +111,9 @@ export interface AiContext {
   prison: PrisonSystem;
   /** Улица старого города: лавки, кафе и ларьки проспекта, общая столовая. */
   shops: StreetShops;
+  /** Баржи порта (картинка и приход груза) и живая экономика: причалы, склад штаба ТС поштучно (systems/Supply). */
+  port: PortSystem | null;
+  supply: SupplySystem;
   /** Жильё: свой дом у каждого жителя, явки подполья с тайниками. */
   housing: Housing;
   /** Барыга — чёрный рынок в хате у запретной зоны. */

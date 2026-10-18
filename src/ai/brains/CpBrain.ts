@@ -540,7 +540,7 @@ export class CpBrain implements Brain {
         [ctx.economy.dispenserSpot, SECURITY.lines.inspectCook],
         [pick('clerk_desk'), SECURITY.lines.inspectClerk],
         [pick('clerk_desk'), SECURITY.lines.inspectClerk],
-        [ctx.labor.factory, SECURITY.lines.inspectCook],
+        [ctx.supply.shift, SECURITY.lines.inspectCook],
         // Штаб ТС: глава отчитывается инспектору (CwuHqSystem).
         [ctx.cwuHq?.desk ?? null, CWU_HQ.lines.inspect],
         [ctx.cwuHq?.desk ?? null, CWU_HQ.lines.inspect],

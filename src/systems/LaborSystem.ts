@@ -27,31 +27,20 @@ export interface TrashPile {
 }
 
 /**
- * Работы профессий: завод рационов (фасовщик собирает коробки), доставка коробок к будке раздачи
- * (курьер пополняет склад будки — без него раздача встаёт), мусор на улицах (уборщик и поднадзорные
+ * Работы профессий: доставка коробок рационов со склада штаба ТС (товар с барж — systems/Port) к будке
+ * раздачи (курьер пополняет склад будки — без него раздача встаёт), мусор на улицах (уборщик и поднадзорные
  * убирают за плату, отбросы и воры роются), лечение у медика ТС за плату.
  */
 export class LaborSystem {
-  /** Конвейер (где фасуют — первое место цеха) и склад коробок (откуда берёт курьер). */
-  readonly factory: Vec2 | null;
-  readonly factoryStore: Vec2 | null;
-  /**
-   * Места фасовки: конвейер (belt — где он нарисован) и где стоит фасовщик (x, y). В штабе ТС —
-   * по конвейеру цеха на каждого; на старых картах без штаба — один у заводского двора промзоны.
-   */
-  readonly stations: { x: number; y: number; belt: Vec2; who: Character | null }[] = [];
   /** Куда курьер сдаёт коробки (у будки раздачи, в стороне от очереди). */
   readonly boothDrop: Vec2;
-  boxes: number = LABOR.factory.startBoxes;
   readonly trash: TrashPile[] = [];
-  /** Кто фасует прямо сейчас и прогресс коробки (у каждого свой). */
-  private packing = new Map<Character, number>();
   private trashTimer: number;
   private nextTrashId = 1;
   private time = 0;
   private lastEmptyNotice = -1e9;
   /** Счётчики (тесты, отладка). */
-  stats = { packed: 0, delivered: 0, cleaned: 0, searched: 0, healed: 0, paperwork: 0 };
+  stats = { delivered: 0, cleaned: 0, searched: 0, healed: 0, paperwork: 0 };
   /** Столы канцелярии Управы (бумажная работа лоялистов) и кто за каким сидит. */
   readonly desks: { x: number; y: number; who: Character | null }[] = [];
   /** Санитар (синтет, сжигает тела) и когда выпустить следующего из Управы. */
@@ -73,34 +62,6 @@ export class LaborSystem {
       const a = nav.nearestWalkable((d.x + 0.5) * ts, (d.y + 1.5) * ts, 2);
       if (a >= 0) this.desks.push({ x: nav.worldX(a), y: nav.worldY(a), who: null });
     }
-    const lines = map.poisOf('ration_line');
-    const yard = map.poisOf('industrial_yard')[0];
-    if (lines.length) {
-      // Цех фасовки в штабе ТС: фасовщик стоит перед конвейером, лицом к нему (со стороны цеха).
-      const room = map.poisOf('cwu_production')[0];
-      const rc = room ? { x: (room.x + room.w! / 2) * ts, y: (room.y + room.h! / 2) * ts } : null;
-      for (const l of lines) {
-        const belt = { x: (l.x + 0.5) * ts, y: (l.y + 0.5) * ts };
-        const dx = rc ? rc.x - belt.x : 0;
-        const dy = rc ? rc.y - belt.y : 1;
-        // Шаг к середине цеха — по оси, поперёк стены с конвейером.
-        const [sx, sy] = Math.abs(dx) > Math.abs(dy) * 1.2 ? [Math.sign(dx), 0] : [0, Math.sign(dy) || 1];
-        const a = nav.nearestWalkable(belt.x + sx * LABOR.factory.stand, belt.y + sy * LABOR.factory.stand, 2);
-        if (a >= 0) this.stations.push({ x: nav.worldX(a), y: nav.worldY(a), belt, who: null });
-      }
-      this.factory = this.stations[0] ?? null;
-      const st = map.poisOf('cwu_store')[0];
-      const b = st ? nav.nearestWalkable((st.x + 0.5) * ts, (st.y + 0.5) * ts, 3) : -1;
-      this.factoryStore = b >= 0 ? { x: nav.worldX(b), y: nav.worldY(b) } : this.factory;
-    } else if (yard) {
-      const a = nav.nearestWalkable((yard.x + 0.5) * ts, (yard.y + 0.5) * ts, 6);
-      this.factory = a >= 0 ? { x: nav.worldX(a), y: nav.worldY(a) } : null;
-      const b = this.factory ? nav.nearestWalkable(this.factory.x + 40, this.factory.y + 8, 6) : -1;
-      this.factoryStore = b >= 0 ? { x: nav.worldX(b), y: nav.worldY(b) } : this.factory;
-      if (this.factory) this.stations.push({ ...this.factory, belt: { x: this.factory.x, y: this.factory.y - 22 }, who: null });
-    } else {
-      this.factory = this.factoryStore = null;
-    }
     // Место сдачи коробок — сбоку от окна раздачи (перпендикулярно очереди).
     const eco = ctx.economy;
     const side = { x: -eco.queueDir.y, y: eco.queueDir.x };
@@ -114,79 +75,21 @@ export class LaborSystem {
     return this.time;
   }
 
-  // ——— Завод и доставка ———
-
-  /** Фасовщик у конвейера: вызывать каждый тик работы. true — собрал коробку. */
-  packStep(c: Character, dt: number): boolean {
-    if (!this.factory || this.boxes >= LABOR.factory.maxBoxes) return false;
-    const p = (this.packing.get(c) ?? 0) + dt;
-    this.ctx.economy.markWorked(c);
-    if (p < LABOR.factory.packTime) {
-      this.packing.set(c, p);
-      return false;
-    }
-    this.packing.set(c, 0);
-    this.boxes++;
-    this.stats.packed++;
-    c.money += LABOR.factory.pay;
-    adjustLoyalty(c, LOYALTY.points.cwuWork, 'работа ТС', this.ctx.bus);
-    if (c.isPlayer) this.say(`Коробка рационов собрана (на складе завода: ${this.boxes}). +${LABOR.factory.pay} токенов`);
-    return true;
-  }
-
-  /** Свободное (или уже своё) место у конвейера; null — все заняты. */
-  claimStation(c: Character): (typeof this.stations)[number] | null {
-    for (const st of this.stations) if (st.who && (!st.who.alive || st.who.profession !== 'packer')) st.who = null;
-    const own = this.stations.find((st) => st.who === c);
-    if (own) return own;
-    const free = this.stations.filter((st) => !st.who);
-    if (!free.length) return null;
-    free.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
-    free[0].who = c;
-    return free[0];
-  }
-
-  releaseStation(c: Character): void {
-    for (const st of this.stations) if (st.who === c) st.who = null;
-  }
-
-  /** Ближайшее место у конвейера (игрок-фасовщик — E рядом). */
-  nearestStation(x: number, y: number): (typeof this.stations)[number] | null {
-    let best: (typeof this.stations)[number] | null = null;
-    let bd = Infinity;
-    for (const st of this.stations) {
-      const d = Math.hypot(st.x - x, st.y - y);
-      if (d < bd) {
-        bd = d;
-        best = st;
-      }
-    }
-    return best;
-  }
-
-  /** Прогресс фасовки персонажа 0..1 (полоска игрока). */
-  packProgress(c: Character): number {
-    return (this.packing.get(c) ?? 0) / LABOR.factory.packTime;
-  }
-
-  stopPacking(c: Character): void {
-    this.packing.delete(c);
-  }
-
-  /** Курьер берёт коробку со склада завода. */
-  takeBox(c: Character): boolean {
-    if (c.carrying || this.boxes <= 0) return false;
-    this.boxes--;
-    c.carrying = true;
-    return true;
-  }
+  // ——— Доставка к будке раздачи ———
 
   /** Курьер сдаёт коробку у будки: рационы на склад будки, оплата. */
   deliverBox(c: Character): boolean {
     const eco = this.ctx.economy;
-    if (!c.carrying || eco.rationStock >= LABOR.booth.maxStock) return false;
+    if (!c.carrying || (c.load.some((r) => r.item === 'ration') && eco.rationStock >= LABOR.booth.maxStock)) return false;
     c.carrying = false;
-    eco.rationStock = Math.min(LABOR.booth.maxStock, eco.rationStock + LABOR.factory.boxRations);
+    // Рационы — в будку (что не влезло — обратно на склад ТС), прочее из коробки — тоже на склад.
+    const port = this.ctx.supply;
+    for (const cr of c.load) {
+      const put = cr.item === 'ration' ? Math.min(cr.qty, LABOR.booth.maxStock - eco.rationStock) : 0;
+      eco.rationStock += put;
+      if (cr.qty > put) port.giveBack(cr.item, cr.qty - put);
+    }
+    c.load = [];
     this.stats.delivered++;
     c.money += LABOR.booth.pay;
     eco.markWorked(c);
@@ -195,16 +98,22 @@ export class LaborSystem {
     return true;
   }
 
-  /** Нужна ли доставка (на складе будки есть место и на заводе есть коробки). */
+  /** Нужна ли доставка (в будке есть место под коробку и на складе ТС есть рационы). */
   get deliveryNeeded(): boolean {
-    return this.boxes > 0 && this.ctx.economy.rationStock + LABOR.factory.boxRations <= LABOR.booth.maxStock;
+    return this.ctx.supply.count('ration') > 0 && this.ctx.economy.rationStock + LABOR.booth.boxRations <= LABOR.booth.maxStock;
+  }
+
+  /** Коробка рационов для будки: сколько влезет, не больше boxRations. */
+  boothBox(): { item: 'ration'; qty: number }[] {
+    const room = LABOR.booth.maxStock - this.ctx.economy.rationStock;
+    return [{ item: 'ration', qty: Math.max(1, Math.min(LABOR.booth.boxRations, room)) }];
   }
 
   /** Сообщение: рационы на складе будки кончились (не чаще emptyNoticeEvery). */
   noticeEmpty(): void {
     if (this.time - this.lastEmptyNotice < LABOR.emptyNoticeEvery) return;
     this.lastEmptyNotice = this.time;
-    this.ctx.bus.emit('log', { text: 'ТС: на складе будки кончились рационы — курьеры, доставьте коробки с завода!', kind: 'world' });
+    this.ctx.bus.emit('log', { text: 'ТС: в будке раздачи кончились рационы — курьеры, несите коробки со склада штаба ТС!', kind: 'world' });
   }
 
   // ——— Мусор ———
@@ -342,8 +251,6 @@ export class LaborSystem {
         p.worker = null;
       }
     }
-    // Отошёл от своего конвейера (любого из цеха) — сборка коробки сбрасывается.
-    for (const c of this.packing.keys()) if (!c.alive || !this.stations.some((st) => Math.hypot(c.x - st.x, c.y - st.y) <= 48)) this.packing.delete(c);
     // Курьер погиб или задержан с коробкой — коробка пропала.
   }
 

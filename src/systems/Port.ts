@@ -18,7 +18,7 @@ export interface Barge {
 }
 
 /**
- * Баржи порта (картинка, на логику мира не влияет): у каждого причала (POI `barge_berth`) своя баржа — стоит, отходит
+ * Баржи порта (груз — systems/Supply.ts через onArrive/onDepart): у каждого причала (POI `barge_berth`) своя баржа — стоит, отходит
  * от пирса к фарватеру (POI `channel`: x — столбец фарватера, ряды — протока), идёт по реке к протоке и протокой на
  * восток за край, возвращается тем же путём. Своя случайность — общая не сдвигается.
  */
@@ -26,6 +26,11 @@ export class PortSystem {
   readonly barges: Barge[] = [];
   /** Сколько раз баржа вернулась к причалу. */
   arrivals = 0;
+  /** Река перекрыта (Supply: красный код, прорыв, шлюз закрыт) — ушедшие баржи не возвращаются. */
+  blocked = false;
+  /** Баржа встала к причалу (Supply: разгрузка) и отошла от него. */
+  onArrive: ((b: Barge) => void) | null = null;
+  onDepart: ((b: Barge) => void) | null = null;
   private readonly rng: Rng;
   /** Фарватер (px): столбец, ряд протоки, конец пути за краем. */
   private readonly laneX: number;
@@ -87,7 +92,10 @@ export class PortSystem {
     for (const b of this.barges) {
       const { total } = this.legs(b);
       b.moving = b.phase === 'out' || b.phase === 'in';
-      if (b.phase === 'moored' && this.time >= b.until) b.phase = 'out';
+      if (b.phase === 'moored' && this.time >= b.until) {
+        b.phase = 'out';
+        this.onDepart?.(b);
+      }
       else if (b.phase === 'out') {
         b.d += PORT.speed * dt;
         if (b.d >= total) {
@@ -95,7 +103,7 @@ export class PortSystem {
           b.phase = 'away';
           b.until = this.time + this.rng.range(PORT.away[0], PORT.away[1]);
         }
-      } else if (b.phase === 'away' && this.time >= b.until) b.phase = 'in';
+      } else if (b.phase === 'away' && this.time >= b.until && !this.blocked) b.phase = 'in';
       else if (b.phase === 'in') {
         b.d -= PORT.speed * dt;
         if (b.d <= 0) {
@@ -103,6 +111,7 @@ export class PortSystem {
           b.phase = 'moored';
           b.until = this.time + this.rng.range(PORT.moored[0], PORT.moored[1]);
           this.arrivals++;
+          this.onArrive?.(b);
         }
       }
       this.place(b);

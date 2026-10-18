@@ -798,7 +798,7 @@ export class EffectsRenderer {
     }
   }
 
-  drawLabor(ctx: CanvasRenderingContext2D, v: View, labor: LaborSystem, stock: number, now: number): void {
+  drawLabor(ctx: CanvasRenderingContext2D, v: View, labor: LaborSystem, stock: number, _now: number): void {
     const s = v.scale;
     const E = RENDER.effects;
     const onScreen = (x: number, y: number, m: number) => x > -m && y > -m && x < v.width + m && y < v.height + m;
@@ -839,40 +839,12 @@ export class EffectsRenderer {
       ctx.fillStyle = E.boxTape;
       ctx.fillRect(x - 0.7 * s, y - 3.4 * s, 1.4 * s, 6.8 * s);
     };
-    // Конвейеры цеха (у каждого места фасовки) и коробки на складе.
-    for (const station of labor.stations) {
-      const x = (station.belt.x - v.left) * s;
-      const y = (station.belt.y - v.top) * s;
-      if (onScreen(x, y, 80)) {
-        ctx.fillStyle = E.conveyor;
-        ctx.strokeStyle = PAWN.outline;
-        ctx.lineWidth = Math.max(1, 1.2 * s);
-        ctx.fillRect(x - 26 * s, y - 6 * s, 52 * s, 12 * s);
-        ctx.strokeRect(x - 26 * s, y - 6 * s, 52 * s, 12 * s);
-        ctx.fillStyle = E.conveyorBelt;
-        ctx.fillRect(x - 24 * s, y - 3.5 * s, 48 * s, 7 * s);
-        // Ролики «бегут».
-        ctx.fillStyle = E.roller;
-        const shift = (now * 12) % 6;
-        for (let k = -24 + shift; k < 24; k += 6) ctx.fillRect(x + k * s, y - 3.5 * s, 1.2 * s, 7 * s);
-        // Коробка едет по ленте, только пока здесь фасуют.
-        if (station.who) box(x + (((now * 12) % 40) - 20) * s, y);
-      }
-    }
-    {
-      const st = labor.factoryStore;
-      if (st) {
-        const sx = (st.x - v.left) * s;
-        const sy = (st.y + 14 - v.top) * s;
-        for (let k = 0; k < labor.boxes; k++) box(sx + ((k % 3) - 1) * 9 * s, sy - Math.floor(k / 3) * 7 * s);
-      }
-    }
     // Склад будки раздачи.
     const d = labor.boothDrop;
     const bx = (d.x - v.left) * s;
     const by = (d.y - v.top) * s;
     if (onScreen(bx, by, 40)) {
-      const n = Math.min(6, Math.ceil(stock / LABOR.factory.boxRations));
+      const n = Math.min(6, Math.ceil(stock / LABOR.booth.boxRations));
       for (let k = 0; k < n; k++) box(bx + ((k % 3) - 1) * 9 * s, by - Math.floor(k / 3) * 7 * s);
       ctx.font = `600 ${Math.round(9 * s)}px "Segoe UI", Roboto, Arial, sans-serif`;
       ctx.textAlign = 'center';

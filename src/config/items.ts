@@ -16,6 +16,10 @@ export type ItemId =
   | 'bandage'
   | 'cigarettes'
   | 'toolkit'
+  | 'provisions'
+  | 'newspaper'
+  | 'soap'
+  | 'flowers'
   | 'ammo_pistol'
   | 'ammo_smg'
   | 'ammo_ar2'
@@ -272,6 +276,11 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   fake_cid: { id: 'fake_cid', name: 'Поддельная CID', desc: 'С чёрного рынка: «чистая» карта — снимает розыск (повстанца в лицо всё равно узнают).', kind: 'misc', stack: 1 },
   forged_pass: { id: 'forged_pass', name: 'Пропуск в Управу (липа)', desc: 'С чёрного рынка: вахта Управы пропустит, но может присмотреться — раскроют, задержат за подделку.', kind: 'misc', stack: 1 },
   toolkit: { id: 'toolkit', name: 'Набор инструментов', desc: 'Для ремонта (ТС).', kind: 'tool', stack: 1, price: 20 },
+  // Товары с барж (порт → склад штаба ТС → лавки): продукты — для котла столовой, остальное — на полки.
+  provisions: { id: 'provisions', name: 'Продукты', desc: 'Крупа и овощи для котла общей столовой. Можно съесть и так. Сытость +15.', kind: 'food', stack: 6, food: 15 },
+  newspaper: { id: 'newspaper', name: 'Газета', desc: '«Вестник Верхнеречья»: распоряжения Коменданта и сводки с ГЭС.', kind: 'misc', stack: 5, price: 2 },
+  soap: { id: 'soap', name: 'Мыло', desc: 'Кусок хозяйственного мыла.', kind: 'misc', stack: 5, price: 4 },
+  flowers: { id: 'flowers', name: 'Цветы', desc: 'Букетик с ларька — на память или в подарок.', kind: 'misc', stack: 3, price: 5 },
   ammo_pistol: { id: 'ammo_pistol', name: 'Патроны 9 мм', desc: 'Для пистолетов.', kind: 'ammo', stack: 120, ammo: 'pistol' },
   ammo_smg: { id: 'ammo_smg', name: 'Патроны 4.6 мм', desc: 'Для MP7.', kind: 'ammo', stack: 180, ammo: 'smg' },
   ammo_ar2: { id: 'ammo_ar2', name: 'Энергоячейки ИВЛ', desc: 'Для ИВЛ.', kind: 'ammo', stack: 120, ammo: 'ar2' },

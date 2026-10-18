@@ -256,7 +256,8 @@ export class LawSystem {
     if (target.weapon) return 'weapon';
     if (this.fightCheck(target)) return 'fight';
     const zk = this.map.zoneAtWorld(target.x, target.y)?.kind;
-    if (zk === 'restricted' || zk === 'ges') return 'restricted';
+    // В порт (зона ГЭС) докерам ТС — по работе.
+    if (zk === 'restricted' || (zk === 'ges' && !(target.profession === 'packer' && apparentFaction(target) === 'cwu'))) return 'restricted';
     // На склад Протектората посторонним нельзя (рабочие ТС — по работе).
     if (zk === 'arsenal' && apparentFaction(target) === 'citizen') return 'restricted';
     // В тюрьму посторонним нельзя никому.

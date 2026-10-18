@@ -2,7 +2,7 @@ import type { Character } from '../entities/Character';
 import { ITEMS, type ItemId } from '../config/items';
 import { ECONOMY } from '../config/economy';
 
-import type { StreetShop } from '../systems/StreetShops';
+import { goodsOf, type StreetShop } from '../systems/StreetShops';
 
 export type ShopKind = 'cwu' | 'black' | 'street';
 
@@ -109,7 +109,7 @@ export class ShopPanel {
   update(p: Character, counter: { x: number; y: number } | null): void {
     if (!this.isOpen) return;
     const s = this.kind === 'street' ? this.street : null;
-    this.money.textContent = s && s.stock.length ? `Токены: ${p.money} · на полках ${s.goods}/${s.cap}` : `Токены: ${p.money}`;
+    this.money.textContent = s && s.stock.length ? `Токены: ${p.money} · на полках ${goodsOf(s)}/${s.cap}` : `Токены: ${p.money}`;
     if (!counter || Math.hypot(counter.x - p.x, counter.y - p.y) > 80) {
       this.close();
       return;

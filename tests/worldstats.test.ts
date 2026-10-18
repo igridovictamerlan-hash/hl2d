@@ -264,6 +264,7 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Блиндажи: подвезено ящиков ${dg.stats.supplied}, пополнений бойцов ${dg.stats.restocked}, отдыхов ${dg.stats.rests}, вылазок Протектората ${dg.stats.sorties}, разрушено ${dg.stats.ruined}, отстроено ${dg.stats.rebuilt}, подносчиков и строителей потеряно ${dg.stats.crewLost}; запас сейчас ${dg.list.map((d) => `${d.owner === 'ruined' ? 'разрушен' : `${d.kits}к/${d.grenades}г`}`).join(', ')}`);
   out.push(`Война: ${JSON.stringify(sim.war.stats)}; места преступлений: ${JSON.stringify(sim.war.scenes.stats)}`);
   out.push(`Труд: ${JSON.stringify(sim.labor.stats)}; склад: ${JSON.stringify(sim.arsenal.stats)}`);
+  out.push(`Экономика: баржи ${JSON.stringify(sim.ctx.supply.stats)}; лавки ${JSON.stringify(sim.ctx.shops.stats)}; ${sim.ctx.supply.summary()}`);
   out.push(`Барыга: ${JSON.stringify(sim.ctx.fence.stats)}`);
   out.push(`Рация: ${JSON.stringify(sim.ctx.radio.stats)}`);
   const T = sim.ctx.talk.stats;

@@ -265,6 +265,8 @@ describe('рация: эфир и плановое', () => {
 
   test('вызов по рации — юнит прочёсывает место, даже если тревоги в городе нет', () => {
     const sim = city();
+    // Без воров и бандитов: юнит по дороге не должен отвлекаться на погоню (сценарий — о вызове, не о нарушителях).
+    for (const c of [...sim.entities.list]) if (c.profession === 'bandit' || c.profession === 'thief') sim.entities.remove(c);
     run(sim, 2);
     const u = freeUnit(sim);
     const b = u.brain as CpBrain;

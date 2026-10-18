@@ -8,6 +8,9 @@ import { ECONOMY } from '../config/economy';
 import { LOYALTY } from '../config/loyalty';
 import { ESCALATION } from '../config/escalation';
 import { adjustLoyalty, hasLoyalty } from './Loyalty';
+import type { Crate } from './Supply';
+import type { GameMap } from '../world/GameMap';
+import { SOLID } from '../world/tiles';
 
 /** Лавка, кафе или ларёк на проспекте: где стоит покупатель, что продают, кто за прилавком. */
 export interface StreetShop {
@@ -22,9 +25,13 @@ export interface StreetShop {
   /** Место продавца за прилавком (у ларька — внутри, продавец не нужен). */
   vendorSpot: Vec2 | null;
   stock: readonly ItemId[];
-  /** Запас товара (единиц) и предел — привозят курьеры из штаба ТС. */
-  goods: number;
+  /** Полки: товар → штук (до perItem каждого); cap — всего мест. Привозят курьеры со склада штаба ТС. */
+  shelf: Map<ItemId, number>;
+  perItem: number;
   cap: number;
+  /** Стеллаж у задней стены (центры тайлов, px) и направление к стене — для отрисовки товара. */
+  rack: Vec2[];
+  rackDir: Vec2;
   /** Продавец этой лавки и курьер, который несёт сюда коробку. */
   vendor: Character | null;
   supplier: Character | null;
@@ -42,6 +49,13 @@ export interface CanteenSeat {
 
 /** Куда курьер несёт коробку: лавка, ларёк или столовая. */
 export type SupplyTarget = { shop: StreetShop } | { canteen: true };
+
+/** Всего штук на полках лавки. */
+export function goodsOf(s: StreetShop): number {
+  let n = 0;
+  for (const v of s.shelf.values()) n += v;
+  return n;
+}
 
 /**
  * Улица старого города: лавки, кафе и ларьки главного проспекта (горожане заходят купить что-нибудь,
@@ -72,13 +86,17 @@ export class StreetShops {
       const a = nav.nearestWalkable(x, y, r);
       return a >= 0 ? { x: nav.worldX(a), y: nav.worldY(a) } : null;
     };
-    const start = Math.round(S.cap * S.start);
+    const shelfOf = (stock: readonly ItemId[], per: number) => new Map(stock.map((id) => [id, Math.round(per * S.start)] as [ItemId, number]));
     for (const p of map.poisOf('shop_front')) {
       const f = anchor((p.x + 0.5) * ts, (p.y + 0.5) * ts);
       const v = map.poisOf('vendor_spot').find((q) => q.id === p.id);
       const facade = map.poisOf('facade').find((q) => q.id === p.id);
       if (!f || !facade) continue;
       const vs = v ? anchor((v.x + 0.5) * ts, (v.y + 0.5) * ts, 1) : null;
+      const stock = ARBAT.stock[p.sub ?? ''] ?? [];
+      const rack = v ? backRack(map, p.x, p.y, v.x, v.y) : { tiles: [], dir: { x: 0, y: 1 } };
+      // Полка вмещает, сколько видно на стеллаже: perTile штук на тайл, на товар — от perItem до perItemMax.
+      const per = stock.length ? Math.max(S.perItem, Math.min(S.perItemMax, Math.floor((rack.tiles.length * S.perTile) / stock.length))) : S.perItem;
       this.shops.push({
         id: p.id ?? -1,
         sub: p.sub ?? '',
@@ -87,9 +105,12 @@ export class StreetShops {
         front: f,
         look: v ? { x: (v.x + 0.5) * ts, y: (v.y + 0.5) * ts } : f,
         vendorSpot: vs,
-        stock: ARBAT.stock[p.sub ?? ''] ?? [],
-        goods: start,
-        cap: S.cap,
+        stock,
+        shelf: shelfOf(stock, per),
+        perItem: per,
+        cap: per * stock.length,
+        rack: rack.tiles,
+        rackDir: rack.dir,
         vendor: null,
         supplier: null,
       });
@@ -102,7 +123,11 @@ export class StreetShops {
       const reach = ((dx ? k.w! : k.h!) / 2 + 1.2) * ts;
       const f = anchor(cx + dx * reach, cy + dy * reach, 1);
       if (!f) continue;
-      this.shops.push({ id: -1, sub: k.sub ?? '', name: names.get(k.sub ?? '') ?? 'Ларёк', kind: 'kiosk', front: f, look: { x: cx, y: cy }, vendorSpot: null, stock: ARBAT.stock[k.sub ?? ''] ?? [], goods: start, cap: S.cap, vendor: null, supplier: null });
+      const stock = ARBAT.stock[k.sub ?? ''] ?? [];
+      this.shops.push({
+        id: -1, sub: k.sub ?? '', name: names.get(k.sub ?? '') ?? 'Ларёк', kind: 'kiosk', front: f, look: { x: cx, y: cy }, vendorSpot: null, stock,
+        shelf: shelfOf(stock, S.kioskPerItem), perItem: S.kioskPerItem, cap: S.kioskPerItem * stock.length, rack: [], rackDir: { x: -dx, y: -dy }, vendor: null, supplier: null,
+      });
     }
     // Места за столами столовой: вдоль длинных сторон стола через тайл-якорь (2 тайла).
     const c = map.poisOf('canteen')[0];
@@ -188,23 +213,48 @@ export class StreetShops {
 
   // ——— Снабжение из штаба ТС ———
 
-  /** Куда нужнее всего коробка (запас ниже доли low, никто уже не несёт), или null. */
+  /**
+   * Куда нужнее всего коробка: лавка (ниже доли low, никто уже не несёт, и на складе есть что ей нужно) или
+   * столовая (продукты), или null.
+   */
   supplyNeed(): SupplyTarget | null {
     const L = ARBAT.supply.low;
+    const port = this.ctx.supply;
     let best: StreetShop | null = null;
     let bestF: number = L;
     for (const s of this.shops) {
       if (!s.stock.length || (s.supplier && this.busySupplier(s.supplier))) continue;
-      const f = s.goods / s.cap;
-      if (f < bestF) {
-        bestF = f;
-        best = s;
-      }
+      const f = goodsOf(s) / s.cap;
+      if (f >= bestF || !s.stock.some((id) => (s.shelf.get(id) ?? 0) < s.perItem && port.count(id) > 0)) continue;
+      bestF = f;
+      best = s;
     }
     const soupF = this.soupCap ? this.soup / this.soupCap : 1;
     const soupFree = !this.soupSupplier || !this.busySupplier(this.soupSupplier);
-    if (soupFree && soupF < L && soupF <= bestF) return { canteen: true };
+    if (soupFree && soupF < L && soupF <= bestF && port.count('provisions') > 0) return { canteen: true };
     return best ? { shop: best } : null;
+  }
+
+  /** Что положить в коробку для t: чего на полках меньше всего, до perBox штук (склад отдаст, сколько есть). */
+  boxFor(t: SupplyTarget): Crate[] {
+    const S = ARBAT.supply;
+    const port = this.ctx.supply;
+    if (!('shop' in t)) {
+      const need = Math.ceil((this.soupCap - this.soup) / ARBAT.soup.perProvision);
+      return [{ item: 'provisions', qty: Math.max(1, Math.min(S.perBox, need)) }];
+    }
+    const s = t.shop;
+    const ids = s.stock.filter((id) => port.count(id) > 0).sort((a, b) => (s.shelf.get(a) ?? 0) - (s.shelf.get(b) ?? 0));
+    const out: Crate[] = [];
+    let left = S.perBox;
+    for (const id of ids) {
+      const n = Math.min(left, s.perItem - (s.shelf.get(id) ?? 0), port.count(id));
+      if (n <= 0) continue;
+      out.push({ item: id, qty: n });
+      left -= n;
+      if (left <= 0) break;
+    }
+    return out;
   }
 
   /** Курьер ещё занят этой доставкой (жив и не бросил работу). */
@@ -228,13 +278,33 @@ export class StreetShops {
     return 'shop' in t ? t.shop.front : this.serveSpot;
   }
 
-  /** Сдать коробку: товар на полки (или суп в котёл), курьеру — оплата. */
+  /**
+   * Сдать коробку: товар на полки (или продукты в котёл), курьеру — оплата. Не влезло или не тот товар —
+   * обратно на склад штаба ТС (курьер отнесёт в другой раз).
+   */
   deliver(c: Character, t: SupplyTarget): boolean {
     if (!c.carrying) return false;
     const S = ARBAT.supply;
+    const port = this.ctx.supply;
     c.carrying = false;
-    if ('shop' in t) t.shop.goods = Math.min(t.shop.cap, t.shop.goods + S.perBox);
-    else this.soup = Math.min(this.soupCap, this.soup + S.perBox);
+    for (const cr of c.load) {
+      let left = cr.qty;
+      if ('shop' in t) {
+        const s = t.shop;
+        if (s.stock.includes(cr.item)) {
+          const put = Math.min(left, s.perItem - (s.shelf.get(cr.item) ?? 0));
+          s.shelf.set(cr.item, (s.shelf.get(cr.item) ?? 0) + put);
+          left -= put;
+        }
+      } else if (cr.item === 'provisions') {
+        const per = ARBAT.soup.perProvision;
+        const put = Math.min(left, Math.ceil((this.soupCap - this.soup) / per));
+        this.soup = Math.min(this.soupCap, this.soup + put * per);
+        left -= put;
+      }
+      if (left > 0) port.giveBack(cr.item, left);
+    }
+    c.load = [];
     this.releaseSupply(c);
     this.stats.delivered++;
     c.money += S.pay;
@@ -248,7 +318,7 @@ export class StreetShops {
     let best: SupplyTarget | null = null;
     let bestD = reach;
     for (const s of this.shops) {
-      if (!s.stock.length || s.goods >= s.cap) continue;
+      if (!s.stock.length || goodsOf(s) >= s.cap) continue;
       const d = Math.hypot(s.front.x - p.x, s.front.y - p.y);
       if (d < bestD) {
         bestD = d;
@@ -277,7 +347,7 @@ export class StreetShops {
   /** Почему в лавке не купить: закрыто, пусто — или null. */
   refusal(s: StreetShop): 'closed' | 'empty' | null {
     if (!this.open(s)) return 'closed';
-    if (s.stock.length && s.goods <= 0) return 'empty';
+    if (s.stock.length && goodsOf(s) <= 0) return 'empty';
     return null;
   }
 
@@ -285,8 +355,9 @@ export class StreetShops {
   buy(c: Character, s: StreetShop, id: ItemId): string | null {
     const why = this.refusal(s);
     if (why === 'closed') return this.closedEarly(s) ? `${s.name}: ${ESCALATION.lines.shopEarly}` : `${s.name}: закрыто — продавца нет на месте.`;
-    if (why === 'empty' || s.goods <= 0) return `${s.name}: товар кончился — ждут коробку из штаба ТС.`;
+    if (why === 'empty') return `${s.name}: полки пусты — ждут товар со склада ТС.`;
     if (!s.stock.includes(id)) return 'Этого здесь не продают.';
+    if ((s.shelf.get(id) ?? 0) <= 0) return `${s.name}: ${ITEMS[id].name.toLowerCase()} кончились — ждут привоза.`;
     // Продавец помнит покупателя: своим — скидка, недругам — надбавка, врагу не продаст.
     const rel = this.ctx.relations;
     const v0 = s.vendor && s.vendor.alive && s.sub !== 'cwu' ? s.vendor : null;
@@ -298,7 +369,7 @@ export class StreetShops {
     const err = this.ctx.economy.buy(c, id, mul);
     if (err) return err;
     if (rel?.enabled && v0) rel.traded(v0, c, mul);
-    s.goods--;
+    s.shelf.set(id, (s.shelf.get(id) ?? 0) - 1);
     this.stats.purchases++;
     // Продавцу — за продажу (как у прилавка магазина ТС; там economy.buy уже заплатил тому, кто рядом).
     const v = s.vendor;
@@ -317,12 +388,15 @@ export class StreetShops {
     if (this.refusal(s)) return null;
     const eco = this.ctx.economy;
     const hungry = c.hunger < ECONOMY.hunger.npcEatBelow + 30;
-    const afford = s.stock.filter((id) => (eco.shopPrice(c, id) ?? Infinity) <= c.money);
+    const afford = s.stock.filter((id) => (s.shelf.get(id) ?? 0) > 0 && (eco.shopPrice(c, id) ?? Infinity) <= c.money);
     const want = hungry ? afford.filter((id) => ITEMS[id].food) : afford;
     const list = want.length ? want : afford;
     if (!list.length) return null;
     const id = rng.pick(list);
-    return this.buy(c, s, id) === null ? id : null;
+    if (this.buy(c, s, id) !== null) return null;
+    // Газету прочёл, мыло и цветы унёс домой — в инвентаре NPC не копятся.
+    if (!ITEMS[id].food && ITEMS[id].kind !== 'medical') c.inventory.remove(id, 1);
+    return id;
   }
 
   /** Лавка, у прилавка которой стоит p (игрок), или null. */
@@ -399,6 +473,11 @@ export class StreetShops {
     return this.seats.length > 0 && c.hunger < ARBAT.meal.hungerBelow && (!!this.foodOf(c) || this.soupReady);
   }
 
+  /** Заполнить полки лавки до предела (тесты). */
+  restock(s: StreetShop): void {
+    for (const id of s.stock) s.shelf.set(id, s.perItem);
+  }
+
   update(): void {
     for (const s of this.seats) if (s.taken && !s.taken.alive) s.taken = null;
     for (const s of this.shops) {
@@ -406,4 +485,34 @@ export class StreetShops {
     }
     if (this.soupSupplier && !this.busySupplier(this.soupSupplier)) this.soupSupplier = null;
   }
+}
+
+/**
+ * Стеллаж у задней стены лавки: от места продавца (vx, vy — тайл) вглубь, прочь от покупателя (fx, fy), до
+ * последнего тайла перед стеной; оттуда в обе стороны вдоль стены — пока пол. Только отрисовка.
+ */
+function backRack(map: GameMap, fx: number, fy: number, vx: number, vy: number): { tiles: Vec2[]; dir: Vec2 } {
+  const ts = map.tileSize;
+  const dx = Math.sign(vx - fx);
+  const dy = dx ? 0 : Math.sign(vy - fy) || 1;
+  const solid = (x: number, y: number) => SOLID[map.tileAt(x, y)] === 1;
+  let x = vx;
+  let y = vy;
+  for (let k = 0; k < 12 && !solid(x + dx, y + dy); k++) {
+    x += dx;
+    y += dy;
+  }
+  // Место продавца у самой стены — стеллажа нет (тесная лавка).
+  if (x === vx && y === vy) return { tiles: [], dir: { x: dx, y: dy } };
+  const tiles: Vec2[] = [];
+  const [px, py] = [dy, dx];
+  for (const side of [-1, 1]) {
+    for (let k = side < 0 ? 0 : 1; k < 12; k++) {
+      const tx = x + px * k * side;
+      const ty = y + py * k * side;
+      if (solid(tx, ty) || !solid(tx + dx, ty + dy)) break;
+      tiles.push({ x: (tx + 0.5) * ts, y: (ty + 0.5) * ts });
+    }
+  }
+  return { tiles, dir: { x: dx, y: dy } };
 }

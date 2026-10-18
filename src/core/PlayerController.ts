@@ -2,7 +2,8 @@ import type { Input } from './Input';
 import type { Camera } from './Camera';
 import type { EventBus } from './EventBus';
 import type { Character } from '../entities/Character';
-import type { StreetShop } from '../systems/StreetShops';
+import { goodsOf, type StreetShop } from '../systems/StreetShops';
+import { SUPPLY } from '../config/port';
 import type { AiContext } from '../ai/AiContext';
 import type { CheckChoice } from '../ui/CheckPanel';
 import type { AlertCode } from '../systems/WarSystem';
@@ -13,7 +14,7 @@ import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
 import { FACTIONS, cpHas, cpUnit } from '../config/factions';
 import { poiWorld, cpKit } from '../systems/Population';
-import { WEAPONS, KITS, ITEMS } from '../config/items';
+import { WEAPONS, KITS, ITEMS, type ItemId } from '../config/items';
 import { UNDERGROUND, INSURGENCY, PARTISANS } from '../config/underground';
 import type { Cell } from '../systems/LawSystem';
 import { PRISON } from '../config/prison';
@@ -56,7 +57,6 @@ export class PlayerController {
   /** Саботирует узел Протектората (повстанец). */
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
-  private packing = false;
   private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'break' | 'armory' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot } | null = null;
   /** Откат бунта у игрока-спецагента (G). */
   private riotCooldown = 0;
@@ -102,7 +102,6 @@ export class PlayerController {
     this.repairing = null;
     this.climbing = null;
     this.sabotaging = null;
-    this.packing = false;
     this.task = null;
   }
 
@@ -110,7 +109,6 @@ export class PlayerController {
   get progress(): number | null {
     if (this.climbing) return 1 - this.climbing.left / UNDERGROUND.climbTime;
     if (this.task) return 1 - this.task.left / this.task.total;
-    if (this.packing && this.laborRef) return this.laborRef.packProgress(this.playerRef!);
     if (this.sabotaging) return this.sabotaging.progress / INSURGENCY.sabotageTime;
     if (this.repairing) return this.repairing.progress / ECONOMY.repairs.time;
     // Перевязка и растяжка — полоска по времени боя.
@@ -131,13 +129,11 @@ export class PlayerController {
     this.bus.emit('log', { text, kind });
   }
 
-  private laborRef: AiContext['labor'] | null = null;
   private combatRef: AiContext['combat'] | null = null;
   private playerRef: Character | null = null;
 
   update(p: Character, ctx: AiContext, dt: number): void {
     const i = this.input;
-    this.laborRef = ctx.labor;
     this.playerRef = p;
     this.combatRef = ctx.combat;
     const law = p.law;
@@ -297,15 +293,6 @@ export class PlayerController {
         p.money += INSURGENCY.sabotageReward;
         this.say(`Узел Протектората выведен из строя. Сопротивление платит: +${INSURGENCY.sabotageReward} токенов. Уходите!`, 'world');
       }
-    }
-    if (this.packing) {
-      const f = ctx.labor.stations.find((st) => st.who === p) ?? ctx.labor.factory;
-      if (!f || Math.hypot(f.x - p.x, f.y - p.y) > 40) {
-        this.packing = false;
-        ctx.labor.stopPacking(p);
-        ctx.labor.releaseStation(p);
-        this.say('Фасовка прервана — отошли от конвейера.');
-      } else ctx.labor.packStep(p, dt);
     }
     if (this.task) this.updateTask(p, ctx, dt);
     if (this.repairing) {
@@ -467,7 +454,7 @@ export class PlayerController {
       const t = ctx.shops.dropAt(p, REACH + 8);
       if (t) {
         ctx.shops.deliver(p, t);
-        return this.say(`Коробка из штаба ТС сдана${'shop' in t ? ` в «${t.shop.name}»: товара ${t.shop.goods}/${t.shop.cap}` : ` в столовую: супа ${ctx.shops.soup}/${ctx.shops.soupCap}`}. +${ARBAT.supply.pay} токенов`);
+        return this.say(`Коробка из штаба ТС сдана${'shop' in t ? ` в «${t.shop.name}»: на полках ${goodsOf(t.shop)}/${t.shop.cap}` : ` в столовую: супа ${ctx.shops.soup}/${ctx.shops.soupCap}`}. +${ARBAT.supply.pay} токенов`);
       }
     }
     if (d(ctx.insurgency.market) < REACH + 8) {
@@ -659,22 +646,31 @@ export class PlayerController {
       hq.hire(p, prof, head);
       return;
     }
-    // Работы ТС: цех штаба, доставка коробок.
+    // Работы ТС: докер — контейнер на набережной → тележка → склад штаба ТС; курьер — коробки со склада.
     const labor = ctx.labor;
-    const station = labor.nearestStation(p.x, p.y);
-    if (p.profession === 'packer' && station && d(station) < REACH) {
-      if (!this.packing && station.who && station.who !== p) return this.say('У этого конвейера уже работают — займите соседний.');
-      this.packing = !this.packing;
-      if (this.packing) station.who = p;
-      else {
-        labor.stopPacking(p);
-        labor.releaseStation(p);
+    const port = ctx.supply;
+    if (p.profession === 'packer') {
+      const k = !p.cart ? port.dockAt(p, SUPPLY.cart.reach) : null;
+      if (k) {
+        if (k.docker && k.docker !== p) return this.say('Этот штабель уже грузят — возьмите у соседнего пирса.');
+        if (!port.loadCart(p, k)) return this.say('Складу ТС этот товар больше не нужен — склад полон.');
+        return this.say(`Тележка гружёная: ${cargoText(p.load)}. Везите на склад штаба ТС.`, 'world');
       }
-      return this.say(this.packing ? `Вы у конвейера: собираете коробки рационов (${LABOR.factory.packTime} с каждая). E — закончить.` : 'Фасовка окончена.', 'world');
+      if (p.cart && d(port.store) < REACH + 10) {
+        port.unloadCart(p);
+        return;
+      }
     }
     if (p.profession === 'courier') {
-      if (!p.carrying && d(labor.factoryStore) < REACH) {
-        return this.say(labor.takeBox(p) ? 'Вы взяли коробку рационов. Несите к будке раздачи на площади.' : 'На складе завода нет коробок — нужен фасовщик.', 'world');
+      if (!p.carrying && d(port.store) < REACH) {
+        const urgent = eco.rationStock < LABOR.booth.maxStock * LABOR.booth.urgent;
+        const t = !urgent ? ctx.shops?.supplyNeed() : null;
+        if (t && port.take(p, ctx.shops.boxFor(t))) {
+          ctx.shops.claimSupply(p, t);
+          return this.say(`Коробка: ${cargoText(p.load)}. Несите ${'shop' in t ? `в «${t.shop.name}»` : 'в общую столовую'}.`, 'world');
+        }
+        if (port.take(p, labor.boothBox())) return this.say(`Коробка: ${cargoText(p.load)}. Несите к будке раздачи на площади.`, 'world');
+        return this.say('На складе штаба ТС пусто — ждите баржу и докеров.', 'world');
       }
       if (p.carrying && (d(labor.boothDrop) < REACH + 10 || d(eco.window) < REACH + 10)) {
         if (!labor.deliverBox(p)) this.say('Склад будки полон — подождите раздачи.');
@@ -708,9 +704,9 @@ export class PlayerController {
         return this.say('Вы на выдаче рационов. E — выдать следующему в очереди.', 'world');
       }
       const served = eco.serveNext(p);
-      return this.say(served ? `Выдано: ${served.name}. +2 токена · на складе ${eco.rationStock}` : eco.rationStock <= 0 ? 'Склад будки пуст — ждите курьера с завода.' : 'Очередь пуста или первый ещё не подошёл.', 'world');
+      return this.say(served ? `Выдано: ${served.name}. +2 токена · на складе ${eco.rationStock}` : eco.rationStock <= 0 ? 'Склад будки пуст — ждите курьера со склада ТС.' : 'Очередь пуста или первый ещё не подошёл.', 'world');
     }
-    if (p.faction === 'cwu' && (p.profession === 'janitor' || p.profession === 'packer')) {
+    if (p.faction === 'cwu' && p.profession === 'janitor') {
       const spot = eco.repairs.find((r) => r.broken && d(r) < REACH);
       if (spot) {
         if (!p.inventory.has('toolkit')) return this.say('Нужен набор инструментов (есть в магазине ТС).');
@@ -1089,4 +1085,9 @@ export class PlayerController {
     else ctx.law.apply(p, target, { kind: 'ok', reason: verdict.reason, fine: 0 });
     if (choice === 'arrest') this.bus.emit('log', { text: 'Отведите задержанного к свободной камере КПЗ в Управе — он идёт за вами.', kind: 'system' });
   }
+}
+
+/** «хлеб ×8, вода ×10» — что в коробке или на тележке. */
+function cargoText(load: readonly { item: ItemId; qty: number }[]): string {
+  return load.map((r) => `${ITEMS[r.item].name.toLowerCase()} ×${r.qty}`).join(', ');
 }

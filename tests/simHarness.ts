@@ -31,6 +31,8 @@ import { CwuHqSystem } from '../src/systems/CwuHq';
 import { ArsenalSystem } from '../src/systems/Arsenal';
 import { PrisonSystem } from '../src/systems/Prison';
 import { StreetShops } from '../src/systems/StreetShops';
+import { PortSystem } from '../src/systems/Port';
+import { SupplySystem } from '../src/systems/Supply';
 import { Housing } from '../src/systems/Housing';
 import { Fence } from '../src/systems/Fence';
 import { Routine } from '../src/systems/Routine';
@@ -122,6 +124,8 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
     arsenal: null as unknown as ArsenalSystem,
     prison: null as unknown as PrisonSystem,
     shops: null as unknown as StreetShops,
+    port: null,
+    supply: null as unknown as SupplySystem,
     housing: null as unknown as Housing,
       fence: null as unknown as Fence,
       gangs: null as unknown as GangSystem,
@@ -171,6 +175,8 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   const prison = new PrisonSystem(ctx);
   ctx.prison = prison;
   ctx.shops = new StreetShops(ctx);
+  ctx.port = new PortSystem(map, map.seed);
+  ctx.supply = new SupplySystem(ctx);
   ctx.housing = new Housing(ctx);
   ctx.fence = new Fence(ctx);
   ctx.gangs = new GangSystem(ctx);
@@ -222,6 +228,8 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
     security.update(dt);
     cwuHq.update(dt);
     ctx.shops.update();
+    ctx.supply.update(dt);
+    ctx.port?.update(dt);
     ctx.gangs.update(dt);
     ctx.brawls.update(dt);
     arsenal.update(dt);

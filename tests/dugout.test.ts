@@ -597,10 +597,12 @@ describe('блиндаж: вылазка Протектората, разруш�
     expect(D.defenders(d)).toBe(0);
     let raiders = 0;
     let planted = false;
-    run(sim, 200, () => {
+    // Легионеров по дороге может положить линия повстанцев — тогда идёт следующая вылазка (раз в every с); ждём исхода.
+    until(sim, () => {
       raiders = Math.max(raiders, d.raiders.length);
       if (d.charge > 0) planted = true;
-    });
+      return d.owner === 'ruined';
+    }, 500);
     expect(D.stats.sorties).toBeGreaterThanOrEqual(1);
     expect(raiders).toBeGreaterThanOrEqual(1);
     expect(planted, 'заряд копился у входа').toBe(true);

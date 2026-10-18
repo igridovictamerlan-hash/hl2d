@@ -9,6 +9,7 @@ import type { Relations } from '../systems/Relations';
 import type { Senses } from '../systems/Senses';
 import { RELATIONS } from '../config/relations';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
+import { SUPPLY_LOOK } from '../config/port';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
@@ -197,6 +198,29 @@ export class EntityRenderer {
         ctx.strokeRect(bx - 5 * ps, by - 4 * ps, 10 * ps, 8 * ps);
         ctx.fillStyle = RENDER.effects.boxTape;
         ctx.fillRect(bx - 0.8 * ps, by - 4 * ps, 1.6 * ps, 8 * ps);
+      }
+      // Докер толкает тележку с ящиками перед собой.
+      if (c.cart) {
+        const tx = x + Math.cos(hold) * 14 * ps;
+        const ty = y + 3 * ps + Math.sin(hold) * 8 * ps;
+        const G = SUPPLY_LOOK;
+        ctx.strokeStyle = PAWN.outline;
+        ctx.lineWidth = Math.max(1, 1.1 * ps);
+        ctx.fillStyle = G.wheel;
+        ctx.fillRect(tx - 9 * ps, ty + 4 * ps, 4 * ps, 3 * ps);
+        ctx.fillRect(tx + 5 * ps, ty + 4 * ps, 4 * ps, 3 * ps);
+        ctx.fillStyle = G.cart;
+        ctx.fillRect(tx - 10 * ps, ty - 2 * ps, 20 * ps, 7 * ps);
+        ctx.strokeRect(tx - 10 * ps, ty - 2 * ps, 20 * ps, 7 * ps);
+        for (let k = 0; k < c.load.length; k++) {
+          const cx = tx - 6 * ps + (k % 2) * 12 * ps - (k >= 2 ? 6 * ps : 0);
+          const cy = ty - 4 * ps - (k >= 2 ? 6 * ps : 0);
+          ctx.fillStyle = G.crate;
+          ctx.fillRect(cx - 4 * ps, cy - 3 * ps, 8 * ps, 6 * ps);
+          ctx.strokeRect(cx - 4 * ps, cy - 3 * ps, 8 * ps, 6 * ps);
+          ctx.fillStyle = G.goods[c.load[k].item]?.[0] ?? G.crateTape;
+          ctx.fillRect(cx - 1.5 * ps, cy - 1 * ps, 3 * ps, 2 * ps);
+        }
       }
       // Оглушён дубинкой — голубые искры вокруг головы.
       if (c.stunUntil > now) {
