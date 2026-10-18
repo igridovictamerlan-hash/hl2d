@@ -313,3 +313,20 @@ export function atelierStock(sub: string): `cl_${string}`[] {
   return CLOTH_ITEMS.filter((it) => it.fashion.colors.indexOf(it.color) < (want[it.fashion.tier] ?? 0)).map((it) => it.id);
 }
 
+
+/**
+ * Оперативник в штатском (SU.01, следователь): не броня спецназа, а гражданское — кожанка, плащ или пиджак, рубашка
+ * с галстуком или водолазка, кепка или шляпа. Комплект — по внешности (seed), ключ кэша спрайтов — `op<номер>`.
+ */
+export const PLAINCLOTHES: readonly ClothesLook[] = [
+  { tier: 'middle', top: 'shirt', topColor: '#6f7a86', outer: 'zip', outerColor: '#3a2a20', neck: 'tie', neckColor: '#2a2c33', hat: 'flatcap', hatColor: '#24262b', pants: '#2c2e33', boots: '#1e1a17' },
+  { tier: 'middle', top: 'shirt', topColor: '#d8d4c8', outer: 'trench', outerColor: '#8a7a5e', neck: 'tie', neckColor: '#4a2a2a', hat: 'fedora', hatColor: '#3a3b40', hatTrim: '#1e1f22', pants: '#3a3a3e', boots: '#221d19' },
+  { tier: 'middle', top: 'turtleneck', topColor: '#1f2024', outer: 'blazer', outerColor: '#4a4d52', pants: '#2f3136', boots: '#1c1a18' },
+  { tier: 'middle', top: 'sweater', topColor: '#5a5248', pattern: 'knit', pattern2: '#4a4339', outer: 'peacoat', outerColor: '#262b36', hat: 'beanie', hatColor: '#2a2d33', pants: '#2b2d31', boots: '#1d1a17' },
+];
+
+/** Гражданское оперативника по внешности. */
+export function plainclothesOf(seed: number): { clothes: ClothesLook; key: string } {
+  const i = Math.abs(seed | 0) % PLAINCLOTHES.length;
+  return { clothes: PLAINCLOTHES[i], key: `op${i}` };
+}

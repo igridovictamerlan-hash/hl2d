@@ -15,9 +15,9 @@ import { resolveCircleVsTiles } from '../world/collision';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, ITEMS, GEAR, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
 import { gearLoot } from './Gear';
-import type { ClothesLook } from '../config/clothes';
+import { plainclothesOf, type ClothesLook } from '../config/clothes';
 import { armorOf, roleArmor, rollZone } from './wounds';
-import { FACTIONS, cpHas, type FactionId } from '../config/factions';
+import { FACTIONS, cpHas, cpUnit, type FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { muzzleWorld } from '../entities/weaponPose';
 import { BARKS } from '../config/barks';
@@ -955,7 +955,8 @@ export class CombatSystem {
     const loot = c.inventory.takeAll();
     // Надетое — на теле; у бойца в форме (ВС, армия) с шансом — шлем и бронежилет его стороны.
     // Тело остаётся в той одежде, в какой погиб (вещи — в луте).
-    const dressed = c.faction === 'citizen' && !c.disguised ? { clothes: c.clothes, clothesKey: c.clothesKey } : null;
+    const op = c.faction === 'cp' && !c.disguised && cpUnit(c.rank).plainclothes ? plainclothesOf(c.pid) : null;
+    const dressed = op ? { clothes: op.clothes, clothesKey: op.key } : c.faction === 'citizen' && !c.disguised ? { clothes: c.clothes, clothesKey: c.clothesKey } : null;
     loot.push(...gearLoot(c));
     const drop = GEAR.drops[c.faction];
     if (drop && this.rng.chance(GEAR.dropChance)) {

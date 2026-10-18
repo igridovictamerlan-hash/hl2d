@@ -49,7 +49,8 @@ function outfitOf(look: PawnLook): Outfit {
 const GLOVED_REBELS = new Set(['rebel_soldier', 'veteran', 'rebel_medic', 'pyro', 'demolitionist', 'rebel_leader', 'hydra_rct', 'hydra_sergeant', 'hydra_sniper', 'commando']);
 
 /** Цвет рук на оружии: перчатки у силовиков, OTA и армии, иначе кожа (как у головы). */
-export function handColor(look: Pick<PawnLook, 'faction' | 'profession' | 'seed' | 'kin'>): string {
+export function handColor(look: Pick<PawnLook, 'faction' | 'profession' | 'seed' | 'kin' | 'clothes'>): string {
+  if (look.clothes) return pick(PAWN.skins, look.kin ?? look.seed, 3);
   if (look.faction === 'cp' || look.faction === 'ota') return WEAPON_POSE.gloves;
   if (look.faction === 'rebel' && look.profession && GLOVED_REBELS.has(look.profession)) return WEAPON_POSE.gloveRebel;
   return pick(PAWN.skins, look.kin ?? look.seed, 3);
@@ -112,7 +113,8 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   if (look.helmet && (head === 'cap' || head === 'chef' || head === 'hood' || head === 'bandana' || head === 'beret')) head = 'hair';
   if (head === 'bandana' && !vest) head = 'hair';
   const hairy = head === 'hair' || head === 'bandana' || head === 'cap' || head === 'chef' || head === 'beret';
-  const style: HairStyle = hairy ? hairStyleOf(look.seed) : 'bald';
+  // В гражданском (горожанин, опер в штатском) — своя причёска, а не голова под шлемом формы.
+  const style: HairStyle = hairy || look.clothes ? hairStyleOf(look.seed) : 'bald';
   // Родня похожа: кожа и цвет волос — от зерна семьи.
   const skin = pick(PAWN.skins, look.kin ?? look.seed, 3);
   const hair = pick(PAWN.hairs, look.kin ?? look.seed, 11);
@@ -120,7 +122,7 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   const hx = d === 'E' ? H.sideShift : 0;
 
   // Силовой блок и OTA: броня по эскизам RimWorld, аксессуары за спиной, на туловище и поверх головы.
-  if (O.style === 'marine' || O.style === 'flak' || O.style === 'recon') {
+  if (!look.clothes && (O.style === 'marine' || O.style === 'flak' || O.style === 'recon')) {
     const trim = O.trim === 'rank' ? look.color : (O.trim as string);
     const acc = accessoriesOf(O, look.seed);
     accBack(ctx, d, O, acc);
@@ -159,7 +161,7 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
     return;
   }
   // Армия сопротивления и HYDRA: военная экипировка (pawnTactical).
-  if (O.style === 'tactical') {
+  if (!look.clothes && O.style === 'tactical') {
     const trim = (O.armband as string | undefined) ?? PAWN.tactical.lambda;
     const acc = accessoriesOf(O, look.seed);
     accBack(ctx, d, O, acc);

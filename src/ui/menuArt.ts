@@ -1,3 +1,4 @@
+import { plainclothesOf } from '../config/clothes';
 import type { PawnDir, PawnLook } from '../entities/PawnRenderer';
 import { lookSeed } from '../entities/PawnRenderer';
 import { drawPawnFigure } from './pawnFigure';
@@ -8,7 +9,8 @@ import { KITS, WEAPONS, type WeaponId } from '../config/items';
 /** Внешность «образца» стороны для меню: фракция, ранг и профессия, лицо — по зерну. */
 export function previewLook(faction: FactionId, rank: number, profession: ProfessionId | null, seed: number): PawnLook {
   const r = faction === 'rebel' ? rebelUnitOf(profession)?.rank ?? 0 : rank;
-  return { faction, rank: r, color: colorsOf(faction, r).color, seed: lookSeed(seed), profession };
+  const op = faction === 'cp' && cpUnit(r).plainclothes ? plainclothesOf(seed) : null;
+  return { faction, rank: r, color: colorsOf(faction, r).color, seed: lookSeed(seed), profession, clothes: op?.clothes, clothesKey: op?.key };
 }
 
 /** Классы оружия по «весу»: на образце — самый тяжёлый ствол набора. */

@@ -50,6 +50,8 @@ export interface CpUnitDef extends RankDef {
   command: number;
   skills: readonly CpSkill[];
   desc: string;
+  /** В штатском: рисуется гражданской одеждой (`PLAINCLOTHES`), а не бронёй юнита. */
+  plainclothes?: boolean;
 }
 
 /**
@@ -73,7 +75,7 @@ const CP_RANKS: readonly CpUnitDef[] = [
   { id: 'ofc', unit: 'ofc', name: 'Офицер (PCU.OFC)', short: 'PCU.OFC', color: '#2e73d2', outline: '#19437d', group: 'pcu', hp: 150, kit: 'cp_sgt', command: 4, skills: [], desc: 'Построения на плацу Управы, надзор за всей городской полицией. Терминал кодов.' },
   { id: 'su3', unit: 'su3', name: 'Спецназ (SU.03)', short: 'SU.03', color: '#5fc4b0', outline: '#27685c', group: 'su', hp: 120, kit: 'cp_su', command: 2, skills: ['barrier'], desc: 'Держит КПП вместе с Легионом. MP7 и пистолет, G — бетонный блок.' },
   { id: 'su2', unit: 'su2', name: 'Медик-техник (SU.02)', short: 'SU.02', color: '#48b4d0', outline: '#1f5f70', group: 'su', hp: 125, kit: 'cp_su_medic', command: 2, skills: ['medic', 'drone'], desc: 'Лечит своих на КПП (G), запускает сканер (G в городе). MP7 и пистолет.' },
-  { id: 'su1', unit: 'su1', name: 'Следователь (SU.01)', short: 'SU.01', color: '#a08ae0', outline: '#4d3f7d', group: 'su', hp: 115, kit: 'cp', command: 3, skills: ['investigate'], desc: 'Ходит с патрулями, сканирует тела (E) и находит убийц. Проверка CID быстрее.' },
+  { id: 'su1', unit: 'su1', name: 'Опер в штатском (SU.01)', short: 'SU.01', color: '#a08ae0', outline: '#4d3f7d', group: 'su', hp: 115, kit: 'cp', command: 3, skills: ['investigate'], desc: 'Оперуполномоченный в штатском: ходит с патрулями, осматривает тела (E) и находит убийц. Проверка CID быстрее.', plainclothes: true },
   { id: 'guard', unit: 'guard', name: 'Охрана (SU.GUARD)', short: 'SU.GUARD', color: '#3f9c86', outline: '#1d4d42', group: 'su', hp: 140, kit: 'cp_guard', command: 2, skills: [], desc: 'Охраняет инспекторов, Коменданта, EPU и лоялистов — по очереди. MP7.' },
   { id: 'insp', unit: 'insp', name: 'Инспектор (SU.INSP)', short: 'SU.INSP', color: '#2f7fa0', outline: '#143c4d', group: 'su', hp: 140, kit: 'cp_guard', command: 5, skills: ['investigate'], desc: 'Надзор за SU и работой ТС, указания офицерам. Всегда с охраной.' },
   { id: 'epu', unit: 'epu', name: 'Глава силового блока (CMD.EPU)', short: 'CMD.EPU', color: '#d9b24a', outline: '#6e5516', group: 'cmd', hp: 200, kit: 'cp_guard', command: 6, skills: [], desc: 'Командует всеми. Сидит с Комендантом, из Управы — только с охраной.' },

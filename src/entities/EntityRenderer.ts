@@ -1,7 +1,8 @@
 import { ITEMS } from '../config/items';
 import type { Character, SpeechKind } from './Character';
 import type { View } from '../core/Camera';
-import { FACTIONS, colorsOf, rankOf } from '../config/factions';
+import { FACTIONS, colorsOf, cpUnit, rankOf } from '../config/factions';
+import { plainclothesOf } from '../config/clothes';
 import { LOYALTY } from '../config/loyalty';
 import { familyTitle, type FamilySystem } from '../systems/Families';
 import type { GangSystem } from '../systems/Gangs';
@@ -74,9 +75,11 @@ export class EntityRenderer {
     const fam = !c.disguised ? this.families?.of(c) ?? null : null;
     const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
     // Гражданская одежда — только у того, кто выглядит горожанином; лоялиста в ней узнают по фиолетовой повязке.
-    const dressed = c.clothes && faction === 'citizen' ? c.clothes : null;
+    // Опер в штатском (SU.01) — гражданское по внешности, без брони на рисунке.
+    const op = faction === 'cp' && !c.disguised && cpUnit(rank).plainclothes ? plainclothesOf(c.pid) : null;
+    const dressed = op ? op.clothes : c.clothes && faction === 'citizen' ? c.clothes : null;
     const band = gang?.def.color ?? (dressed && loyalist ? LOYALTY.uniform.color : fam?.color);
-    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, clothesKey: dressed ? c.clothesKey : undefined };
+    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, clothesKey: op ? op.key : dressed ? c.clothesKey : undefined };
   }
 
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
