@@ -11,13 +11,15 @@ import { Tactician } from '../Tactics';
 import { TACTICS } from '../../config/tactics';
 import { ARSENAL } from '../../config/arsenal';
 
-export type OtaMode = 'reserve' | 'post' | 'home';
+export type OtaMode = 'reserve' | 'post' | 'home' | 'sortie';
 
 /**
  * Боец OTA (OTA.ALPHA, командир OTA.KING) — резерна ГЭС. Воюет только на КПП, по городу не ходит.
  *  reserve — ждёт приказа в комнате OTA в Управе (у своего шкафа; нет комнаты — у ворот);
  *  post — контрудар: бежит на пост захваченной точки КПП и держит его (WarSystem.counterattack);
- *  home — отбой: возвращается в комнату OTA (там снова reserve).
+ *  home — отбой: возвращается в комнату OTA (там снова reserve);
+ *  sortie — вылазка к передовому блиндажу повстанцев (WAR.dugout.sortie): идёт к его входу и стоит там, пока
+ *    Dugouts закладывает заряд; бой по дороге — как обычно.
  */
 export class OtaBrain implements Brain {
   readonly mover = new Mover(95);
@@ -25,6 +27,8 @@ export class OtaBrain implements Brain {
   mode: OtaMode = 'reserve';
   front = -1;
   post: Vec2 | null = null;
+  /** Вылазка: место закладки заряда (у входа в блиндаж). */
+  private spot: Vec2 | null = null;
   private facing = 0;
   private repath = 0;
   /** Больше не используется: OTA возвращаются в резерв, а не уходят. */
@@ -41,7 +45,7 @@ export class OtaBrain implements Brain {
   }
 
   get stateName(): string {
-    const m = { reserve: 'резерв', post: 'контрудар', home: 'возврат' }[this.mode];
+    const m = { reserve: 'резерв', post: 'контрудар', home: 'возврат', sortie: 'вылазка' }[this.mode];
     const tac = this.tactics.label;
     return this.gunner.target ? `${m} · бой${tac ? ` · ${tac}` : ''}` : m;
   }
@@ -59,10 +63,21 @@ export class OtaBrain implements Brain {
     this.repath = 0;
   }
 
+  /** Вылазка к блиндажу фронта front: дойти до места закладки spot, смотреть на блиндаж (facing). */
+  assignSortie(front: number, spot: Vec2, facing: number): void {
+    this.mode = 'sortie';
+    this.front = front;
+    this.post = null;
+    this.spot = spot;
+    this.facing = facing;
+    this.repath = 0;
+  }
+
   goHome(): void {
     this.mode = 'home';
     this.front = -1;
     this.post = null;
+    this.spot = null;
     this.repath = 0;
   }
 
@@ -108,10 +123,11 @@ export class OtaBrain implements Brain {
     } else if (fighting && this.gunner.target) {
       ctx.war.sighted(this.gunner.target);
       // Из укрытия у поста (или там, где начался бой).
-      this.fightHome ??= this.post ?? { x: self.x, y: self.y };
-      if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt, this.fightHome, this.post ? TACTICS.postLeash : TACTICS.leash)) this.mover.stop();
-    } else if (this.mode === 'post' && this.post) {
-      const p = this.post;
+      const anchor = this.mode === 'sortie' ? this.spot : this.post;
+      this.fightHome ??= anchor ?? { x: self.x, y: self.y };
+      if (!this.tactics.fight(self, ctx, this.gunner, this.mover, dt, this.fightHome, anchor ? TACTICS.postLeash : TACTICS.leash)) this.mover.stop();
+    } else if ((this.mode === 'post' && this.post) || (this.mode === 'sortie' && this.spot)) {
+      const p = (this.mode === 'sortie' ? this.spot : this.post)!;
       const far = Math.hypot(p.x - self.x, p.y - self.y);
       this.mover.speed = far > LAW.cpRunToPost ? LAW.cpRunSpeed : 95;
       if (far < 14) {

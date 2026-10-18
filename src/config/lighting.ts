@@ -63,6 +63,8 @@ export const LIGHTING = {
   blast: { color: [255, 170, 90] as Rgb, radiusMul: 3.2, power: 1.4 },
   muzzle: { color: [255, 205, 130] as Rgb, radius: 90, power: 0.9, time: 0.07 },
   burning: { color: [255, 120, 40] as Rgb, radius: 70, power: 0.9 },
+  /** Фонарь в передовом блиндаже повстанцев: тёплый, мерцает, горит ночью; разрушен — гаснет (Dugout.broken). */
+  dugout: { color: [255, 186, 108] as Rgb, radius: 62, power: 0.75, flicker: 0.12 },
   /** Люк в канализации: свет сверху. */
   hatch: { color: [210, 205, 180] as Rgb, radius: 70, power: 0.6 },
   /**
@@ -87,6 +89,14 @@ export const LIGHTING = {
     recruit_terminal: { color: [255, 215, 120], radius: 50, power: 0.7, night: false },
     nexus_gate: { color: [190, 215, 255], radius: 140, power: 0.9, night: true },
     gate_post: { color: [205, 225, 255], radius: 120, power: 0.85, night: true },
+    // ГЭС: прожекторы у ворот, машинный зал, турбины и трансформаторы — холодный свет.
+    ges_post: { color: [205, 225, 255], radius: 130, power: 0.9, night: true, bloom: true },
+    ges_hall: { color: [200, 220, 255], radius: 150, power: 0.9, night: true },
+    ges_turbine: { color: [170, 220, 255], radius: 70, power: 0.7, night: false, bloom: true },
+    ges_transformer: { color: [215, 235, 255], radius: 80, power: 0.6, night: true, bloom: true },
+    // Порт: прожекторы кранов и склад.
+    port_crane: { color: [225, 238, 255], radius: 150, power: 0.85, night: true, bloom: true },
+    port_warehouse: { color: [255, 214, 150], radius: 120, power: 0.8, night: true },
     checkpoint_post: { color: [205, 225, 255], radius: 120, power: 0.8, night: true },
     restricted_gate: { color: [200, 220, 255], radius: 120, power: 0.8, night: true },
     industrial_yard: { color: [255, 170, 90], radius: 150, power: 0.75, night: true },

@@ -6,6 +6,9 @@ import type { FactionId, DivisionId } from '../config/factions';
 import type { ItemId, WeaponId, GrenadeId, GearId, GearSlot } from '../config/items';
 import type { EconomySystem } from '../systems/EconomySystem';
 import type { CombatSystem } from '../systems/CombatSystem';
+import type { Suspects } from '../systems/Suspects';
+import type { Escalation } from '../systems/Escalation';
+import type { LawSystem } from '../systems/LawSystem';
 import { Hud } from './Hud';
 import type { PawnLook } from '../entities/PawnRenderer';
 import { ZoneBanner } from './ZoneBanner';
@@ -16,6 +19,8 @@ import { RoleMenu } from './RoleMenu';
 import { CheckPanel, type CheckChoice } from './CheckPanel';
 import { CodePanel } from './CodePanel';
 import { InventoryPanel } from './InventoryPanel';
+import { ContactsPanel } from './ContactsPanel';
+import type { PersonInfo } from '../systems/Relations';
 import { ShopPanel } from './ShopPanel';
 import { AlertBar } from './AlertBar';
 import { DeathScreen } from './DeathScreen';
@@ -53,6 +58,14 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly arena: SquadArena | null;
   /** Строка HUD о городе: поручение, ночной час (пусто — ничего). */
   readonly cityHint: string;
+  /** Дела о преступлениях: ориентировка по игроку (значок «ищут»). */
+  readonly suspects: Suspects | null;
+  /** Реакция города по зонам (название зоны: «усиленный патруль»). */
+  readonly escalation: Escalation | null;
+  /** Время закона (кровь на одежде — по нему). */
+  readonly law: LawSystem;
+  /** Знакомые игрока (панель K). */
+  contacts(): readonly PersonInfo[];
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null, name?: string | null): void;
   /** Имя персонажа для меню роли: текущее (не ВС) и новое случайное. */
   currentName(): string;
@@ -91,6 +104,7 @@ export class UI {
   readonly check: CheckPanel;
   readonly code: CodePanel;
   readonly inventory: InventoryPanel;
+  readonly contacts: ContactsPanel;
   readonly shop: ShopPanel;
   readonly alert: AlertBar;
   readonly death: DeathScreen;
@@ -109,11 +123,13 @@ export class UI {
     this.hud = new Hud(root);
     this.banner = new ZoneBanner(root, bus);
     this.banner.turf = (id) => host.gangs?.turfOf(id)?.def.name ?? null;
+    this.banner.escalation = (id) => host.escalation?.label(id) ?? '';
     this.dev = new DevPanel(root, host);
     this.log = new EventLog(root, bus);
     this.check = new CheckPanel(root, bus, (t, c) => host.resolveCheck(t, c));
     this.code = new CodePanel(root, () => host.war, (c) => host.setAlertCode(c));
     this.inventory = new InventoryPanel(root, host);
+    this.contacts = new ContactsPanel(root, () => host.contacts());
     this.capture = new CaptureBar(root);
     this.arenaBar = new ArenaBar(root);
     this.mapView = new MapView(root);
@@ -187,6 +203,7 @@ export class UI {
     this.audio.ambient(player, this.host.fireSpots, this.host.darkness, level === 'sewer', dt, this.host.arsenal?.shipView() ?? null);
     this.audio.radio(player, this.host.radioFeed, FACTIONS[player.faction].authority && !player.cadet);
     this.placeLog();
+    this.contacts.update(dt);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
@@ -213,7 +230,12 @@ export class UI {
     }
     const hint = this.host.arena ? '' : this.host.cityHint;
     if (hint) ration += `\n${hint}`;
+    // Ориентировка по игроку (только в обычной игре): значок «ищут»; кровь на одежде — по часам закона.
+    const sus = this.host.arena ? null : this.host.suspects;
+    const suspect = sus?.enabled ? sus.playerStatus(player) : null;
     this.hud.update(player, now, {
+      suspect,
+      bloody: player.bloodyUntil > this.host.law.now,
       look: this.host.pawnLook(player),
       weapon: player.weapon,
       mag: player.mag,

@@ -223,8 +223,8 @@ export class GangSystem {
     return !!f && f.until > this.time;
   }
 
-  /** Заселить банды: авторитет у общака, бойцы — по комнатам общаги. */
-  populate(): void {
+  /** Заселить банды: авторитет у общака, бойцы — по комнатам общаги (scale — множитель населения, Population). */
+  populate(scale = 1): void {
     const { ctx } = this;
     for (const g of this.gangs) {
       if (!g.rooms.length) continue;
@@ -236,7 +236,8 @@ export class GangSystem {
       });
       const boss = spawnRole(ctx, spec('gang_boss', 0), g.hq);
       if (boss) this.dress(boss, g);
-      const n = ctx.rng.int(GANGS.members[0], GANGS.members[1]);
+      const n0 = ctx.rng.int(GANGS.members[0], GANGS.members[1]);
+      const n = scale === 1 ? n0 : Math.max(1, Math.round(n0 * scale));
       for (let k = 0; k < n; k++) {
         const r = room(k + 1);
         const c = spawnRole(ctx, spec('bandit', k + 1), ctx.rng.pick(r.spots));

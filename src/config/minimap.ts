@@ -40,7 +40,17 @@ export const MINIMAP = {
     [T.ROCK]: [44, 38, 30],
     [T.GARDEN]: [64, 100, 56],
     [T.HEDGE]: [36, 72, 36],
+    [T.TRENCH]: [68, 54, 38],
+    [T.CHASM]: [8, 6, 6],
+    [T.DUGOUT_WALL]: [88, 60, 34],
+    [T.DUGOUT]: [128, 98, 60],
+    [T.WATER]: [44, 74, 88],
+    [T.DAM]: [140, 138, 130],
+    [T.SHORE]: [160, 148, 118],
   } as Record<number, readonly [number, number, number]>,
+  /** Горы на картах: уступ светлее на ridgeLight, гребень — снег (world/relief.ts). */
+  ridgeLight: 7,
+  snow: [168, 172, 180] as [number, number, number],
   colors: {
     player: '#ffd36b',
     ally: '#8cc8ff',
@@ -67,6 +77,9 @@ export const MINIMAP = {
     scene: '#f2cf2a',
     sceneEdge: '#161616',
     base: '#ff9a4a',
+    /** Передовой блиндаж повстанцев у КПП (только повстанцам): цел — кружок, разрушен — серое кольцо. */
+    dugout: '#e8a860',
+    dugoutRuined: '#8a8478',
     market: '#d9a441',
     frame: 'rgba(255,211,107,0.35)',
     zoneLabel: 'rgba(230,226,214,0.8)',

@@ -2,6 +2,7 @@ import type { Shot, Fx } from '../systems/CombatSystem';
 import type { Character } from '../entities/Character';
 import { AUDIO, type Voice } from '../config/audio';
 import { WEAPONS } from '../config/items';
+import type { MeleeStyle } from '../config/melee';
 
 const STORAGE_KEY = 'city17.muted';
 
@@ -10,7 +11,7 @@ const STORAGE_KEY = 'city17.muted';
  * частоты), «тело» (шум через фильтр) и низкий удар; AR2 — ещё «зуд». Громкость падает с
  * расстоянием мягко — далёкую перестрелку слышно, но тихо и глухо (фильтр), с задержкой по скорости
  * звука и с эхом: общий ревербератор (свёртка) и короткое эхо от стен. Рядом — шлепки попаданий,
- * рикошеты, взмах ножа. Контекст WebAudio — по первому жесту пользователя. N — вкл/выкл.
+ * рикошеты, ближний бой (взмах, шлепок кулака, треск дубинки, нож, звон блока). Контекст WebAudio — по первому жесту пользователя. N — вкл/выкл.
  */
 export class GunfireAudio {
   private ctx: AudioContext | null = null;
@@ -163,9 +164,12 @@ export class GunfireAudio {
       const d = Math.hypot(f.x - listener.x, f.y - listener.y);
       if (d > AUDIO.hitRange || !sameLevel(f.x, f.y)) continue;
       const pan = (f.x - listener.x) / 900;
-      if (f.kind === 'hit' || (f.kind === 'stab' && f.cls === 'blade')) this.flesh(ctx, d, pan, f.lethal);
+      if (f.kind === 'hit') this.flesh(ctx, d, pan, f.lethal);
       else if (f.kind === 'wall' && Math.random() < AUDIO.ricochet.chance) this.ricochet(ctx, d, pan);
-      if (f.kind === 'stab') this.swish(ctx, d, pan);
+      else if (f.kind === 'swing') this.swish(ctx, d, pan, f.style ?? 'baton', !!f.heavy);
+      else if (f.kind === 'stab') this.strike(ctx, d, pan, f);
+      else if (f.kind === 'block' || f.kind === 'parry') this.clash(ctx, d, pan, f);
+      else if (f.kind === 'ko') this.knock(ctx, d, pan);
       if (f.kind === 'whiz' && f.target === listener) this.whiz(ctx, pan, f.power);
     }
   }
@@ -453,19 +457,153 @@ export class GunfireAudio {
     this.noiseSrc(ctx, c.t0, W.dur + 0.02).connect(bp).connect(g2).connect(c.out);
   }
 
-  /** Взмах ножом или дубинкой: свист воздуха. */
-  private swish(ctx: AudioContext, d: number, pan: number): void {
-    const c = this.chain(ctx, d, pan, 0.3, 0.02);
+  /** Взмах (кулак, дубинка, нож): свист воздуха в полосе, у ножа — выше и резче, тяжёлый — громче. */
+  private swish(ctx: AudioContext, d: number, pan: number, style: MeleeStyle, heavy: boolean): void {
+    const S = AUDIO.melee.swish[style];
+    const c = this.chain(ctx, d, pan, S.gain * (heavy ? 1.35 : 1), 0.02);
     if (!c) return;
+    const dur = S.dur * (heavy ? 1.25 : 1);
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
     bp.Q.value = 2;
-    bp.frequency.setValueAtTime(900, c.t0);
-    bp.frequency.exponentialRampToValueAtTime(3500, c.t0 + 0.12);
+    bp.frequency.setValueAtTime(S.from, c.t0);
+    bp.frequency.exponentialRampToValueAtTime(S.to, c.t0 + dur * 0.85);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.001, c.t0);
-    g.gain.exponentialRampToValueAtTime(1, c.t0 + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.001, c.t0 + 0.14);
-    this.noiseSrc(ctx, c.t0, 0.15).connect(bp).connect(g).connect(c.out);
+    g.gain.exponentialRampToValueAtTime(1, c.t0 + dur * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.001, c.t0 + dur);
+    this.noiseSrc(ctx, c.t0, dur + 0.01).connect(bp).connect(g).connect(c.out);
+    if (style === 'baton') this.zap(ctx, c.out, c.t0, heavy ? 0.7 : 0.35);
+  }
+
+  /** Попал: кулак — глухой шлепок (в голову — звонче), дубинка — удар с треском разряда, нож — плоть и «вжик». */
+  private strike(ctx: AudioContext, d: number, pan: number, f: Fx): void {
+    const M = AUDIO.melee;
+    const heavy = !!f.heavy;
+    if (f.style === 'blade' || (!f.style && f.cls === 'blade')) {
+      this.flesh(ctx, d, pan, f.lethal || heavy);
+      const c = this.chain(ctx, d, pan, M.slice.gain, 0.03);
+      if (!c) return;
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = M.slice.cutoff;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1, c.t0);
+      g.gain.exponentialRampToValueAtTime(0.001, c.t0 + M.slice.dur);
+      this.noiseSrc(ctx, c.t0, M.slice.dur + 0.01, 1.3).connect(hp).connect(g).connect(c.out);
+      return;
+    }
+    const P = M.punch;
+    const c = this.chain(ctx, d, pan, P.gain * (heavy ? 1.45 : 1), 0.06);
+    if (!c) return;
+    const dur = P.dur * (heavy ? 1.5 : 1);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = f.zone === 'head' ? P.headBody : P.body;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(1, c.t0);
+    g.gain.exponentialRampToValueAtTime(0.001, c.t0 + dur * 0.7);
+    this.noiseSrc(ctx, c.t0, dur).connect(lp).connect(g).connect(c.out);
+    const o = ctx.createOscillator();
+    const og = ctx.createGain();
+    o.frequency.setValueAtTime(P.thump * (heavy ? 0.85 : 1), c.t0);
+    o.frequency.exponentialRampToValueAtTime(P.thump * 0.45, c.t0 + dur);
+    og.gain.setValueAtTime(1, c.t0);
+    og.gain.exponentialRampToValueAtTime(0.001, c.t0 + dur);
+    o.connect(og).connect(c.out);
+    o.start(c.t0);
+    o.stop(c.t0 + dur);
+    if (f.style === 'baton') this.zap(ctx, c.out, c.t0, heavy ? 1.4 : 1);
+  }
+
+  /** Треск разряда дубинки: пила через полосу с падающей частотой и короткий шум. */
+  private zap(ctx: AudioContext, out: GainNode, t0: number, k: number): void {
+    const Z = AUDIO.melee.zap;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(Z.freq * (0.9 + Math.random() * 0.2), t0);
+    o.frequency.exponentialRampToValueAtTime(Z.freq * 0.35, t0 + Z.dur);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 3;
+    bp.frequency.value = Z.freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(Z.gain * k, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + Z.dur);
+    o.connect(bp).connect(g).connect(out);
+    o.start(t0);
+    o.stop(t0 + Z.dur);
+  }
+
+  /** Блок и парирование: оружие об оружие — звон (два обертона), руками — глухо; парирование — громче. */
+  private clash(ctx: AudioContext, d: number, pan: number, f: Fx): void {
+    const M = AUDIO.melee;
+    const k = f.kind === 'parry' ? 1.5 : f.heavy ? 1.3 : 1;
+    if (f.style !== 'fists' && f.guard !== 'fists') {
+      const C = M.clang;
+      const c = this.chain(ctx, d, pan, C.gain * k, 0.25);
+      if (!c) return;
+      for (const fr of [C.ring, C.ring2]) {
+        const o = ctx.createOscillator();
+        const og = ctx.createGain();
+        o.frequency.value = fr * (0.95 + Math.random() * 0.1);
+        og.gain.setValueAtTime(fr === C.ring ? 1 : 0.6, c.t0);
+        og.gain.exponentialRampToValueAtTime(0.001, c.t0 + C.dur);
+        o.connect(og).connect(c.out);
+        o.start(c.t0);
+        o.stop(c.t0 + C.dur);
+      }
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 2500;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.8, c.t0);
+      g.gain.exponentialRampToValueAtTime(0.001, c.t0 + 0.03);
+      this.noiseSrc(ctx, c.t0, 0.04).connect(hp).connect(g).connect(c.out);
+      if (f.style === 'baton' || f.guard === 'baton') this.zap(ctx, c.out, c.t0, 0.8);
+      return;
+    }
+    const T = M.thud;
+    const c = this.chain(ctx, d, pan, T.gain * k, 0.05);
+    if (!c) return;
+    const o = ctx.createOscillator();
+    const og = ctx.createGain();
+    o.frequency.setValueAtTime(T.freq, c.t0);
+    o.frequency.exponentialRampToValueAtTime(T.freq * 0.5, c.t0 + T.dur);
+    og.gain.setValueAtTime(1, c.t0);
+    og.gain.exponentialRampToValueAtTime(0.001, c.t0 + T.dur);
+    o.connect(og).connect(c.out);
+    o.start(c.t0);
+    o.stop(c.t0 + T.dur);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 900;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.7, c.t0);
+    g.gain.exponentialRampToValueAtTime(0.001, c.t0 + T.dur * 0.7);
+    this.noiseSrc(ctx, c.t0, T.dur).connect(lp).connect(g).connect(c.out);
+  }
+
+  /** Нокаут: тяжёлое падение. */
+  private knock(ctx: AudioContext, d: number, pan: number): void {
+    const K = AUDIO.melee.ko;
+    const c = this.chain(ctx, d, pan, K.gain, 0.1);
+    if (!c) return;
+    const o = ctx.createOscillator();
+    const og = ctx.createGain();
+    o.frequency.setValueAtTime(K.freq, c.t0);
+    o.frequency.exponentialRampToValueAtTime(K.freq * 0.5, c.t0 + K.dur);
+    og.gain.setValueAtTime(1, c.t0);
+    og.gain.exponentialRampToValueAtTime(0.001, c.t0 + K.dur);
+    o.connect(og).connect(c.out);
+    o.start(c.t0);
+    o.stop(c.t0 + K.dur);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 420;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(1, c.t0);
+    g.gain.exponentialRampToValueAtTime(0.001, c.t0 + K.dur);
+    this.noiseSrc(ctx, c.t0, K.dur, 0.6).connect(lp).connect(g).connect(c.out);
   }
 }

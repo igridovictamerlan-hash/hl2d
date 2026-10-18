@@ -8,6 +8,7 @@ import { REBEL_RANKS } from '../config/factions';
 import { HUD } from '../config/hud';
 import { drawGunIcon, drawIcon, iconOf } from './icons';
 import { drawPawnFigure } from './pawnFigure';
+import { MELEE as MELEE_CFG } from '../config/melee';
 
 export interface InventoryHost {
   useItem(id: ItemId): void;
@@ -459,7 +460,8 @@ function wrap(ctx: CanvasRenderingContext2D, s: string, width: number, font: str
 
 /** Характеристики оружия одной строкой (подсказка). */
 function weaponStats(w: WeaponDef): string {
-  if (w.mode === 'melee') return `Урон ${w.damage}, ${w.fireRate} уд/с.`;
+  // Холодное: серия из трёх ударов (config/melee), третий — тяжёлый; ПКМ — блок.
+  if (w.mode === 'melee') return `Урон ${w.damage}, серия: ${MELEE_CFG.styles[w.class === 'blade' ? 'blade' : 'baton'].map((s) => s.name).join(' — ')}; ПКМ — блок.`;
   const dmg = w.pellets > 1 ? `${w.damage}×${w.pellets}` : `${w.damage}`;
   const parts = [`урон ${dmg}`, `${w.fireRate} выстр/с`, `дальность ${w.effectiveRange}/${w.range}`, `магазин ${w.magazine}`, `перезарядка ${w.reload} с`];
   if (w.penetration > 0) parts.push(`пробитие ${Math.round(w.penetration * 100)}%`);

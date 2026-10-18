@@ -43,7 +43,13 @@ describe('свой дом у каждого', () => {
     // Дома на Арбате (главный проспект, площадь) — заселяются первыми.
     const arbat = H.dwellings.filter((d) => d.kind === 'arbat');
     expect(arbat.length).toBeGreaterThanOrEqual(10);
-    expect(arbat.filter((d) => d.households > 0).length / arbat.length).toBeGreaterThan(0.8);
+    // Город большой — домов на Арбате больше, чем желающих, но заселён он плотнее кварталов.
+    const share = (k: string) => {
+      const list = H.dwellings.filter((d) => d.kind === k);
+      return list.filter((d) => d.households > 0).length / Math.max(1, list.length);
+    };
+    expect(share('arbat')).toBeGreaterThan(0.5);
+    expect(share('arbat')).toBeGreaterThan(share('house') * 2);
     // Каждому своё (семья — одна комната на всех; банда живёт в своей общаге — бойцов больше, чем комнат).
     const byHome = new Map<number, Set<string>>();
     for (const c of people) {

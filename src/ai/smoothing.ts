@@ -5,9 +5,10 @@ import type { Vec2 } from '../core/math';
 /**
  * «Натягивание нити»: из цепочки центров якорей оставляем только точки поворота,
  * между которыми кружок (с запасом margin) проходит по прямой. Путь без «лесенки»,
- * NPC не цепляются за углы.
+ * NPC не цепляются за углы. classes (по точке пути) — «класс местности»: срезать можно только внутри одного класса
+ * (путь по укрытию не спрямляется через открытое место — Mover.extraCost).
  */
-export function smoothPath(map: GameMap, pts: Vec2[], radius: number, margin = 2): Vec2[] {
+export function smoothPath(map: GameMap, pts: Vec2[], radius: number, margin = 2, classes?: readonly number[]): Vec2[] {
   if (pts.length <= 2) return pts.slice();
   const r = radius + margin;
   const out: Vec2[] = [pts[0]];
@@ -16,6 +17,7 @@ export function smoothPath(map: GameMap, pts: Vec2[], radius: number, margin = 2
     let j = i + 1;
     // Двигаемся вперёд, пока прямая видна; ограничение — чтобы не проверять слишком длинные отрезки.
     for (let k = i + 2; k < pts.length && k - i <= 48; k++) {
+      if (classes && classes[k] !== classes[i]) break;
       if (segmentClear(map, pts[i].x, pts[i].y, pts[k].x, pts[k].y, r)) j = k;
       else break;
     }

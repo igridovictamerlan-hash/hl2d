@@ -188,13 +188,14 @@ export function ensureConnectivity(
     report.tunnels++;
   }
 
-  // Финал: проходимые тайлы вне досягаемости → стена.
+  // Финал: проходимые тайлы вне досягаемости → стена (асфальт — и заблокированный: карман у штампа, куда не пройти,
+  // бесполезен, например край проспекта у поста на стене Верхнего города).
   const walk = buildAnchorWalk(g.tiles, w, h);
   const comps = labelComponents(walk, aw, ah);
   let main = comps.labels[refAnchor];
   if (main < 0) main = comps.sizes.indexOf(Math.max(...comps.sizes));
   for (const i of findUnreachableTiles(g.tiles, w, h, comps.labels, main)) {
-    if (!g.locked[i]) {
+    if (!g.locked[i] || g.tiles[i] === T.STREET) {
       g.tiles[i] = T.WALL;
       report.unreachableRemoved++;
     }

@@ -282,6 +282,26 @@ I.backpack = (c) => {
   shp(c, '#2b2d31', () => c.roundRect(-8, -27, 16, 8, 3), 2.5);
   ln(c, [[0, 4], [0, 22]], 1.5, '#2e3320');
 };
+I.coat = (c) => {
+  shp(c, '#6b5a40', () => { c.moveTo(-10, -24); c.lineTo(10, -24); c.lineTo(24, -14); c.lineTo(24, 22); c.lineTo(14, 26); c.lineTo(10, 10); c.lineTo(-10, 10); c.lineTo(-14, 26); c.lineTo(-24, 22); c.lineTo(-24, -14); c.closePath(); });
+  fl(c, '#7d6b4f', () => { c.moveTo(-10, -24); c.lineTo(0, -10); c.lineTo(10, -24); c.closePath(); });
+  ln(c, [[0, -10], [0, 22]], 1.6, '#4a3d2a');
+  fl(c, '#e6dcc0', () => { c.arc(-3, -2, 1.6, 0, TAU); c.arc(-3, 9, 1.6, 0, TAU); });
+  ln(c, [[-22, 6], [22, 6]], 2.5, '#3c3121');
+};
+/** Рубаха в крови — значок состояния «в крови». */
+I.bloody_shirt = (c) => {
+  shp(c, '#5b6470', () => { c.moveTo(-12, -22); c.lineTo(-22, -14); c.lineTo(-16, -6); c.lineTo(-14, 22); c.lineTo(14, 22); c.lineTo(16, -6); c.lineTo(22, -14); c.lineTo(12, -22); c.quadraticCurveTo(0, -14, -12, -22); c.closePath(); });
+  shp(c, '#9b1c16', () => c.ellipse(4, 6, 8, 6, 0.3, 0, TAU), 2);
+  fl(c, '#d4362b', () => c.arc(-6, -2, 3, 0, TAU));
+};
+/** Лупа — значок состояния «ищут». */
+I.search = (c) => {
+  ln(c, [[8, 8], [22, 22]], 9, OUT);
+  ln(c, [[8, 8], [22, 22]], 5, '#6b5a48');
+  shp(c, '#cfe3ef', () => c.arc(-5, -5, 16, 0, TAU), 4.5);
+  fl(c, 'rgba(255,255,255,0.7)', () => c.arc(-11, -11, 4, 0, TAU));
+};
 I.jumpsuit = (c) => {
   shp(c, '#3f6a8c', () => { c.moveTo(-10, -24); c.lineTo(10, -24); c.lineTo(24, -14); c.lineTo(20, 4); c.lineTo(14, 0); c.lineTo(14, 26); c.lineTo(2, 26); c.lineTo(0, 6); c.lineTo(-2, 26); c.lineTo(-14, 26); c.lineTo(-14, 0); c.lineTo(-20, 4); c.lineTo(-24, -14); c.closePath(); });
   fl(c, '#335a78', () => { c.moveTo(-10, -24); c.lineTo(0, -14); c.lineTo(10, -24); c.closePath(); });

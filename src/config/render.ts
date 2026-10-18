@@ -68,6 +68,58 @@ export const RENDER = {
     /** Скалы пустоши вокруг города. */
     rock: { h: 32, s: 14, l: 14, noise: 3 },
     rockCrack: 'rgba(0,0,0,0.35)',
+    /**
+     * Горы долины (world/relief.ts): уступ — тайлов до подножия, делённое на step (шум ±wobble с ячейкой
+     * wobbleCell — террасы не по линейке), в полосах хребтов ещё + ridgeLift на ряд к краю карты, не выше
+     * maxLevel (предгорья запада — не выше footMax). Каждый уступ светлее на light и чуть холоднее
+     * (hueShift), с snowLevel — снег на гребне (пятнами: где шум с ячейкой snowCell ниже snowGap — камень). Свет с северо-запада: где ниже сосед с юга или востока — тень
+     * обрыва (cliff, толщина cliffSize px), с севера или запада — светлая кромка (rim); у подножия — осыпь (scree).
+     */
+    ridge: {
+      step: 2.2, wobble: 3.2, wobbleCell: 9, maxLevel: 8, footMax: 4, ridgeLift: 0.7, light: 2.8, hueShift: -1.5, satShift: -1.1, snowLevel: 7, snowCell: 5, snowGap: 0.38,
+      snow: { h: 214, s: 9, l: 66, noise: 3 },
+      cliff: 'rgba(0,0,0,0.45)', cliffSize: 4, rim: 'rgba(255,236,210,0.14)', scree: 'rgba(170,150,120,0.22)',
+    },
+    /**
+     * Траншея (позиционные КПП): вырытый канал — тёмная земля с дощатым настилом; кромка с бруствером из
+     * мешков там, где рядом не траншея. Пропасть — чёрная трещина с осыпающейся кромкой.
+     */
+    trench: { h: 30, s: 22, l: 14, noise: 2 },
+    trenchPlank: 'rgba(120,90,55,0.35)',
+    trenchBag: '#8a7a55',
+    trenchBagDark: 'rgba(0,0,0,0.4)',
+    trenchBagLight: 'rgba(255,240,200,0.25)',
+    chasm: { h: 20, s: 10, l: 4, noise: 1 },
+    chasmCrack: 'rgba(60,45,35,0.55)',
+    chasmRim: 'rgba(150,130,100,0.45)',
+    /** ГЭС: вода (рябь — блики, у берега — светлая кромка), бетон откосов плотины (швы плит, тень к воде). */
+    water: { h: 200, s: 32, l: 26, noise: 1.2 },
+    /** Мелководье — вода ближе 2 тайлов к берегу, пирсу или набережной. */
+    waterShallow: { h: 192, s: 28, l: 34, noise: 1.2 },
+    /** Галечный берег: песок с камешками. */
+    shore: { h: 42, s: 22, l: 60, noise: 2.2 },
+    shorePebble: 'rgba(90,82,70,0.35)',
+    waterRipple: 'rgba(170,205,220,0.22)',
+    waterShore: 'rgba(200,215,210,0.35)',
+    dam: { h: 40, s: 6, l: 56, noise: 1 },
+    damSeam: 'rgba(60,58,52,0.35)',
+    damShade: 'rgba(30,40,45,0.35)',
+    /**
+     * Передовой блиндаж повстанцев (полоса пустоши перед КПП): сруб — бревно к бревну со швами, светлым
+     * бликом и торцами на краях; пол — доски со стыками вразбежку; в проёме по бокам — мешки с песком.
+     */
+    dugoutWall: { h: 27, s: 36, l: 19, noise: 2.5 },
+    dugoutSeam: 'rgba(0,0,0,0.4)',
+    dugoutLight: 'rgba(235,195,135,0.2)',
+    dugoutEnd: 'rgba(225,190,135,0.38)',
+    dugoutFloor: { h: 30, s: 24, l: 25, noise: 1.6 },
+    dugoutPlank: 'rgba(0,0,0,0.3)',
+    dugoutBag: '#8a7a55',
+    dugoutBagShade: 'rgba(0,0,0,0.4)',
+    /** Руины (стены в зонах КПП вне бункеров): выщербленная кирпичная кладка без крыши. */
+    ruinWall: { h: 18, s: 14, l: 21, noise: 3 },
+    ruinBrick: 'rgba(0,0,0,0.3)',
+    ruinEdge: 'rgba(200,170,130,0.22)',
     speckle: 'rgba(0,0,0,0.18)',
     /** Тень от зданий на пол (свет с северо-запада). */
     shadow: 'rgba(0,0,0,0.38)',
@@ -104,6 +156,16 @@ export const RENDER = {
     woodTop: '#9a7048',
     woodEdge: 'rgba(30,18,8,0.55)',
     kiosk: { body: '#3d6b52', roof: '#29493a', window: '#e9d9a8', sign: '#f3ead6' },
+    /** Фонтан и трибуна площади (MapRenderer.overlays). */
+    landmark: {
+      stone: '#8f877b', rim: '#b4aa98', water: '#3f6f86', waterLight: '#5f93a8', jet: '#d8eef4',
+      edge: '#3a2c22', deck: '#7a5a3c', banner: '#8e2b2b', pole: '#2b2b2b', lectern: '#4a3626', text: '#f2e3c4',
+      // ГЭС: турбина (кожух, обод, огонёк), трансформатор (корпус, рёбра, изоляторы).
+      turbine: '#5d6a70', turbineRim: '#2e3539', signal: '#e05040', transformer: '#6b7560', rib: '#404838', insulator: '#c8c2b0',
+      // Порт: контейнеры (по id — цвет), кран (опора, кабина, стрела над водой, трос), кнехты набережной.
+      containers: ['#8c3b2e', '#2f5d7c', '#4f6b3a', '#8a6d2a'], containerRib: 'rgba(0,0,0,0.28)', containerEdge: '#1f1a16',
+      crane: '#c9a227', craneDark: '#5a4a1a', cable: '#1d1d1d', bollard: '#2a2a2a', quayEdge: '#d8c25a',
+    },
     planter: { rim: '#8c8378', soil: '#4a3a2a', leaf: '#4f7a3a', leafDark: '#355a28', flowers: ['#d8594a', '#e8c14a', '#d98ab8', '#f2efe6'] as readonly string[] },
     cobble: { h: 30, s: 9, l: 31, noise: 2.5, joint: 'rgba(0,0,0,0.28)', w: 8, h2: 6 },
   },
@@ -298,8 +360,6 @@ export const RENDER = {
     bolt: 'rgba(255,120,60,0.95)',
     rocket: '#4f5a44',
     rocketFlame: '#ffb347',
-    swing: 'rgba(170,210,255,0.55)',
-    swingHit: 'rgba(200,230,255,0.9)',
     slash: 'rgba(235,240,245,0.7)',
   },
   /**
@@ -327,6 +387,8 @@ export const RENDER = {
       muzzle: '#ffd98a',
       muzzleCombine: '#bfefff',
       ring: '#fff0d0',
+      /** Линии удара в ближнем бою (веер чёрточек от точки попадания). */
+      impact: '#fff6e4',
     },
     muzzleSize: { melee: 0, blade: 0, pistol: 5, magnum: 8, smg: 5, rifle: 7, pulse: 7, shotgun: 10, crossbow: 0, sniper: 11, launcher: 14 },
     light: '255,200,120',

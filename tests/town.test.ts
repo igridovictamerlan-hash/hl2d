@@ -170,8 +170,12 @@ describe('Управа: общая камера, лоялисты, проспе�
     // Воры и бандиты на скамейки не садятся — обывателей побольше.
     spawnPopulation(ctx, 50);
     sim.war.command.paused = true;
+    // Тихий город: перестрелка банд или бунт подполья загоняют жителей в укрытия (Senses) — скамейки пустеют.
+    ctx.gangs.paused = true;
+    sim.insurgency.paused = true;
     let seated = 0;
-    run(sim, 240, () => {
+    // На большой карте до скамейки бывает далеко — времени с запасом.
+    run(sim, 480, () => {
       seated = Math.max(seated, sim.entities.list.filter((c) => c.brain instanceof CitizenBrain && c.brain.fsm.current === 'bench' && c.brain.stayUntil > 0).length);
       return street.stats.benchTalks > 0 && seated >= 3;
     });

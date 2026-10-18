@@ -4,6 +4,11 @@ import { spawnPopulation } from '../src/systems/Population';
 import { AI } from '../src/config/ai';
 import type { Character } from '../src/entities/Character';
 import { cpUnit } from '../src/config/factions';
+import { WAR } from '../src/config/war';
+import { SUPPRESS } from '../src/config/tactics';
+import { canSeeCircle } from '../src/world/visibility';
+import type { RebelBrain } from '../src/ai/brains/RebelBrain';
+import { CROWD } from '../src/config/crowd';
 
 /**
  * Аудит живого мира (npm run worldstats; MINUTES — сколько игровых минут, SEED — карта): город целиком,
@@ -12,6 +17,10 @@ import { cpUnit } from '../src/config/factions';
  * война. Обычный `npm test` это не запускает.
  */
 const RUN = !!process.env.WORLDSTATS;
+
+/** Фронт: счётчики одного КПП отдельно вне наступлений армии и в них (выстрелы, потери, время). */
+interface FrontCell { shotsR: number; shotsC: number; deadC: number; deadA: number; downC: number; downA: number; secs: number }
+const frontCell = (): FrontCell => ({ shotsR: 0, shotsC: 0, deadC: 0, deadA: 0, downC: 0, downA: 0, secs: 0 });
 
 /** Группа персонажа для сводки. */
 function group(c: { faction: string; profession: string | null; gang?: number }): string {
@@ -28,10 +37,25 @@ const top = (m: Map<string, number>, n = 12) => [...m].sort((a, b) => b[1] - a[1
 
 test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, () => {
   const minutes = Number(process.env.MINUTES ?? 30);
-  const sim = makeSim(Number(process.env.SEED ?? 12345));
+  // Как в игре: типы КПП по сиду и позиционная линия армии (CP=classic — прежняя карта аудитов, LINE=0 — без линии).
+  const sim = makeSim(Number(process.env.SEED ?? 12345), { checkpoints: process.env.CP === 'classic' ? ['classic'] : null, line: process.env.LINE !== '0' });
+  // WARCFG="dugout.sortie.chance=0,dugout.reserve=0" — подмена чисел WAR на прогон (подбор настроек без правки конфига).
+  for (const kv of (process.env.WARCFG ?? '').split(',').filter(Boolean)) {
+    const [path, val] = kv.split('=');
+    const keys = path.split('.');
+    let o = WAR as unknown as Record<string, unknown>;
+    for (const k of keys.slice(0, -1)) o = o[k] as Record<string, unknown>;
+    o[keys[keys.length - 1]] = Number(val);
+  }
+  // DUGOUTS=0 — без передовых блиндажей (здание на карте остаётся): отделить их логику от шаблонов КПП.
+  if (process.env.DUGOUTS === '0') sim.war.dugouts.list.length = 0;
   sim.ctx.routine.enabled = true;
   sim.ctx.brawls.enabled = true;
   sim.academy.recruiting = true;
+  // RELATIONS=0 — без живых людей (для сравнения: драки, смерти, занятия).
+  sim.ctx.relations.enabled = process.env.RELATIONS !== '0';
+  // HOODS=0 — прежняя жизнь без районов (прогулки по всему городу, площадь — любимое место, Арбат заселяется первым).
+  sim.ctx.hoods.enabled = sim.ctx.crowd.enabled = process.env.HOODS !== '0';
   spawnPopulation(sim.ctx, AI.citizens);
   const out: string[] = [];
   const start = new Map<string, number>();
@@ -52,6 +76,48 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
     const m = Math.floor(sim.ctx.time / 60);
     victimsByMinute[m] = (victimsByMinute[m] ?? 0) + 1;
   });
+  // Фронт: выстрелы и потери у КПП (зоны КПП и пустоши) по сторонам, вне наступлений и в наступлениях; бойцы линии; рация.
+  const fronts = [[frontCell(), frontCell()], [frontCell(), frontCell()]]; // [запад/восток][вне/в наступлении]
+  const cpTypes = [0, 1].map((i) => sim.map.pois.find((p) => p.type === 'checkpoint_type' && (p.face === 'E') === (i === 1))?.kind ?? '?');
+  const midX = (sim.map.width * 16) / 2;
+  const atFront = (x: number, y: number) => {
+    const k = sim.map.zoneAtWorld(x, y)?.kind;
+    return k === 'checkpoint' || k === 'outlands';
+  };
+  // «В наступлении» — само наступление, прорыв/штурм и 90 с после него (отход, добивание).
+  let lastOffensive = -1e9;
+  const inOffensive = () => {
+    const on = !!sim.war.command.offensive || sim.war.cityPush || sim.war.code === 'red';
+    if (on) lastOffensive = sim.combat.now;
+    return on || sim.combat.now - lastOffensive < 90 ? 1 : 0;
+  };
+  const frontSide = (c: Character) => (c.faction === 'cp' || c.faction === 'ota' ? 'C' : c.faction === 'rebel' && group(c) === 'армия' ? 'A' : '');
+  // Армия, погибшая у КПП вне наступлений, — по режиму RebelBrain и зоне (понять, где теряют людей: линия, блиндаж, подносчики, подход).
+  const armyModes = new Map<string, number>();
+  const frontLoss = (c: Character, down: boolean) => {
+    const side = frontSide(c);
+    if (!side || !atFront(c.x, c.y)) return;
+    const o = inOffensive();
+    const cell = fronts[c.x < midX ? 0 : 1][o];
+    if (down) cell[side === 'C' ? 'downC' : 'downA']++;
+    else cell[side === 'C' ? 'deadC' : 'deadA']++;
+    if (!down && side === 'A' && !o) {
+      const mode = (c.brain as { mode?: string } | null)?.mode ?? '?';
+      inc(armyModes, `${c.x < midX ? 'з' : 'в'}:${mode}@${sim.map.zoneAtWorld(c.x, c.y)?.name ?? '?'}`);
+    }
+  };
+  sim.combat.deathListeners.push((c) => frontLoss(c, false));
+  const downOrig = sim.combat.down.bind(sim.combat);
+  sim.combat.down = (c, by) => {
+    frontLoss(c, true);
+    return downOrig(c, by);
+  };
+  let radioSeq = 0;
+  let radioFront = 0;
+  let holders = 0;
+  let holderSamples = 0;
+  // Чем заняты бойцы линии (замеры раз в секунду): на позиции, прижаты огнём, затаились после очереди, видят пост.
+  const lineState = { n: 0, here: 0, pinned: 0, cooling: 0, sees: 0, ready: 0 };
   const causes = new Map<string, number>();
   const law = new Map<string, number>();
   sim.bus.on('log', ({ text }) => {
@@ -68,12 +134,50 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   const stuck = new Map<string, number>();
   const prev = new Map<Character, { x: number; y: number }>();
   let samples = 0;
+  const crowd = { n: 0, near: 0, over: 0, peak: 0, peakSum: 0 };
   const codeTime = new Map<string, number>();
   let maxCorpses = 0;
   const step = 1 / 60;
   const total = minutes * 60 * 60;
   for (let t = 1; t <= total; t++) {
     sim.step(step);
+    // Выстрелы у КПП: список выстрелов короткий (2 с) — читаем каждый тик, только новые.
+    for (let j = sim.combat.shots.length - 1; j >= 0 && sim.combat.shots[j].t >= sim.combat.now - step - 1e-6; j--) {
+      const sh = sim.combat.shots[j];
+      if (sh.weapon === 'blast' || sh.weapon === 'smoke' || !atFront(sh.x, sh.y)) continue;
+      const cell = fronts[sh.x < midX ? 0 : 1][inOffensive()];
+      if (sh.shooter?.faction === 'rebel') cell.shotsR++;
+      else cell.shotsC++;
+    }
+    if (t % 60 === 0) {
+      const o = inOffensive();
+      fronts[0][o].secs++;
+      fronts[1][o].secs++;
+      for (const m of sim.ctx.radio.feed) {
+        if (m.seq <= radioSeq) continue;
+        radioSeq = m.seq;
+        if (atFront(m.x, m.y)) radioFront++;
+      }
+      for (const f of sim.war.fronts) {
+        const line = sim.war.command.lineOf(f);
+        holders += line.length;
+        for (const h of line) {
+          const b = h.brain as RebelBrain;
+          const duel = (b as unknown as { duel: { cooling(now: number): boolean } }).duel;
+          const w = sim.combat.weaponOf(h);
+          const sees = sim.war.guardPosts(f).some((p) => Math.hypot(p.x - h.x, p.y - h.y) <= sim.combat.reach(h) && canSeeCircle(sim.map, h.x, h.y, p.x, p.y, WAR.line.sightRadius));
+          const pinned = h.suppress >= SUPPRESS.pinned;
+          const cooling = duel.cooling(sim.combat.now);
+          lineState.n++;
+          if (b.lineHere) lineState.here++;
+          if (b.lineHere && pinned) lineState.pinned++;
+          if (b.lineHere && cooling) lineState.cooling++;
+          if (b.lineHere && sees) lineState.sees++;
+          if (b.lineHere && sees && !pinned && !cooling && (!w?.ammo || h.mag > 0)) lineState.ready++;
+        }
+      }
+      holderSamples++;
+    }
     if (t % 60 === 0) inc(codeTime, sim.war.code);
     if (t % 600 === 0) {
       maxCorpses = Math.max(maxCorpses, sim.combat.corpses.length);
@@ -85,6 +189,13 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
         if (g === 'горожанин' || g === 'cwu' || g === 'вор' || g === 'банда') inc(states, `${g}:${st}`);
       }
       samples++;
+      // Толпа: жители у площади и в переполненных клетках, самая полная клетка.
+      const cs = sim.ctx.crowd.snapshot();
+      crowd.n++;
+      crowd.near += cs.nearPlaza / Math.max(1, cs.people);
+      crowd.over += cs.over / Math.max(1, cs.people);
+      crowd.peak = Math.max(crowd.peak, cs.peak);
+      crowd.peakSum += cs.peak;
     }
     // Раз в 30 с: кто не сдвинулся дальше 12 px, и кто «идёт», но стоит.
     if (t % 1800 === 0) {
@@ -138,12 +249,39 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Преступность: ${JSON.stringify((sim.crime as unknown as { stats?: object }).stats ?? {})}`);
   out.push(`Банды: ${JSON.stringify((sim.ctx.gangs as unknown as { stats?: object }).stats ?? {})}; драки: ${JSON.stringify(sim.ctx.brawls.stats)}`);
   out.push(`Подполье: ${JSON.stringify((sim.insurgency as unknown as { stats?: object }).stats ?? {})}`);
+  for (let i = 0; i < 2; i++) {
+    const part = [0, 1].map((o) => {
+      const c = fronts[i][o];
+      const m = Math.max(c.secs / 60, 0.01);
+      return `${o ? 'в наступлениях' : 'вне наступлений'} (${m.toFixed(1)} мин): огонь/мин повстанцы ${(c.shotsR / m).toFixed(0)}, Протекторат ${(c.shotsC / m).toFixed(0)}; погибло ВС/Легион ${c.deadC}, армия ${c.deadA}; тяжело ранено ${c.downC}/${c.downA}`;
+    });
+    out.push(`Фронт ${i ? 'восток' : 'запад'} «${cpTypes[i]}»: ${part.join(' | ')}`);
+  }
+  out.push(`Фронт: на линии в среднем ${(holders / Math.max(holderSamples, 1)).toFixed(1)} бойцов (оба КПП); передач рации у КПП ${(radioFront / minutes).toFixed(1)}/мин; смен на линии ${sim.war.command.stats.lineShifts}, пауз после потерь ${sim.war.command.stats.linePauses}`);
+  out.push(`Линия (замеров ${lineState.n}): на позиции ${((lineState.here / Math.max(lineState.n, 1)) * 100).toFixed(0)}%, из них прижаты ${((lineState.pinned / Math.max(lineState.here, 1)) * 100).toFixed(0)}%, затаились после очереди ${((lineState.cooling / Math.max(lineState.here, 1)) * 100).toFixed(0)}%, видят пост ${((lineState.sees / Math.max(lineState.here, 1)) * 100).toFixed(0)}%, готовы стрелять ${((lineState.ready / Math.max(lineState.here, 1)) * 100).toFixed(0)}%`);
+  out.push(`Армия вне наступлений у КПП погибла (сторона:режим@зона): ${top(armyModes, 20)}`);
+  const dg = sim.war.dugouts;
+  out.push(`Блиндажи: подвезено ящиков ${dg.stats.supplied}, пополнений бойцов ${dg.stats.restocked}, отдыхов ${dg.stats.rests}, вылазок Протектората ${dg.stats.sorties}, разрушено ${dg.stats.ruined}, отстроено ${dg.stats.rebuilt}, подносчиков и строителей потеряно ${dg.stats.crewLost}; запас сейчас ${dg.list.map((d) => `${d.owner === 'ruined' ? 'разрушен' : `${d.kits}к/${d.grenades}г`}`).join(', ')}`);
   out.push(`Война: ${JSON.stringify(sim.war.stats)}; места преступлений: ${JSON.stringify(sim.war.scenes.stats)}`);
   out.push(`Труд: ${JSON.stringify(sim.labor.stats)}; склад: ${JSON.stringify(sim.arsenal.stats)}`);
   out.push(`Барыга: ${JSON.stringify(sim.ctx.fence.stats)}`);
   out.push(`Рация: ${JSON.stringify(sim.ctx.radio.stats)}`);
   const T = sim.ctx.talk.stats;
   out.push(`Разговоры: бесед ${T.convos} (договорили ${T.done}, разошлись ${T.cut}, прервали ${T.stopped}), реплик ${T.lines}, слухов ${T.news}, пересказано ${T.told}; темы: ${top(new Map(Object.entries(T.topics)), 25)}`);
+  // Живые люди: связи по уровням знакомства, настроение города, события отношений.
+  const R = sim.ctx.relations;
+  const tiers = new Map<string, number>();
+  const moods = new Map<string, number>();
+  for (const c of sim.entities.list) {
+    if (!c.alive || c.isPlayer) continue;
+    for (const [, bd] of (R['bonds'].get(c.pid) ?? new Map())) inc(tiers, R.tierOf(bd));
+    const m = R.mood(c);
+    inc(moods, m <= -28 ? 'подавлены' : m <= -9 ? 'хмурые' : m <= 34 ? 'спокойные' : 'в духе');
+  }
+  out.push(
+    `Толпа: жителей у площади (ближе ${CROWD.near} тайлов) ${((crowd.near / Math.max(1, crowd.n)) * 100).toFixed(0)}%, в переполненных клетках ${((crowd.over / Math.max(1, crowd.n)) * 100).toFixed(0)}%; самая полная клетка ${CROWD.cell}×${CROWD.cell} — в среднем ${(crowd.peakSum / Math.max(1, crowd.n)).toFixed(1)}, максимум ${crowd.peak}`,
+  );
+  out.push(`Живые люди: связи ${top(tiers)}; настроение ${top(moods)}; события ${JSON.stringify(R.stats)}`);
   const vac: Record<string, number> = {};
   for (const s of sim.staffing.vacancies()) vac[cpUnit(s.spec.rank).short] = (vac[cpUnit(s.spec.rank).short] ?? 0) + 1;
   out.push(`Вакансии ВС по юнитам: ${JSON.stringify(vac)}`);

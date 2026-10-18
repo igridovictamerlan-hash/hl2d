@@ -68,8 +68,11 @@ export function constrainAvenueLanes(lat: Lattice, av: Avenue, line: number): vo
     }
     return { lo, hi };
   };
+  const end = av.segs[av.segs.length - 1].to;
   if (av.horizontal) {
     for (let i = 0; i < lat.cols; i++) {
+      // За концом проспекта (если он не доходит до стены) линия — обычная решётка.
+      if (lat.node(i, line).x > end) continue;
       const up = lat.vEdge(i, line - 1);
       if (up) {
         const A = lat.nodes[up.a];
@@ -241,15 +244,17 @@ export function buildFacades(g: GenGrid, rng: Rng, o: FacadeOptions): FacadeBuil
     return { id: out.length, rect, interior, face: faceOf(fr), use: 'house', fr, ua, ub, fIn, back };
   };
 
-  // 1. Столовая: на главном проспекте, почти прямой кусок фасада (ступеньки до 2 тайлов) ближе к площади.
+  // 1. Столовая: фасадом на площадь (иначе — на главном проспекте), почти прямой кусок фасада (ступеньки до 2
+  // тайлов) ближе к площади.
   const C = F.canteen;
   const pc = o.plazaCenter;
   {
     const best: { fr: Frontage | null; a: number; b: number } = { fr: null, a: 0, b: 0 };
     let bestD = Infinity;
     const want = rng.int(C.width[0], C.width[1]);
-    for (const fr of o.frontages) {
-      if (!fr.main || fr.street !== 'avenue') continue;
+    const order = [...o.frontages.filter((fr) => fr.street === 'plaza'), ...o.frontages.filter((fr) => fr.main && fr.street === 'avenue')];
+    for (const fr of order) {
+      if (best.fr && best.fr.street === 'plaza' && fr.street !== 'plaza') break;
       for (const [a, b] of runs(fr, C.depth[0])) {
         for (let wdt = want; wdt >= C.width[0]; wdt--) {
           for (let s = a; s + wdt - 1 <= b; s++) {

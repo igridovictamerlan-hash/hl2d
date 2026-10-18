@@ -6,6 +6,8 @@ export class ZoneBanner {
   private timer = 0;
   /** Чей это район (банда) — дописывается к названию зоны. */
   turf: ((zoneId: number) => string | null) | null = null;
+  /** Реакция города на зону (усиленный патруль и т.п.) — через «·» к названию; '' — ничего. */
+  escalation: ((zoneId: number) => string) | null = null;
 
   constructor(parent: HTMLElement, bus: EventBus) {
     this.el = document.createElement('div');
@@ -13,7 +15,9 @@ export class ZoneBanner {
     parent.appendChild(this.el);
     bus.on('zone:enter', ({ zone }) => {
       const gang = this.turf?.(zone.id);
-      this.show(gang ? `${zone.name} · район «${gang}»` : zone.name);
+      const base = gang ? `${zone.name} · район «${gang}»` : zone.name;
+      const alarm = this.escalation?.(zone.id) ?? '';
+      this.show(alarm ? `${base} · ${alarm}` : base);
     });
   }
 

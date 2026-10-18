@@ -87,10 +87,12 @@ describe('кулаки и драки', () => {
     expect(sim.ctx.combat.isHostile(foe, mate)).toBe(true);
   });
 
-  test('случайные драки на улице и ВС разнимает', { timeout: 200_000 }, () => {
+  test('случайные драки на улице и ВС разнимает', { timeout: 300_000 }, () => {
     const sim = setup();
     sim.ctx.brawls.enabled = true;
-    for (let t = 0; t < 240 * 60; t++) sim.step();
+    // Задира — раз в BRAWL.every с с шансом, ссора — 5% бесед: за 4 мин это лишь 3–4 попытки, поэтому ждём до 8 мин
+    // (до первой драки).
+    for (let t = 0; t < 480 * 60 && !sim.ctx.brawls.stats.brawls; t++) sim.step();
     expect(sim.ctx.brawls.stats.brawls).toBeGreaterThan(0);
   });
 });

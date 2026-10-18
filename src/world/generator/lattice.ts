@@ -318,6 +318,8 @@ export function assignRegions(
     restrictedInner: Rect;
     voids: Rect[];
     industrial: Rect;
+    /** Линии решётки (индексы по x), где узлов нет: граница Верхнего города — переулки её не пересекают. */
+    voidCols?: readonly number[];
   },
 ): void {
   const w = GENERATOR.alley.mainWidth;
@@ -329,6 +331,7 @@ export function assignRegions(
     else if (rectsOverlap(sq, opts.restricted, 2)) n.region = 'void';
     else if (opts.voids.some((v) => rectsOverlap(sq, v, 2))) n.region = 'void';
     else n.region = 'city';
+    if (opts.voidCols?.includes(n.i)) n.region = 'void';
     // Крупные кварталы-склады: выкидываем каждый второй узел по обеим осям.
     const bigBlocks = n.region === 'restricted' || rectsOverlap(sq, opts.industrial);
     if (bigBlocks && !n.onAvenue && n.i % 2 === 1 && n.j % 2 === 1) n.region = 'void';

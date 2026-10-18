@@ -7,6 +7,7 @@ import { computeLots, type Lot } from './houses';
 import { ARBAT } from '../config/arbat';
 import { ZONE_NAMES } from '../config/names';
 import type { Poi } from './GameMap';
+import { rockRelief } from './relief';
 
 /** Дом в ряду вдоль улицы (POI facade) для отрисовки: цвет штукатурки и маркизы, вывеска. */
 interface FacadeLook {
@@ -22,6 +23,8 @@ const DECOR_KIOSK = 2;
 const DECOR_PLANTER = 3;
 /** Мебель тюрьмы и академии (BARRIER): под ней пол, саму мебель рисуют PrisonRenderer и AcademyRenderer. */
 const DECOR_FLOOR = 4;
+/** Трибуна и фонтан площади (BARRIER): под ними — плиты площади, сами рисуются поверх (overlays). */
+const DECOR_PLAZA = 5;
 const PRISON_FURNITURE = [
   'prison_rack', 'prison_ammo', 'prison_cot', 'prison_table', 'prison_locker', 'prison_counter', 'prison_bench', 'prison_itable', 'prison_desk', 'prison_shelf',
   // Академия ВС: рубеж тира, парты, койки, шкафчики, столы, ограждение и стойка вахты, стол начальника (AcademyRenderer).
@@ -74,9 +77,15 @@ export class MapRenderer {
   /** Дом вдоль улицы на тайл (индекс в facades, -1 — нет), укрытие-мебель, брусчатка проспекта. */
   private readonly facadeOf: Int16Array;
   private readonly facades: FacadeLook[] = [];
+  /** Фонтаны и трибуны площади (рисуются поверх тайлов). */
+  private landmarks: Poi[] = [];
+  private machines: Poi[] = [];
+  private quays: Poi[] = [];
   private readonly decor: Uint8Array;
   private readonly cobble: Uint8Array;
   private readonly kiosks: Poi[];
+  /** Уступ скалы (world/relief.ts): 0 — подножие, выше — светлее; 255 — не скала. */
+  private readonly relief: Uint8Array;
 
   constructor(private readonly map: GameMap) {
     const { width: w, height: h } = map;
@@ -109,7 +118,10 @@ export class MapRenderer {
         if (map.tiles[i] === T.BARRIER) this.decor[i] = DECOR_FLOOR;
       }
     }
-    for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER]] as const) {
+    this.landmarks = [...map.poisOf('fountain'), ...map.poisOf('tribune')];
+    this.machines = [...map.poisOf('ges_turbine'), ...map.poisOf('ges_transformer'), ...map.poisOf('port_container'), ...map.poisOf('port_crane')];
+    this.quays = map.poisOf('port_quay');
+    for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER], [this.landmarks, DECOR_PLAZA]] as const) {
       for (const p of list) for (let y = p.y; y < p.y + p.h!; y++) for (let x = p.x; x < p.x + p.w!; x++) this.decor[y * w + x] = kind;
     }
     const avenues = new Set(map.zones.filter((z) => z.kind === 'avenue' && (ZONE_NAMES.avenue as readonly string[]).includes(z.name)).map((z) => z.id));
@@ -124,6 +136,7 @@ export class MapRenderer {
     this.noise = new Uint32Array(n);
     this.floor = new Uint8Array(n);
     const seed = map.seed | 0;
+    this.relief = rockRelief(map.tiles, w, h, seed);
     this.placeChimneys(seed);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.computeTile(x, y);
     for (let i = 0; i < n; i++) if (map.tiles[i] === T.DOOR) this.doorTiles.push(i);
@@ -188,6 +201,16 @@ export class MapRenderer {
           this.color[i] = tone(P.houseWall);
           break;
         }
+        // Стена руин на КПП (не бункер: у бункера рядом пол помещения): кладка без крыши.
+        if (map.zoneAtTile(x, y)?.kind === 'checkpoint') {
+          let bunker = false;
+          for (let dy = -1; dy <= 1 && !bunker; dy++) for (let dx = -1; dx <= 1; dx++) if (map.tileAt(x + dx, y + dy) === T.INTERIOR) bunker = true;
+          if (!bunker) {
+            this.roofPart[i] = 5;
+            this.color[i] = tone(P.ruinWall);
+            break;
+          }
+        }
         const p = this.parcel[i];
         let rc = this.roofColor.get(p);
         if (!rc) {
@@ -233,15 +256,43 @@ export class MapRenderer {
       case T.BARRIER: {
         const d = this.decor[i];
         const F = RENDER.facade;
-        this.color[i] = d === DECOR_WOOD ? F.wood : d === DECOR_KIOSK ? F.kiosk.body : d === DECOR_PLANTER ? F.planter.rim : d === DECOR_FLOOR ? tone(P.tileFloor) : P.barrier;
+        this.color[i] = d === DECOR_WOOD ? F.wood : d === DECOR_KIOSK ? F.kiosk.body : d === DECOR_PLANTER ? F.planter.rim : d === DECOR_FLOOR ? tone(P.tileFloor) : d === DECOR_PLAZA ? tone(P.plaza) : P.barrier;
         break;
       }
       case T.SEWER: this.color[i] = tone(P.sewer); break;
       case T.SEWER_WATER: this.color[i] = tone(P.sewerWater); break;
       case T.SEWER_WALL: this.color[i] = tone(P.sewerWall); break;
-      case T.ROCK: this.color[i] = tone(P.rock); break;
+      case T.ROCK: {
+        // Уступы гор: выше — светлее и холоднее, на гребне — снег.
+        const R = P.ridge;
+        const lv = this.relief[i];
+        if (lv >= R.snowLevel) this.color[i] = tone(R.snow);
+        else this.color[i] = hsl(P.rock.h + lv * R.hueShift, P.rock.s + lv * R.satShift, P.rock.l + lv * R.light + jit * P.rock.noise);
+        break;
+      }
       case T.GARDEN: this.color[i] = tone(P.garden); break;
       case T.HEDGE: this.color[i] = tone(P.hedge); break;
+      case T.TRENCH: this.color[i] = tone(P.trench); break;
+      case T.CHASM: this.color[i] = tone(P.chasm); break;
+      case T.DUGOUT_WALL: this.color[i] = tone(P.dugoutWall); break;
+      case T.DUGOUT: this.color[i] = tone(P.dugoutFloor); break;
+      case T.WATER: {
+        // Мелководье: в 2 тайлах есть берег, пирс или набережная (плотина и скалы — не в счёт, там глубоко).
+        let shallow = false;
+        for (let dy = -2; dy <= 2 && !shallow; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const n = map.tileAt(x + dx, y + dy);
+            if (n !== T.WATER && n !== T.DAM && n !== T.ROCK) {
+              shallow = true;
+              break;
+            }
+          }
+        }
+        this.color[i] = tone(shallow ? P.waterShallow : P.water);
+        break;
+      }
+      case T.SHORE: this.color[i] = tone(P.shore); break;
+      case T.DAM: this.color[i] = tone(P.dam); break;
       default: this.color[i] = '#f0f';
     }
   }
@@ -462,6 +513,21 @@ export class MapRenderer {
               }
               continue;
             }
+            if ((part & 7) === 5) {
+              // Руины: ряды кирпича со смещением, выщербленная кромка.
+              ctx.fillStyle = P.ruinBrick;
+              ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+              ctx.fillRect(x0 + ((ty & 1) ? cw >> 1 : 0), y0, line, ch >> 1);
+              ctx.fillRect(x0 + ((ty & 1) ? 0 : cw >> 1), y0 + (ch >> 1), line, ch >> 1);
+              if (e) {
+                ctx.fillStyle = P.ruinEdge;
+                if (e & 1) ctx.fillRect(x0, y0, cw, line * 2);
+                if (e & 4) ctx.fillRect(x0, y1 - line * 2, cw, line * 2);
+                if (e & 8) ctx.fillRect(x0, y0, line * 2, ch);
+                if (e & 2) ctx.fillRect(x1 - line * 2, y0, line * 2, ch);
+              }
+              continue;
+            }
             // Черепица: штрихи поперёк ската; конёк — светлая линия.
             if (part) {
               const alongX = (part & 8) !== 0;
@@ -559,12 +625,152 @@ export class MapRenderer {
             if ((tx & 1) === 0) ctx.fillRect(x0, y0, line, ch);
             if ((ty & 1) === 0) ctx.fillRect(x0, y0, cw, line);
             break;
-          case T.ROCK:
+          case T.TRENCH: {
+            // Дощатый настил поперёк канала и бруствер из мешков по кромке (там, где рядом не траншея).
+            ctx.fillStyle = P.trenchPlank;
+            ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+            if ((hv & 3) === 0) ctx.fillRect(x0 + px((hv >> 2) & 7), y0, line, ch);
+            const bag = px(3);
+            const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const;
+            for (const [dx, dy] of dirs) {
+              const nt = map.tileAt(tx + dx, ty + dy);
+              if (nt === T.TRENCH || nt === T.DUGOUT || nt === T.DUGOUT_WALL) continue;
+              const bx = dx > 0 ? x1 - bag : x0;
+              const by = dy > 0 ? y1 - bag : y0;
+              const bw = dx !== 0 ? bag : cw;
+              const bh = dy !== 0 ? bag : ch;
+              ctx.fillStyle = P.trenchBag;
+              ctx.fillRect(bx, by, bw, bh);
+              ctx.fillStyle = P.trenchBagDark;
+              if (dx !== 0) ctx.fillRect(dx > 0 ? bx + bag - line : bx, by, line, bh);
+              else ctx.fillRect(bx, dy > 0 ? by + bag - line : by, bw, line);
+              // Швы между мешками.
+              ctx.fillStyle = P.trenchBagLight;
+              if (dx !== 0) ctx.fillRect(bx, by + (ch >> 1), bw, line);
+              else ctx.fillRect(bx + (cw >> 1), by, line, bh);
+            }
+            continue;
+          }
+          case T.DUGOUT_WALL: {
+            // Сруб: брёвна вдоль стены (стена шире по горизонтали — брёвна лежат, иначе стоят), швы и блики,
+            // на открытых концах — светлые торцы.
+            const horiz = map.tileAt(tx - 1, ty) === T.DUGOUT_WALL || map.tileAt(tx + 1, ty) === T.DUGOUT_WALL;
+            const third = Math.max(line, Math.round((horiz ? ch : cw) / 3));
+            for (let k = 1; k < 3; k++) {
+              ctx.fillStyle = P.dugoutSeam;
+              if (horiz) ctx.fillRect(x0, y0 + third * k - line, cw, line);
+              else ctx.fillRect(x0 + third * k - line, y0, line, ch);
+              ctx.fillStyle = P.dugoutLight;
+              if (horiz) ctx.fillRect(x0, y0 + third * (k - 1) + line, cw, line);
+              else ctx.fillRect(x0 + third * (k - 1) + line, y0, line, ch);
+            }
+            ctx.fillStyle = P.dugoutLight;
+            if (horiz) ctx.fillRect(x0, y0 + third * 2 + line, cw, line);
+            else ctx.fillRect(x0 + third * 2 + line, y0, line, ch);
+            ctx.fillStyle = P.dugoutEnd;
+            const cap = px(3);
+            if (horiz) {
+              if (e & 8) ctx.fillRect(x0, y0, cap, ch);
+              if (e & 2) ctx.fillRect(x1 - cap, y0, cap, ch);
+            } else {
+              if (e & 1) ctx.fillRect(x0, y0, cw, cap);
+              if (e & 4) ctx.fillRect(x0, y1 - cap, cw, cap);
+            }
+            continue;
+          }
+          case T.DUGOUT: {
+            // Доски: стык посередине и вразбежку; в проёме между срубами — мешки с песком по бокам.
+            ctx.fillStyle = P.dugoutPlank;
+            ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+            ctx.fillRect(x0 + px(2 + (hv & 7)), y0, line, ch >> 1);
+            ctx.fillRect(x0 + px(2 + ((hv >> 4) & 7)), y0 + (ch >> 1), line, ch - (ch >> 1));
+            // Порог (клетка пола, у которой есть сосед снаружи): мешки вдоль примыкающих стен сруба — косяки проёма.
+            const nW = map.tileAt(tx - 1, ty);
+            const nE = map.tileAt(tx + 1, ty);
+            const nN = map.tileAt(tx, ty - 1);
+            const nS = map.tileAt(tx, ty + 1);
+            const outside = (n: number) => n !== T.DUGOUT && n !== T.DUGOUT_WALL;
+            if (outside(nW) || outside(nE) || outside(nN) || outside(nS)) {
+              const bag = px(3);
+              ctx.fillStyle = P.dugoutBag;
+              if (nN === T.DUGOUT_WALL) ctx.fillRect(x0, y0, cw, bag);
+              if (nS === T.DUGOUT_WALL) ctx.fillRect(x0, y1 - bag, cw, bag);
+              if (nW === T.DUGOUT_WALL) ctx.fillRect(x0, y0, bag, ch);
+              if (nE === T.DUGOUT_WALL) ctx.fillRect(x1 - bag, y0, bag, ch);
+              ctx.fillStyle = P.dugoutBagShade;
+              if (nN === T.DUGOUT_WALL) ctx.fillRect(x0, y0 + bag - line, cw, line);
+              if (nS === T.DUGOUT_WALL) ctx.fillRect(x0, y1 - bag, cw, line);
+              if (nW === T.DUGOUT_WALL) ctx.fillRect(x0 + bag - line, y0, line, ch);
+              if (nE === T.DUGOUT_WALL) ctx.fillRect(x1 - bag, y0, line, ch);
+            }
+            break;
+          }
+          case T.WATER: {
+            // Рябь — короткие блики вразбежку; у берега — светлая кромка пены.
+            ctx.fillStyle = P.waterRipple;
+            ctx.fillRect(x0 + px((hv & 7) + 2), y0 + px(((hv >> 3) & 7) + 3), px(5), line);
+            ctx.fillRect(x0 + px(((hv >> 6) & 7) + 1), y0 + px(((hv >> 9) & 7) + 6), px(3), line);
+            ctx.fillStyle = P.waterShore;
+            const foam = px(2);
+            if (map.tileAt(tx, ty - 1) !== T.WATER) ctx.fillRect(x0, y0, cw, foam);
+            if (map.tileAt(tx, ty + 1) !== T.WATER) ctx.fillRect(x0, y1 - foam, cw, foam);
+            if (map.tileAt(tx - 1, ty) !== T.WATER) ctx.fillRect(x0, y0, foam, ch);
+            if (map.tileAt(tx + 1, ty) !== T.WATER) ctx.fillRect(x1 - foam, y0, foam, ch);
+            continue;
+          }
+          case T.SHORE: {
+            // Галька вразбежку.
+            ctx.fillStyle = P.shorePebble;
+            ctx.fillRect(x0 + px((hv & 7) + 2), y0 + px(((hv >> 3) & 7) + 2), px(2), px(2));
+            ctx.fillRect(x0 + px(((hv >> 6) & 7) + 4), y0 + px(((hv >> 9) & 7) + 6), px(3), px(2));
+            continue;
+          }
+          case T.DAM: {
+            // Бетонные плиты откоса: горизонтальный шов, вертикальный вразбежку; тень у воды.
+            ctx.fillStyle = P.damSeam;
+            ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+            ctx.fillRect(x0 + ((ty & 1) ? cw >> 1 : 0), y0, line, ch);
+            ctx.fillStyle = P.damShade;
+            if (map.tileAt(tx + 1, ty) === T.WATER) ctx.fillRect(x1 - px(3), y0, px(3), ch);
+            if (map.tileAt(tx - 1, ty) === T.WATER) ctx.fillRect(x0, y0, px(3), ch);
+            continue;
+          }
+          case T.CHASM: {
+            // Чёрная щель: осыпающаяся кромка там, где рядом твёрдая земля, трещины в глубине.
+            ctx.fillStyle = P.chasmCrack;
+            ctx.fillRect(x0 + px((hv & 7) + 2), y0 + px(((hv >> 3) & 7) + 3), px(5), line);
+            ctx.fillRect(x0 + px(((hv >> 6) & 7) + 2), y0 + px(((hv >> 9) & 7) + 2), line, px(4));
+            ctx.fillStyle = P.chasmRim;
+            const rimW = px(2);
+            if (map.tileAt(tx, ty - 1) !== T.CHASM) ctx.fillRect(x0, y0, cw, rimW);
+            if (map.tileAt(tx, ty + 1) !== T.CHASM) ctx.fillRect(x0, y1 - rimW, cw, rimW);
+            if (map.tileAt(tx - 1, ty) !== T.CHASM) ctx.fillRect(x0, y0, rimW, ch);
+            if (map.tileAt(tx + 1, ty) !== T.CHASM) ctx.fillRect(x1 - rimW, y0, rimW, ch);
+            continue;
+          }
+          case T.ROCK: {
             // Трещины и камни.
             ctx.fillStyle = P.rockCrack;
             ctx.fillRect(x0 + px((hv & 15) * 0.8), y0 + px(((hv >> 4) & 15) * 0.8), px(4), px(1));
             ctx.fillRect(x0 + px(((hv >> 8) & 15) * 0.8), y0 + px(((hv >> 12) & 15) * 0.8), px(1), px(3));
+            // Уступы: обрыв к нижнему соседу с юга и востока — тень, с севера и запада — светлая кромка.
+            const R = P.ridge;
+            const lv = this.relief[i];
+            const lower = (j: number) => j >= 0 && j < this.relief.length && this.relief[j] < lv;
+            const cliff = px(R.cliffSize);
+            ctx.fillStyle = R.cliff;
+            if (ty + 1 < map.height && lower(i + w)) ctx.fillRect(x0, y1 - cliff, cw, cliff);
+            if (tx + 1 < w && lower(i + 1)) ctx.fillRect(x1 - cliff + line, y0, cliff - line, ch);
+            ctx.fillStyle = R.rim;
+            if (ty > 0 && lower(i - w)) ctx.fillRect(x0, y0, cw, line * 2);
+            if (tx > 0 && lower(i - 1)) ctx.fillRect(x0, y0, line * 2, ch);
+            if (lv === 0) {
+              ctx.fillStyle = R.scree;
+              ctx.fillRect(x0 + px(((hv >> 16) & 7) + 3), y0 + px(((hv >> 19) & 7) + 3), px(2), px(2));
+              ctx.fillRect(x0 + px(((hv >> 22) & 7) + 2), y0 + px(((hv >> 25) & 7) + 5), px(3), px(2));
+            }
             continue;
+          }
           case T.FLOOR:
           case T.WASTE:
           case T.COURTYARD:
@@ -785,6 +991,144 @@ export class MapRenderer {
         ctx.fillStyle = b.awning[0];
         ctx.fillRect(X(rx + rw / 2 - tw / 2), Y(ry + rh * 0.12), X(rx + rw / 2 + tw / 2) - X(rx + rw / 2 - tw / 2), Y(ry + rh * 0.88) - Y(ry + rh * 0.12));
         text(b.sign, X(rx + rw / 2), Y(ry + rh / 2), size, F.sign);
+      }
+    }
+    // Площадь: фонтан (каменная чаша, вода, струя) и трибуна Коменданта (помост, знамёна, кафедра).
+    const L = F.landmark;
+    for (const p of this.landmarks) {
+      if (!near(p, 1)) continue;
+      const x = X(p.x * ts);
+      const y = Y(p.y * ts);
+      const w = Math.round(p.w! * ts * s);
+      const h = Math.round(p.h! * ts * s);
+      if (p.type === 'fountain') {
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const r = Math.min(w, h) / 2;
+        ctx.fillStyle = L.stone;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.98, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.rim;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.86, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.water;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.74, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.waterLight;
+        ctx.beginPath();
+        ctx.arc(cx - r * 0.18, cy - r * 0.2, r * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.stone;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.jet;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.11, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Помост с краем, полосой знамени по заднему краю и кафедрой спереди посередине.
+        const back = p.face === 'S' ? y : y + h - Math.round(h * 0.3);
+        ctx.fillStyle = L.edge;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = L.deck;
+        ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+        ctx.fillStyle = L.banner;
+        ctx.fillRect(x + 2, back, w - 4, Math.round(h * 0.3));
+        for (const fx of [x + 3, x + w - 6]) {
+          ctx.fillStyle = L.pole;
+          ctx.fillRect(fx, back - Math.round(h * 0.2), 3, Math.round(h * 0.5));
+        }
+        const lw = Math.round(w * 0.18);
+        const ly = p.face === 'S' ? y + h - Math.round(h * 0.45) : y + Math.round(h * 0.1);
+        ctx.fillStyle = L.lectern;
+        ctx.fillRect(x + (w - lw) / 2, ly, lw, Math.round(h * 0.35));
+        text('ПРОТЕКТОРАТ', x + w / 2, back + Math.round(h * 0.15), Math.min(h * 0.22, w * 0.11), L.text);
+      }
+    }
+    // ГЭС: турбины (кожух генератора, ступица, огонёк) и трансформаторы (рёбра, изоляторы).
+    for (const p of this.machines) {
+      if (!near(p, 1)) continue;
+      const x = X(p.x * ts);
+      const y = Y(p.y * ts);
+      const w = Math.round(p.w! * ts * s);
+      const h = Math.round(p.h! * ts * s);
+      if (p.type === 'port_container') {
+        ctx.fillStyle = L.containerEdge;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = L.containers[(p.id ?? 0) % L.containers.length];
+        ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.fillStyle = L.containerRib;
+        const long = w >= h;
+        const n = Math.max(3, Math.round((long ? w : h) / (ts * s * 0.4)));
+        for (let k = 1; k < n; k++) {
+          if (long) ctx.fillRect(x + Math.round((w * k) / n), y + 2, Math.max(1, Math.round(s)), h - 4);
+          else ctx.fillRect(x + 2, y + Math.round((h * k) / n), w - 4, Math.max(1, Math.round(s)));
+        }
+        continue;
+      }
+      if (p.type === 'port_crane') {
+        // Опора, кабина и стрела над водой (в сторону face) с тросом и крюком.
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const dir = p.face === 'N' ? -1 : 1;
+        const boom = ts * s * 5;
+        ctx.fillStyle = L.craneDark;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = L.crane;
+        ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+        ctx.fillRect(cx - w * 0.12, cy, w * 0.24, dir * boom);
+        ctx.fillStyle = L.craneDark;
+        ctx.fillRect(cx - w * 0.25, cy - h * 0.25, w * 0.5, h * 0.5);
+        ctx.fillStyle = L.cable;
+        const hy = cy + dir * boom * 0.85;
+        ctx.fillRect(cx - 1, hy - 1, 2, 4);
+        ctx.fillRect(cx - 3, hy + 2, 6, 2);
+        continue;
+      }
+      if (p.type === 'ges_turbine') {
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const r = Math.min(w, h) / 2;
+        ctx.fillStyle = L.turbineRim;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.98, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.turbine;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.turbineRim;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = L.signal;
+        ctx.fillRect(cx + r * 0.45, cy - r * 0.55, Math.max(2, r * 0.16), Math.max(2, r * 0.16));
+      } else {
+        ctx.fillStyle = L.transformer;
+        ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.fillStyle = L.rib;
+        for (let k = 1; k < 5; k++) ctx.fillRect(x + Math.round((w * k) / 5), y + 2, Math.max(1, Math.round(w / 24)), h - 4);
+        ctx.fillStyle = L.insulator;
+        for (const fx of [0.25, 0.5, 0.75]) ctx.fillRect(x + w * fx - 2, y + 2, 4, Math.round(h * 0.18));
+      }
+    }
+    // Набережная: жёлтая кромка у воды и кнехты через 3 тайла.
+    for (const q of this.quays) {
+      if (!near(q, 1)) continue;
+      const edgeY = q.face === 'N' ? q.y : q.y + q.h! - 1;
+      const y = Y(edgeY * ts) + (q.face === 'N' ? 0 : Math.round(ts * s) - Math.max(2, Math.round(s * 2)));
+      ctx.fillStyle = L.quayEdge;
+      ctx.fillRect(X(q.x * ts), y, Math.round(q.w! * ts * s), Math.max(2, Math.round(s * 2)));
+      ctx.fillStyle = L.bollard;
+      const r = Math.max(2, s * 2.2);
+      for (let tx = q.x + 1; tx < q.x + q.w!; tx += 3) {
+        ctx.beginPath();
+        ctx.arc(X((tx + 0.5) * ts), y + (q.face === 'N' ? r + 2 : -r - 1), r, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
     for (const k of this.kiosks) {

@@ -1,5 +1,6 @@
 import { SOLID, OPAQUE, T } from './tiles';
 import type { MapStats } from './mapStats';
+import type { CheckpointType } from '../config/generator';
 
 export type ZoneKind =
   | 'residential'
@@ -21,7 +22,9 @@ export type ZoneKind =
   | 'arsenal'
   | 'canteen'
   | 'prison'
-  | 'academy';
+  | 'academy'
+  /** ГЭС за восточной стеной города: двор, машинный зал, плотина (посторонним нельзя). */
+  | 'ges';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -57,6 +60,10 @@ export type PoiType =
   | 'checkpoint_post'
   | 'gate_post'
   | 'outlands_exit'
+  | 'dugout'
+  | 'dugout_cache'
+  | 'dugout_bunk'
+  | 'checkpoint_type'
   | 'recruit_terminal'
   | 'shop_counter'
   | 'hatch'
@@ -143,6 +150,31 @@ export type PoiType =
   | 'cafe_table'
   | 'kiosk'
   | 'planter'
+  /** Трибуна Коменданта на площади (помост; face — куда смотрит), фонтан посередине площади. */
+  | 'tribune'
+  | 'fountain'
+  /**
+   * ГЭС (generator/dam.ts): прямоугольник полосы, ворота с проспекта (x, y, w, h; face — сторона ГЭС), места часовых,
+   * машинный зал (x, y, w, h), турбины и трансформаторы, плотина и водохранилище (прямоугольники), съезд на гребень.
+   */
+  | 'ges'
+  | 'ges_gate'
+  | 'ges_post'
+  | 'ges_hall'
+  | 'ges_turbine'
+  | 'ges_transformer'
+  | 'ges_dam'
+  | 'reservoir'
+  /**
+   * Речной порт на берегу водохранилища: набережная (x, y, w, h; face — сторона воды), пирсы, причалы барж (в воде,
+   * id — номер), краны 2×2 у воды, контейнеры (id — цвет), склад (пол).
+   */
+  | 'port_quay'
+  | 'port_pier'
+  | 'barge_berth'
+  | 'port_crane'
+  | 'port_container'
+  | 'port_warehouse'
   | 'academy'
   | 'academy_target'
   | 'academy_line'
@@ -168,7 +200,17 @@ export type PoiType =
   | 'academy_barracks'
   | 'academy_mess'
   | 'academy_vakhta'
-  | 'academy_lobby';
+  | 'academy_lobby'
+  | 'district'
+  | 'border_gate'
+  | 'border_post'
+  | 'border_booth';
+
+/**
+ * Полоса достатка (вариант B): Слобода у фронта — Старый город у площади — Верхний город за стеной Протектората.
+ * POI district — прямоугольник полосы (kind), GameMap.districtAt — полоса тайла.
+ */
+export type District = 'slum' | 'old' | 'upper';
 
 /** Чем занят дом в ряду вдоль улицы (POI facade). */
 export type FacadeUse = 'house' | 'shop' | 'cafe' | 'canteen';
@@ -176,7 +218,10 @@ export type FacadeUse = 'house' | 'shop' | 'cafe' | 'canteen';
 /**
  * Точка интереса в координатах тайлов. Люки (hatch — в городе, sewer_hatch — в канализации)
  * задают якорь 2×2 (x, y — его левый верхний тайл, центр — на стыке четырёх тайлов) и связаны
- * попарно одинаковым id.
+ * попарно одинаковым id. checkpoint_type — пограничный КПП: прямоугольник (x, y, w, h), вид в kind
+ * (classic / trenches / suburb / pass) и сторона пустоши в face (W — пустошь с запада; E — зеркальный, пока не бывает).
+ * dugout — передовой блиндаж повстанцев в полосе пустоши КПП: внутренний пол (x, y, w, h), face — сторона входа;
+ * dugout_cache — ящик, dugout_bunk — место отдыха (по тайлу).
  */
 export interface Poi {
   type: PoiType;
@@ -187,7 +232,7 @@ export interface Poi {
   w?: number;
   h?: number;
   /** Жилая комната: в общежитии или в особняке (id — номер здания), иначе — отдельный дом. */
-  kind?: 'dorm' | 'villa';
+  kind?: 'dorm' | 'villa' | CheckpointType | District;
   /** Дом в ряду вдоль улицы и ларёк: куда смотрит фасад (окно), чем занят, какая лавка (ARBAT). */
   face?: 'N' | 'S' | 'E' | 'W';
   use?: FacadeUse;
@@ -331,6 +376,21 @@ export class GameMap {
 
   poisOf(type: PoiType): Poi[] {
     return this.pois.filter((p) => p.type === type);
+  }
+
+  private districts: Poi[] | null = null;
+
+  /** Полоса достатка тайла (по POI district), null — вне города или карта без полос. */
+  districtAt(tx: number, ty: number): District | null {
+    this.districts ??= this.poisOf('district');
+    for (const d of this.districts) {
+      if (tx >= d.x && ty >= d.y && tx < d.x + (d.w ?? 0) && ty < d.y + (d.h ?? 0)) return d.kind as District;
+    }
+    return null;
+  }
+
+  districtAtWorld(x: number, y: number): District | null {
+    return this.districtAt(Math.floor(x / this.tileSize), Math.floor(y / this.tileSize));
   }
 
   /** Центр тайла в пикселях мира. */

@@ -29,7 +29,12 @@ function city(seed = 12345): Sim {
 /** Двое горожан (не банды, не лоялисты), стоящие рядом: B приводим к A. */
 function pair(sim: Sim, loyA = 0, loyB = 0): [Character, Character] {
   const list = sim.entities.list.filter((c) => c.alive && c.faction === 'citizen' && c.profession === 'citizen' && c.brain instanceof CitizenBrain && c.family < 0 && sim.map.levelAt(c.x, c.y) === 'city');
-  const [a, b] = list;
+  // Первый — тот, рядом с кем (на 20 px правее) есть место для второго: у стены собеседника вытолкнуло бы прочь.
+  const ts = sim.map.tileSize;
+  const free = (x: number, y: number) =>
+    [[-13, -13], [13, -13], [-13, 13], [13, 13]].every(([dx, dy]) => !sim.map.isSolid(Math.floor((x + dx) / ts), Math.floor((y + dy) / ts)));
+  const a = list.find((c) => free(c.x, c.y) && free(c.x + 20, c.y))!;
+  const b = list.find((c) => c !== a)!;
   expect(a && b).toBeTruthy();
   for (const c of [a, b]) {
     c.brain = null;
@@ -198,11 +203,13 @@ describe('разговоры: беседа в мире', () => {
     expect(T.busy(a) && T.busy(b)).toBe(true);
     expect(T.converse(a, b, 'street')).toBe(false);
     const texts: string[] = [];
-    for (let t = 0; t < 60 * 6; t++) {
+    // Беседа договаривает сама: сколько реплик и как долго — зависит от темы (длинная идёт дольше шести секунд), ждём конца.
+    for (let t = 0; t < 60 * 30 && (t < 60 * 6 || T.busy(a)); t++) {
       sim.step();
       for (const c of [a, b]) if (c.speech && c.speech.kind === 'say' && !texts.includes(c.speech.text)) texts.push(c.speech.text);
     }
     expect(texts.length).toBeGreaterThanOrEqual(2);
+    expect(T.busy(a) || T.busy(b)).toBe(false);
     expect(T.converse(a, b, 'street')).toBe(true);
     b.x = b.prevX = a.x + 2000;
     sim.step();
@@ -210,7 +217,7 @@ describe('разговоры: беседа в мире', () => {
     expect(T.stats.cut).toBeGreaterThan(0);
   });
 
-  test('город за две минуты: жители беседуют, договаривают темы, слухи расходятся', () => {
+  test('город за две минуты: жители беседуют, договаривают темы, слухи расходятся', { timeout: 90_000 }, () => {
     const sim = city(777);
     run(sim, 120);
     const S = sim.ctx.talk.stats;

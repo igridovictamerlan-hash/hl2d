@@ -62,11 +62,20 @@ describe('голод и еда', () => {
     sim.ctx.gangs.paused = true;
     sim.insurgency.paused = true;
     spawnPopulation(sim.ctx, 20);
-    const c = sim.entities.list.find((o) => o.faction === 'citizen' && o.alive && o.gang < 0 && o.profession === 'citizen' && o.law.phase === 'none' && o.brain instanceof CitizenBrain)!;
+    // Ближайший к площади: тест про решение искать еду, а не про путь через весь город.
+    const pc = sim.map.poisOf('plaza_center')[0];
+    const ts = sim.map.tileSize;
+    const c = sim.entities.list
+      .filter((o) => o.faction === 'citizen' && o.alive && o.gang < 0 && o.profession === 'citizen' && o.law.phase === 'none' && o.brain instanceof CitizenBrain)
+      .sort((a, b) => Math.hypot(a.x - pc.x * ts, a.y - pc.y * ts) - Math.hypot(b.x - pc.x * ts, b.y - pc.y * ts))[0];
     c.inventory.clear();
     c.hunger = 5;
-    run(sim, 2);
-    expect(['canteen', 'queue', 'shop']).toContain((c.brain as CitizenBrain).fsm.current);
+    // Плановая проверка CID (приказ «стоять») не должна совпасть с этими двумя секундами: тест про голод, не про закон.
+    c.law.lastCheck = sim.law.now;
+    // С деньгами на хлеб: еда есть, как только откроется хоть что-то (раздача, котёл столовой с поваром, лавка с продавцом).
+    c.money = Math.max(c.money, 50);
+    const seeks = () => ['canteen', 'queue', 'shop'].includes((c.brain as CitizenBrain).fsm.current);
+    expect(run(sim, 30, seeks)).toBeLessThan(30);
     run(sim, 90, () => c.hunger > 30);
     expect(c.hunger).toBeGreaterThan(30);
   });

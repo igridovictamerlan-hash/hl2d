@@ -13,6 +13,7 @@ import { ARENA, type ArenaSide, type ArenaUnit } from '../config/arena';
 import { CHARACTER } from '../config/entities';
 import { CP_UNIT, rebelUnitOf } from '../config/factions';
 import { Tactician, followColumn, watchSector } from '../ai/Tactics';
+import { resetMelee } from '../entities/meleeState';
 
 /**
  * Боец арены: враг на виду или недавно видели — бой из укрытия (угол, блок; ai/Tactics), свой
@@ -149,6 +150,7 @@ export class SquadArena {
     ctx.combat.bullets.length = 0;
     ctx.combat.grenades.length = 0;
     ctx.combat.mines.length = 0;
+    ctx.combat.melee.clear();
     for (const side of ['combine', 'rebel'] as const) {
       const units = ARENA.teams[side] as readonly ArenaUnit[];
       units.forEach((u, k) => {
@@ -193,6 +195,7 @@ export class SquadArena {
     c.reviveUntil = 0;
     c.reviving = null;
     c.dragging = c.draggedBy = null;
+    resetMelee(c.melee);
     c.hostile = u.faction === 'rebel';
     c.disguised = false;
     c.cover = null;

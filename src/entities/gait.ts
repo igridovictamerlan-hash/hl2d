@@ -31,7 +31,8 @@ export function updateGait(c: Character, mx: number, my: number, dt: number): vo
   const sp = Math.hypot(c.gaitVx, c.gaitVy);
   const walking = sp > W.moving && Math.hypot(c.wantX, c.wantY) > 1;
   if (walking) c.stride += Math.hypot(mx, my);
-  const aiming = c.aiming || c.recoil > W.aimRecoil;
+  // В драке (стойка) — лицом к противнику, даже обходя его по кругу.
+  const aiming = c.aiming || c.recoil > W.aimRecoil || c.melee.engaged;
   c.bodyDir = walking && !aiming ? dirWithHysteresis(Math.atan2(c.gaitVy, c.gaitVx), c.bodyDir, W.hysteresis) : pawnDir(c.facing);
 }
 

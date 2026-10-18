@@ -58,6 +58,8 @@ export interface RoleSpec {
   home?: number;
   /** Банда (Gangs). */
   gang?: number;
+  /** Номер человека (Character.pid): возрождённый — тот же, по нему помнят знакомства и характер. */
+  pid?: number;
   /** Часовой / RCT проходной / медик КПП: фронт, пост и взгляд, место медика. */
   front?: number;
   post?: Vec2;
@@ -170,7 +172,10 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   if (spec.faction === 'cp') c.division = cpUnit(spec.rank).group;
   // Грузчики и оружейник склада Протектората — с допуском: документы всегда в порядке.
   if (spec.profession === 'loader' || spec.profession === 'armorer') c.law.hasCid = true;
-  c.role = { ...spec, name: c.name };
+  // Тот же человек после возрождения: номер прежний (знакомства, мнение, характер), воспоминания о смерти забыты.
+  if (spec.pid !== undefined) c.pid = spec.pid;
+  c.role = { ...spec, name: c.name, pid: c.pid };
+  ctx.relations?.register(c, spec.pid !== undefined);
   c.brain = brainFor(ctx, c, spec);
   // Силовой блок — в штатное расписание (должность; погиб — вакансия, её займёт младший по званию).
   if (spec.faction === 'cp') ctx.staffing?.adopt(c);

@@ -61,6 +61,10 @@ describe('штаб ТС', () => {
       if (sim.map.zoneAtWorld(head.x, head.y)?.kind === 'cwu_hq') headInHq++;
       if (sim.labor.stations.some((s) => s.who && Math.hypot(s.who.x - s.x, s.who.y - s.y) < 30)) packerAtLine++;
     }
+    // Инспектор выбирает точки обхода по жребию (стол главы — одна из девяти), а штаб ТС теперь на другом краю карты от
+    // Управы: дорога до стола занимает ~100 с. Замеры выше остаются в 420 с, а отчёт главы ждём отдельно (на сиде 12345 —
+    // около десятой минуты), не растягивая остальное.
+    for (let t = 0; t < 600 * 60 && hq.stats.inspections < 1; t++) sim.step();
     const cwuAfter = sim.entities.list.filter((c) => c.faction === 'cwu').length;
     console.log(`штаб ТС: ${JSON.stringify(hq.stats)}, ТС ${cwuBefore} → ${cwuAfter}, глава в штабе ${Math.round((headInHq / samples) * 100)}%, фасуют у конвейера ${packerAtLine} с, коробок ${sim.labor.stats.packed}`);
     expect(headInHq / samples).toBeGreaterThan(0.6);

@@ -161,14 +161,17 @@ describe('живой город со всеми фракциями', () => {
     const prison = sim.ctx.prison.present ? PRISON.guards + 1 : 0;
     // Академия ВС — вахтёры RCT и инструкторы.
     const academy = sim.academy.present ? ACADEMY.vakhta + ACADEMY.instructors : 0;
-    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison + academy);
+    // Посты стены Верхнего города — по RCT на место часового.
+    const border = sim.map.poisOf('border_post').length + sim.map.poisOf('ges_post').length;
+    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison + academy + border);
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['pcu', 'su', 'cmd']) expect(divisions.has(d as never)).toBe(true);
     // Армия в лагере + HYDRA + подпольщики и спецагент в схроне.
     const army = [...ROSTER.army, ...ROSTER.hydra].reduce((n, [, k]) => n + k, 0);
     expect(count('rebel')).toBe(AI.population.rebels + ROSTER.partisans + ROSTER.agents + army);
     expect(count('admin')).toBe(1);
-    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, заведение) дольше 60 с, конвой — дольше 80 с.
+    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, заведение) дольше 60 с, конвой — дольше 100 с (большая карта:
+    // от Верхнего города до тюрьмы с приёмкой).
     const stuckSince = new Map<Character, [number, string]>();
     let worstStuck = 0;
     for (let t = 0; t < 180 * 60; t++) {
@@ -180,7 +183,7 @@ describe('живой город со всеми фракциями', () => {
           const s = stuckSince.get(c);
           if (!s || s[1] !== ph) stuckSince.set(c, [t, ph]);
           // Конвой через весь город к КПЗ идёт дольше остальных фаз — ему запас побольше.
-          else worstStuck = Math.max(worstStuck, ((t - s[0]) / 60) * (ph === 'cuffed' ? 0.75 : 1));
+          else worstStuck = Math.max(worstStuck, ((t - s[0]) / 60) * (ph === 'cuffed' ? 0.6 : 1));
         } else stuckSince.delete(c);
       }
     }

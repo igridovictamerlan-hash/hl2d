@@ -27,6 +27,8 @@ export class EntityManager {
   }
 
   clear(): void {
+    // Новая карта — нумерация с единицы: одна и та же карта даёт тех же людей с теми же номерами (сохранение знакомств).
+    this.nextId = 1;
     this.list.length = 0;
     this.byIdMap.clear();
     this.hash.clear();

@@ -8,6 +8,8 @@ import { adjustLoyalty } from './Loyalty';
 export interface Errand {
   secret: boolean;
   to: Dwelling;
+  /** Кому несут (запомнит добро — Relations). */
+  who: Character;
   name: string;
   zone: string;
   until: number;
@@ -51,13 +53,13 @@ export class Errands {
     if (!target) return 'Объявления старые, адресов не разобрать.';
     const item = secret ? 'parcel_x' : 'parcel';
     if (!p.inventory.add(item, 1)) return 'Посылку некуда положить — рюкзак полон.';
-    this.active = { secret, to: target.d, name: target.name, zone: target.zone, until: now + E.time };
+    this.active = { secret, to: target.d, who: target.who, name: target.name, zone: target.zone, until: now + E.time };
     this.stats.taken++;
     const lines = secret ? E.lines.secret : E.lines.parcel;
     return fill(ctx.rng.pick(lines), { name: target.name, zone: target.zone, min: Math.round(E.time / 60) });
   }
 
-  private pickTarget(board: NoticeBoard, secret: boolean): { d: Dwelling; name: string; zone: string } | null {
+  private pickTarget(board: NoticeBoard, secret: boolean): { d: Dwelling; who: Character; name: string; zone: string } | null {
     const { ctx } = this;
     const H = ctx.housing;
     if (!H) return null;
@@ -79,7 +81,7 @@ export class Errands {
     const d = ctx.rng.pick(ok);
     const c = byHome.get(d)!;
     const zone = ctx.map.zoneAtWorld(d.at.x, d.at.y)?.name ?? 'город';
-    return { d, name: c.name, zone };
+    return { d, who: c, name: c.name, zone };
   }
 
   /** Сдать посылку у дома получателя (E): текст или null — не здесь. */
@@ -98,6 +100,8 @@ export class Errands {
     const pay = Math.round(ctx.rng.range(lo, hi));
     p.money += pay;
     if (!a.secret) adjustLoyalty(p, E.parcel.loyalty, 'поручение', ctx.bus);
+    // Адресат запомнит, кто принёс (знакомство и доброе слово).
+    if (a.who.alive) ctx.relations?.event('gift', p, a.who);
     this.active = null;
     this.nextAt = ctx.law.now + E.cooldown;
     this.stats.done++;

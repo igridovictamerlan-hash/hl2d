@@ -1,3 +1,7 @@
+import type { Senses } from '../systems/Senses';
+import type { Suspects } from '../systems/Suspects';
+import type { Escalation } from '../systems/Escalation';
+import type { Memorials } from '../systems/Memorials';
 import type { SecuritySystem } from '../systems/Security';
 import type { CwuHqSystem } from '../systems/CwuHq';
 import type { ArsenalSystem } from '../systems/Arsenal';
@@ -36,8 +40,25 @@ import type { Staffing } from '../systems/Staffing';
 import type { Access } from '../systems/Access';
 import type { Radio } from '../systems/Radio';
 import type { Talk } from '../systems/Talk';
+import type { Relations } from '../systems/Relations';
+import type { Neighborhoods } from '../systems/Neighborhoods';
+import type { CrowdMap } from '../systems/Crowd';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
+/**
+ * Фокус упрощённой симуляции: вокруг (x, y) в радиусе √r2 — всё каждый тик, дальше — раз в every тиков, дальше √farR2 —
+ * раз в farEvery; tick — счётчик тиков (такт по id).
+ */
+export interface LodFocus {
+  x: number;
+  y: number;
+  r2: number;
+  farR2: number;
+  every: number;
+  farEvery: number;
+  tick: number;
+}
+
 export interface AiContext {
   map: GameMap;
   nav: NavGrid;
@@ -47,6 +68,11 @@ export interface AiContext {
   entities: EntityManager;
   rng: Rng;
   player: Character | null;
+  /**
+   * Упрощённая симуляция вдали от игрока (config/population.ts, LOD): точка (игрок), радиус² и раз в сколько
+   * тиков думает дальний NPC; null — все NPC каждый тик (безголовые тесты, «отряд на отряд»).
+   */
+  lod?: LodFocus | null;
   /** Время игры, с. */
   time: number;
   law: LawSystem;
@@ -105,4 +131,18 @@ export interface AiContext {
   radio: Radio;
   /** Разговоры жителей: слухи о происшествиях, темы по обстановке, без повторов. */
   talk: Talk;
+  /** Живые люди: характер, настроение, память отношений (знакомства, обиды, дружба). */
+  relations: Relations;
+  /** Восприятие: раздражители, страх, свидетели (systems/Senses.ts). */
+  senses: Senses;
+  /** Дела о преступлениях, приметы, доносы (systems/Suspects.ts). */
+  suspects: Suspects;
+  /** Страх кварталов и ступени реакции ВС (systems/Escalation.ts). */
+  escalation: Escalation;
+  /** Памятные места: цветы и свечи на месте убийства мирного жителя (systems/Memorials.ts). */
+  memorials: Memorials;
+  /** Районные центры: жители гуляют у своего дома, в центр — изредка (systems/Neighborhoods.ts). */
+  hoods: Neighborhoods;
+  /** Карта толпы: полные места не выбирают, людное обходят (systems/Crowd.ts). */
+  crowd: CrowdMap;
 }

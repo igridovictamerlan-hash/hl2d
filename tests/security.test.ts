@@ -46,7 +46,8 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     expect(by('su3')[0].inventory.has('m4a4')).toBe(true);
     // RCT: у ворот Управы, в проходных КПП, в людных местах и на вахте академии; на постах КПП — только SU.03.
     const rct = by('rct');
-    expect(rct.length).toBe(ROSTER.cp.nexusPosts + ROSTER.cp.publicPosts + sim.war.fronts.reduce((n, f) => n + f.gatePosts.length, 0) + (sim.academy.present ? ACADEMY.vakhta : 0));
+    // …и на постах стены Верхнего города (по RCT на место часового).
+    expect(rct.length).toBe(ROSTER.cp.nexusPosts + ROSTER.cp.publicPosts + sim.war.fronts.reduce((n, f) => n + f.gatePosts.length, 0) + (sim.academy.present ? ACADEMY.vakhta : 0) + sim.map.poisOf('border_post').length + sim.map.poisOf('ges_post').length);
     const gate = poiWorld(sim.ctx, 'nexus_gate')!;
     expect(rct.some((c) => Math.hypot(c.x - gate.x, c.y - gate.y) < 100)).toBe(true);
     for (const f of sim.war.fronts) for (const p of f.posts) expect(cps(sim).some((c) => c.rank === CP_UNIT.su3 && brain(c).guardPost === p)).toBe(true);
@@ -96,6 +97,8 @@ describe('силовой блок: PCU, SU, CMD, OTA', () => {
     // Без вылазок партизан и дронов: тревога (код жёлтый) распускает строй.
     sim.insurgency.paused = true;
     sim.scanners.update = () => {};
+    // И без дел банд: удар по патрулю — тоже тревога (а свидетели теперь доносят).
+    sim.ctx.gangs.paused = true;
     run(sim, 5);
     // Офицер может быть занят (погоня, проверка) — построение, как только освободится.
     let started = sim.security.startFormation();

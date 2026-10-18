@@ -43,6 +43,7 @@ export class CadetBrain implements Brain {
 
   update(self: Character, ctx: AiContext, dt: number): void {
     const A = ctx.academy;
+    self.marching = false;
     // Напали — отстреливается с места (по уставу: укрыться и доложить — но учебный пистолет при себе).
     if (this.gunner.update(self, ctx, dt) && this.gunner.target) {
       this.doing = 'бой';
@@ -80,6 +81,7 @@ export class CadetBrain implements Brain {
           this.goal = null;
         }
         const p = t.path[this.idx % t.path.length];
+        self.marching = t.kind === 'lead';
         this.mover.speed = t.kind === 'loop' ? CHARACTER.runSpeed * ACADEMY.pt.speed : LAW.cpWalkSpeed * ACADEMY.drill.speed;
         if (Math.hypot(p.x - self.x, p.y - self.y) < 18) {
           this.idx = (this.idx + 1) % t.path.length;
@@ -89,6 +91,7 @@ export class CadetBrain implements Brain {
       }
       case 'follow': {
         this.doing = 'строевая';
+        self.marching = true;
         this.path = null;
         this.goal = null;
         followColumn(self, ctx, this.mover, t.leader, t.k, dt, this.column, LAW.cpWalkSpeed * 1.25);
