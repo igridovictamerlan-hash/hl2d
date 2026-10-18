@@ -1,3 +1,4 @@
+/** Описание системы — docs/melee.md. */
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
 import type { MeleeAttack } from '../entities/meleeState';

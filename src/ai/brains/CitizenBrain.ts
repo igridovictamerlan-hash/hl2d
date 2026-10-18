@@ -1,3 +1,4 @@
+/** Описание системы — docs/city-life.md. */
 import { LINES } from '../../config/lines';
 import { phrase } from '../../systems/phrases';
 import { ARSENAL } from '../../config/arsenal';

@@ -1,3 +1,4 @@
+/** Описание системы — docs/radio-talk.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { CpBrain } from '../ai/brains/CpBrain';

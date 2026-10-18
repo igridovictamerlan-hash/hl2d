@@ -1,3 +1,4 @@
+/** Описание системы — docs/roster.md. */
 import type { Brain } from '../Brain';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';

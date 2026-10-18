@@ -1,3 +1,4 @@
+/** Описание системы — docs/population.md. */
 import type { AiContext } from './AiContext';
 import type { Character } from '../entities/Character';
 import { dodgeGrenades } from './Dodge';

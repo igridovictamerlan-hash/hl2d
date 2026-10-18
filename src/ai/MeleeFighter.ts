@@ -1,3 +1,4 @@
+/** Описание системы — docs/melee.md. */
 import type { Character } from '../entities/Character';
 import type { MeleeAttack } from '../entities/meleeState';
 import type { AiContext } from './AiContext';

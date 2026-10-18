@@ -1,3 +1,4 @@
+/** Описание системы — docs/rendering.md. */
 import { ITEMS } from '../config/items';
 import type { Character, SpeechKind } from './Character';
 import type { View } from '../core/Camera';

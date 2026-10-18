@@ -45,6 +45,6 @@ npx vitest run tests/generator.test.ts tests/checkpoints.test.ts tests/town.test
 - Каждая деталь застройки откатывается (`GenGrid.snapshot/restore`), если открывает прострел длиннее нормы;
   связность — `ensureConnectivity`, люки учитываются (`hatchLinks`).
 - Проверку новых объектов добавляй в `validateMap` (иначе генератор молча выдаст карту без них) и описывай в
-  CLAUDE.md («Генератор»).
+  `docs/generator.md`.
 - Любая правка карты сдвигает сид-зависимые тесты поведения (бой, банды, тюрьма…). Разбирай их по одному — скилл
   `test-triage`; ожидай этого заранее и закладывай время.

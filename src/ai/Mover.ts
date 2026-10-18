@@ -1,3 +1,4 @@
+/** Описание системы — docs/ai.md. */
 import { linked } from '../entities/physics';
 import { LOD } from '../config/population';
 import type { Character } from '../entities/Character';

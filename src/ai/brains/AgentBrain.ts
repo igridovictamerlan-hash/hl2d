@@ -1,3 +1,4 @@
+/** Описание системы — docs/underground.md. */
 import { ARSENAL } from '../../config/arsenal';
 import type { Brain } from '../Brain';
 import type { AiContext } from '../AiContext';

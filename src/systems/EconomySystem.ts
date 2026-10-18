@@ -1,3 +1,4 @@
+/** Описание системы — docs/economy.md. */
 import { CWU_HQ } from '../config/cwuHq';
 import { cpUnit } from '../config/factions';
 import type { Character } from '../entities/Character';

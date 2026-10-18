@@ -1,3 +1,4 @@
+/** Описание системы — docs/economy.md. */
 import type { Character } from '../entities/Character';
 import type { AiContext } from '../ai/AiContext';
 import type { Vec2 } from '../core/math';

@@ -1,3 +1,4 @@
+/** Описание системы — docs/ui.md. */
 import { TOUCH, TOUCH_BUTTONS } from '../config/touch';
 import { stickOf, moveOf, aimPoint, Trigger, roleButtons, type Stick } from '../core/touch';
 import type { Input } from '../core/Input';

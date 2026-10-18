@@ -1,3 +1,4 @@
+/** Описание системы — docs/population.md. */
 import type { AiContext } from '../ai/AiContext';
 import { CROWD } from '../config/crowd';
 import { T, SOLID } from '../world/tiles';

@@ -1,3 +1,4 @@
+/** Описание системы — docs/relations.md. */
 import { hash2 } from '../core/rng';
 import { RELATIONS, type Habit, type Trait } from '../config/relations';
 

@@ -1,3 +1,4 @@
+/** Описание системы — docs/law.md. */
 import { ARSENAL } from '../../config/arsenal';
 import { PRISON } from '../../config/prison';
 import type { Brain } from '../Brain';

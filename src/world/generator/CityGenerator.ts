@@ -1,3 +1,4 @@
+/** Описание системы — docs/generator.md. */
 import { Rng, hash2 } from '../../core/rng';
 import type { Rect } from '../../core/math';
 import { GENERATOR } from '../../config/generator';

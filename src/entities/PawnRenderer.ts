@@ -1,3 +1,4 @@
+/** Описание системы — docs/rendering.md. */
 import { WEAPON_POSE } from '../config/weaponSprites';
 import type { FactionId } from '../config/factions';
 import { PAWN } from '../config/pawns';

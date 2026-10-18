@@ -15,7 +15,7 @@ import { updateNpcs } from '../src/ai/NpcController';
 import { stepPhysics } from '../src/entities/physics';
 import { DoorSystem } from '../src/systems/DoorSystem';
 import { LawSystem } from '../src/systems/LawSystem';
-import type { GameMap } from '../src/world/GameMap';
+import { GameMap } from '../src/world/GameMap';
 import { EconomySystem } from '../src/systems/EconomySystem';
 import { CombatSystem } from '../src/systems/CombatSystem';
 import { WarSystem } from '../src/systems/WarSystem';
@@ -71,6 +71,44 @@ export interface SimOptions {
   line?: boolean;
 }
 
+/**
+ * Сгенерированные города по сиду и типам КПП — на файл тестов (каждый файл vitest — свой процесс): генерация ~1,3 с,
+ * а почти все тесты берут сид 12345. Каждый makeSim получает свою копию карты (тайлы, зоны, POI, двери) — тесты
+ * меняют карту (блоки, двери, дым) и не должны видеть чужие правки. HL2D_NOCACHE=1 — генерировать заново каждый раз.
+ */
+const cityCache = new Map<string, GameMap>();
+
+function cachedCity(seed: number, types: readonly CheckpointType[] | null): GameMap {
+  const key = `${seed}:${types ? types.join(',') : 'random'}`;
+  let src = process.env.HL2D_NOCACHE === '1' ? undefined : cityCache.get(key);
+  if (!src) {
+    setForcedCheckpointTypes(types);
+    try {
+      src = generateCity(seed);
+    } finally {
+      setForcedCheckpointTypes(null);
+    }
+    if (process.env.HL2D_NOCACHE === '1') return src;
+    // В кэше — нетронутая копия: возвращённую карту тест будет менять.
+    src = cloneMap(src);
+    cityCache.set(key, src);
+  }
+  return cloneMap(src);
+}
+
+/** Полная копия карты: исходные данные и состояние дверей, решёток и дыма. */
+export function cloneMap(m: GameMap): GameMap {
+  const c = new GameMap(
+    m.width, m.height, m.tileSize, m.tiles.slice(), m.zoneGrid.slice(),
+    structuredClone(m.zones), structuredClone(m.pois), m.seed, m.name, m.stats ? structuredClone(m.stats) : null,
+  );
+  c.doorClosed.set(m.doorClosed);
+  c.doorLocked.set(m.doorLocked);
+  c.grate.set(m.grate);
+  c.smoke.set(m.smoke);
+  return c;
+}
+
 /** Безголовая симуляция мира: карта + NPC + двери + закон + физика, без DOM и отрисовки. */
 export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   // Номера CID — общий набор модуля: без сброса случайность теста зависит от предыдущих тестов.
@@ -79,12 +117,7 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   let map: GameMap;
   if (typeof seedOrMap === 'number') {
     const types = opts.checkpoints !== undefined ? opts.checkpoints : process.env.HL2D_CP === 'random' ? null : (['classic'] as const);
-    setForcedCheckpointTypes(types);
-    try {
-      map = generateCity(seedOrMap);
-    } finally {
-      setForcedCheckpointTypes(null);
-    }
+    map = cachedCity(seedOrMap, types);
   } else map = seedOrMap;
   const nav = new NavGrid(map);
   const entities = new EntityManager();

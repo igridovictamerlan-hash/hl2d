@@ -1,0 +1,25 @@
+# Проверка на каждом пуше и пулл-реквесте: типы и полный набор тестов (~12 мин на 4 ядрах).
+# Локально перед коммитом хватает `npm run typecheck && npm run test:fast` — полный прогон делает CI.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

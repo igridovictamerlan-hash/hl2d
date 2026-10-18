@@ -1,3 +1,4 @@
+/** Описание системы — docs/underground.md. */
 import { ECONOMY } from '../config/economy';
 import type { Character } from '../entities/Character';
 import type { Dwelling } from './Housing';

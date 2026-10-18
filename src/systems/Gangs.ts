@@ -1,3 +1,4 @@
+/** Описание системы — docs/city-life.md. */
 import { phrase } from './phrases';
 import { FACTIONS } from '../config/factions';
 import type { AiContext } from '../ai/AiContext';

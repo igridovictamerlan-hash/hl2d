@@ -1,3 +1,4 @@
+/** Описание системы — docs/city-reacts.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { Stimulus } from './Senses';

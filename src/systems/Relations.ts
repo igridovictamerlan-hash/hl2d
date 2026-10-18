@@ -1,3 +1,4 @@
+/** Описание системы — docs/relations.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { Rng } from '../core/rng';

@@ -1,3 +1,4 @@
+/** Описание системы — docs/radio-talk.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { TALK, type Attitude, type ByAtt, type NewsDef, type TalkSetting, type TopicDef, type TopicLines } from '../config/talk';

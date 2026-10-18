@@ -1,3 +1,4 @@
+/** Описание системы — docs/city-life.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';

@@ -1,3 +1,4 @@
+/** Описание системы — docs/economy.md. */
 import type { Character } from '../entities/Character';
 import { STAFFING } from '../config/staffing';
 import type { AiContext } from '../ai/AiContext';

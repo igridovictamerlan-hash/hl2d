@@ -1,3 +1,4 @@
+/** Описание системы — docs/ui.md. */
 import type { Character } from '../entities/Character';
 import type { PawnLook } from '../entities/PawnRenderer';
 import { drawPawn } from '../entities/PawnRenderer';

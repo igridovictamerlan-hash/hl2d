@@ -1,3 +1,4 @@
+/** Описание системы — docs/ui.md. */
 import type { Character } from '../entities/Character';
 import type { FactionId, DivisionId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';

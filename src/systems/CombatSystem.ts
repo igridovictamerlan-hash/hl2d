@@ -1,3 +1,4 @@
+/** Описание системы — docs/combat.md. */
 import { ARSENAL } from '../config/arsenal';
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';

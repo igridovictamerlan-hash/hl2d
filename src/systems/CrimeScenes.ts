@@ -1,3 +1,4 @@
+/** Описание системы — docs/underground.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';

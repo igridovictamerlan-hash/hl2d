@@ -1,3 +1,4 @@
+/** Описание системы — docs/rendering.md. */
 import type { View } from '../core/Camera';
 import type { GameMap } from './GameMap';
 import type { Character } from '../entities/Character';

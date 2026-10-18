@@ -1,3 +1,4 @@
+/** Описание системы — docs/combat.md. */
 import type { Character } from '../entities/Character';
 import type { AiContext } from './AiContext';
 import type { Rng } from '../core/rng';

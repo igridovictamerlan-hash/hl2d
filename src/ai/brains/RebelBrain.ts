@@ -1,3 +1,4 @@
+/** Описание системы — docs/war.md. */
 import type { Brain } from '../Brain';
 import { bark } from '../../systems/Barks';
 import type { AiContext } from '../AiContext';

@@ -1,3 +1,4 @@
+/** Описание системы — docs/war.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Front } from './WarSystem';
 import type { Vec2 } from '../core/math';

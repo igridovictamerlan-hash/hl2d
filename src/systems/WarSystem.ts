@@ -1,3 +1,4 @@
+/** Описание системы — docs/war.md. */
 import { REBEL_UNIT } from '../config/factions';
 import { COMBAT } from '../config/combat';
 import type { Character } from '../entities/Character';

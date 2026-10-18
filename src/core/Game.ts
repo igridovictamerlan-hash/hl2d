@@ -1,3 +1,4 @@
+/** Описание системы — docs/architecture.md. */
 import { Wardrobe } from '../systems/Wardrobe';
 import { EventBus } from './EventBus';
 import { Camera, type View } from './Camera';

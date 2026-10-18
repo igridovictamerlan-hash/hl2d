@@ -1,3 +1,4 @@
+/** Описание системы — docs/combat.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Brain } from '../ai/Brain';
 import type { Character } from '../entities/Character';

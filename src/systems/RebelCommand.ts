@@ -1,3 +1,4 @@
+/** Описание системы — docs/war.md. */
 import { ECONOMY } from '../config/economy';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
