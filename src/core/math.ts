@@ -47,6 +47,3 @@ export interface Rect {
 
 export const rectsOverlap = (a: Rect, b: Rect, pad = 0): boolean =>
   a.x - pad < b.x + b.w && b.x - pad < a.x + a.w && a.y - pad < b.y + b.h && b.y - pad < a.y + a.h;
-
-export const rectContains = (r: Rect, x: number, y: number): boolean =>
-  x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;

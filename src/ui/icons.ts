@@ -519,10 +519,6 @@ export function iconOf(id: ItemId): string {
   return ITEM_ICON[id] ?? id;
 }
 
-export function hasIcon(id: string): boolean {
-  return id in I;
-}
-
 /** Иконка id с центром (cx, cy); s — масштаб (1 = 64 px). */
 export function drawIcon(ctx: C2, id: string, cx: number, cy: number, s = 1): void {
   const f = I[id];

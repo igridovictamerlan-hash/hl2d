@@ -31,7 +31,7 @@
 npm install
 npm run dev        # http://localhost:5173
 npm test           # все тесты vitest (~12 мин на 4 ядрах) — перед пушем или в CI
-npm run test:fast  # быстрый набор (~50 с, 160 тестов): генератор, A*, коллизии, бой, интерфейс — после каждой правки
+npm run test:fast  # быстрый набор (~70 с, 200 тестов): генератор, A*, коллизии, бой, реакции города, интерфейс — после каждой правки
 npx vitest run tests/war   # тесты одной системы — по имени файла
 npm run typecheck  # tsc для src и tests
 npm run build      # typecheck + сборка в dist/

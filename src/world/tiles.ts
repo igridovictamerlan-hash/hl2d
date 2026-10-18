@@ -91,6 +91,3 @@ for (const d of TILE_DEFS) {
 }
 
 export const tileChar = (id: number): string => TILE_DEFS[id]?.char ?? '#';
-
-/** Открытые пространства, где длинный обзор допустим (не считаются «прямым участком переулка»). */
-export const isOpenArea = (id: number): boolean => id === T.STREET || id === T.PLAZA;

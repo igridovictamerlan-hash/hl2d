@@ -248,9 +248,6 @@ export function applyPost(ctx: AiContext, c: Character, spec: RoleSpec): void {
   c.brain = brainFor(ctx, c, c.role);
 }
 
-/** Номер юнита RCT (для академии и тестов). */
-export const RCT_RANK = CP_UNIT.rct;
-
 /** Строка HUD игрока-ВС: баллы службы и до какого юнита хватает. */
 export function serviceHint(c: Character, S: Staffing): string {
   const unit = cpUnit(c.rank).unit;

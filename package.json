@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
     "test": "vitest run",
-    "test:fast": "vitest run tests/collision.test.ts tests/menus.test.ts tests/touch.test.ts tests/poses.test.ts tests/mapio.test.ts tests/pathfinding.test.ts tests/lighting.test.ts tests/trench.test.ts tests/generator.test.ts tests/gait.test.ts tests/npc.test.ts tests/units.test.ts tests/hud.test.ts tests/needs.test.ts tests/stage5.test.ts tests/brawl.test.ts tests/melee.test.ts tests/combat.test.ts tests/capture.test.ts",
+    "test:fast": "vitest run tests/collision.test.ts tests/menus.test.ts tests/touch.test.ts tests/poses.test.ts tests/clothes.test.ts tests/mapio.test.ts tests/pathfinding.test.ts tests/lighting.test.ts tests/trench.test.ts tests/generator.test.ts tests/gait.test.ts tests/npc.test.ts tests/units.test.ts tests/hud.test.ts tests/needs.test.ts tests/population.test.ts tests/stage4.test.ts tests/stage5.test.ts tests/curfew.test.ts tests/cityReacts.test.ts tests/cityReacts2.test.ts tests/port.test.ts tests/brawl.test.ts tests/melee.test.ts tests/combat.test.ts tests/capture.test.ts",
     "test:watch": "vitest",
     "mapstats": "vitest run tests/mapstats.test.ts --reporter=verbose",
     "worldstats": "WORLDSTATS=1 vitest run tests/worldstats.test.ts --reporter=verbose --silent=false"

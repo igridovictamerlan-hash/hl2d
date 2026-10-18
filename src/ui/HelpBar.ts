@@ -36,9 +36,6 @@ export const CONTROLS_GROUPS: [string, [string, string][]][] = [
   ]],
 ];
 
-/** Все клавиши одним списком (экран «Управление»). */
-export const CONTROLS_HELP: [string, string][] = CONTROLS_GROUPS.flatMap(([, rows]) => rows);
-
 /**
  * Подсказка по управлению: в углу — маленький значок «F1 — управление», по F1 — панель со всеми
  * клавишами по группам (не мешает игре — сквозь неё можно стрелять).

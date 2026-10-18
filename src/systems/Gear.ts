@@ -8,12 +8,6 @@ const TIERS: readonly ClothTier[] = ['poor', 'middle', 'rich'];
 /** Порядок сборки комплекта: низ, верх, шея, убор, обувь (поношенность — от верха поверх низа). */
 const ORDER: readonly ClothSlot[] = ['top', 'outer', 'neck', 'hat', 'feet'];
 
-/** Вещь одежды (не броня и не рюкзак). */
-export function isCloth(id: ItemId): boolean {
-  const s = ITEMS[id]?.gear?.slot;
-  return !!s && (CLOTH_SLOTS as readonly string[]).includes(s);
-}
-
 /**
  * Комплект пешки из надетой одежды (низ и/или верх; без них — undefined: одежда фракции). Достаток комплекта — по
  * низу, иначе по верху. Поношенность складывается (заплаты, дыры, пятна — что больше).
