@@ -46,6 +46,7 @@ export const MINIMAP = {
     [T.DUGOUT]: [128, 98, 60],
     [T.WATER]: [44, 74, 88],
     [T.DAM]: [140, 138, 130],
+    [T.SHORE]: [160, 148, 118],
   } as Record<number, readonly [number, number, number]>,
   /** Горы на картах: уступ светлее на ridgeLight, гребень — снег (world/relief.ts). */
   ridgeLight: 7,

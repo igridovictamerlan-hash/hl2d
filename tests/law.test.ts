@@ -170,7 +170,8 @@ describe('живой город со всеми фракциями', () => {
     const army = [...ROSTER.army, ...ROSTER.hydra].reduce((n, [, k]) => n + k, 0);
     expect(count('rebel')).toBe(AI.population.rebels + ROSTER.partisans + ROSTER.agents + army);
     expect(count('admin')).toBe(1);
-    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, заведение) дольше 60 с, конвой — дольше 80 с.
+    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, заведение) дольше 60 с, конвой — дольше 100 с (большая карта:
+    // от Верхнего города до тюрьмы с приёмкой).
     const stuckSince = new Map<Character, [number, string]>();
     let worstStuck = 0;
     for (let t = 0; t < 180 * 60; t++) {
@@ -182,7 +183,7 @@ describe('живой город со всеми фракциями', () => {
           const s = stuckSince.get(c);
           if (!s || s[1] !== ph) stuckSince.set(c, [t, ph]);
           // Конвой через весь город к КПЗ идёт дольше остальных фаз — ему запас побольше.
-          else worstStuck = Math.max(worstStuck, ((t - s[0]) / 60) * (ph === 'cuffed' ? 0.75 : 1));
+          else worstStuck = Math.max(worstStuck, ((t - s[0]) / 60) * (ph === 'cuffed' ? 0.6 : 1));
         } else stuckSince.delete(c);
       }
     }

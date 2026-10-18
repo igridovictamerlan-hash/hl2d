@@ -437,7 +437,8 @@ export class CpBrain implements Brain {
     this.ward = ward;
     this.self.guarding = ward;
     this.wardUntil = until;
-    this.fsm.change('bodyguard');
+    // Ведёт задержанного — сперва доведёт до камеры (потом idleState вернёт к охране), иначе тот стоял бы в наручниках.
+    if (this.fsm.current !== 'escort') this.fsm.change('bodyguard');
   }
 
   /** Куда возвращаться после разбирательства. */

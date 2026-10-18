@@ -94,6 +94,9 @@ export const LIGHTING = {
     ges_hall: { color: [200, 220, 255], radius: 150, power: 0.9, night: true },
     ges_turbine: { color: [170, 220, 255], radius: 70, power: 0.7, night: false, bloom: true },
     ges_transformer: { color: [215, 235, 255], radius: 80, power: 0.6, night: true, bloom: true },
+    // Порт: прожекторы кранов и склад.
+    port_crane: { color: [225, 238, 255], radius: 150, power: 0.85, night: true, bloom: true },
+    port_warehouse: { color: [255, 214, 150], radius: 120, power: 0.8, night: true },
     checkpoint_post: { color: [205, 225, 255], radius: 120, power: 0.8, night: true },
     restricted_gate: { color: [200, 220, 255], radius: 120, power: 0.8, night: true },
     industrial_yard: { color: [255, 170, 90], radius: 150, power: 0.75, night: true },

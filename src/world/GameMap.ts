@@ -165,6 +165,16 @@ export type PoiType =
   | 'ges_transformer'
   | 'ges_dam'
   | 'reservoir'
+  /**
+   * Речной порт на берегу водохранилища: набережная (x, y, w, h; face — сторона воды), пирсы, причалы барж (в воде,
+   * id — номер), краны 2×2 у воды, контейнеры (id — цвет), склад (пол).
+   */
+  | 'port_quay'
+  | 'port_pier'
+  | 'barge_berth'
+  | 'port_crane'
+  | 'port_container'
+  | 'port_warehouse'
   | 'academy'
   | 'academy_target'
   | 'academy_line'

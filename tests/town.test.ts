@@ -174,7 +174,8 @@ describe('Управа: общая камера, лоялисты, проспе�
     ctx.gangs.paused = true;
     sim.insurgency.paused = true;
     let seated = 0;
-    run(sim, 240, () => {
+    // На большой карте до скамейки бывает далеко — времени с запасом.
+    run(sim, 480, () => {
       seated = Math.max(seated, sim.entities.list.filter((c) => c.brain instanceof CitizenBrain && c.brain.fsm.current === 'bench' && c.brain.stayUntil > 0).length);
       return street.stats.benchTalks > 0 && seated >= 3;
     });

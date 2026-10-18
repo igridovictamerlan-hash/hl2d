@@ -80,6 +80,7 @@ export class MapRenderer {
   /** Фонтаны и трибуны площади (рисуются поверх тайлов). */
   private landmarks: Poi[] = [];
   private machines: Poi[] = [];
+  private quays: Poi[] = [];
   private readonly decor: Uint8Array;
   private readonly cobble: Uint8Array;
   private readonly kiosks: Poi[];
@@ -118,7 +119,8 @@ export class MapRenderer {
       }
     }
     this.landmarks = [...map.poisOf('fountain'), ...map.poisOf('tribune')];
-    this.machines = [...map.poisOf('ges_turbine'), ...map.poisOf('ges_transformer')];
+    this.machines = [...map.poisOf('ges_turbine'), ...map.poisOf('ges_transformer'), ...map.poisOf('port_container'), ...map.poisOf('port_crane')];
+    this.quays = map.poisOf('port_quay');
     for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER], [this.landmarks, DECOR_PLAZA]] as const) {
       for (const p of list) for (let y = p.y; y < p.y + p.h!; y++) for (let x = p.x; x < p.x + p.w!; x++) this.decor[y * w + x] = kind;
     }
@@ -274,7 +276,22 @@ export class MapRenderer {
       case T.CHASM: this.color[i] = tone(P.chasm); break;
       case T.DUGOUT_WALL: this.color[i] = tone(P.dugoutWall); break;
       case T.DUGOUT: this.color[i] = tone(P.dugoutFloor); break;
-      case T.WATER: this.color[i] = tone(P.water); break;
+      case T.WATER: {
+        // Мелководье: в 2 тайлах есть берег, пирс или набережная (плотина и скалы — не в счёт, там глубоко).
+        let shallow = false;
+        for (let dy = -2; dy <= 2 && !shallow; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const n = map.tileAt(x + dx, y + dy);
+            if (n !== T.WATER && n !== T.DAM && n !== T.ROCK) {
+              shallow = true;
+              break;
+            }
+          }
+        }
+        this.color[i] = tone(shallow ? P.waterShallow : P.water);
+        break;
+      }
+      case T.SHORE: this.color[i] = tone(P.shore); break;
       case T.DAM: this.color[i] = tone(P.dam); break;
       default: this.color[i] = '#f0f';
     }
@@ -701,6 +718,13 @@ export class MapRenderer {
             if (map.tileAt(tx + 1, ty) !== T.WATER) ctx.fillRect(x1 - foam, y0, foam, ch);
             continue;
           }
+          case T.SHORE: {
+            // Галька вразбежку.
+            ctx.fillStyle = P.shorePebble;
+            ctx.fillRect(x0 + px((hv & 7) + 2), y0 + px(((hv >> 3) & 7) + 2), px(2), px(2));
+            ctx.fillRect(x0 + px(((hv >> 6) & 7) + 4), y0 + px(((hv >> 9) & 7) + 6), px(3), px(2));
+            continue;
+          }
           case T.DAM: {
             // Бетонные плиты откоса: горизонтальный шов, вертикальный вразбежку; тень у воды.
             ctx.fillStyle = P.damSeam;
@@ -1032,6 +1056,39 @@ export class MapRenderer {
       const y = Y(p.y * ts);
       const w = Math.round(p.w! * ts * s);
       const h = Math.round(p.h! * ts * s);
+      if (p.type === 'port_container') {
+        ctx.fillStyle = L.containerEdge;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = L.containers[(p.id ?? 0) % L.containers.length];
+        ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.fillStyle = L.containerRib;
+        const long = w >= h;
+        const n = Math.max(3, Math.round((long ? w : h) / (ts * s * 0.4)));
+        for (let k = 1; k < n; k++) {
+          if (long) ctx.fillRect(x + Math.round((w * k) / n), y + 2, Math.max(1, Math.round(s)), h - 4);
+          else ctx.fillRect(x + 2, y + Math.round((h * k) / n), w - 4, Math.max(1, Math.round(s)));
+        }
+        continue;
+      }
+      if (p.type === 'port_crane') {
+        // Опора, кабина и стрела над водой (в сторону face) с тросом и крюком.
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const dir = p.face === 'N' ? -1 : 1;
+        const boom = ts * s * 5;
+        ctx.fillStyle = L.craneDark;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = L.crane;
+        ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+        ctx.fillRect(cx - w * 0.12, cy, w * 0.24, dir * boom);
+        ctx.fillStyle = L.craneDark;
+        ctx.fillRect(cx - w * 0.25, cy - h * 0.25, w * 0.5, h * 0.5);
+        ctx.fillStyle = L.cable;
+        const hy = cy + dir * boom * 0.85;
+        ctx.fillRect(cx - 1, hy - 1, 2, 4);
+        ctx.fillRect(cx - 3, hy + 2, 6, 2);
+        continue;
+      }
       if (p.type === 'ges_turbine') {
         const cx = x + w / 2;
         const cy = y + h / 2;
@@ -1057,6 +1114,21 @@ export class MapRenderer {
         for (let k = 1; k < 5; k++) ctx.fillRect(x + Math.round((w * k) / 5), y + 2, Math.max(1, Math.round(w / 24)), h - 4);
         ctx.fillStyle = L.insulator;
         for (const fx of [0.25, 0.5, 0.75]) ctx.fillRect(x + w * fx - 2, y + 2, 4, Math.round(h * 0.18));
+      }
+    }
+    // Набережная: жёлтая кромка у воды и кнехты через 3 тайла.
+    for (const q of this.quays) {
+      if (!near(q, 1)) continue;
+      const edgeY = q.face === 'N' ? q.y : q.y + q.h! - 1;
+      const y = Y(edgeY * ts) + (q.face === 'N' ? 0 : Math.round(ts * s) - Math.max(2, Math.round(s * 2)));
+      ctx.fillStyle = L.quayEdge;
+      ctx.fillRect(X(q.x * ts), y, Math.round(q.w! * ts * s), Math.max(2, Math.round(s * 2)));
+      ctx.fillStyle = L.bollard;
+      const r = Math.max(2, s * 2.2);
+      for (let tx = q.x + 1; tx < q.x + q.w!; tx += 3) {
+        ctx.beginPath();
+        ctx.arc(X((tx + 0.5) * ts), y + (q.face === 'N' ? r + 2 : -r - 1), r, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
     for (const k of this.kiosks) {

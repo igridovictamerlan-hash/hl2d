@@ -40,6 +40,7 @@ const PREVIEW_COLORS: Record<number, [number, number, number]> = {
   [T.DUGOUT]: [136, 104, 64],
   [T.WATER]: [52, 84, 98],
   [T.DAM]: [150, 148, 140],
+  [T.SHORE]: [172, 160, 130],
 };
 
 /**

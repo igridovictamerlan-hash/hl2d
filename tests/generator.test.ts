@@ -59,8 +59,8 @@ describe('генератор переулочного города', () => {
         // Поверхность = пустошь + город + пустошь + ГЭС; уровень «город» заканчивается зазором перед канализацией.
         expect(city.w).toBe((W.west + WORLD.widthTiles + W.east + GENERATOR.ges.width + WORLD.underground.gap) * ts);
         expect(map.worldHeight).toBe((W.top + WORLD.heightTiles + W.bottom) * ts);
-        expect(city.w).toBeGreaterThanOrEqual(9600);
-        expect(city.w).toBeLessThanOrEqual(10000);
+        expect(city.w).toBeGreaterThanOrEqual(10300);
+        expect(city.w).toBeLessThanOrEqual(10800);
         // С севера и юга — хребты долины (по 13 рядов скал).
         expect(map.worldHeight).toBeGreaterThanOrEqual(4600);
         expect(map.worldHeight).toBeLessThanOrEqual(4900);
@@ -181,7 +181,7 @@ describe('генератор переулочного города', () => {
         const res = map.poisOf('reservoir')[0];
         let water = 0;
         for (let y = res.y; y < res.y + res.h!; y++) for (let x = res.x; x < res.x + res.w!; x++) if (map.tileAt(x, y) === T.WATER) water++;
-        expect(water / (res.w! * res.h!)).toBeGreaterThan(0.8);
+        expect(water / (res.w! * res.h!)).toBeGreaterThan(0.6);
         // Машинный зал и гребень плотины достижимы из города (якорем 2×2).
         const walk = buildAnchorWalk(map.tiles as Uint8Array, map.width, map.height);
         const { labels } = labelComponents(walk, map.width - 1, map.height - 1);
@@ -193,6 +193,17 @@ describe('генератор переулочного города', () => {
         expect(lab(hall.x, hall.y)).toBe(lab(pc.x, pc.y));
         expect(lab(crestX, dam.y + (dam.h! >> 1))).toBe(lab(pc.x, pc.y));
         expect(map.zoneAtTile(hall.x, hall.y)?.kind).toBe('ges');
+        // Порт: набережная, пирсы с причалами барж в воде, склад достижим; вдоль берега — галечный пляж.
+        expect(map.poisOf('port_quay')).toHaveLength(1);
+        expect(map.poisOf('port_pier').length).toBeGreaterThanOrEqual(3);
+        const berths = map.poisOf('barge_berth');
+        expect(berths.length).toBe(map.poisOf('port_pier').length);
+        for (const b of berths) for (let y = b.y; y < b.y + b.h!; y++) for (let x = b.x; x < b.x + b.w!; x++) expect(map.tileAt(x, y)).toBe(T.WATER);
+        const wh = map.poisOf('port_warehouse')[0];
+        expect(lab(wh.x, wh.y)).toBe(lab(pc.x, pc.y));
+        let shore = 0;
+        for (let y = res.y; y < res.y + res.h!; y++) for (let x = res.x; x < res.x + res.w!; x++) if (map.tileAt(x, y) === T.SHORE) shore++;
+        expect(shore).toBeGreaterThan(500);
       });
 
       test('есть узкие проходы (только один персонаж), переулки, дворы, арки, жилые дома', () => {

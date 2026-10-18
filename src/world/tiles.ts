@@ -28,6 +28,7 @@ export const T = {
   DUGOUT: 22,
   WATER: 23,
   DAM: 24,
+  SHORE: 25,
 } as const;
 
 export type TileId = (typeof T)[keyof typeof T];
@@ -75,6 +76,8 @@ export const TILE_DEFS: readonly TileDef[] = [
   // ГЭС на востоке: вода водохранилища и нижнего бьефа (не пройти, видно и простреливается), откосы плотины (бетон).
   { id: T.WATER, key: 'water', char: 'W', name: 'Вода', solid: true, opaque: false },
   { id: T.DAM, key: 'dam', char: 'D', name: 'Тело плотины', solid: true, opaque: false },
+  // Берег водохранилища: галечный пляж между скалами хребта и водой.
+  { id: T.SHORE, key: 'shore', char: 'S', name: 'Берег (галька)', solid: false, opaque: false },
 ];
 
 /** Быстрые таблицы: SOLID[tileId] === 1 — непроходим. */

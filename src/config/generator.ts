@@ -66,7 +66,21 @@ export const GENERATOR = {
    * не ближе к хребтам.
    */
   ges: {
-    width: 84, yard: 24, dam: 8, crest: 4, ramp: 3, gate: 6, reach: 14, margin: 3, shore: 4, apron: 3,
+    width: 130, yard: 24, dam: 8, crest: 4, ramp: 3, gate: 6, reach: 14, margin: 3, apron: 3,
+    /** Пляж вдоль берега: глубина от скалы к воде гуляет в этих пределах (меняется не чаще раза на 2 тайла). */
+    beach: [3, 9] as const,
+    /** Дальний (восточный) берег — шире и неровнее. */
+    farBeach: [4, 16] as const,
+    /**
+     * Речной порт — на берегу со стороны ворот, от плотины на length тайлов, depth — от скалы к воде: склад у скалы,
+     * штабели контейнеров (w×h через gapX/gapY, skip — доля пропусков), набережная у воды; piers пирсов (первый — через
+     * first от плотины, дальше через pierStep) шириной pierW в воду на pierLen, вдоль каждого — причал баржи шириной
+     * bargeW и кран 2×2 у корня; link — рядов прохода с гребня плотины на площадку.
+     */
+    port: {
+      length: 64, depth: 18, piers: 4, first: 8, pierStep: 13, pierW: 3, pierLen: 10, bargeW: 4, link: 4,
+      warehouse: { w: 16, h: 9 }, containers: { w: 4, h: 2, gapX: 2, gapY: 2, skip: 0.2 },
+    },
     hall: { w: 15, h: 14 }, turbines: 3, tail: { w: 10, h: 14 },
     transformers: { cols: 3, rows: 2, size: 2, gap: 3 },
   },

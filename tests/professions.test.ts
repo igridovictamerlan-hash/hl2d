@@ -257,7 +257,8 @@ describe('граждане: вор, поднадзорные', () => {
   test('NPC-воры сами обворовывают прохожих в городе', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
-    spawnPopulation(sim.ctx, 25);
+    // На большой карте 25 жителей редко встречаются — воров и прохожих побольше.
+    spawnPopulation(sim.ctx, 60);
     run(sim, 480, () => sim.crime.stats.pickpockets > 0);
     console.log(`краж: ${sim.crime.stats.pickpockets}, украдено ${sim.crime.stats.stolen}, крики ${sim.crime.stats.cries}`);
     expect(sim.crime.stats.pickpockets).toBeGreaterThan(0);

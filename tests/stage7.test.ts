@@ -97,8 +97,9 @@ describe('постоянный состав', () => {
     expect(spawnedIn).toBe('rebel_camp');
     // Горожанин — снова горожанин (мог и попасть на проверку: тогда прежний мозг ждёт в law.savedBrain).
     expect(back[1]!.brain instanceof CitizenBrain || back[1]!.law.savedBrain instanceof CitizenBrain).toBe(true);
-    // Новых персонажей сверх состава не появилось (санитар выходит сам — не в счёт).
-    expect(sim.entities.list.filter((c) => c.alive && c.profession !== 'cremator').length).toBeLessThanOrEqual(total);
+    // Новых персонажей сверх состава не появилось (санитар выходит сам, новый житель по притоку — когда граждан стало
+    // меньше, например, кого-то наняли в ТС, — не в счёт).
+    expect(sim.entities.list.filter((c) => c.alive && c.profession !== 'cremator').length).toBeLessThanOrEqual(total + sim.roster.arrived);
     // Вернулись оба (бойцы банд за это время могли подраться и тоже вернуться — не в счёт).
     expect(sim.roster.respawned).toBeGreaterThanOrEqual(2);
   });
