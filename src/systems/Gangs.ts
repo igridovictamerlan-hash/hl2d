@@ -55,6 +55,8 @@ export interface Gang {
   bank: number;
   stash: Inventory;
   nextOp: number;
+  /** Удар по ВС (hit) — не раньше этого времени (GANGS.ops.hit.cooldown). */
+  nextHit: number;
   op: GangOp | null;
   stats: { racket: number; raids: number; hits: number; convoys: number; buys: number; sells: number; feuds: number; looted: number };
 }
@@ -155,6 +157,7 @@ export class GangSystem {
         bank: GANGS.bank,
         stash,
         nextOp: rng.range(GANGS.ops.first[0], GANGS.ops.first[1]),
+        nextHit: 0,
         op: null,
         stats: { racket: 0, raids: 0, hits: 0, convoys: 0, buys: 0, sells: 0, feuds: 0, looted: 0 },
       });
@@ -327,6 +330,16 @@ export class GangSystem {
     b.say(this.ctx.rng.pick(GANGS.lines.standoff), now + 0.7, 2.5);
   }
 
+  /** Напавшие на ВС остывают (GANGS.hostileCool): не на деле, давно не стреляли, не ранены и не в бою. */
+  private coolOff(g: Gang): void {
+    const now = this.ctx.combat.now;
+    for (const c of this.members(g)) {
+      if (!c.hostile || c.isPlayer || c.brain instanceof GangOpBrain || c.engagedUntil > now) continue;
+      if (now - Math.max(c.lastFired, c.lastHurt) < GANGS.hostileCool) continue;
+      c.hostile = false;
+    }
+  }
+
   // ——— Общак ———
 
   /** Лучший ствол из общака — бойцу у общаги, если у него хуже. */
@@ -476,13 +489,16 @@ export class GangSystem {
     const shops = ctx.shops?.shops.filter((s) => s.vendorSpot && Math.hypot(s.front.x - g.hq.x, s.front.y - g.hq.y) < O.racket.seek) ?? [];
     const rivals = this.gangs.filter((o) => o !== g && o.anchors.length);
     let type = kind;
-    if (!type && (paid || (war && ctx.rng.chance(GANGS.assistChance)))) type = 'hit';
+    // Удар по ВС — с перерывом (и оплаченный заказ ждёт: барыга вернёт его в очередь).
+    const hitReady = !!kind || this.time >= g.nextHit;
+    if (paid && !hitReady) return null;
+    if (!type && (paid || (war && hitReady && ctx.rng.chance(GANGS.assistChance)))) type = 'hit';
     if (!type) {
       const W = O.weights;
       const opts: [GangOpKind, number][] = [
         ['racket', shops.length ? W.racket : 0],
         ['raid', rivals.length ? W.raid : 0],
-        ['hit', W.hit],
+        ['hit', hitReady ? W.hit : 0],
         ['convoy', convoy && free.length >= 3 ? W.convoy * 3 : 0],
         // Покупать — пока в общаке стволов меньше, чем держат про запас (лишнее и так несут барыге).
         ['buy', ctx.fence?.present && g.bank >= O.buy.minBank && this.stashGuns(g) < O.sell.keep ? W.buy : 0],
@@ -521,6 +537,7 @@ export class GangSystem {
       case 'hit':
         op.team = pickN(O.hit.size);
         op.until = this.time + O.hit.time;
+        g.nextHit = this.time + ctx.rng.range(O.hit.cooldown[0], O.hit.cooldown[1]);
         if (paid) g.bank += FENCE.deal.order;
         break;
       case 'convoy':
@@ -599,7 +616,10 @@ export class GangSystem {
     this.armTimer -= dt;
     if (this.armTimer <= 0) {
       this.armTimer = 2;
-      for (const g of this.gangs) this.armAtHq(g);
+      for (const g of this.gangs) {
+        this.armAtHq(g);
+        this.coolOff(g);
+      }
     }
     for (const g of this.gangs) {
       const op = g.op;

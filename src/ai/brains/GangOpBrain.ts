@@ -62,6 +62,8 @@ export class GangOpBrain implements Brain {
     let bestD: number = GANGS.ops.hit.seek;
     for (const o of ctx.entities.list) {
       if (!o.alive || o.faction !== 'cp' || !o.fit || ctx.map.levelAt(o.x, o.y) !== 'city') continue;
+      // У своей общаги не нападают (GANGS.ops.hit.homeClear): бой пришёл бы домой.
+      if (Math.hypot(o.x - this.op.gang.hq.x, o.y - this.op.gang.hq.y) < GANGS.ops.hit.homeClear) continue;
       const k = ctx.map.zoneAtWorld(o.x, o.y)?.kind;
       if (k === 'nexus' || k === 'cells' || k === 'checkpoint' || k === 'outlands' || k === 'wasteland' || k === 'arsenal' || k === 'prison' || k === 'academy') continue;
       const d = Math.hypot(o.x - self.x, o.y - self.y);

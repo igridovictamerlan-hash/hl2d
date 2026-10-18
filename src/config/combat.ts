@@ -160,6 +160,8 @@ export const COMBAT = {
     alertError: 0.3,
     alertTime: 4,
     allyAimPoint: 220,
+    /** Без огнестрела (нож, дубинка, пусто) цель держится не дальше meleeHold px и на виду — иначе потеряна. */
+    meleeHold: 200,
   },
 } as const;
 

@@ -121,13 +121,20 @@ export class Brawls {
     if (!g || attacker.gang === victim.gang || !attacker.alive) return;
     const B = BRAWL.backup;
     const now = this.now;
-    const unarmed = fists && !attacker.weapon && !FACTIONS[attacker.faction].authority;
+    const authority = FACTIONS[attacker.faction].authority;
+    const unarmed = fists && !attacker.weapon && !authority;
+    // Против Протектората банда не воюет за своего — только кричит (BRAWL.backup.vsAuthority).
+    const shout = authority && !B.vsAuthority;
     let n = 0;
     for (const m of this.ctx.gangs.members(g)) {
       if (m === victim || m.isPlayer || !m.fit || m.law.phase !== 'none') continue;
       if (Math.hypot(m.x - victim.x, m.y - victim.y) > B.radius) continue;
       if (now - (this.backupAt.get(m) ?? -1e9) < B.every) continue;
       this.backupAt.set(m, now);
+      if (shout) {
+        if (this.ctx.law.canSee(m, victim)) m.say(this.ctx.rng.pick(BRAWL.lines.backup), now, 2);
+        continue;
+      }
       if (unarmed) {
         if (!this.fighting(m)) this.start(m, attacker, true);
       } else this.addVendetta(g.id, attacker);

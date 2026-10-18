@@ -6,6 +6,8 @@ import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { randomAnchorAround } from '../src/ai/destinations';
 import { FISTS } from '../src/config/brawl';
 import type { Character } from '../src/entities/Character';
+import { CP_UNIT } from '../src/config/factions';
+import { Gunner } from '../src/ai/Gunner';
 
 const setup = () => {
   const sim = makeSim(12345);
@@ -85,6 +87,43 @@ describe('кулаки и драки', () => {
     sim.ctx.combat.damage(victim, 10, foe, 'arm');
     expect(sim.ctx.combat.isHostile(mate, foe)).toBe(true);
     expect(sim.ctx.combat.isHostile(foe, mate)).toBe(true);
+  });
+
+  test('ВС ранил бандита — братва на Протекторат не поднимается (только кричит)', { timeout: 60_000 }, () => {
+    const sim = setup();
+    const g = sim.ctx.gangs.gangs[0];
+    const [victim, mate] = sim.ctx.gangs.members(g).filter((c) => c.profession === 'bandit');
+    const n = randomAnchorAround(victim, sim.ctx, 2, 4, new Set());
+    mate.x = mate.prevX = sim.nav.worldX(n);
+    mate.y = mate.prevY = sim.nav.worldY(n);
+    const cp = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, victim)!;
+    sim.ctx.combat.damage(victim, 10, cp, 'arm');
+    sim.ctx.combat.punch(cp, victim.x, victim.y);
+    for (let t = 0; t < 60; t++) sim.step();
+    expect(sim.ctx.combat.isHostile(mate, cp)).toBe(false);
+    expect(mate.hostile).toBe(false);
+  });
+
+  test('стрелять нечем — цель не держится: безоружный сразу, с ножом — когда цель далеко', { timeout: 60_000 }, () => {
+    const sim = setup();
+    const g = sim.ctx.gangs.gangs[0];
+    const [a, b] = sim.ctx.gangs.members(g).filter((c) => c.profession === 'bandit');
+    const cp = sim.entities.list.find((c) => c.faction === 'cp' && Math.hypot(c.x - a.x, c.y - a.y) > 800)!;
+    // Отпущенный из КПЗ: оружие изъято, а прежняя цель — ВС через полгорода.
+    a.inventory.slots.length = 0;
+    a.weapon = null;
+    const ga = new Gunner(sim.ctx.rng);
+    ga.target = cp;
+    expect(ga.update(a, sim.ctx, 1 / 60)).toBe(false);
+    expect(ga.target).toBeNull();
+    // С ножом: держит, пока рядом и на виду, далеко — теряет через память.
+    b.inventory.slots.length = 0;
+    b.inventory.add('knife', 1);
+    b.weapon = null;
+    const gb = new Gunner(sim.ctx.rng);
+    gb.target = cp;
+    for (let t = 0; t < 5 * 60 && gb.target; t++) gb.update(b, sim.ctx, 1 / 60);
+    expect(gb.target).toBeNull();
   });
 
   test('случайные драки на улице и ВС разнимает', { timeout: 300_000 }, () => {

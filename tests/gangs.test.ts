@@ -1,4 +1,3 @@
-import { randomAnchorAround } from '../src/ai/destinations';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { spawnPopulation, settleAll } from '../src/systems/Population';
@@ -137,8 +136,19 @@ describe('банды', () => {
       c.law.wanted = false;
       c.law.hasCid = true;
     }
-    // Патрульный — рядом с командой (по дороге через район их может остановить другой патруль).
-    const near = randomAnchorAround(op.team[0], sim.ctx, 8, 12, new Set());
+    // Патрульный — рядом с командой (по дороге через район их может остановить другой патруль), но не у самой
+    // общаги: там банда ВС не трогает (GANGS.ops.hit.homeClear).
+    const lead = op.team[0];
+    const clear = GANGS.ops.hit.homeClear + 40;
+    let near = -1;
+    let bestD = Infinity;
+    for (const a of g.anchors) {
+      const x = sim.nav.worldX(a);
+      const y = sim.nav.worldY(a);
+      if (Math.hypot(x - g.hq.x, y - g.hq.y) < clear) continue;
+      const d = Math.hypot(x - lead.x, y - lead.y);
+      if (d < bestD) [near, bestD] = [a, d];
+    }
     if (near >= 0) {
       cp.x = cp.prevX = sim.nav.worldX(near);
       cp.y = cp.prevY = sim.nav.worldY(near);
@@ -151,6 +161,28 @@ describe('банды', () => {
     expect(attacked).toBe(true);
     expect(op.team.some((c) => c.law.wanted)).toBe(true);
     expect(sim.log.some((l) => l.includes('нападение на патруль'))).toBe(true);
+  });
+});
+
+describe('банда и Протекторат: без войны по кругу', () => {
+  test('удар по ВС — с перерывом (и заказ барыги ждёт); напавший остывает и снова просто в розыске', { timeout: 60_000 }, () => {
+    const sim = setup(20);
+    const G = sim.ctx.gangs;
+    G.paused = true;
+    const g = G.gangs[0];
+    expect(G.startOp(g, 'hit')?.kind).toBe('hit');
+    expect(g.nextHit).toBeGreaterThanOrEqual(sim.ctx.combat.now + GANGS.ops.hit.cooldown[0] - 1);
+    g.op = null;
+    // Оплаченный удар до конца перерыва не начинается (заказ вернётся барыге).
+    expect(G.startOp(g, undefined, true)).toBeNull();
+    // Напавший на ВС, давно не стрелявший и не раненый, — снова не «вооружённый враг» (розыск остаётся).
+    const m = G.members(g).find((c) => c.profession === 'bandit' && !(c.brain instanceof GangOpBrain))!;
+    m.hostile = true;
+    m.law.wanted = true;
+    m.lastFired = m.lastHurt = sim.ctx.combat.now - GANGS.hostileCool - 1;
+    for (let t = 0; t < 3 * 60; t++) sim.step();
+    expect(m.hostile).toBe(false);
+    expect(m.law.wanted).toBe(true);
   });
 });
 

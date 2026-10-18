@@ -592,12 +592,15 @@ describe('блиндаж: вылазка Протектората, разруш�
     const D = sim.war.dugouts;
     const d = D.of(0)!;
     sim.war.command.paused = true;
+    // Армии нет (и не возрождается): легионеры идут к блиндажу мимо лагеря, и исход вылазки решала стычка с ним —
+    // от случая к случаю 3 или 20 попыток, а проверяем закладку заряда, а не бой с лагерем.
+    sim.roster.paused = true;
+    for (const c of sim.war.command.army) if (c.alive) sim.combat.kill(c, null, 'тест');
     run(sim, 2);
     d.nextSortie = 0;
     expect(D.defenders(d)).toBe(0);
     let raiders = 0;
     let planted = false;
-    // Легионеров по дороге может положить линия повстанцев — тогда идёт следующая вылазка (раз в every с); ждём исхода.
     until(sim, () => {
       raiders = Math.max(raiders, d.raiders.length);
       if (d.charge > 0) planted = true;
