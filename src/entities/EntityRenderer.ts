@@ -16,7 +16,7 @@ import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
 import { bootColor, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
-import { animOf, drawActionHands, drawBlanket, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash } from './poses';
+import { animOf, isTalking, drawActionHands, drawBlanket, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash } from './poses';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
 import { PAWN } from '../config/pawns';
@@ -104,6 +104,11 @@ export class EntityRenderer {
       // Сторона — по походке (идёт — по ходу, боком — профилем; целится или стоит — куда смотрит).
       // Спящий лежит лицом к нам.
       const look = this.lookOf(c);
+      // Мимика: лежит без сознания или спит — глаза закрыты, иначе моргает; говорит — рот открывается.
+      const F = PAWN.face;
+      const period = F.blink.every[0] + ((c.pid * 0.6180339) % 1) * (F.blink.every[1] - F.blink.every[0]);
+      look.blink = c.downed || c.asleep || c.melee.ko > now || (now + c.pid * 0.37) % period < F.blink.time;
+      look.talk = !look.blink && isTalking(c, now) && Math.floor(now / F.talk.period + c.pid) % 2 === 0;
       const reloading = c.reloadUntil > now;
       // Тяжело ранен — лежит; нокаут — лежит на боку, над головой звёздочки.
       if (c.downed) {

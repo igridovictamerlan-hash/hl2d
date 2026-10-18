@@ -30,6 +30,9 @@ export interface PawnLook {
   /** Гражданская одежда по достатку (config/clothes.ts) — вместо одежды фракции; ключ — для кэша спрайтов. */
   clothes?: ClothesLook | null;
   clothesKey?: string;
+  /** Мимика на этот кадр: глаза закрыты (моргнул, спит), рот открыт (говорит). */
+  blink?: boolean;
+  talk?: boolean;
 }
 
 type Outfit = Record<string, string | boolean | number>;
@@ -120,6 +123,11 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   const hair = pick(PAWN.hairs, look.kin ?? look.seed, 11);
   const H = PAWN.head;
   const hx = d === 'E' ? H.sideShift : 0;
+  faceOf.seed = look.kin !== undefined ? (look.seed ^ (look.kin * 7)) : look.seed;
+  faceOf.hair = hair;
+  faceOf.style = style;
+  faceOf.blink = !!look.blink;
+  faceOf.talk = !!look.talk;
 
   // Силовой блок и OTA: броня по эскизам RimWorld, аксессуары за спиной, на туловище и поверх головы.
   if (!look.clothes && (O.style === 'marine' || O.style === 'flak' || O.style === 'recon')) {
@@ -486,30 +494,155 @@ function shoulderPads(ctx: Ctx, d: PawnDir, armor: string): void {
 
 
 /** Глаза с тяжёлыми веками и рот (как у пешек RimWorld). */
+/** Лицо текущей пешки (ставит drawPawn): внешность и мимика — чтобы не тянуть их через все ветки одежды. */
+const faceOf = { seed: 0, hair: '#000', style: 'short' as HairStyle, blink: false, talk: false };
+
+/** Доля 0..1 из зерна внешности (свой сдвиг на каждую черту). */
+function trait(seed: number, shift: number): number {
+  return (((seed >>> shift) ^ (seed * 2654435761)) >>> 0) % 1000 / 1000;
+}
+
+/** Затемнить цвет #rrggbb на долю k. */
+function darken(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1, 7), 16);
+  const f = (v: number) => Math.round(v * (1 - k));
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
 function face(ctx: Ctx, d: PawnDir, hx: number): void {
   const E = PAWN.eye;
-  const eyes = d === 'E' ? [hx + PAWN.head.r - 2.4] : [-E.dx, E.dx];
-  for (const ex of eyes) {
-    ctx.beginPath();
-    ctx.ellipse(ex, E.y, E.rx, E.ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = E.color;
-    ctx.fill();
-    // Веко — прикрывает верх глаза.
-    ctx.beginPath();
-    ctx.moveTo(ex - E.rx - 0.5, E.y - E.ry * E.lid);
-    ctx.lineTo(ex + E.rx + 0.5, E.y - E.ry * E.lid);
-    stroke(ctx, 0.8);
+  const F = PAWN.face;
+  const H = PAWN.head;
+  const seed = faceOf.seed;
+  const side = d === 'E';
+  const eyes = side ? [hx + H.r - 2.4] : [-E.dx, E.dx];
+  // Щетина — по нижней части лица (коротко стриженые и лысые).
+  const shortHair = faceOf.style === 'short' || faceOf.style === 'bald' || faceOf.style === 'messy';
+  if (shortHair && trait(seed, 3) < F.stubble.share) {
+    ctx.save();
+    headPath(ctx, d, hx);
+    ctx.clip();
+    ctx.fillStyle = F.stubble.color;
+    ctx.fillRect(side ? hx - 1 : -H.r, F.stubble.from, H.r * 2 + 2, H.r + 4);
+    ctx.restore();
   }
-  const M = PAWN.mouth;
+  // Румянец и тень скул.
+  const cheeks = side ? [hx + F.blush.x - 1.6] : [-F.blush.x, F.blush.x];
+  for (const cx of cheeks) {
+    ctx.beginPath();
+    ctx.ellipse(cx, F.blush.y, F.blush.rx, F.blush.ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = F.blush.color;
+    ctx.fill();
+  }
+  ctx.strokeStyle = F.cheek.color;
+  ctx.lineWidth = F.cheek.w;
   ctx.beginPath();
-  if (d === 'E') {
-    ctx.moveTo(hx + PAWN.head.r - 2.6, M.y);
-    ctx.lineTo(hx + PAWN.head.r - 0.9, M.y - 0.2);
+  if (side) {
+    ctx.moveTo(hx + 1.2, -8.2);
+    ctx.quadraticCurveTo(hx + 2.4, -6.4, hx + 4.2, -5.6);
   } else {
-    ctx.moveTo(-M.w / 2, M.y);
-    ctx.quadraticCurveTo(0, M.y + 0.35, M.w / 2, M.y);
+    ctx.moveTo(-5.9, -8.4);
+    ctx.quadraticCurveTo(-5.3, -6.6, -4.1, -5.7);
+    ctx.moveTo(5.9, -8.4);
+    ctx.quadraticCurveTo(5.3, -6.6, 4.1, -5.7);
+  }
+  ctx.stroke();
+  // Веснушки.
+  if (trait(seed, 9) < F.freckles.share) {
+    ctx.fillStyle = F.freckles.color;
+    for (const [fx, fy] of side ? [[hx + 3.2, -7.6], [hx + 4.1, -7.1], [hx + 3.6, -6.6]] : [[-3.8, -7.7], [-2.9, -7.2], [-4.4, -7], [3.8, -7.7], [2.9, -7.2], [4.4, -7]]) {
+      ctx.fillRect(fx - 0.25, fy - 0.25, 0.5, 0.5);
+    }
+  }
+  // Тень носа (спереди; в профиль нос — в контуре головы).
+  if (!side) {
+    ctx.beginPath();
+    ctx.moveTo(0.3, -8.4);
+    ctx.quadraticCurveTo(1, -7.1, 0.1, -6.7);
+    ctx.strokeStyle = F.nose.color;
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  }
+  // Глаза: открыты — зрачок, веко, блик; закрыты — дуга.
+  for (const ex of eyes) {
+    if (faceOf.blink) {
+      ctx.beginPath();
+      ctx.moveTo(ex - E.rx - 0.3, E.y);
+      ctx.quadraticCurveTo(ex, E.y + 0.7, ex + E.rx + 0.3, E.y);
+      stroke(ctx, 0.75);
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(ex, E.y, E.rx, E.ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = E.color;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(ex - E.rx - 0.5, E.y - E.ry * E.lid);
+      ctx.lineTo(ex + E.rx + 0.5, E.y - E.ry * E.lid);
+      stroke(ctx, 0.8);
+      ctx.beginPath();
+      ctx.arc(ex + F.shine.dx, E.y + F.shine.dy, F.shine.r, 0, Math.PI * 2);
+      ctx.fillStyle = F.shine.color;
+      ctx.fill();
+    }
+    // Морщинки у внешнего угла глаза.
+    if (trait(seed, 13) < F.wrinkles) {
+      const out = side || ex > 0 ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(ex + out * (E.rx + 0.6), E.y - 0.3);
+      ctx.lineTo(ex + out * (E.rx + 1.4), E.y - 0.6);
+      ctx.moveTo(ex + out * (E.rx + 0.6), E.y + 0.3);
+      ctx.lineTo(ex + out * (E.rx + 1.4), E.y + 0.6);
+      ctx.strokeStyle = F.cheek.color;
+      ctx.lineWidth = 0.45;
+      ctx.stroke();
+    }
+    // Брови цвета волос: наклон и толщина — по внешности (лысому — светлее).
+    const B = F.brow;
+    const tilt = (trait(seed, 5) - B.calm) * 2 * B.tilt;
+    const inner = side ? -1 : ex > 0 ? -1 : 1;
+    ctx.beginPath();
+    ctx.moveTo(ex - inner * B.len / 2, B.y + 0.15);
+    ctx.lineTo(ex + inner * B.len / 2, B.y - tilt);
+    ctx.strokeStyle = darken(faceOf.hair, faceOf.style === 'bald' ? 0.1 : B.dark);
+    ctx.lineWidth = B.w + trait(seed, 7) * 0.3;
+    ctx.stroke();
+  }
+  // Рот: говорит — открыт, иначе по складу лица (ровно, улыбка, прямо, хмуро).
+  const M = PAWN.mouth;
+  if (faceOf.talk) {
+    ctx.beginPath();
+    if (side) ctx.ellipse(hx + H.r - 1.6, M.y + 0.1, 0.7, 0.6, 0, 0, Math.PI * 2);
+    else ctx.ellipse(0, M.y + 0.15, M.w * 0.45, 0.65, 0, 0, Math.PI * 2);
+    ctx.fillStyle = F.open;
+    ctx.fill();
+    stroke(ctx, 0.5);
+    return;
+  }
+  let r = trait(seed, 11);
+  let mood = 0;
+  while (mood < F.moods.length - 1 && r >= F.moods[mood]) r -= F.moods[mood++];
+  ctx.beginPath();
+  if (side) {
+    const lift = mood === 1 ? -0.5 : mood === 3 ? 0.4 : 0;
+    ctx.moveTo(hx + H.r - 2.6, M.y);
+    ctx.lineTo(hx + H.r - 0.9, M.y - 0.2 + lift);
+  } else {
+    const bend = mood === 0 ? 0.35 : mood === 1 ? 0.8 : mood === 2 ? 0 : -0.55;
+    ctx.moveTo(-M.w / 2 - (mood === 1 ? 0.2 : 0), M.y);
+    ctx.quadraticCurveTo(0, M.y + bend, M.w / 2 + (mood === 1 ? 0.2 : 0), M.y);
   }
   stroke(ctx, 0.7);
+  // Нижняя губа — лёгкий штрих.
+  if (!side) {
+    ctx.beginPath();
+    ctx.moveTo(-0.45, M.y + 0.9);
+    ctx.lineTo(0.45, M.y + 0.9);
+    ctx.strokeStyle = F.lips;
+    ctx.globalAlpha *= 0.45;
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.globalAlpha /= 0.45;
+  }
 }
 
 /** Длинные волосы за головой (на плечи). */

@@ -163,3 +163,22 @@ describe('одежда: вещи, слоты, ателье, горожане', (
     expect(s.shelf.get(rich)).toBe(2);
   });
 });
+
+describe('лицо и мимика', () => {
+  it('моргнул и говорит — другой рисунок лица, со всех сторон без ошибок', () => {
+    const base: PawnLook = { faction: 'citizen', rank: 0, color: '#6a6f75', seed: 4242 };
+    const count = (look: PawnLook, dir: PawnDir) => {
+      const { ctx, calls } = fakeCtx();
+      drawPawn(ctx, look, 0, 0, 2, dir);
+      expect(calls.get('save')).toBe(calls.get('restore'));
+      return [...calls.values()].reduce((a, b) => a + b, 0);
+    };
+    for (const dir of DIRS) {
+      count(base, dir);
+      count({ ...base, blink: true }, dir);
+      count({ ...base, talk: true }, dir);
+    }
+    expect(count({ ...base, blink: true }, 'S')).not.toBe(count(base, 'S'));
+    expect(count({ ...base, talk: true }, 'S')).not.toBe(count(base, 'S'));
+  });
+});
