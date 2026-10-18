@@ -6,6 +6,8 @@ import { accBack, accBody, accTop, accessoriesOf, flakBody, flakHelmet, gasMaskH
 import type { ProfessionId } from '../config/professions';
 import { bodyPath, fillStroke, headPath, roundRect, stroke, tint } from './pawnShapes';
 import { balaclava, gasMaskS10, michHelmet, tacticalBody, tacticalFace } from './pawnTactical';
+import { clothedBody, clothesHead, hidesHair } from './pawnClothes';
+import type { ClothesLook } from '../config/clothes';
 
 export { tint };
 
@@ -25,6 +27,8 @@ export interface PawnLook {
   /** Надетые шлем и бронежилет (systems/Gear): цвет; поверх гражданской одежды. */
   helmet?: string;
   vest?: string;
+  /** Гражданская одежда по достатку (config/clothes.ts) — вместо одежды фракции. */
+  clothes?: ClothesLook;
 }
 
 type Outfit = Record<string, string | boolean | number>;
@@ -51,8 +55,8 @@ export function handColor(look: Pick<PawnLook, 'faction' | 'profession' | 'seed'
 }
 
 /** Цвет обуви (ступни при ходьбе) по фракции — без сборки одежды: зовётся каждый кадр. */
-export function bootColor(look: Pick<PawnLook, 'faction'>): string {
-  return PAWN.boots[look.faction] ?? PAWN.gear.boot;
+export function bootColor(look: Pick<PawnLook, 'faction' | 'clothes'>): string {
+  return look.clothes?.boots ?? PAWN.boots[look.faction] ?? PAWN.gear.boot;
 }
 
 type HairStyle = keyof typeof PAWN.hairStyles;
@@ -190,6 +194,31 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   }
   if (O.style === 'cremator') {
     cremator(ctx, d, O);
+    ctx.restore();
+    return;
+  }
+
+  // Комплект одежды по достатку: свой рисунок туловища и головного убора (pawnClothes).
+  const C = look.clothes;
+  if (C) {
+    const hairOn = !hidesHair(C);
+    if (hairOn && d !== 'N') backHair(ctx, d, style, hair, hx);
+    if (hairOn && style === 'bun' && !C.hat) bun(ctx, hair, hx);
+    clothedBody(ctx, d, C, skin, look.band);
+    headPath(ctx, d, hx);
+    ctx.fillStyle = skin;
+    ctx.fill();
+    ctx.save();
+    headPath(ctx, d, hx);
+    ctx.clip();
+    ctx.fillStyle = PAWN.shade;
+    ctx.fillRect(d === 'E' ? hx - 20 - 2 : 3, -40, 20, 60);
+    ctx.restore();
+    headPath(ctx, d, hx);
+    stroke(ctx, PAWN.outlineWidth);
+    if (d !== 'N') face(ctx, d, hx);
+    if (hairOn) frontHair(ctx, d, style, hair, hx);
+    clothesHead(ctx, d, C, hx);
     ctx.restore();
     return;
   }
