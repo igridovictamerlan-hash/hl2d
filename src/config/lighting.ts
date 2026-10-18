@@ -91,6 +91,7 @@ export const LIGHTING = {
     gate_post: { color: [205, 225, 255], radius: 120, power: 0.85, night: true },
     // ГЭС: прожекторы у ворот, машинный зал, турбины и трансформаторы — холодный свет.
     ges_post: { color: [205, 225, 255], radius: 130, power: 0.9, night: true, bloom: true },
+    border_booth: { color: [210, 230, 255], radius: 110, power: 0.85, night: true, bloom: true },
     ges_hall: { color: [200, 220, 255], radius: 150, power: 0.9, night: true },
     ges_turbine: { color: [170, 220, 255], radius: 70, power: 0.7, night: false, bloom: true },
     ges_transformer: { color: [215, 235, 255], radius: 80, power: 0.6, night: true, bloom: true },

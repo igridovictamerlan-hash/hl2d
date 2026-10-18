@@ -113,8 +113,9 @@ export class EconomySystem {
       if (this.repairs.some((r) => Math.hypot(r.x - wx, r.y - wy) < 14 * ts)) continue;
       this.repairs.push({ index: this.repairs.length, kind: 'fuse', x: wx, y: wy, broken: false, worker: null, progress: 0 });
     }
-    // Узлы Протектората: у стены на проспекте или площади, разнесённые по городу.
+    // Узлы Протектората: у стены на проспекте или площади, разнесённые по городу (не в полосах КПП на стене).
     const N = ECONOMY.nodes;
+    const gates = map.poisOf('border_gate');
     let nodes = 0;
     for (let tries = 0; tries < 6000 && nodes < N.count; tries++) {
       const x = this.rng.int(3, map.width - 4);
@@ -123,6 +124,7 @@ export class EconomySystem {
       if (t !== T.STREET && t !== T.PLAZA) continue;
       const kind = map.zoneAtTile(x, y)?.kind;
       if (kind !== 'avenue' && kind !== 'plaza') continue;
+      if (gates.some((g) => x > g.x - N.gateClear && x < g.x + g.w! + N.gateClear && y >= g.y - 1 && y <= g.y + g.h!)) continue;
       const wall = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => map.isOpaque(x + dx, y + dy));
       if (!wall) continue;
       const wx = (x + 0.5) * ts;

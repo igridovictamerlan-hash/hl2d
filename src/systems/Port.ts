@@ -12,70 +12,80 @@ export interface Barge {
   until: number;
   x: number;
   y: number;
-  /** Куда смотрит нос: 'N' | 'S' у причала и на выходе к фарватеру, 'E' | 'W' на фарватере. */
+  /** Куда смотрит нос (у причала — face причала, на ходу — по ходу). */
   heading: 'N' | 'S' | 'E' | 'W';
   moving: boolean;
 }
 
 /**
  * Баржи порта (картинка, на логику мира не влияет): у каждого причала (POI `barge_berth`) своя баржа — стоит, отходит
- * к фарватеру посередине водохранилища, уходит на восток за край, возвращается. Своя случайность — общая не сдвигается.
+ * от пирса к фарватеру (POI `channel`: x — столбец фарватера, ряды — протока), идёт по реке к протоке и протокой на
+ * восток за край, возвращается тем же путём. Своя случайность — общая не сдвигается.
  */
 export class PortSystem {
   readonly barges: Barge[] = [];
   /** Сколько раз баржа вернулась к причалу. */
   arrivals = 0;
   private readonly rng: Rng;
-  private readonly lane: number;
+  /** Фарватер (px): столбец, ряд протоки, конец пути за краем. */
+  private readonly laneX: number;
+  private readonly exitY: number;
   private readonly exitX: number;
+  private readonly ts: number;
   private time = 0;
 
   constructor(map: GameMap, seed: number) {
     this.rng = new Rng((seed ^ 0xba59e) >>> 0);
     const ts = map.tileSize;
-    const res = map.poisOf('reservoir')[0];
-    this.lane = res ? (res.y + res.h! / 2) * ts : 0;
-    this.exitX = res ? (res.x + res.w! + PORT.exitPast) * ts : 0;
+    this.ts = ts;
+    const ch = map.poisOf('channel')[0];
+    this.laneX = ch ? (ch.x + 0.5) * ts : 0;
+    this.exitY = ch ? (ch.y + ch.h! / 2) * ts : 0;
+    this.exitX = ch ? (ch.x + ch.w! + PORT.exitPast) * ts : 0;
     for (const berth of map.poisOf('barge_berth')) {
-      const b: Barge = { berth, phase: 'moored', d: 0, until: this.rng.range(0, PORT.moored[1]), x: 0, y: 0, heading: berth.face === 'N' ? 'N' : 'S', moving: false };
-      this.place(b, ts);
+      const b: Barge = { berth, phase: 'moored', d: 0, until: this.rng.range(0, PORT.moored[1]), x: 0, y: 0, heading: face(berth), moving: false };
+      this.place(b);
       this.barges.push(b);
     }
-    this.ts = ts;
   }
 
-  private readonly ts: number;
-
-  /** Причал (центр стоянки) и длина пути: к фарватеру, потом по нему за край. */
-  private legs(b: Barge, ts: number): { bx: number; by: number; l1: number; total: number } {
+  /** Причал (центр стоянки) и длины участков: к фарватеру, по реке, протокой за край. */
+  private legs(b: Barge): { bx: number; by: number; l1: number; l2: number; total: number } {
     const p = b.berth;
-    const bx = (p.x + p.w! / 2) * ts;
-    const by = (p.y + p.h! / 2) * ts;
-    const l1 = Math.abs(this.lane - by);
-    return { bx, by, l1, total: l1 + Math.max(0, this.exitX - bx) };
+    const bx = (p.x + p.w! / 2) * this.ts;
+    const by = (p.y + p.h! / 2) * this.ts;
+    const l1 = Math.abs(this.laneX - bx);
+    const l2 = Math.abs(this.exitY - by);
+    return { bx, by, l1, l2, total: l1 + l2 + Math.max(0, this.exitX - this.laneX) };
   }
 
-  private place(b: Barge, ts: number): void {
-    const { bx, by, l1 } = this.legs(b, ts);
-    const toLane = this.lane > by ? 1 : -1;
-    const outbound = b.phase !== 'in';
+  private place(b: Barge): void {
+    const { bx, by, l1, l2 } = this.legs(b);
+    const out = b.phase !== 'in';
+    const sx = this.laneX > bx ? 1 : -1;
+    const sy = this.exitY > by ? 1 : -1;
+    // Нос — по ходу: назад к причалу кормой вперёд не ходят — разворот на фарватере.
+    const dirX = (k: number): Barge['heading'] => (k > 0 ? 'E' : 'W');
+    const dirY = (k: number): Barge['heading'] => (k > 0 ? 'S' : 'N');
     if (b.d < l1) {
-      b.x = bx;
-      b.y = by + toLane * b.d;
-      // Нос — по ходу: от причала к фарватеру, назад к причалу кормой вперёд не ходят — разворот на фарватере.
-      b.heading = (outbound ? toLane : -toLane) > 0 ? 'S' : 'N';
-      if (b.phase === 'moored') b.heading = b.berth.face === 'N' ? 'N' : 'S';
+      b.x = bx + sx * b.d;
+      b.y = by;
+      b.heading = b.phase === 'moored' ? face(b.berth) : dirX(out ? sx : -sx);
+    } else if (b.d < l1 + l2) {
+      b.x = this.laneX;
+      b.y = by + sy * (b.d - l1);
+      b.heading = dirY(out ? sy : -sy);
     } else {
-      b.x = bx + (b.d - l1);
-      b.y = this.lane;
-      b.heading = outbound ? 'E' : 'W';
+      b.x = this.laneX + (b.d - l1 - l2);
+      b.y = this.exitY;
+      b.heading = out ? 'E' : 'W';
     }
   }
 
   update(dt: number): void {
     this.time += dt;
     for (const b of this.barges) {
-      const { total } = this.legs(b, this.ts);
+      const { total } = this.legs(b);
       b.moving = b.phase === 'out' || b.phase === 'in';
       if (b.phase === 'moored' && this.time >= b.until) b.phase = 'out';
       else if (b.phase === 'out') {
@@ -95,7 +105,9 @@ export class PortSystem {
           this.arrivals++;
         }
       }
-      this.place(b, this.ts);
+      this.place(b);
     }
   }
 }
+
+const face = (p: Poi): Barge['heading'] => (p.face === 'N' || p.face === 'S' || p.face === 'E' ? p.face : 'W');

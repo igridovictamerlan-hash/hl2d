@@ -189,9 +189,12 @@ describe('генератор переулочного города', () => {
         const pc = map.poisOf('plaza_center')[0];
         const hall = map.poisOf('ges_hall')[0];
         const dam = map.poisOf('ges_dam')[0];
-        const crestX = dam.x + ((dam.w! - GENERATOR.ges.crest) >> 1);
-        expect(lab(hall.x, hall.y)).toBe(lab(pc.x, pc.y));
-        expect(lab(crestX, dam.y + (dam.h! >> 1))).toBe(lab(pc.x, pc.y));
+        // Плотина поперёк реки (перпендикулярно берегу): шире, чем толще; гребень — по всей ширине.
+        expect(dam.w!).toBeGreaterThan(dam.h! * 5);
+        const crestY = dam.y + ((dam.h! - GENERATOR.ges.crest) >> 1);
+        expect(lab(hall.x + (hall.w! >> 1), hall.y + (hall.h! >> 1))).toBe(lab(pc.x, pc.y));
+        expect(lab(dam.x + (dam.w! >> 1), crestY)).toBe(lab(pc.x, pc.y));
+        expect(lab(dam.x + dam.w! - 2, crestY)).toBe(lab(pc.x, pc.y));
         expect(map.zoneAtTile(hall.x, hall.y)?.kind).toBe('ges');
         // Порт: набережная, пирсы с причалами барж в воде, склад достижим; вдоль берега — галечный пляж.
         expect(map.poisOf('port_quay')).toHaveLength(1);

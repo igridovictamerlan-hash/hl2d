@@ -2,6 +2,7 @@ import type { GameMap } from './GameMap';
 import type { View } from '../core/Camera';
 import { T, SOLID } from './tiles';
 import { hash2, hash01 } from '../core/rng';
+import { GENERATOR } from '../config/generator';
 import { RENDER } from '../config/render';
 import { computeLots, type Lot } from './houses';
 import { ARBAT } from '../config/arbat';
@@ -80,6 +81,8 @@ export class MapRenderer {
   /** Фонтаны и трибуны площади (рисуются поверх тайлов). */
   private landmarks: Poi[] = [];
   private machines: Poi[] = [];
+  private booths: Poi[] = [];
+  private borderGates: Poi[] = [];
   private quays: Poi[] = [];
   private readonly decor: Uint8Array;
   private readonly cobble: Uint8Array;
@@ -121,6 +124,8 @@ export class MapRenderer {
     this.landmarks = [...map.poisOf('fountain'), ...map.poisOf('tribune')];
     this.machines = [...map.poisOf('ges_turbine'), ...map.poisOf('ges_transformer'), ...map.poisOf('port_container'), ...map.poisOf('port_crane')];
     this.quays = map.poisOf('port_quay');
+    this.booths = map.poisOf('border_booth');
+    this.borderGates = map.poisOf('border_gate');
     for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER], [this.landmarks, DECOR_PLAZA]] as const) {
       for (const p of list) for (let y = p.y; y < p.y + p.h!; y++) for (let x = p.x; x < p.x + p.w!; x++) this.decor[y * w + x] = kind;
     }
@@ -1074,19 +1079,22 @@ export class MapRenderer {
         // Опора, кабина и стрела над водой (в сторону face) с тросом и крюком.
         const cx = x + w / 2;
         const cy = y + h / 2;
-        const dir = p.face === 'N' ? -1 : 1;
+        const dx = p.face === 'E' ? 1 : p.face === 'W' ? -1 : 0;
+        const dy = p.face === 'N' ? -1 : p.face === 'S' ? 1 : 0;
         const boom = ts * s * 5;
         ctx.fillStyle = L.craneDark;
         ctx.fillRect(x, y, w, h);
         ctx.fillStyle = L.crane;
         ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
-        ctx.fillRect(cx - w * 0.12, cy, w * 0.24, dir * boom);
+        if (dy) ctx.fillRect(cx - w * 0.12, cy, w * 0.24, dy * boom);
+        else ctx.fillRect(cx, cy - h * 0.12, dx * boom, h * 0.24);
         ctx.fillStyle = L.craneDark;
         ctx.fillRect(cx - w * 0.25, cy - h * 0.25, w * 0.5, h * 0.5);
         ctx.fillStyle = L.cable;
-        const hy = cy + dir * boom * 0.85;
-        ctx.fillRect(cx - 1, hy - 1, 2, 4);
-        ctx.fillRect(cx - 3, hy + 2, 6, 2);
+        const hx = cx + dx * boom * 0.85;
+        const hy = cy + dy * boom * 0.85;
+        ctx.fillRect(hx - 1, hy - 1, 2, 4);
+        ctx.fillRect(hx - 3, hy + 2, 6, 2);
         continue;
       }
       if (p.type === 'ges_turbine') {
@@ -1119,17 +1127,73 @@ export class MapRenderer {
     // Набережная: жёлтая кромка у воды и кнехты через 3 тайла.
     for (const q of this.quays) {
       if (!near(q, 1)) continue;
-      const edgeY = q.face === 'N' ? q.y : q.y + q.h! - 1;
-      const y = Y(edgeY * ts) + (q.face === 'N' ? 0 : Math.round(ts * s) - Math.max(2, Math.round(s * 2)));
-      ctx.fillStyle = L.quayEdge;
-      ctx.fillRect(X(q.x * ts), y, Math.round(q.w! * ts * s), Math.max(2, Math.round(s * 2)));
-      ctx.fillStyle = L.bollard;
+      const lw = Math.max(2, Math.round(s * 2));
       const r = Math.max(2, s * 2.2);
+      ctx.fillStyle = L.quayEdge;
+      if (q.face === 'E' || q.face === 'W') {
+        const edgeX = q.face === 'W' ? q.x : q.x + q.w! - 1;
+        const x = X(edgeX * ts) + (q.face === 'W' ? 0 : Math.round(ts * s) - lw);
+        ctx.fillRect(x, Y(q.y * ts), lw, Math.round(q.h! * ts * s));
+        ctx.fillStyle = L.bollard;
+        for (let ty = q.y + 1; ty < q.y + q.h!; ty += 3) {
+          ctx.beginPath();
+          ctx.arc(x + (q.face === 'W' ? r + 2 : -r - 1), Y((ty + 0.5) * ts), r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        continue;
+      }
+      const edgeY = q.face === 'N' ? q.y : q.y + q.h! - 1;
+      const y = Y(edgeY * ts) + (q.face === 'N' ? 0 : Math.round(ts * s) - lw);
+      ctx.fillRect(X(q.x * ts), y, Math.round(q.w! * ts * s), lw);
+      ctx.fillStyle = L.bollard;
       for (let tx = q.x + 1; tx < q.x + q.w!; tx += 3) {
         ctx.beginPath();
         ctx.arc(X((tx + 0.5) * ts), y + (q.face === 'N' ? r + 2 : -r - 1), r, 0, Math.PI * 2);
         ctx.fill();
       }
+    }
+    // КПП Верхнего города: стоп-линии перед шлагбаумами, полосатые носы островка, стеклянные будки.
+    const tsS = Math.max(1, Math.round(ts * s));
+    for (const g of this.borderGates) {
+      if (!near(g, 8) || g.id === undefined || g.id < 0) continue;
+      const B = GENERATOR.wealth.booth;
+      const i0 = g.y + g.id;
+      const lw = Math.max(2, Math.round(s * 2.5));
+      ctx.fillStyle = L.stopLine;
+      // Въезд в Верхний город — южная полоса с запада, выезд — северная с востока.
+      ctx.fillRect(X((g.x - B - 1) * ts), Y((i0 + B) * ts), lw, Y((g.y + g.h!) * ts) - Y((i0 + B) * ts));
+      ctx.fillRect(X((g.x + g.w! + B + 1) * ts) - lw, Y(g.y * ts), lw, Y(i0 * ts) - Y(g.y * ts));
+      for (const nx of [g.x - B - 1, g.x + g.w! + B]) {
+        const x = X(nx * ts);
+        for (let k = 0; k < B * 2; k++) {
+          ctx.fillStyle = k % 2 ? L.hazardDark : L.hazard;
+          ctx.fillRect(x, Y((i0 + k / 2) * ts), tsS, Math.ceil(tsS / 2));
+        }
+      }
+    }
+    for (const b of this.booths) {
+      if (!near(b, 1)) continue;
+      const x = X(b.x * ts);
+      const y = Y(b.y * ts);
+      const w = X((b.x + b.w!) * ts) - x;
+      const h = Y((b.y + b.h!) * ts) - y;
+      const t = tsS;
+      // Рама по краю, стекло в середине стенки, проём двери в торце face.
+      const doorE = b.face === 'E';
+      ctx.fillStyle = L.boothFrame;
+      ctx.fillRect(x, y, w, t);
+      ctx.fillRect(x, y + h - t, w, t);
+      ctx.fillRect(doorE ? x : x + w - t, y, t, h);
+      const g = Math.max(1, Math.round(t * 0.3));
+      ctx.fillStyle = L.boothGlass;
+      ctx.fillRect(x + t, y + g, w - 2 * t, t - 2 * g);
+      ctx.fillRect(x + t, y + h - t + g, w - 2 * t, t - 2 * g);
+      ctx.fillRect(doorE ? x + g : x + w - t + g, y + t, t - 2 * g, h - 2 * t);
+      ctx.fillStyle = L.boothGlint;
+      ctx.fillRect(x + t + g, y + g, Math.max(1, Math.round(t * 0.5)), Math.max(1, Math.round(g * 0.8)));
+      // Пульт у стекла — полоска по стене к островку.
+      ctx.fillStyle = L.boothFrame;
+      ctx.fillRect(doorE ? x + t : x + w - t - Math.round(t * 0.35), y + t, Math.round(t * 0.35), h - 2 * t);
     }
     for (const k of this.kiosks) {
       if (!near(k, 1)) continue;

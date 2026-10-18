@@ -5,6 +5,7 @@ import { TouchControls } from '../ui/TouchControls';
 import { GameLoop } from './GameLoop';
 import { Rng, randomSeed } from './rng';
 import { PlayerController } from './PlayerController';
+import { GENERATOR } from '../config/generator';
 import { RENDER } from '../config/render';
 import { SUPPRESS } from '../config/tactics';
 import { VISION } from '../config/vision';
@@ -162,6 +163,8 @@ export class Game {
   /** Деревья садов (POI) и обстановка комнат (furnishMap). */
   private trees: Poi[] = [];
   private furnishings: Furniture[] = [];
+  /** КПП на стене Верхнего города — для шлагбаумов. */
+  private borderGates: Poi[] = [];
   private readonly ctx: CanvasRenderingContext2D;
   private readonly entityRenderer = new EntityRenderer();
   /** Колесо оружия (зажать Q). */
@@ -429,6 +432,7 @@ export class Game {
     this.mapRenderer = new MapRenderer(map);
     this.trees = map.pois.filter((p) => p.type === 'tree');
     this.furnishings = furnishMap(map);
+    this.borderGates = map.poisOf('border_gate');
     this.rng = new Rng(map.seed ^ 0x51f15e);
     this.doors = new DoorSystem(map, this.nav);
     this.law = new LawSystem(map, this.nav, this.doors, this.entities, this.bus, this.rng);
@@ -1325,6 +1329,7 @@ export class Game {
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);
+    this.effects.drawBooms(ctx, v, this.borderGates, this.entities.list, this.map.tileSize, GENERATOR.wealth.booth, this.law.now);
     this.effects.drawPoints(ctx, v, this.war, this.law.now);
     this.effects.drawScenes(ctx, v, this.war.scenes.list);
     this.effects.drawMemorials(ctx, v, this.ai.memorials.list, this.law.now);

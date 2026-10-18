@@ -118,14 +118,24 @@ describe('рация: вызов и выезд', () => {
     const nad = said(sim, null);
     expect(nad.some((t) => t.includes(inc.where) && t.includes(u.name))).toBe(true);
     expect(said(sim, u).length).toBeGreaterThan(0);
-    // Едет и доезжает.
-    const d0 = Math.hypot(u.x - inc.x, u.y - inc.y);
-    expect(run(sim, 90, () => inc.arrived.has(u) || inc.closed)).toBe(true);
-    if (!inc.closed) expect(Math.hypot(u.x - inc.x, u.y - inc.y)).toBeLessThan(Math.max(d0, RADIO.incident.arrive + 1));
+    // Едет и доезжает. В живом городе вызов могут закрыть до выезда (слился с соседним делом, подозреваемого взяли) —
+    // тогда новый вызов туда же.
+    let cur = inc;
+    let unit = u;
+    let d0 = Math.hypot(unit.x - cur.x, unit.y - cur.y);
+    expect(run(sim, 90, () => cur.arrived.has(unit) || cur.closed)).toBe(true);
+    for (let k = 0; k < 3 && cur.closed && !cur.arrived.has(unit); k++) {
+      const q = spotFrom(sim, reporter, 600);
+      cur = R.report('shots', q.x, q.y, { reporter, what: 'выстрелы в квартале' })!;
+      unit = cur.responders.find((c) => c !== reporter) ?? unit;
+      d0 = Math.hypot(unit.x - cur.x, unit.y - cur.y);
+      expect(run(sim, 90, () => cur.arrived.has(unit) || cur.closed)).toBe(true);
+    }
+    if (!cur.closed) expect(Math.hypot(unit.x - cur.x, unit.y - cur.y)).toBeLessThan(Math.max(d0, RADIO.incident.arrive + 1));
     // Тихо — «чисто» и отбой, вызов снят.
-    expect(run(sim, 80, () => inc.closed)).toBe(true);
-    expect(['clear', 'arrested', 'killed', 'timeout']).toContain(inc.result);
-    expect((u.brain as CpBrain).call?.id === inc.id).toBe(false);
+    expect(run(sim, 80, () => cur.closed)).toBe(true);
+    expect(['clear', 'arrested', 'killed', 'timeout']).toContain(cur.result);
+    expect((unit.brain as CpBrain).call?.id === cur.id).toBe(false);
     expect(R.stats.arrived).toBeGreaterThan(0);
   });
 

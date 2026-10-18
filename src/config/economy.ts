@@ -62,7 +62,8 @@ export const ECONOMY = {
   },
   cwuPay: { rationServed: 2, repair: 12, sale: 1, node: 20 },
   /** Узлы Протектората (терминалы на проспектах и площади) — цели саботажа, чинит ТС. */
-  nodes: { count: 11, spacing: 15 },
+  /** gateClear — не ближе стольких тайлов к стене на КПП Верхнего города (там будки и полосы). */
+  nodes: { count: 11, spacing: 15, gateClear: 8 },
   repairs: {
     spots: 12,
     /** Раз в сколько секунд что-то ломается. */

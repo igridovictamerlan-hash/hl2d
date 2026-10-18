@@ -165,6 +165,9 @@ export const RENDER = {
       // Порт: контейнеры (по id — цвет), кран (опора, кабина, стрела над водой, трос), кнехты набережной.
       containers: ['#8c3b2e', '#2f5d7c', '#4f6b3a', '#8a6d2a'], containerRib: 'rgba(0,0,0,0.28)', containerEdge: '#1f1a16',
       crane: '#c9a227', craneDark: '#5a4a1a', cable: '#1d1d1d', bollard: '#2a2a2a', quayEdge: '#d8c25a',
+      // КПП на стене Верхнего города: будки (рама, стекло, блик), стоп-линии, полосатый нос островка.
+      boothFrame: '#3c4248', boothGlass: 'rgba(150,200,225,0.55)', boothGlint: 'rgba(235,248,255,0.7)', boothRoof: '#59626a',
+      stopLine: '#e8e4d8', hazard: '#d8b030', hazardDark: '#222222',
     },
     planter: { rim: '#8c8378', soil: '#4a3a2a', leaf: '#4f7a3a', leafDark: '#355a28', flowers: ['#d8594a', '#e8c14a', '#d98ab8', '#f2efe6'] as readonly string[] },
     cobble: { h: 30, s: 9, l: 31, noise: 2.5, joint: 'rgba(0,0,0,0.28)', w: 8, h2: 6 },
@@ -263,6 +266,8 @@ export const RENDER = {
       barrierLeg: '#3a3a3c', barrierShadow: 'rgba(0,0,0,0.3)',
     },
     /** Мешок для тела (px мира): капсула, блик, молния, ручки, бирка, кровь, лужа, тень. */
+    /** Шлагбаум КПП на стене: полосы, стойка с противовесом; поднят, пока кто-то ближе reach тайлов к нему на полосе. */
+    boom: { red: '#c23a2e', white: '#ece6d8', post: '#2b2f33', width: 0.3, stripe: 0.5, raised: 0.16, speed: 5, reach: 3.5 },
     bag: {
       w: 34, h: 14, body: '#1d1f22', outline: '#0c0d0e', shine: 'rgba(255,255,255,0.09)', bump: 'rgba(255,255,255,0.05)',
       handle: '#3a3d42', zipTape: '#2c2f33', zip: '#8c8f94', pull: '#b8bdc2', tag: '#e8e2c8', tagInk: '#555048',

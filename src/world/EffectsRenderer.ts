@@ -711,6 +711,55 @@ export class EffectsRenderer {
   }
 
   /** Курящие: огонёк у руки и дымок, поднимающийся вверх (над пешкой). */
+  /** Подъём шлагбаумов КПП (0 — опущен, 1 — поднят) и часы прошлого кадра. */
+  private booms = new Map<Poi, [number, number]>();
+  private boomTime = 0;
+
+  /**
+   * Шлагбаумы КПП на стене Верхнего города (border_gate; id — первый ряд островка от y): въезд — южная полоса, шлагбаум у
+   * будки с запада; выезд — северная, у будки с востока. Поднимается, пока на полосе у него кто-то есть.
+   */
+  drawBooms(ctx: CanvasRenderingContext2D, v: View, gates: readonly Poi[], list: readonly Character[], ts: number, booth: number, now: number): void {
+    const R = RENDER.effects.boom;
+    const dt = Math.min(0.2, Math.max(0, now - this.boomTime));
+    this.boomTime = now;
+    const s = v.scale;
+    for (const g of gates) {
+      if (g.id === undefined || g.id < 0) continue;
+      const i0 = g.y + g.id;
+      const state = this.booms.get(g) ?? [0, 0];
+      this.booms.set(g, state);
+      for (let k = 0; k < 2; k++) {
+        const south = k === 0;
+        const ax = (south ? g.x - booth / 2 : g.x + g.w! + booth / 2) * ts;
+        const py = (south ? i0 + booth : i0) * ts;
+        const ey = (south ? g.y + g.h! : g.y) * ts;
+        const lo = Math.min(py, ey);
+        const hi = Math.max(py, ey);
+        let want = 0;
+        for (const c of list) if (c.alive && Math.abs(c.x - ax) < R.reach * ts && c.y > lo && c.y < hi) { want = 1; break; }
+        state[k] += (want - state[k]) * Math.min(1, dt * R.speed);
+        const sx = (ax - v.left) * s;
+        const sy = (py - v.top) * s;
+        const len = (hi - lo) * (1 - (1 - R.raised) * state[k]) * s;
+        if (sx < -len - 20 || sx > v.width + len + 20 || sy < -len - 20 || sy > v.height + len + 20) continue;
+        const w = Math.max(2, R.width * ts * s);
+        const dir = south ? 1 : -1;
+        const seg = R.stripe * ts * s;
+        for (let d = 0, n = 0; d < len; d += seg, n++) {
+          ctx.fillStyle = n % 2 ? R.white : R.red;
+          const l = Math.min(seg, len - d);
+          ctx.fillRect(sx - w / 2, dir > 0 ? sy + d : sy - d - l, w, l);
+        }
+        // Стойка с противовесом (за стойкой — над островком).
+        const p = w * 2.2;
+        ctx.fillStyle = R.post;
+        ctx.fillRect(sx - p / 2, sy - p / 2, p, p);
+        ctx.fillRect(sx - w * 0.8, dir > 0 ? sy - p * 1.2 : sy + p * 0.2, w * 1.6, p);
+      }
+    }
+  }
+
   drawSmokers(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], now: number): void {
     const s = v.scale;
     const S = RENDER.effects.smoke;

@@ -480,11 +480,12 @@ export class CitizenBrain implements Brain {
     return (f === 'citizen' || f === 'cwu' || f === 'rebel') && !this.job;
   }
 
-  /** Обращение Коменданта: жители поблизости идут на площадь послушать. */
+  /** Обращение Коменданта: жители поблизости идут на площадь послушать (воры и бандиты — нет, как и остальной досуг). */
   private checkBroadcast(): void {
     const st = this.ctx.street;
     const cur = this.fsm.current;
-    if (!st?.broadcasting || this.heardBroadcast === st.broadcast || (cur !== 'idle' && cur !== 'walk') || !this.street || this.self.gang >= 0) return;
+    const hustler = this.self.profession === 'thief' || this.self.profession === 'bandit' || this.self.gang >= 0;
+    if (!st?.broadcasting || this.heardBroadcast === st.broadcast || (cur !== 'idle' && cur !== 'walk') || !this.street || hustler) return;
     this.heardBroadcast = st.broadcast;
     const B = STREET.broadcast;
     const p = st.plaza!;

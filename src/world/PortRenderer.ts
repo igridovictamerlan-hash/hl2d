@@ -9,8 +9,8 @@ export class PortRenderer {
     for (const b of port.barges) {
       if (b.phase === 'away') continue;
       const vertical = b.heading === 'N' || b.heading === 'S';
-      const beam = b.berth.w! * ts * 0.9;
-      const len = b.berth.h! * ts;
+      const beam = Math.min(b.berth.w!, b.berth.h!) * ts * 0.9;
+      const len = Math.max(b.berth.w!, b.berth.h!) * ts;
       const w = (vertical ? beam : len) * s;
       const h = (vertical ? len : beam) * s;
       const cx = (b.x - v.left) * s;

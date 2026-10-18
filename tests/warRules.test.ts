@@ -11,7 +11,7 @@ import { RebelBrain } from '../src/ai/brains/RebelBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
-import { CP_UNIT, REBEL_UNIT, rebelUnitOf } from '../src/config/factions';
+import { CP_UNIT, REBEL_UNIT, cpUnit, rebelUnitOf } from '../src/config/factions';
 import { WAR } from '../src/config/war';
 import { ROSTER } from '../src/config/roster';
 import { T } from '../src/world/tiles';
@@ -247,6 +247,8 @@ describe('место преступления', () => {
     sim.combat.damage(victim, 9999, null);
     const corpse = sim.combat.corpses[sim.combat.corpses.length - 1];
     spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, spotNear(sim, at, 2, 4));
+    // Техник SU.02 неподалёку (иначе — где его застанет случайность: дальше CRIME.scene.seek едет медик ТС).
+    spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, at, 3, 6));
     run(sim, 1);
     const scene = sim.war.scenes.list[0];
     expect(scene).toBeTruthy();
@@ -301,6 +303,8 @@ describe('место преступления', () => {
     // Рядом патрульный — заметит тело.
     spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, spotNear(sim, at, 2, 4));
     (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
+    // Техник SU.02 неподалёку (иначе — где его застанет случайность: дальше CRIME.scene.seek едет медик ТС).
+    spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, at, 3, 6));
     run(sim, 2);
     const scene = sim.war.scenes.list.find((x) => x.corpse === corpse)!;
     expect(scene).toBeTruthy();
@@ -403,6 +407,8 @@ describe('место преступления', () => {
       sim.combat.corpses.push(k);
       return k;
     };
+    // Техник SU.02 у площади (иначе — где его застанет случайность: дальше CRIME.scene.seek едет медик ТС).
+    spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, plaza, 3, 6));
     const s1 = sim.war.scenes.open(body(spotNear(sim, plaza, 0, 3)), 'civil')!;
     expect(s1.medic?.rank).toBe(CP_UNIT.su2);
     // Второе происшествие — далеко от первого (иначе одна зона): медик ТС сейчас не у площади.
@@ -504,7 +510,7 @@ describe('место преступления', () => {
     const victim = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, at)!;
     sim.combat.damage(victim, 9999, null);
     // Несколько бандитов вокруг: каждый решает сам (с шансом CRIME.loot.chance), кто-то да обберёт.
-    const bandits = [0, 1, 2].map(() => spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 6, 10))!);
+    const bandits = [0, 1, 2, 3, 4].map(() => spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 4, 8))!);
     // Санитар из Управы (он у площади) не должен увезти тело раньше: проверяем бандитов.
     (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
     // Тело могут заметить ВС у площади — тогда лента; здесь проверяем неоцеплённое (ленту снимаем).
