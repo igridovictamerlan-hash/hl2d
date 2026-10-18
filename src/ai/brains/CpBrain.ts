@@ -833,10 +833,13 @@ export class CpBrain implements Brain {
       // Грузчиков и оружейника склада (с допуском, на службе) плановой проверкой не дёргают.
       if (o.profession === 'loader' || o.profession === 'armorer') continue;
       const inCheckpoint = ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint';
+      // Блок-пост на стене Верхнего города: на его площади часовые проверяют каждого (одного — не чаще LAW.border.recheck).
+      const border = !!self.role?.border && law.atBorder(o);
+      if (border && !law.borderDue(o)) continue;
       // Код жёлтый — проверки чаще.
       // Неблагонадёжных проверяют чаще, лоялистов — реже.
       // Квартал на ступени тревоги (Escalation) — проверяют чаще.
-      const chance = (atCheckpoint && inCheckpoint
+      const chance = border ? LAW.border.check : (atCheckpoint && inCheckpoint
         ? LAW.checkpointCheckChance
         : LAW.randomCheckChance * (ctx.war.code === 'yellow' ? LAW.alarmCheckMul : 1) * (hasLoyalty(o) ? loyaltyTier(o).checkMul : 1) * (ctx.routine.night && ctx.war.outdoors(o) ? ROUTINE.night.checkMul : 1)) *
         ctx.escalation.checkMul(o.x, o.y);

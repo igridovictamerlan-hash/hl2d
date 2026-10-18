@@ -122,16 +122,15 @@ describe('рация: вызов и выезд', () => {
     // тогда новый вызов туда же.
     let cur = inc;
     let unit = u;
-    let d0 = Math.hypot(unit.x - cur.x, unit.y - cur.y);
     expect(run(sim, 90, () => cur.arrived.has(unit) || cur.closed)).toBe(true);
     for (let k = 0; k < 3 && cur.closed && !cur.arrived.has(unit); k++) {
       const q = spotFrom(sim, reporter, 600);
       cur = R.report('shots', q.x, q.y, { reporter, what: 'выстрелы в квартале' })!;
       unit = cur.responders.find((c) => c !== reporter) ?? unit;
-      d0 = Math.hypot(unit.x - cur.x, unit.y - cur.y);
       expect(run(sim, 90, () => cur.arrived.has(unit) || cur.closed)).toBe(true);
     }
-    if (!cur.closed) expect(Math.hypot(unit.x - cur.x, unit.y - cur.y)).toBeLessThan(Math.max(d0, RADIO.incident.arrive + 1));
+    // Не закрыт — значит, доехал (дальше он прочёсывает вокруг, и расстояние может снова расти).
+    if (!cur.closed) expect(cur.arrived.has(unit)).toBe(true);
     // Тихо — «чисто» и отбой, вызов снят.
     expect(run(sim, 80, () => cur.closed)).toBe(true);
     expect(['clear', 'arrested', 'killed', 'timeout']).toContain(cur.result);
@@ -276,7 +275,8 @@ describe('рация: эфир и плановое', () => {
     const d0 = Math.hypot(u.x - p.x, u.y - p.y);
     run(sim, 8);
     expect(b.fsm.current).toBe('hunt');
-    expect(Math.hypot(u.x - p.x, u.y - p.y)).toBeLessThan(d0);
+    // Едет к месту (путь в обход застройки сперва может уводить в сторону — ждём, пока станет ближе).
+    expect(run(sim, 30, () => Math.hypot(u.x - p.x, u.y - p.y) < d0 * 0.8)).toBe(true);
     expect(Radio.callOf(u)?.id).toBe(999);
   });
 });

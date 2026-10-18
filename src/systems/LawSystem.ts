@@ -1,6 +1,6 @@
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
-import type { GameMap } from '../world/GameMap';
+import type { GameMap, Poi } from '../world/GameMap';
 import type { NavGrid } from '../world/NavGrid';
 import type { EventBus } from '../core/EventBus';
 import type { Rng } from '../core/rng';
@@ -100,6 +100,9 @@ export class LawSystem {
   readonly releaseSpot = new Map<Character, Vec2>();
   /** Когда человека последний раз оштрафовали за комендантский час в квартале (повторно — арест, LAW.zoneCurfewRepeat). */
   private readonly zoneCurfewFined = new WeakMap<Character, number>();
+  /** Площади блок-постов на стене Верхнего города и когда кого там досматривали. */
+  private borderAreas: readonly Poi[] | null = null;
+  private readonly borderChecked = new WeakMap<Character, number>();
 
   constructor(
     private readonly map: GameMap,
@@ -332,6 +335,20 @@ export class LawSystem {
   }
 
   /** Решение по результатам проверки CID. */
+  /** Стоит на площади блок-поста на стене Верхнего города (там досматривают). */
+  atBorder(c: Character): boolean {
+    this.borderAreas ??= this.map.poisOf('border_check');
+    const ts = this.map.tileSize;
+    const tx = c.x / ts;
+    const ty = c.y / ts;
+    return this.borderAreas.some((p) => tx >= p.x && ty >= p.y && tx < p.x + p.w! && ty < p.y + p.h!);
+  }
+
+  /** На блок-посту его пора проверить (не досматривали последние LAW.border.recheck с). */
+  borderDue(c: Character): boolean {
+    return this.time - (this.borderChecked.get(c) ?? -1e9) >= LAW.border.recheck;
+  }
+
   judge(target: Character): Verdict {
     const law = target.law;
     let reason: Violation = law.reason ?? 'routine';
@@ -348,12 +365,22 @@ export class LawSystem {
     else if (ch) reason = ch;
     else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
     else if (!law.hasCid && !fake) reason = 'no_cid';
-    // Свёрток подполья (поручение с доски) — при обыске находят с шансом: контрабанда, арест (не при деле об убийстве).
-    if (reason !== 'rebel' && !ch && target.inventory.has('parcel_x') && this.rng.chance(ERRANDS.secret.search)) {
+    // Блок-пост на стене Верхнего города — досмотр вещей.
+    const border = this.atBorder(target);
+    if (border) this.borderChecked.set(target, this.time);
+    // Свёрток подполья (поручение с доски) — при обыске находят с шансом (на блок-посту — всегда): контрабанда, арест (не
+    // при деле об убийстве).
+    if (reason !== 'rebel' && !ch && target.inventory.has('parcel_x') && (border || this.rng.chance(ERRANDS.secret.search))) {
       target.inventory.remove('parcel_x', 1);
       reason = 'contraband';
       this.onContraband(target);
-      if (target.isPlayer) this.bus.emit('log', { text: ERRANDS.lines.found, kind: 'law' });
+      if (target.isPlayer) this.bus.emit('log', { text: border ? LAW.border.lines.parcel : ERRANDS.lines.found, kind: 'law' });
+    }
+    // Стволы, патроны и гранаты в рюкзаке — изъять (спрятанное под личиной находят не всегда), нарушение — оружие.
+    if (border && reason !== 'rebel' && !LAW.arrestFor.includes(reason) && target.inventory.slots.some((st) => confiscable(st.id)) && (!target.disguised || this.rng.chance(LAW.border.findHidden))) {
+      this.confiscate(target);
+      reason = 'weapon';
+      if (target.isPlayer) this.bus.emit('log', { text: LAW.border.lines.found, kind: 'law' });
     }
     if (LAW.arrestFor.includes(reason)) return { kind: 'arrest', reason, fine: 0 };
     // Комендантский час в квартале: штраф уже был недавно — на этот раз арест.

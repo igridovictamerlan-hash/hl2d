@@ -247,8 +247,9 @@ describe('место преступления', () => {
     sim.combat.damage(victim, 9999, null);
     const corpse = sim.combat.corpses[sim.combat.corpses.length - 1];
     spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, spotNear(sim, at, 2, 4));
-    // Техник SU.02 неподалёку (иначе — где его застанет случайность: дальше CRIME.scene.seek едет медик ТС).
+    // Техник SU.02 и следователь SU.01 неподалёку (иначе — где их застанет случайность: дальше CRIME.scene.seek не шлют).
     spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, at, 3, 6));
+    spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su1).group, rank: CP_UNIT.su1, kit: cpUnit(CP_UNIT.su1).kit }, spotNear(sim, at, 3, 6));
     run(sim, 1);
     const scene = sim.war.scenes.list[0];
     expect(scene).toBeTruthy();
@@ -303,8 +304,9 @@ describe('место преступления', () => {
     // Рядом патрульный — заметит тело.
     spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, spotNear(sim, at, 2, 4));
     (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
-    // Техник SU.02 неподалёку (иначе — где его застанет случайность: дальше CRIME.scene.seek едет медик ТС).
+    // Техник SU.02 и следователь SU.01 неподалёку (иначе — где их застанет случайность: дальше CRIME.scene.seek не шлют).
     spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, at, 3, 6));
+    spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su1).group, rank: CP_UNIT.su1, kit: cpUnit(CP_UNIT.su1).kit }, spotNear(sim, at, 3, 6));
     run(sim, 2);
     const scene = sim.war.scenes.list.find((x) => x.corpse === corpse)!;
     expect(scene).toBeTruthy();

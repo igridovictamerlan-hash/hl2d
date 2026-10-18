@@ -412,10 +412,13 @@ describe('Город реагирует 2.0', () => {
     const q = quarter(sim);
     const victim = citizen(sim, q.at);
     const killer = citizen(sim, ring(sim, q.at, 20, 50)[0], q.at);
-    const around = spread(ring(sim, q.at, 150, 250), 2, 60);
-    // Родня и чужой стоят рядом (мозг не двигает их: посещение — в пределах visit.seek от места).
+    // Родня и чужой стоят рядом (мозг не двигает их: посещение — в пределах visit.seek от места; прямая видимость не нужна).
+    const around = spread(ring(sim, q.at, 150, 250, false), 2, 60);
+    expect(around.length).toBe(2);
     const kin = citizen(sim, around[0]);
     kin.brain = still();
+    // Не лоялист — академия не заберёт его по направлению (мозг сменился бы, и он ушёл бы на вахту).
+    kin.loyalty = 10;
     const stranger = citizen(sim, around[1]);
     sim.ctx.relations.link(kin, victim, 80, 80, BOND.KIN);
     stab(sim, killer, victim);

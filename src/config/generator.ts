@@ -290,8 +290,13 @@ export const GENERATOR = {
    */
   wealth: {
     gap: 6, minX: 0.6, maxX: 0.78, wall: 2, side: 8, oldWest: 60,
-    /** Будка КПП на стене — квадрат booth×booth (стёкла по краю, пол 2×2). */
-    booth: 4,
+    /**
+     * Блок-пост на стене (generator/border.ts): полосы по lane рядов, островок между ними не уже island; подход с запада
+     * west тайлов (змейка из chicane блоков), площадка досмотра на east тайлов за стеной, бетонный нос nose тайлов перед
+     * стеной; стол досмотра — с table[0] тайла за стеной длиной table[1]; здание поста house (w×h, севернее выезда),
+     * огневая точка nest (w×h, южнее въезда).
+     */
+    post: { lane: 3, island: 4, west: 16, east: 12, nose: 4, chicane: 3, table: [4, 4] as const, house: { w: 12, h: 6 }, nest: { w: 5, h: 4 } },
     quarters: { slum: 4, old: 3, upper: 4 },
     /** Вокруг поста асфальт не трогают (ларьки, клумбы): тайлов от стены по проспекту. */
     gateClear: 5,

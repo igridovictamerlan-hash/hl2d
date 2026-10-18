@@ -83,6 +83,8 @@ export class MapRenderer {
   private machines: Poi[] = [];
   private booths: Poi[] = [];
   private borderGates: Poi[] = [];
+  private borderTables: Poi[] = [];
+  private borderNests: Poi[] = [];
   private quays: Poi[] = [];
   private readonly decor: Uint8Array;
   private readonly cobble: Uint8Array;
@@ -126,6 +128,8 @@ export class MapRenderer {
     this.quays = map.poisOf('port_quay');
     this.booths = map.poisOf('border_booth');
     this.borderGates = map.poisOf('border_gate');
+    this.borderTables = map.poisOf('border_table');
+    this.borderNests = map.poisOf('border_nest');
     for (const [list, kind] of [[this.kiosks, DECOR_KIOSK], [map.poisOf('planter'), DECOR_PLANTER], [this.landmarks, DECOR_PLAZA]] as const) {
       for (const p of list) for (let y = p.y; y < p.y + p.h!; y++) for (let x = p.x; x < p.x + p.w!; x++) this.decor[y * w + x] = kind;
     }
@@ -1152,48 +1156,88 @@ export class MapRenderer {
         ctx.fill();
       }
     }
-    // КПП Верхнего города: стоп-линии перед шлагбаумами, полосатые носы островка, стеклянные будки.
-    const tsS = Math.max(1, Math.round(ts * s));
+    // Блок-пост на стене Верхнего города: стоп-линии и надписи, полосатый нос островка, перила, стол досмотра, окно,
+    // мебель поста, мешки огневой точки.
+    const R = (tx: number, ty: number, tw: number, th: number, c: string) => {
+      ctx.fillStyle = c;
+      ctx.fillRect(X(tx * ts), Y(ty * ts), X((tx + tw) * ts) - X(tx * ts), Y((ty + th) * ts) - Y(ty * ts));
+    };
+    const PB = GENERATOR.wealth.post;
     for (const g of this.borderGates) {
-      if (!near(g, 8) || g.id === undefined || g.id < 0) continue;
-      const B = GENERATOR.wealth.booth;
+      if (!near(g, PB.west + PB.east) || g.id === undefined || g.id < 0) continue;
       const i0 = g.y + g.id;
+      const i1 = g.y + g.h! - 1 - PB.lane;
+      const E = g.x + g.w!;
       const lw = Math.max(2, Math.round(s * 2.5));
+      // Стоп-линии: въезд — перед носом островка с запада, выезд — за площадкой досмотра с востока.
       ctx.fillStyle = L.stopLine;
-      // Въезд в Верхний город — южная полоса с запада, выезд — северная с востока.
-      ctx.fillRect(X((g.x - B - 1) * ts), Y((i0 + B) * ts), lw, Y((g.y + g.h!) * ts) - Y((i0 + B) * ts));
-      ctx.fillRect(X((g.x + g.w! + B + 1) * ts) - lw, Y(g.y * ts), lw, Y(i0 * ts) - Y(g.y * ts));
-      for (const nx of [g.x - B - 1, g.x + g.w! + B]) {
-        const x = X(nx * ts);
-        for (let k = 0; k < B * 2; k++) {
-          ctx.fillStyle = k % 2 ? L.hazardDark : L.hazard;
-          ctx.fillRect(x, Y((i0 + k / 2) * ts), tsS, Math.ceil(tsS / 2));
-        }
-      }
+      ctx.fillRect(X((g.x - PB.nose) * ts) - lw, Y((i1 + 1) * ts), lw, Y((g.y + g.h!) * ts) - Y((i1 + 1) * ts));
+      ctx.fillRect(X((E + PB.east) * ts), Y(g.y * ts), lw, Y(i0 * ts) - Y(g.y * ts));
+      text('СТОП', X((g.x - 2) * ts), Y((i1 + 1 + PB.lane / 2) * ts), ts * s * 0.7, L.stopLine);
+      text('ВЫЕЗД', X((E + PB.east - 3) * ts), Y((g.y + PB.lane / 2) * ts), ts * s * 0.6, L.stopLine);
+      // Нос островка — полосы «зебры» по западной грани.
+      const nx = g.x - PB.nose;
+      for (let k = 0; k < (i1 - i0 + 1) * 2; k++) R(nx, i0 + k / 2, 1, 0.5, k % 2 ? L.hazardDark : L.hazard);
+      // Перила вдоль выезда: бетонное основание, стойки и поручень.
+      const rx = E + 3;
+      const rw = PB.east - 3;
+      R(rx, i0, rw, 1, L.concrete);
+      R(rx, i0 + 0.42, rw, 0.16, L.rail);
+      for (let t = 0; t <= rw; t++) R(rx + t - 0.08, i0 + 0.3, 0.16, 0.4, L.railLight);
+    }
+    for (const t of this.borderTables) {
+      if (!near(t, 1)) continue;
+      // Стол досмотра: столешница, раскрытый чемодан, бумаги со штампом.
+      R(t.x, t.y, t.w!, t.h!, L.concrete);
+      R(t.x + 0.05, t.y + 0.1, t.w! - 0.1, 0.8, L.table);
+      R(t.x + 0.12, t.y + 0.16, t.w! - 0.24, 0.68, L.tableTop);
+      R(t.x + 0.5, t.y + 0.22, 1.3, 0.56, L.suitcase);
+      R(t.x + 0.58, t.y + 0.28, 0.55, 0.44, L.suitcaseLid);
+      R(t.x + t.w! - 1.4, t.y + 0.25, 0.7, 0.5, L.papers);
+      R(t.x + t.w! - 1.1, t.y + 0.4, 0.22, 0.2, L.stamp);
     }
     for (const b of this.booths) {
       if (!near(b, 1)) continue;
-      const x = X(b.x * ts);
-      const y = Y(b.y * ts);
-      const w = X((b.x + b.w!) * ts) - x;
-      const h = Y((b.y + b.h!) * ts) - y;
-      const t = tsS;
-      // Рама по краю, стекло в середине стенки, проём двери в торце face.
-      const doorE = b.face === 'E';
-      ctx.fillStyle = L.boothFrame;
-      ctx.fillRect(x, y, w, t);
-      ctx.fillRect(x, y + h - t, w, t);
-      ctx.fillRect(doorE ? x : x + w - t, y, t, h);
-      const g = Math.max(1, Math.round(t * 0.3));
-      ctx.fillStyle = L.boothGlass;
-      ctx.fillRect(x + t, y + g, w - 2 * t, t - 2 * g);
-      ctx.fillRect(x + t, y + h - t + g, w - 2 * t, t - 2 * g);
-      ctx.fillRect(doorE ? x + g : x + w - t + g, y + t, t - 2 * g, h - 2 * t);
-      ctx.fillStyle = L.boothGlint;
-      ctx.fillRect(x + t + g, y + g, Math.max(1, Math.round(t * 0.5)), Math.max(1, Math.round(g * 0.8)));
-      // Пульт у стекла — полоска по стене к островку.
-      ctx.fillStyle = L.boothFrame;
-      ctx.fillRect(doorE ? x + t : x + w - t - Math.round(t * 0.35), y + t, Math.round(t * 0.35), h - 2 * t);
+      // Окно в южной стене (стекло — см. генератор: со 2-го по 4-й тайл), мебель вдоль северной стены.
+      const wy = b.y + b.h! - 1;
+      R(b.x + 2, wy + 0.3, 3, 0.4, L.glass);
+      R(b.x + 2.2, wy + 0.32, 1, 0.1, L.glint);
+      const fy = b.y + 1;
+      R(b.x + 1, fy, b.w! - 2, 1, L.floor);
+      // Пирамида со стволами.
+      R(b.x + 1.1, fy + 0.1, 2.6, 0.5, L.rack);
+      for (let k = 0; k < 4; k++) R(b.x + 1.3 + k * 0.6, fy + 0.05, 0.14, 0.75, L.gun);
+      // Стол дежурного с рацией.
+      R(b.x + 4.3, fy + 0.1, 2.4, 0.8, L.desk);
+      R(b.x + 4.6, fy + 0.25, 0.7, 0.45, L.radio);
+      R(b.x + 5.15, fy + 0.3, 0.1, 0.1, L.radioLed);
+      R(b.x + 5.6, fy + 0.3, 0.8, 0.45, L.papers);
+      // Койки дежурной смены.
+      for (let k = 0; k < 2; k++) {
+        const bx = b.x + b.w! - 2.4 - k * 2.2;
+        R(bx, fy + 0.05, 2, 0.9, L.bunk);
+        R(bx + 0.1, fy + 0.12, 1.4, 0.76, L.blanket);
+        R(bx + 1.55, fy + 0.15, 0.35, 0.7, L.pillow);
+      }
+      text('ВС', X((b.x + b.w! - 1.5) * ts), Y((b.y + 0.5) * ts), ts * s * 0.55, L.stopLine);
+    }
+    for (const n of this.borderNests) {
+      if (!near(n, 1)) continue;
+      // Мешки с песком по краю огневой точки (П открыта к полосе — сверху).
+      const bag = (bx: number, by: number, bw: number, bh: number) => {
+        R(bx, by, bw, bh, L.sandEdge);
+        R(bx + 0.06, by + 0.06, bw - 0.12, bh - 0.12, L.sand);
+        R(bx + 0.06, by + bh * 0.6, bw - 0.12, bh * 0.3, L.sandDark);
+      };
+      for (let ty = n.y; ty < n.y + n.h!; ty++) {
+        for (let tx = n.x; tx < n.x + n.w!; tx++) {
+          const edge = tx === n.x || tx === n.x + n.w! - 1 || ty === n.y + n.h! - 1;
+          if (!edge) continue;
+          bag(tx, ty, 0.5, 0.5);
+          bag(tx + 0.5, ty + 0.15, 0.5, 0.5);
+          bag(tx + 0.1, ty + 0.5, 0.5, 0.5);
+        }
+      }
     }
     for (const k of this.kiosks) {
       if (!near(k, 1)) continue;

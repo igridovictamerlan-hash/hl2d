@@ -205,7 +205,11 @@ export type PoiType =
   | 'district'
   | 'border_gate'
   | 'border_post'
-  | 'border_booth';
+  | 'border_booth'
+  | 'border_check'
+  | 'border_duty'
+  | 'border_table'
+  | 'border_nest';
 
 /**
  * Полоса достатка (вариант B): Слобода у фронта — Старый город у площади — Верхний город за стеной Протектората.

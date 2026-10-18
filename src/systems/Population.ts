@@ -1,3 +1,4 @@
+import type { Poi } from '../world/GameMap';
 import { ARSENAL } from '../config/arsenal';
 import { PRISON } from '../config/prison';
 import { ACADEMY } from '../config/academy';
@@ -186,11 +187,13 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
     const desk = acad.desk ?? acad.placCenter;
     for (let k = 0; k < ACADEMY.instructors && desk; k++) put(cpSpec('instructor', 'instr'), freeSpot(ctx, desk, 0, 3, none0, 20) ?? desk);
   }
-  // Посты на стене Верхнего города: по RCT на место часового (проём на проспекте, лицом к Старому городу).
-  for (const p of [...ctx.map.poisOf('border_post'), ...ctx.map.poisOf('ges_post')]) {
+  // Блок-посты на стене Верхнего города: RCT проверяют документы, дежурные SU.03 — за столом досмотра и в огневой точке;
+  // у ворот ГЭС — по RCT на место часового.
+  const facingOf = (p: Poi) => (p.face === 'W' ? Math.PI : p.face === 'E' ? 0 : p.face === 'N' ? -Math.PI / 2 : Math.PI / 2);
+  for (const p of [...ctx.map.poisOf('border_post'), ...ctx.map.poisOf('border_duty'), ...ctx.map.poisOf('ges_post')]) {
     const post = { x: (p.x + 1) * ctx.map.tileSize, y: (p.y + 1) * ctx.map.tileSize };
-    const facing = p.face === 'W' ? Math.PI : p.face === 'E' ? 0 : p.face === 'N' ? -Math.PI / 2 : Math.PI / 2;
-    put(cpSpec('post', 'rct', { post, facing }), freeSpot(ctx, post, 0, 2, none0, 16) ?? post);
+    const border = p.type !== 'ges_post';
+    put(cpSpec('post', p.type === 'border_duty' ? 'su3' : 'rct', { post, facing: facingOf(p), border }), freeSpot(ctx, post, 0, 2, none0, 16) ?? post);
   }
   for (let k = 0; k < sc(C.publicPosts); k++) {
     const onPlaza = k % 2 === 0;
