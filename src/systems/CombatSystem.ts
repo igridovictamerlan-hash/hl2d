@@ -972,12 +972,12 @@ export class CombatSystem {
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
     if (c.law.phase !== 'none') this.law.release(c);
-    // Убийство выдаёт подпольщика под личиной: теперь его узнают, а за убитого из Протектората — враг и розыск.
+    // Убийство выдаёт подпольщика под личиной: маскировка спадает, он в розыске; за убитого из Протектората — ещё и враг.
     if (killer && killer !== c && killer.disguised) {
       this.reveal(killer, `убили ${c.name}`);
-      if (FACTIONS[c.faction].authority && !FACTIONS[killer.faction].authority) {
-        killer.hostile = true;
+      if (!FACTIONS[killer.faction].authority) {
         killer.law.wanted = true;
+        if (FACTIONS[c.faction].authority) killer.hostile = true;
       }
     }
     // Реплики: убийца радуется, свои рядом замечают потерю.

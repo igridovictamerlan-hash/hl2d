@@ -39,6 +39,20 @@ export class PrisonAssault {
     return self.health < self.maxHealth * f;
   }
 
+  /**
+   * Остановили на проверку у тюрьмы до сигнала (обыск нашёл бы автомат и бронежилет) — не сдаётся: сигнал
+   * штурма сейчас, процедура снята. По дороге (дальше PRISON.assault.early) — подчиняется: отстреливаться
+   * одному посреди города — верная гибель всей группы. true — сигнал дан.
+   */
+  static resist(self: Character, ctx: AiContext, g: UndergroundGroup | null, spot: Vec2): boolean {
+    const ph = self.law.phase;
+    if (!g || g.attack || (ph !== 'ordered' && ph !== 'checking')) return false;
+    if (ctx.map.levelAt(self.x, self.y) !== 'city' || Math.hypot(spot.x - self.x, spot.y - self.y) > PRISON.assault.early) return false;
+    ctx.law.clear(self);
+    ctx.insurgency.prisonAttack(g, self);
+    return true;
+  }
+
   /** Огонь запрещён: до сигнала и если не ранили недавно (решает мозг). */
   static holdFire(g: UndergroundGroup | null, hurt: boolean): boolean {
     return !g?.attack && !hurt;
@@ -74,7 +88,10 @@ export class PrisonAssault {
       }
       // Ведущий: все на местах (или ждали долго) — сигнал.
       if (self === g.lead && city) {
-        const ready = g.members.every((m) => m === self || (ctx.map.levelAt(m.x, m.y) === 'city' && Math.hypot(m.x - self.x, m.y - self.y) < P.huddle));
+        const ready =
+          g.members.every((m) => m === self || (ctx.map.levelAt(m.x, m.y) === 'city' && Math.hypot(m.x - self.x, m.y - self.y) < P.huddle)) &&
+          // Бойцы банд (союзники) тоже подошли — кто ещё идёт на это дело.
+          g.allies.every((a) => !a.alive || !a.fit || !ctx.gangs.stormingWith(a, g) || Math.hypot(a.x - self.x, a.y - self.y) < P.allyHuddle);
         // Патруль ВС рядом (не охрана тюрьмы) — переждать, пока уйдёт.
         let patrol = false;
         for (const o of ctx.entities.near(self.x, self.y, P.patrolClear, near)) {

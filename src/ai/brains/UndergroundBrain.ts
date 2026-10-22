@@ -264,6 +264,7 @@ export class UndergroundBrain implements Brain {
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
+    if (this.mode === 'prison' && this.assault) PrisonAssault.resist(self, ctx, ctx.insurgency.groupOf(self), this.assault.spot);
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
     // Скрытные дела (ствол бандиту, взлом, растяжка, саботаж, барыга) — огня не открывает, пока не ранят.
     const group = this.mode === 'base' ? null : ctx.insurgency.groupOf(self);

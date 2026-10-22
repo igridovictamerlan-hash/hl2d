@@ -60,14 +60,15 @@ describe('коды тревоги', () => {
     sim.war.command.paused = true;
     const admin = sim.entities.list.find((c) => c.faction === 'admin')!;
     const cit = sim.entities.list.find((c) => c.faction === 'citizen' && !c.isPlayer && c.role)!;
-    const name = cit.name;
+    // По номеру человека (pid): имена бывают одинаковыми (тёзка-бандит).
+    const pid = cit.pid;
     expect(sim.war.setCode('red', admin)).toBeNull();
     sim.combat.damage(cit, 9999, null);
     run(sim, ROSTER.respawn.citizen + 5);
-    expect(sim.entities.list.some((c) => c.alive && c.name === name)).toBe(false);
+    expect(sim.entities.list.some((c) => c.alive && c.pid === pid)).toBe(false);
     expect(sim.war.setCode('green', admin)).toBeNull();
     run(sim, 3);
-    expect(sim.entities.list.some((c) => c.alive && c.name === name)).toBe(true);
+    expect(sim.entities.list.some((c) => c.alive && c.pid === pid)).toBe(true);
   });
 
   test('Комендант погиб при красном коде — выборов нет до отбоя', () => {

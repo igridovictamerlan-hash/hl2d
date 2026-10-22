@@ -113,6 +113,11 @@ export class InsurgencySystem {
   paused = false;
   /** Когда начат последний взлом КПЗ. */
   private jailbreakAt = -1e9;
+  /** Налёт на тюрьму без своих в ней — не раньше (PRISON.assault.every). */
+  private nextStorm: number = PRISON.assault.every[0];
+  /** Сбор на тюрьму идёт до этого времени (-1 — нет); не собрались — новый сбор не раньше stormHold. */
+  private musterUntil = -1;
+  private stormHold = 0;
   stats = { armed: 0, interrogations: 0, broke: 0, raids: 0, riots: 0, jailbreaks: 0, groups: 0, ambushes: 0, looted: 0, alarms: 0, stashed: 0, fromStash: 0, fenced: 0 };
   /** Деньги подполья (выручка у барыги) — на заказы бандам. */
   funds = 0;
@@ -211,9 +216,11 @@ export class InsurgencySystem {
     this.giveCover(c);
   }
 
-  /** Новая личина (горожанин или рабочий ТС): при появлении и после возвращения в схрон. */
+  /** Новая личина (горожанин или рабочий ТС): при появлении и после возвращения в схрон. С ней — чистые документы. */
   giveCover(c: Character): void {
     c.disguised = true;
+    c.law.wanted = false;
+    c.hostile = false;
     const cwu = this.ctx.rng.chance(PARTISANS.cwuCoverShare);
     this.ctx.combat.equip(c, null);
     c.cover = { faction: cwu ? 'cwu' : 'citizen', rank: 0, profession: cwu ? 'janitor' : 'citizen', name: null };
@@ -668,7 +675,7 @@ export class InsurgencySystem {
 
   /** Можно ли спецагенту выходить на миссии. */
   canRunAgent(): boolean {
-    return !this.paused;
+    return !this.paused && !this.mustering;
   }
 
   /** Взлом КПЗ (партизаны и агенты) — не чаще раза в PARTISANS.jailCooldown с. */
@@ -688,14 +695,49 @@ export class InsurgencySystem {
 
   /**
    * Пора штурмовать тюрьму: тюрьма есть, в ней свой подпольщик (или не меньше PRISON.assault.minArmy
-   * бойцов армии), взлома давно не было и свободных подпольщиков и спецагентов хватает на группу.
+   * бойцов армии, или — налёт раз в PRISON.assault.every с — хоть кто-то сидит), взлома давно не было и
+   * свободных подпольщиков и спецагентов хватает на группу.
    */
   prisonReady(): boolean {
+    return this.stormDue() && this.prisonTeam().length >= PRISON.assault.team[0];
+  }
+
+  /** Пора на тюрьму (хватает ли людей — не важно): свои там или налёт по сроку. */
+  private stormDue(): boolean {
     const { ctx } = this;
-    if (!ctx.prison?.present || !this.jailbreakReady) return false;
+    if (!ctx.prison?.present || !this.jailbreakReady || this.time < this.stormHold) return false;
     const jailed = ctx.law.imprisoned();
-    if (!jailed.some(isUnderground) && jailed.filter(isArmy).length < PRISON.assault.minArmy) return false;
-    return this.prisonTeam().length >= PRISON.assault.team[0];
+    const P = PRISON.assault;
+    const ours = jailed.some(isUnderground) || jailed.filter(isArmy).length >= P.minArmy;
+    return ours || (this.time >= this.nextStorm && jailed.length >= P.inmates);
+  }
+
+  /** Идёт сбор на тюрьму: новых дел нет, спецагенты ждут в схроне. */
+  get mustering(): boolean {
+    return this.musterUntil >= 0;
+  }
+
+  /**
+   * Сбор на тюрьму (PRISON.assault.muster): пора — ждут своих в схроне, набралось — штурм; не собрались за
+   * muster с — отбой до следующей попытки.
+   */
+  private updateMuster(): void {
+    const P = PRISON.assault;
+    if (!this.stormDue()) {
+      this.musterUntil = -1;
+      return;
+    }
+    if (this.musterUntil < 0) {
+      this.musterUntil = this.time + P.muster.time;
+      this.say('сбор в схроне: идём на тюрьму. Новых дел не берём.');
+    }
+    // Ждут своих (muster.min); к концу сбора идут и меньшим числом.
+    const last = this.time >= this.musterUntil - 2;
+    if (this.prisonTeam().length >= (last ? P.team[0] : P.muster.min) && this.startPrisonAssault()) this.musterUntil = -1;
+    else if (this.time >= this.musterUntil) {
+      this.musterUntil = -1;
+      this.stormHold = this.time + P.muster.time;
+    }
   }
 
   /** Кто пойдёт на тюрьму: свободные подпольщики под личиной и спецагенты в схроне. */
@@ -755,7 +797,10 @@ export class InsurgencySystem {
     this.ops.push(op);
     this.operations++;
     ctx.prison.stats.assaults++;
-    this.say(`все свободные (${team.length}) идут на тюрьму Протектората — вызволять наших!`);
+    this.nextStorm = this.time + ctx.rng.range(P.every[0], P.every[1]);
+    // Банды — союзники: их бойцы ждут у места сбора и по сигналу бьют охрану (GangOpBrain, дело storm).
+    g.allies = ctx.gangs.joinStorm(center, g);
+    this.say(`все свободные (${team.length}) идут на тюрьму Протектората — вызволять наших!${g.allies.length ? ` С нами братва с районов: ${g.allies.length}.` : ''}`);
     return op;
   }
 
@@ -829,10 +874,15 @@ export class InsurgencySystem {
     return ctx.map.hatches.length && hatch(b) < hatch(a) ? b : a;
   }
 
-  /** Переодеться в убитого (форма с тела). */
+  /**
+   * Переодеться в убитого (форма с тела). Розыск и «враг» снимаются: ВС ищет не форму своего, а того, кого
+   * видели, — иначе по спецагенту в форме стреляли бы сразу.
+   */
   dressAs(c: Character, corpse: Corpse): void {
     corpse.stripped = true;
     c.disguised = true;
+    c.law.wanted = false;
+    c.hostile = false;
     c.cover = { faction: corpse.faction, rank: corpse.rank, profession: corpse.profession, name: corpse.name };
     this.ctx.combat.equip(c, null);
     c.say(this.ctx.rng.pick(PARTISANS.lines.agent), this.ctx.law.now, 2);
@@ -1048,8 +1098,9 @@ export class InsurgencySystem {
     if (this.raid && this.time >= this.raid.until) this.endRaid();
     if (!this.base) return;
     if (this.paused) return;
-    // Вылазки: убежище живёт — ходят по тоннелям, на рынок, наверх через люки.
-    if (this.time >= this.nextOuting) {
+    this.updateMuster();
+    // Вылазки: убежище живёт — ходят по тоннелям, на рынок, наверх через люки (на сборе — нет).
+    if (this.time >= this.nextOuting && !this.mustering) {
       this.nextOuting = this.time + ctx.rng.range(INSURGENCY.outingEvery[0], INSURGENCY.outingEvery[1]);
       this.startOuting();
     }
@@ -1073,7 +1124,7 @@ export class InsurgencySystem {
       this.ops.splice(i, 1);
       if (this.op === op) this.op = null;
     }
-    if (this.time >= this.nextOp) {
+    if (this.time >= this.nextOp && !this.mustering) {
       this.nextOp = this.time + (this.startOperation() ? ctx.rng.range(INSURGENCY.opEvery[0], INSURGENCY.opEvery[1]) : 10);
     }
   }

@@ -234,6 +234,7 @@ export class AgentBrain implements Brain {
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
+    if (this.mission === 'prison' && this.mode === 'mission' && this.assault) PrisonAssault.resist(self, ctx, ctx.insurgency.groupOf(self), this.assault.spot);
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
     const A = PARTISANS.agent;
     const now = ctx.combat.now;

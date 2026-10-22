@@ -21,7 +21,7 @@ import { T } from '../world/tiles';
 import { apparentFaction, coverAuthority } from '../entities/cover';
 import { PrisonerBrain } from '../ai/brains/PrisonerBrain';
 import { CHARACTER } from '../config/entities';
-import { PARTISANS } from '../config/underground';
+import { PARTISANS, UNDERGROUND } from '../config/underground';
 import { SUSPECTS } from '../config/suspects';
 import { ITEMS, type ItemId } from '../config/items';
 import type { Vec2 } from '../core/math';
@@ -240,6 +240,13 @@ export class LawSystem {
   /** Задаёт Game: дело по персонажу закрыто (задержан, водворён в камеру) — Suspects. */
   closeCase: (c: Character) => void = () => {};
 
+  /** Подпольщик под личиной у люка в запретной зоне (UNDERGROUND.hatchShadow): его там не замечают. */
+  private inHatchShadow(c: Character): boolean {
+    if (c.faction !== 'rebel' || !c.disguised) return false;
+    const r = UNDERGROUND.hatchShadow;
+    return this.map.hatches.some((h) => Math.hypot(h.city.x - c.x, h.city.y - c.y) < r);
+  }
+
   /** Нарушение, которое observer видит прямо сейчас, или null. */
   observe(observer: Character, target: Character): Violation | null {
     // Лежащего тяжелораненого не «замечают» как нарушителя: его задерживают отдельно (ai/Tactics).
@@ -258,7 +265,8 @@ export class LawSystem {
     if (this.fightCheck(target)) return 'fight';
     const zk = this.map.zoneAtWorld(target.x, target.y)?.kind;
     // В порт (зона ГЭС) докерам ТС — по работе.
-    if (zk === 'restricted' || (zk === 'ges' && !(target.profession === 'packer' && apparentFaction(target) === 'cwu'))) return 'restricted';
+    if (zk === 'restricted' && !this.inHatchShadow(target)) return 'restricted';
+    if (zk === 'ges' && !(target.profession === 'packer' && apparentFaction(target) === 'cwu')) return 'restricted';
     // На склад Протектората посторонним нельзя (рабочие ТС — по работе).
     if (zk === 'arsenal' && apparentFaction(target) === 'citizen') return 'restricted';
     // В тюрьму посторонним нельзя никому.

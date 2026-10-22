@@ -249,6 +249,7 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Преступность: ${JSON.stringify((sim.crime as unknown as { stats?: object }).stats ?? {})}`);
   out.push(`Банды: ${JSON.stringify((sim.ctx.gangs as unknown as { stats?: object }).stats ?? {})}; драки: ${JSON.stringify(sim.ctx.brawls.stats)}`);
   out.push(`Подполье: ${JSON.stringify((sim.insurgency as unknown as { stats?: object }).stats ?? {})}`);
+  out.push(`Тюрьма: ${JSON.stringify(sim.prison.stats)}; штурмы банд: ${sim.ctx.gangs.gangs.map((g) => g.stats.storms).join('/')}`);
   for (let i = 0; i < 2; i++) {
     const part = [0, 1].map((o) => {
       const c = fronts[i][o];

@@ -7,6 +7,7 @@ import type { Vec2 } from '../core/math';
 import type { Dwelling } from './Housing';
 import type { StreetShop } from './StreetShops';
 import type { Convoy } from './Arsenal';
+import type { UndergroundGroup } from './InsurgencySystem';
 import { Inventory } from '../entities/Inventory';
 import { ROUTINE } from '../config/routine';
 import { GANGS, FENCE, type GangDef } from '../config/gangs';
@@ -17,7 +18,7 @@ import { spawnRole } from './Roster';
 import { GangOpBrain } from '../ai/brains/GangOpBrain';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 
-export type GangOpKind = 'racket' | 'raid' | 'hit' | 'convoy' | 'buy' | 'sell';
+export type GangOpKind = 'racket' | 'raid' | 'hit' | 'convoy' | 'buy' | 'sell' | 'storm';
 
 /** Дело банды: кто идёт, куда, до какого времени. */
 export interface GangOp {
@@ -35,6 +36,8 @@ export interface GangOp {
   paid: boolean;
   /** Дань уже собрана, ствол куплен. */
   done: boolean;
+  /** Штурм вместе с подпольем: его группа (сигнал — group.attack). */
+  group?: UndergroundGroup | null;
 }
 
 export interface Gang {
@@ -59,7 +62,7 @@ export interface Gang {
   /** Удар по ВС (hit) — не раньше этого времени (GANGS.ops.hit.cooldown). */
   nextHit: number;
   op: GangOp | null;
-  stats: { racket: number; raids: number; hits: number; convoys: number; buys: number; sells: number; feuds: number; looted: number };
+  stats: { racket: number; raids: number; hits: number; convoys: number; buys: number; sells: number; feuds: number; looted: number; storms: number };
 }
 
 /**
@@ -160,7 +163,7 @@ export class GangSystem {
         nextOp: rng.range(GANGS.ops.first[0], GANGS.ops.first[1]),
         nextHit: 0,
         op: null,
-        stats: { racket: 0, raids: 0, hits: 0, convoys: 0, buys: 0, sells: 0, feuds: 0, looted: 0 },
+        stats: { racket: 0, raids: 0, hits: 0, convoys: 0, buys: 0, sells: 0, feuds: 0, looted: 0, storms: 0 },
       });
     });
     // Бойцы разных банд в стычке — враги друг другу (CombatSystem.isHostile).
@@ -300,6 +303,8 @@ export class GangSystem {
       for (const b of ctx.entities.near(a.x, a.y, F.see, near)) {
         if (b.gang < 0 || b.gang === a.gang || !b.fit || b.law.phase !== 'none') continue;
         if (this.feuding(a.gang, b.gang)) break;
+        // Вместе штурмуют тюрьму с подпольем — сегодня союзники.
+        if (this.allied(a, b)) continue;
         if (!lineOfSight(ctx.map, a.x, a.y, b.x, b.y)) continue;
         // Стреляют за свой район и не на глазах у ВС; иначе — перебранка.
         const home = this.inTurf(this.gangs[a.gang], a.x, a.y) || this.inTurf(this.gangs[b.gang], b.x, b.y);
@@ -308,6 +313,13 @@ export class GangSystem {
         break;
       }
     }
+  }
+
+  /** Оба на одном штурме с подпольем (дело storm с одной группой). */
+  private allied(a: Character, b: Character): boolean {
+    const ga = this.gangs[a.gang]?.op;
+    const gb = this.gangs[b.gang]?.op;
+    return !!ga?.group && ga.kind === 'storm' && gb?.kind === 'storm' && ga.group === gb.group;
   }
 
   /** ВС рядом и видит кого-то из двоих — стрелять при них банды не станут. */
@@ -478,7 +490,7 @@ export class GangSystem {
   }
 
   /** Начать дело (или конкретное — для тестов). */
-  startOp(g: Gang, kind?: GangOpKind, paid = false): GangOp | null {
+  startOp(g: Gang, kind?: GangOpKind, paid = false, storm?: { at: Vec2; group: UndergroundGroup }): GangOp | null {
     const { ctx } = this;
     const O = GANGS.ops;
     const free = this.free(g).sort((a, b) => Math.hypot(a.x - g.hq.x, a.y - g.hq.y) - Math.hypot(b.x - g.hq.x, b.y - g.hq.y));
@@ -547,6 +559,13 @@ export class GangSystem {
         op.team = pickN(O.convoy.size);
         op.until = this.time + O.convoy.time;
         break;
+      case 'storm':
+        if (!storm) return null;
+        op.target = storm.at;
+        op.group = storm.group;
+        op.team = pickN(O.storm.size);
+        op.until = this.time + O.storm.time;
+        break;
       case 'buy':
       case 'sell':
         if (!ctx.fence?.counter) return null;
@@ -577,10 +596,34 @@ export class GangSystem {
     if (type === 'raid') g.stats.raids++;
     if (type === 'hit') g.stats.hits++;
     if (type === 'convoy') g.stats.convoys++;
+    if (type === 'storm') g.stats.storms++;
     for (const c of op.team) c.brain = new GangOpBrain(c, ctx, op, c.brain);
     const boss = this.boss(g);
     if (boss && !boss.isPlayer) boss.say(ctx.rng.pick(GANGS.lines.boss), ctx.law.now, 2.5);
     return op;
+  }
+
+  /**
+   * Подполье идёт штурмом на тюрьму и зовёт банды: каждая, где хватает свободных бойцов, шлёт GANGS.ops.storm.size
+   * к месту сбора at (мирное дело — дань, торговля, налёт — бросают; удар по ВС и засаду — нет). Кто пошёл.
+   */
+  joinStorm(at: Vec2, group: UndergroundGroup): Character[] {
+    const out: Character[] = [];
+    for (const g of this.gangs) {
+      if (g.op) {
+        if (g.op.kind === 'hit' || g.op.kind === 'convoy' || g.op.kind === 'storm') continue;
+        this.endOp(g);
+      }
+      const op = this.startOp(g, 'storm', false, { at, group });
+      if (op) out.push(...op.team);
+    }
+    return out;
+  }
+
+  /** Боец ещё на штурме с этой группой подполья. */
+  stormingWith(c: Character, group: UndergroundGroup): boolean {
+    const b = c.brain;
+    return b instanceof GangOpBrain && b.op.kind === 'storm' && b.op.group === group;
   }
 
   private endOp(g: Gang): void {
