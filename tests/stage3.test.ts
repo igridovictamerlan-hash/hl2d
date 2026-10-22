@@ -43,7 +43,7 @@ function pairInSight(sim: Sim, d: number): [number, number] {
 }
 
 describe('экономика', () => {
-  test('раздача рационов: очередь, ТС выдаёт, граждане получают паёк и токены', { timeout: 60_000 }, () => {
+  test('раздача рационов: очередь, ТС выдаёт, граждане получают паёк и токены', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     // Горожан побольше: бандиты в очередь на площадь ходят только парами — из 20 их заметная доля.
     spawnPopulation(sim.ctx, 30);
@@ -58,8 +58,15 @@ describe('экономика', () => {
     cook.x = cook.prevX = sim.economy.dispenserSpot.x;
     cook.y = cook.prevY = sim.economy.dispenserSpot.y + 30;
     const before = new Map(sim.entities.list.map((c) => [c, c.money]));
-    run(sim, ECONOMY.rations.firstDelay + ECONOMY.rations.duration - 1);
-    const served = sim.entities.list.filter((c) => sim.economy.hasBeenServed(c));
+    // Две раздачи подряд, получившие — за обе: город 480×270, в очередь записываются и через полгорода, и кто успеет
+    // к окну за одну раздачу, решает случай заселения (кто записался первым), а не работа очереди.
+    const R = ECONOMY.rations;
+    const ids = new Set<number>();
+    run(sim, R.firstDelay + R.interval + R.duration - 1, () => {
+      for (const c of sim.entities.list) if (sim.economy.hasBeenServed(c)) ids.add(c.id);
+      return false;
+    });
+    const served = sim.entities.list.filter((c) => ids.has(c.id));
     console.log(`получили рацион: ${served.length}, работник: ${sim.economy.dispenser?.name ?? '—'}`);
     expect(served.length).toBeGreaterThanOrEqual(5);
     // Токены пришли почти всем (у кого-то их по пути вытащил вор или взял медик ТС).

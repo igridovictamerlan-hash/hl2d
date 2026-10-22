@@ -84,6 +84,19 @@ function near(sim: Sim, a: Character, b: Character, d = 1.5): void {
   sim.entities.rebuildHash();
 }
 
+/**
+ * Встреча вдвоём: остальных, кого a знает в лицо (родня живёт и ходит рядом, друзья из заселения), — дальше обзора
+ * встреч. Иначе a здоровается с ближайшим из своих (родня важнее друга), и кто это будет — дело случая заселения.
+ */
+function othersAway(sim: Sim, a: Character, b: Character, r = RELATIONS.scan.range * 2): void {
+  for (const o of sim.entities.list) {
+    if (o === a || o === b || !sim.ctx.relations.knows(a, o) || Math.hypot(o.x - a.x, o.y - a.y) > r) continue;
+    o.x = o.prevX = a.x + r * 3;
+    o.y = o.prevY = a.y;
+  }
+  sim.entities.rebuildHash();
+}
+
 /** Все ВС дальше r px от точки c (иначе при них недруги не лезут драться). */
 function copsAway(sim: Sim, c: Character, r = 900): void {
   for (const o of sim.entities.list) {
@@ -329,6 +342,7 @@ describe('жизнь на улице', () => {
     idle(a);
     idle(b);
     R.link(a, b, 55, 45);
+    othersAway(sim, a, b);
     let chatted = false;
     for (let k = 0; k < 30 && !chatted; k++) {
       R['scan'](a);
@@ -339,6 +353,7 @@ describe('жизнь на улице', () => {
         idle(c);
       }
       near(sim, a, b);
+      othersAway(sim, a, b);
     }
     expect(R.stats.greets).toBeGreaterThan(0);
     expect(a.speech?.text ?? '').not.toBe('');
