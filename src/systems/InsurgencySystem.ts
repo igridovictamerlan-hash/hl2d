@@ -702,7 +702,13 @@ export class InsurgencySystem {
   private prisonTeam(): Character[] {
     const free = this.idle().filter((c) => c.disguised && !c.law.wanted);
     const agents = this.agents.filter((a) => a.alive && !a.isPlayer && a.brain instanceof AgentBrain && a.brain.mode === 'base' && a.law.phase === 'none' && !a.law.wanted);
-    return [...free, ...agents].slice(0, PRISON.assault.team[1]);
+    // Через одного: ведёт партизан, спецагенты идут вместе с ними — партизаны не занимают все места группы.
+    const team: Character[] = [];
+    for (let k = 0; k < Math.max(free.length, agents.length); k++) {
+      if (k < free.length) team.push(free[k]);
+      if (k < agents.length) team.push(agents[k]);
+    }
+    return team.slice(0, PRISON.assault.team[1]);
   }
 
   /**
