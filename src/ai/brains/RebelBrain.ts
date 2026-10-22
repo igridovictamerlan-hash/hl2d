@@ -65,6 +65,8 @@ export class RebelBrain implements Brain {
   /** Обычный шаг (на тропе через пустошь — быстрее). */
   private readonly baseSpeed: number;
   private relocate = 0;
+  /** В лагере: идёт в обход (COMMAND.campPatrol), а не к костру. */
+  private patrolling = false;
   private goal = -1;
   private suppressIn = 0;
   private suppressLeft = 0;
@@ -224,6 +226,7 @@ export class RebelBrain implements Brain {
   /** В лагерь (новый или возрождённый боец). */
   toCamp(): void {
     this.mode = 'camp';
+    this.patrolling = false;
     this.linePos = null;
     this.dashBack = false;
     this.goal = -1;
@@ -1019,7 +1022,7 @@ export class RebelBrain implements Brain {
         const camp = poiWorld(ctx, 'rebel_camp');
         if (!camp) break;
         const inCamp = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'rebel_camp';
-        this.mover.speed = inCamp ? 60 : CHARACTER.runSpeed * 0.6;
+        this.mover.speed = this.patrolling ? COMMAND.campPatrol.speed : inCamp ? 60 : CHARACTER.runSpeed * 0.6;
         // У костра — разговоры (наступление, погибшие, свои в тюрьме); пока говорят — стоят.
         if (inCamp && ctx.talk?.busy(self)) {
           this.mover.stop();
@@ -1027,9 +1030,14 @@ export class RebelBrain implements Brain {
           break;
         }
         if (inCamp && this.mover.status === 'arrived') ctx.talk?.chatNear(self, 'camp', dt, (o) => o.faction === 'rebel' && o.brain instanceof RebelBrain && o.brain.mode === 'camp');
-        if (this.goal < 0 || this.mover.status === 'failed' || (this.mover.status === 'arrived' && this.relocate <= 0)) {
-          this.relocate = ctx.rng.range(4, 10);
-          const a = randomAnchorAround(camp, ctx, 1, 7, new Set());
+        // Дойдя, боец останавливается (mover → idle): новое место — и после остановки, иначе стоял бы до наступления.
+        const still = this.mover.status === 'arrived' || this.mover.status === 'idle';
+        if (this.goal < 0 || this.mover.status === 'failed' || (still && this.relocate <= 0)) {
+          // Между наступлениями не стоят у костра: здоровые и снаряжённые ходят в обход вокруг лагеря.
+          const P = COMMAND.campPatrol;
+          this.patrolling = this.restocked && self.health >= self.maxHealth * COMMAND.readyHealth && ctx.rng.chance(P.chance);
+          this.relocate = this.patrolling ? ctx.rng.range(P.pause[0], P.pause[1]) : ctx.rng.range(4, 10);
+          const a = this.patrolling ? randomAnchorAround(camp, ctx, P.dist[0], P.dist[1], new Set()) : randomAnchorAround(camp, ctx, 1, 7, new Set());
           this.go(a >= 0 ? a : ctx.nav.nearestWalkable(camp.x, camp.y, 6));
         } else if (this.mover.status === 'arrived') this.mover.stop();
         break;

@@ -13,10 +13,10 @@ export const ROSTER = {
    */
   army: [
     ['rebel_leader', 1],
-    ['veteran', 3],
+    ['veteran', 4],
     ['rebel_medic', 2],
-    ['rebel_soldier', 6],
-    ['rebel_recruit', 4],
+    ['rebel_soldier', 10],
+    ['rebel_recruit', 6],
     ['pyro', 1],
     ['demolitionist', 1],
   ] as [ProfessionId, number][],
@@ -30,7 +30,7 @@ export const ROSTER = {
     ['hydra_sniper', 1],
   ] as [ProfessionId, number][],
   /** Партизаны в схроне под городом (ходят люками, на дела — группами): подпольщики и спецагенты. */
-  partisans: 4,
+  partisans: 6,
   agents: 3,
   /** OTA: командир OTA.KING и бойцы OTA.ALPHA (часть — с дробовиками). Воюют только на КПП. */
   ota: [
@@ -125,7 +125,7 @@ export const COMMAND = {
   firstMarch: 4,
   /** Отвлекающая группа на второй КПП во время наступления; между наступлениями разведка — scouts бойцов. */
   diversion: 3,
-  scouts: 2,
+  scouts: 4,
   /** Неудачных каптов подряд — и глава пересматривает цель. */
   retargetAfterFails: 2,
   /** spread — идут за главой врассыпную: радиус от spread[0] px, шаг spread[1] px (4 кольца). */
@@ -135,6 +135,12 @@ export const COMMAND = {
   readyHealth: 0.85,
   /** По тропе через пустошь армия идёт быстрым шагом: доля скорости бега. */
   trailSpeed: 0.7,
+  /**
+   * Жизнь лагеря между наступлениями: здоровый и снаряжённый боец со шансом chance вместо места у костра
+   * идёт в обход вокруг лагеря — на dist[0]…dist[1] якорей от центра, шагом speed px/с, у точки обхода
+   * стоит pause с.
+   */
+  campPatrol: { chance: 0.5, dist: [9, 22] as const, speed: 80, pause: [1, 3] as const },
   /** HYDRA держится не дальше этого от главы (px). */
   escortRange: 90,
 } as const;

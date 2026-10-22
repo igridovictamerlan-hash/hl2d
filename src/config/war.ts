@@ -25,10 +25,10 @@ export const WAR = {
    * дольше maxTime с без прорыва — тоже отход. Держащие захваченные посты остаются на них.
    */
   offensive: {
-    firstAfter: 300,
-    interval: [420, 720] as const,
+    firstAfter: 180,
+    interval: [300, 480] as const,
     hours: [21, 6] as const,
-    maxWait: 600,
+    maxWait: 360,
     minReady: 12,
     breakLoss: 0.5,
     maxTime: 300,

@@ -7,7 +7,7 @@
   уровне (`climb` ставит на свободный якорь, без интерполяции). NPC ходят через люки `HatchTravel`:
   `route` выбирает пару люков по сумме «сюда → люк» + «люк → цель».
 - Люков два (в запретной зоне у края), пользуются ими только партизаны и спецагент (`UndergroundSystem.canUse`).
-  Схрон: `ROSTER.partisans` (4) партизана (`UndergroundBrain`, автомат в кармане) и `ROSTER.agents` (3) спецагента (MP7 и USP)
+  Схрон: `ROSTER.partisans` (6) партизан (`UndergroundBrain`, автомат в кармане) и `ROSTER.agents` (3) спецагента (MP7 и USP)
   (`AgentBrain`, роль `agent`, `InsurgencySystem.agents`; `agent` — первый) — постоянный состав; тайник (E: патроны к своим стволам,
   `refillAmmo`), игрок-партизан и игрок-спецагент появляются здесь.
 - **Личина** (`Character.cover` — фракция, юнит, профессия, имя; `entities/cover.ts`: `apparentFaction`,
