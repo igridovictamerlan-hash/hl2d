@@ -2,6 +2,7 @@
 import type { AiContext } from '../ai/AiContext';
 import { CROWD } from '../config/crowd';
 import { T, SOLID } from '../world/tiles';
+import { inCustody } from './CombatSystem';
 
 /**
  * Карта толпы (CROWD): город — клетки cell × cell тайлов, у каждой вместимость по проходимой площади; раз в every с
@@ -72,7 +73,8 @@ export class CrowdMap {
   /**
    * Замер (worldstats, тест толпы), считает заново — и при выключенной карте: жителей города (горожане, ТС,
    * поднадзорные), из них у площади (ближе CROWD.near тайлов к её центру) и в переполненных клетках (загрузка
-   * выше 1), людей в самой полной клетке.
+   * выше 1), людей в самой полной клетке. Задержанные (в наручниках, в камере) — не толпа: в жители не идут, но место
+   * в клетке занимают.
    */
   snapshot(): { people: number; nearPlaza: number; over: number; peak: number } {
     const { map } = this.ctx;
@@ -85,7 +87,7 @@ export class CrowdMap {
       if (!c.alive || map.levelAt(c.x, c.y) !== 'city') continue;
       const k = this.cellAt(c.x, c.y);
       all[k]++;
-      if (c.faction !== 'citizen' && c.faction !== 'cwu' && c.faction !== 'vort') continue;
+      if ((c.faction !== 'citizen' && c.faction !== 'cwu' && c.faction !== 'vort') || inCustody(c)) continue;
       res.push(k);
       if (plaza && Math.hypot(c.x - plaza.x, c.y - plaza.y) < near) nearPlaza++;
     }
