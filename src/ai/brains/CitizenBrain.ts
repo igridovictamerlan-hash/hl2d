@@ -154,6 +154,10 @@ export class CitizenBrain implements Brain {
   heardBroadcast = 0;
   /** Остановился оглядеться: до какого времени, куда смотрит, куда шёл. */
   glanceUntil = 0;
+  /** Ствол в упор: замер до этого времени лицом к стрелку (sawArmed). */
+  private freezeUntil = 0;
+  private freezeBy: Character | null = null;
+  private armedBarkAt = -1e9;
   glanceDir = 0;
   glanceGoal = -1;
   /** Бунт (спецагент поднял): вокруг какой точки и до какого времени. */
@@ -268,6 +272,18 @@ export class CitizenBrain implements Brain {
     }
     const cur = this.fsm.current;
     self.task = cur === 'panic' || cur === 'flee' ? 'panic' : cur === 'work' && this.job ? WORK_TASK[this.job.kind] ?? '' : '';
+    // Ствол в упор (Senses.sawArmed): замер лицом к стрелку, руки вверх — пока он целится; потом страх решит, бежать ли.
+    if (this.freezeUntil > ctx.law.now && phase === 'none') {
+      const a = this.freezeBy;
+      if (a && a.alive && a.weapon && !a.downed) {
+        self.task = 'hands';
+        this.mover.stop();
+        this.mover.update(self, ctx, dt);
+        faceTowards(self, a.x, a.y, dt);
+        return;
+      }
+      this.freezeUntil = 0;
+    }
     if ((phase === 'ordered' || phase === 'checking') && cur === 'crew') {
       // Ведомого проверяет ВС — стоит, но из пары не уходит (ведущий ждёт).
       this.mover.stop();
@@ -900,6 +916,34 @@ export class CitizenBrain implements Brain {
       }
       default:
         return 2;
+    }
+  }
+
+  /**
+   * Увидел человека со стволом (Senses, SENSES.armed): ствол на него вплотную — замер, руки вверх («Не стреляй!»);
+   * иначе — вскрик «у него ствол!» (не чаще barkEvery с). Испуг и бегство решает страх (react).
+   */
+  sawArmed(actor: Character, aimed: boolean, d: number): void {
+    const { self, ctx } = this;
+    if (self.isPlayer || self.gang >= 0 || self.faction === 'rebel' || self.law.phase !== 'none') return;
+    const S = ctx.senses;
+    const A = SENSES.armed;
+    const now = ctx.law.now;
+    const cur = this.fsm.current;
+    const quiet = !(self.speech && self.speech.until > now);
+    if (aimed && d < A.aim.freeze && cur !== 'brawl' && cur !== 'crew' && cur !== 'report') {
+      if (this.freezeUntil <= now) {
+        S.stats.freezes++;
+        if (quiet) self.say(phrase(S.rng, self, SENSES.lines.aimed), now, 2);
+        this.armedBarkAt = now;
+      }
+      this.freezeUntil = now + S.rng.range(A.aim.time[0], A.aim.time[1]);
+      this.freezeBy = actor;
+      return;
+    }
+    if (quiet && now - this.armedBarkAt > A.barkEvery && S.rng.chance(0.5)) {
+      this.armedBarkAt = now;
+      self.say(phrase(S.rng, self, aimed ? SENSES.lines.aimed : SENSES.lines.armed), now, 1.8);
     }
   }
 

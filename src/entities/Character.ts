@@ -245,7 +245,7 @@ export class Character {
   throwAng = 0;
   hurtAng = 0;
   /** Чем занят руками на работе (только отрисовка): инструмент, письмо, нагнулся над чем-то. */
-  task: '' | 'tool' | 'write' | 'crouch' | 'panic' = '';
+  task: '' | 'tool' | 'write' | 'crouch' | 'panic' | 'hands' = '';
   /** Кивает собеседнику с этого времени; отдаёт честь офицеру до этого времени (только отрисовка). */
   nodAt = -1e9;
   saluteUntil = 0;

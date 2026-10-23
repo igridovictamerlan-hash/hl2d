@@ -164,6 +164,53 @@ describe('Город реагирует', () => {
     expect(sim.ctx.senses.stats.witnessed).toBeGreaterThan(0);
   });
 
+  test('ствол в руках: прохожие пугаются и сторонятся; на кого целится вплотную — замер, руки вверх; ВС рядом — зовут', () => {
+    const sim = setup();
+    const s = scene(sim, 4);
+    // Человек со стволом в центре сцены; первый прохожий — под прицелом, остальные — вокруг.
+    const gun = citizen(sim, s.c);
+    gun.brain = null;
+    gun.inventory.add('rebel_pistol', 1);
+    sim.ctx.combat.equip(gun, 'rebel_pistol');
+    const ws = s.around.map((p) => citizen(sim, p, s.c));
+    const aimedAt = ws[0];
+    const aim = () => (gun.facing = Math.atan2(aimedAt.y - gun.y, aimedAt.x - gun.x));
+    aim();
+    run(sim, 3, () => {
+      aim();
+      return false;
+    });
+    // Под прицелом — замер лицом к стрелку, руки вверх; остальные — хотя бы насторожились.
+    expect(aimedAt.task).toBe('hands');
+    expect(sim.ctx.senses.stats.freezes).toBeGreaterThanOrEqual(1);
+    expect(ws.slice(1).every((w) => sim.ctx.senses.tier(w) >= 1)).toBe(true);
+    // Опустил ствол — прохожий больше не стоит с поднятыми руками: страх гонит прочь.
+    sim.ctx.combat.equip(gun, null);
+    run(sim, 8);
+    expect(aimedAt.task).not.toBe('hands');
+    expect(['panic', 'hide'].includes(stateOf(aimedAt))).toBe(true);
+  });
+
+  test('ствол в руках: прохожий видит ВС рядом — зовёт его, ВС идёт останавливать вооружённого', () => {
+    const sim = setup();
+    const s = scene(sim, 1);
+    const gun = citizen(sim, s.c);
+    gun.brain = null;
+    gun.inventory.add('rebel_pistol', 1);
+    sim.ctx.combat.equip(gun, 'rebel_pistol');
+    // Ствол — в сторону от прохожего (не замрёт); прохожий смотрит на него.
+    gun.facing = Math.atan2(s.c.y - s.around[0].y, s.c.x - s.around[0].x);
+    const w = citizen(sim, s.around[0], s.c);
+    // ВС у прохожего, спиной к стрелку: сам его не видит — узнаёт от прохожего.
+    const at = ring(sim, w, 50, 160).find((q) => Math.hypot(q.x - s.c.x, q.y - s.c.y) > Math.hypot(w.x - s.c.x, w.y - s.c.y))!;
+    const cp = cop(sim, at);
+    cp.facing = Math.atan2(cp.y - s.c.y, cp.x - s.c.x);
+    const called = run(sim, 15, () => sim.ctx.senses.stats.armedCalls > 0);
+    expect(called).toBe(true);
+    expect((cp.brain as CpBrain).target).toBe(gun);
+    expect(gun.law.phase).not.toBe('none');
+  });
+
   test('ВС видел убийство: убийца — вооружённый враг, в розыске; без ВС в поле зрения — нет', () => {
     const sim = setup();
     const s = scene(sim, 1);

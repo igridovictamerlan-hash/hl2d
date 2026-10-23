@@ -878,7 +878,7 @@ export class CpBrain implements Brain {
   }
 
   /** Плановые проверки CID и опознание — работа патрульных и офицера, не командования, охраны, кладовщика и конвоя. */
-  private get checksPeople(): boolean {
+  get checksPeople(): boolean {
     return !this.medicStation && !((this.duty && STAFF.has(this.duty) && this.duty !== 'officer') || this.duty === 'qm' || this.duty === 'convoy' || this.duty === 'jailer' || this.formation);
   }
 

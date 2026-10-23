@@ -6,6 +6,7 @@ import type { Corpse } from './CombatSystem';
 import { SENSES, type StimDef, type StimKind } from '../config/senses';
 import { WEAPONS } from '../config/items';
 import { FACTIONS } from '../config/factions';
+import { apparentFaction } from '../entities/cover';
 import { lineOfSight } from '../world/visibility';
 import { Gunner } from '../ai/Gunner';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
@@ -38,6 +39,7 @@ interface Last {
 }
 
 const buf: Character[] = [];
+const callBuf: Character[] = [];
 
 /** Мирные: те, кого пугает и кто может быть свидетелем (горожане, ТС, поднадзорные, бандиты и воры). */
 export function civilian(c: Character): boolean {
@@ -61,10 +63,10 @@ export class Senses {
   /** Раненый кричит и пугает не чаще, чем раз в hurtEvery с (горение бьёт 60 раз в секунду). */
   private readonly hurtAt = new WeakMap<Character, number>();
   private readonly last = new WeakMap<Character, Last>();
-  private readonly emitted = new WeakMap<Character, { scream: number; runner: number; armed: number }>();
+  private readonly emitted = new WeakMap<Character, { scream: number; runner: number; armed: number; called: number }>();
   private bodyTimer = 0;
   private scanIndex = 0;
-  readonly stats = { stimuli: 0, felt: 0, panics: 0, hides: 0, screams: 0, bodies: 0, gawks: 0, grieves: 0, witnessed: 0, cpSaw: 0 };
+  readonly stats = { stimuli: 0, felt: 0, panics: 0, hides: 0, screams: 0, bodies: 0, gawks: 0, grieves: 0, witnessed: 0, cpSaw: 0, armedCalls: 0, freezes: 0 };
 
   constructor(private readonly ctx: AiContext) {
     this.rng = ctx.rng.fork(0x5e45e);
@@ -158,9 +160,9 @@ export class Senses {
     return true;
   }
 
-  private timers(c: Character): { scream: number; runner: number; armed: number } {
+  private timers(c: Character): { scream: number; runner: number; armed: number; called: number } {
     let e = this.emitted.get(c);
-    if (!e) this.emitted.set(c, (e = { scream: -1e9, runner: -1e9, armed: -1e9 }));
+    if (!e) this.emitted.set(c, (e = { scream: -1e9, runner: -1e9, armed: -1e9, called: -1e9 }));
     return e;
   }
 
@@ -272,11 +274,18 @@ export class Senses {
       this.last.set(o, { actor: s.actor, kind: s.kind, t: now });
       const fall = 1 - (1 - SENSES.edge) * (d / s.r);
       let amount = def.fear * s.power * fall * k * this.braveMul(o);
+      // Ствол смотрит на него — куда страшнее.
+      const aimed = s.kind === 'armed' && !!s.actor && this.aimedAt(s.actor, o, d);
+      if (aimed) amount *= SENSES.armed.aim.mul;
       const rel = ctx.relations;
       if (s.victim && rel?.enabled && rel.loved(o, s.victim)) amount *= SENSES.fear.lovedMul;
       this.frighten(o, amount, s.src, s.actor, s.hop);
       if (crime && def.visual) seen.push(o);
       if (s.kind === 'body' && s.corpse) o.brain.sawBody(s.corpse);
+      if (s.kind === 'armed' && s.actor) {
+        o.brain.sawArmed(s.actor, aimed, d);
+        this.callCp(o, s.actor);
+      }
     }
     if (seen.length && s.actor) {
       this.stats.witnessed += seen.length;
@@ -284,6 +293,40 @@ export class Senses {
     }
     // Квартал запоминает (страх района, эскалация ВС).
     ctx.escalation?.note(s);
+  }
+
+  /** Стрелок a держит o на прицеле: o в aim.cone° от взгляда a и ближе aim.range px. */
+  private aimedAt(a: Character, o: Character, d: number): boolean {
+    const A = SENSES.armed.aim;
+    if (d > A.range) return false;
+    const diff = Math.abs(((Math.atan2(o.y - a.y, o.x - a.x) - a.facing + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    return diff < (A.cone * Math.PI) / 180;
+  }
+
+  /**
+   * Свидетель видит ВС рядом — зовёт его к вооружённому (SENSES.armed.call): свободный ВС, что проверяет людей,
+   * идёт останавливать; нет такого — тревога «вооружённый на улице». Не чаще call.every с на одного вооружённого.
+   */
+  private callCp(w: Character, actor: Character): void {
+    const { ctx } = this;
+    const C = SENSES.armed.call;
+    const now = this.now;
+    const e = this.timers(actor);
+    if (now - e.called < C.every || actor.law.phase !== 'none' || !this.rng.chance(C.chance)) return;
+    let cp: Character | null = null;
+    let best: number = C.shout;
+    for (const o of ctx.entities.near(w.x, w.y, C.shout, callBuf)) {
+      if (!o.fit || !(o.brain instanceof CpBrain) || ctx.map.levelAt(o.x, o.y) !== ctx.map.levelAt(w.x, w.y)) continue;
+      const d = Math.hypot(o.x - w.x, o.y - w.y);
+      if (d < best && lineOfSight(ctx.map, w.x, w.y, o.x, o.y)) [best, cp] = [d, o];
+    }
+    if (!cp) return;
+    e.called = now;
+    this.stats.armedCalls++;
+    if (!(w.speech && w.speech.until > ctx.law.now)) w.say(phrase(this.rng, w, SENSES.lines.callArmed), ctx.law.now, 2);
+    const b = cp.brain as CpBrain;
+    if (b.checksPeople && !b.target && !ctx.combat.threat(cp, actor)) b.engage(actor, 'weapon');
+    else ctx.war.raiseAlarm(actor.x, actor.y, 'вооружённый на улице', false, { kind: 'armed', reporter: w, suspect: actor });
   }
 
   /**
@@ -306,7 +349,8 @@ export class Senses {
         this.emit('runner', c.x, c.y, { actor: c, src: { x: c.fearX, y: c.fearY }, hop: c.fearHop + 1, power: C.decay ** (c.fearHop + 1) });
       }
       // Ствол в руках на улице (не сотрудник Протектората, не на фронте): прохожие сторонятся.
-      if (c.weapon && !FACTIONS[c.faction].authority && now - e.armed >= SENSES.armed.every && this.ctx.war.inCity(c.x, c.y)) {
+      // (Переодетый в форму ВС — «свой» со стволом: не пугает.)
+      if (c.weapon && !FACTIONS[apparentFaction(c)].authority && now - e.armed >= SENSES.armed.every && this.ctx.war.inCity(c.x, c.y)) {
         const cls = WEAPONS[c.weapon].class;
         if (cls !== 'melee') {
           e.armed = now;

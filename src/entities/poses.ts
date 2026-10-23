@@ -479,7 +479,8 @@ export function drawGestureHands(ctx: CanvasRenderingContext2D, c: Character, lo
     return;
   }
   const phase = c.law.phase;
-  if (phase === 'ordered' && !c.weapon && c.alive) {
+  // Приказ ВС «стоять» или ствол в упор (task 'hands') — руки подняты.
+  if ((phase === 'ordered' || c.task === 'hands') && !c.weapon && c.alive) {
     const O = A.order;
     const w = Math.sin(now * 6 + ph) * O.wobble;
     drawHand(ctx, x + (side ? fwd * 2 : O.x) * ps, y + (O.y + w) * ps, ps, col);
