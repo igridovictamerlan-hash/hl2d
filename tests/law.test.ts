@@ -9,6 +9,7 @@ import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
+import { belongsInPrison, chargeOf, wantedLevel } from '../src/systems/LawSystem';
 import { spawnPopulation } from '../src/systems/Population';
 import { lineOfSight } from '../src/world/visibility';
 import { T } from '../src/world/tiles';
@@ -110,9 +111,10 @@ describe('ВС: проверка, арест, КПЗ', () => {
     expect(t.law.wanted).toBe(false);
   });
 
-  test('розыск: ВС узнаёт в лицо вблизи и задерживает; не попадался — розыск снимают по сроку', { timeout: 60_000 }, () => {
+  test('розыск по статьям: тяжесть, опознание в лицо по степени, срок ориентировки, беглый — бессрочно', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const { entities, ctx, law, nav } = sim;
+    const C = LAW.wanted.charges;
     const [a, b] = pairInSight(sim, 80);
     const cp = createCharacter(entities, ctx.rng, 'cp', nav.worldX(a), nav.worldY(a));
     cp.brain = new CpBrain(cp, ctx);
@@ -120,24 +122,113 @@ describe('ВС: проверка, арест, КПЗ', () => {
     cp.facing = Math.atan2(nav.worldY(b) - cp.y, nav.worldX(b) - cp.x);
     const t = createCharacter(entities, ctx.rng, 'citizen', nav.worldX(b), nav.worldY(b));
     t.brain = new CitizenBrain(t, ctx);
-    t.law.wanted = true;
+    t.law.wanted = false;
+    law.declare(t, 'flight');
+    expect(wantedLevel(t)).toBe(1);
+    // 80 px — ближе, чем узнают по мелкой статье (face[0]).
     expect(law.observe(cp, t)).toBe('wanted');
     // В личине (подпольщик) — не узнаёт.
     t.disguised = true;
     expect(law.observe(cp, t)).toBeNull();
     t.disguised = false;
-    // Далеко — тоже нет: только на проверке документов.
-    const far = createCharacter(entities, ctx.rng, 'citizen', cp.x + LAW.wantedTerm.face * 3, cp.y);
-    far.law.wanted = true;
-    expect(law.observe(cp, far)).not.toBe('wanted');
-    // Срок: не попадался expire с — розыск снят; пока враг Протектората (hostile) — срок не идёт.
+    // Статья тяжелее — заменяет прежнюю; легче — нет.
+    law.declare(t, 'murder');
+    expect(chargeOf(t)).toBe('murder');
+    law.declare(t, 'theft');
+    expect(chargeOf(t)).toBe('murder');
+    // По особо тяжкой узнают дальше, чем по мелкой.
+    const mid = (LAW.wanted.face[0] + LAW.wanted.face[2]) / 2;
+    const m = createCharacter(entities, ctx.rng, 'citizen', cp.x + Math.cos(cp.facing) * mid, cp.y + Math.sin(cp.facing) * mid);
+    m.law.wanted = false;
+    law.declare(m, 'theft');
+    const see = (o: Character) => (law as unknown as { canSee(a: Character, b: Character): boolean }).canSee(cp, o);
+    if (see(m)) {
+      expect(law.observe(cp, m)).not.toBe('wanted');
+      law.declare(m, 'murder');
+      expect(law.observe(cp, m)).toBe('wanted');
+    }
+    // Срок: мелкое снимают через term, особо тяжкое при враге Протектората (hostile) не истекает; беглый — бессрочно.
     entities.remove(cp);
-    far.hostile = true;
-    run(sim, LAW.wantedTerm.expire + 2);
-    expect(t.law.wanted).toBe(false);
-    expect(far.law.wanted).toBe(true);
-    far.hostile = false;
-    expect(law.wantedLeft(far)).toBeGreaterThan(LAW.wantedTerm.expire - 5);
+    const small = createCharacter(entities, ctx.rng, 'citizen', t.x, t.y);
+    small.law.wanted = false;
+    law.declare(small, 'flight');
+    const fug = createCharacter(entities, ctx.rng, 'citizen', t.x, t.y);
+    fug.law.wanted = false;
+    law.declare(fug, 'fugitive');
+    t.hostile = true;
+    run(sim, C.flight.term + 2);
+    expect(small.law.wanted).toBe(false);
+    expect(t.law.wanted).toBe(true);
+    expect(fug.law.wanted).toBe(true);
+    expect(law.wantedLeft(fug)).toBe(Infinity);
+    t.hostile = false;
+    expect(law.wantedLeft(t)).toBeGreaterThan(C.murder.term - 5);
+  });
+
+  test('срок заключения по статье: мелкое — КПЗ, тяжкое — тюрьма на срок (не навсегда), повинная — вдвое меньше', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    const { entities, ctx, law } = sim;
+    const C = LAW.wanted.charges;
+    const term = (c: Character, prison: boolean) => (law as unknown as { jailTerm(c: Character, p: boolean): number }).jailTerm(c, prison);
+    const c = createCharacter(entities, ctx.rng, 'citizen', 0, 0);
+    c.law.wanted = false;
+    law.declare(c, 'theft');
+    expect(belongsInPrison(c)).toBe(false);
+    expect(term(c, false)).toBe(C.theft.jail);
+    law.declare(c, 'assault');
+    expect(belongsInPrison(c)).toBe(true);
+    expect(term(c, true)).toBe(C.assault.jail);
+    c.law.surrendered = true;
+    expect(term(c, true)).toBe(C.assault.jail * LAW.wanted.surrender.jailMul);
+    // Повстанца-NPC держат бессрочно (вызволяют штурмом).
+    const r = createCharacter(entities, ctx.rng, 'rebel', 0, 0);
+    expect(term(r, true)).toBe(Infinity);
+    // Отпущенный по сроку из тюрьмы — снова чист.
+    law.pardon(c);
+    expect(c.law.wanted).toBe(false);
+    expect(c.law.wantedFor).toBeUndefined();
+  });
+
+  test('прохожий узнаёт разыскиваемого по тяжкой статье и зовёт ВС; по мелкой — нет', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    const { entities, ctx, law, nav } = sim;
+    sim.war.command.paused = true;
+    sim.insurgency.paused = true;
+    const [a, b] = pairInSight(sim, 90);
+    // Разыскиваемый стоит, лояльный прохожий смотрит на него, ВС рядом с прохожим — спиной к разыскиваемому.
+    const t = createCharacter(entities, ctx.rng, 'citizen', nav.worldX(a), nav.worldY(a));
+    t.brain = null;
+    t.law.wanted = false;
+    law.declare(t, 'theft');
+    const w = createCharacter(entities, ctx.rng, 'citizen', nav.worldX(b), nav.worldY(b));
+    w.brain = new CitizenBrain(w, ctx);
+    w.loyalty = 60;
+    w.law.wanted = false;
+    w.facing = Math.atan2(t.y - w.y, t.x - w.x);
+    const cpAt = nav.nearestWalkable(w.x + (w.x - t.x) * 0.6, w.y + (w.y - t.y) * 0.6, 3);
+    const cp = createCharacter(entities, ctx.rng, 'cp', nav.worldX(cpAt), nav.worldY(cpAt));
+    cp.brain = new CpBrain(cp, ctx);
+    cp.law.wanted = false;
+    cp.facing = Math.atan2(cp.y - t.y, cp.x - t.x);
+    // Прохожий и ВС стоят на своих местах (у прохожего свои дела — увёл бы его), пока не позвали.
+    const wp = { x: w.x, y: w.y };
+    const cpp = { x: cp.x, y: cp.y, f: cp.facing };
+    const keep = () => {
+      if (sim.ctx.senses.stats.informed > 0) return false;
+      w.x = w.prevX = wp.x;
+      w.y = w.prevY = wp.y;
+      w.facing = Math.atan2(t.y - w.y, t.x - w.x);
+      cp.x = cp.prevX = cpp.x;
+      cp.y = cp.prevY = cpp.y;
+      cp.facing = cpp.f;
+      return false;
+    };
+    run(sim, 6, keep);
+    expect(sim.ctx.senses.stats.informed).toBe(0);
+    law.declare(t, 'murder');
+    run(sim, 20, () => keep() || sim.ctx.senses.stats.informed > 0);
+    expect(sim.ctx.senses.stats.informed).toBeGreaterThanOrEqual(1);
+    expect(t.law.phase === 'ordered' || t.law.phase === 'checking' || t.law.phase === 'cuffed' || (cp.brain as CpBrain).target === t).toBe(true);
   });
 
   test('беглец: ВС гонится и либо задерживает, либо объявляет в розыск', { timeout: 60_000 }, () => {

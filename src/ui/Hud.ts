@@ -27,8 +27,8 @@ export interface HudInfo {
   suspect: string | null;
   /** Кровь на одежде (bloodyUntil по часам закона). */
   bloody: boolean;
-  /** До снятия розыска, с (LawSystem.wantedLeft; null — не в розыске). */
-  wantedLeft: number | null;
+  /** Розыск игрока: статья, степень (1–3) и сколько до снятия, с (LawSystem.wantedLeft; Infinity — бессрочно); null — не в розыске. */
+  wanted: { name: string; level: number; left: number } | null;
 }
 
 /** Значок состояния (S1); hint — подсказка при наведении (полный текст). */
@@ -309,9 +309,15 @@ function statusOf(p: Character, now: number, info: HudInfo): Status[] {
   if (p.hunger <= HUD.ring.low * 100) out.push({ icon: 'hunger', label: p.hunger <= 0 ? 'голод!' : 'голоден', tone: 'amber', blink: p.hunger <= 0 });
   // Розыск и «ищут» не дублируют друг друга: в розыске одна плашка, приметы — в подсказке.
   if (p.law.wanted) {
-    const left = info.wantedLeft;
-    const term = left !== null ? `Розыск снимут через ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}, если не попадётесь ВС на глаза (узнают в лицо вблизи). Сразу — маскировка или поддельная CID.` : '';
-    out.push({ icon: 'wanted', label: left !== null ? `розыск ${Math.ceil(left / 60)} мин` : 'розыск', tone: 'red', hint: [info.suspect, term].filter(Boolean).join('\n') || undefined });
+    const w = info.wanted;
+    const left = w?.left ?? Infinity;
+    const stars = w ? '★'.repeat(w.level) : '';
+    const term = Number.isFinite(left)
+      ? `Снимут через ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}, если не попадётесь ВС на глаза (узнают в лицо вблизи, при тяжкой статье — и прохожие).`
+      : 'Бессрочно.';
+    const how = 'Снять сразу — маскировка, поддельная CID у барыги или явка с повинной у стойки дежурного Управы (E).';
+    const head = w ? `Розыск ${stars}: ${w.name}.` : 'Розыск.';
+    out.push({ icon: 'wanted', label: `розыск ${stars}${Number.isFinite(left) ? ` ${Math.ceil(left / 60)} мин` : ''}`, tone: 'red', hint: [head, term, how, info.suspect].filter(Boolean).join('\n') });
   }
   else if (info.suspect) out.push({ icon: 'search', label: 'ищут', tone: 'amber', hint: info.suspect });
   if (info.bloody) out.push({ icon: 'bloody_shirt', label: 'в крови', tone: 'red', hint: 'Кровь на одежде: по ней узнают в ориентировке. Новая одежда на корпус (плащ, бронежилет) её снимает.' });

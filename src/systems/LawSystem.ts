@@ -11,7 +11,7 @@ import { adjustLoyalty } from './Loyalty';
 import { LOYALTY } from '../config/loyalty';
 import { ERRANDS } from '../config/errands';
 import { STAFFING } from '../config/staffing';
-import { LAW, VIOLATION_NAMES, type Violation } from '../config/law';
+import { LAW, VIOLATION_NAMES, type Violation, type WantedCharge } from '../config/law';
 import { VISION } from '../config/vision';
 import { loyalistPerk } from './Loyalty';
 import { FACTIONS, cpHas } from '../config/factions';
@@ -71,7 +71,21 @@ export function isUnderground(c: Character): boolean {
  * за убийство или нападение с оружием (причина ареста — в law.reason, её ставит arrest).
  */
 export function belongsInPrison(c: Character): boolean {
-  return c.faction === 'rebel' || c.law.reason === 'murder' || c.law.reason === 'assault';
+  return c.faction === 'rebel' || c.law.reason === 'murder' || c.law.reason === 'assault' || (c.law.wanted && wantedLevel(c) >= 2);
+}
+
+/** Статья розыска (нет — «неподчинение») и её описание (LAW.wanted.charges). */
+export function chargeOf(c: Character): WantedCharge {
+  return c.law.wantedFor ?? 'flight';
+}
+
+export function chargeDef(c: Character): (typeof LAW.wanted.charges)[WantedCharge] {
+  return LAW.wanted.charges[chargeOf(c)];
+}
+
+/** Степень розыска: 1 — мелкое, 2 — тяжкое, 3 — особо тяжкое. */
+export function wantedLevel(c: Character): 1 | 2 | 3 {
+  return chargeDef(c).level;
 }
 
 /** Изъятое при водворении в тюрьму: стволы, патроны, гранаты. */
@@ -99,7 +113,7 @@ export class LawSystem {
   prisonGate: Vec2 | null = null;
   /** Куда выводить отпущенного (из тюрьмы — за её ворота; иначе ворота Управы). */
   readonly releaseSpot = new Map<Character, Vec2>();
-  /** Последний «засвет» разыскиваемого: от него идёт срок розыска (LAW.wantedTerm). */
+  /** Последний «засвет» разыскиваемого: от него идёт срок розыска (LAW.wanted). */
   private readonly wantedAt = new WeakMap<Character, number>();
   /** Когда человека последний раз оштрафовали за комендантский час в квартале (повторно — арест, LAW.zoneCurfewRepeat). */
   private readonly zoneCurfewFined = new WeakMap<Character, number>();
@@ -264,8 +278,9 @@ export class LawSystem {
     if ((target.law.crimeUntil ?? -1) > this.time) return 'theft';
     if ((target.law.riotUntil ?? -1) > this.time) return 'riot';
     if (target.weapon) return 'weapon';
-    // Разыскиваемого узнают в лицо вблизи (ориентировка); в личине — нет. Опознали — срок розыска заново.
-    if (target.law.wanted && !target.disguised && Math.hypot(target.x - observer.x, target.y - observer.y) <= LAW.wantedTerm.face) {
+    // Разыскиваемого узнают в лицо вблизи (ориентировка; чем тяжелее статья — тем дальше); в личине — нет.
+    // Опознали — срок розыска заново.
+    if (target.law.wanted && !target.disguised && Math.hypot(target.x - observer.x, target.y - observer.y) <= LAW.wanted.face[wantedLevel(target) - 1]) {
       this.wantedAt.set(target, this.time);
       return 'wanted';
     }
@@ -458,7 +473,7 @@ export class LawSystem {
   /** ВС потерял беглеца — тот в розыске. */
   lost(target: Character): void {
     const handler = target.law.handler;
-    target.law.wanted = true;
+    this.declare(target, 'flight');
     if (handler) {
       handler.say(phrase(this.rng, handler, LINES.cpLost), this.time);
       if (this.onLost && !handler.isPlayer) this.onLost(handler, target);
@@ -625,14 +640,62 @@ export class LawSystem {
     return x > c.bounds.x0 * ts && y > c.bounds.y0 * ts && x < (c.bounds.x1 + 1) * ts && y < (c.bounds.y1 + 1) * ts;
   }
 
-  /** Сколько секунд до снятия розыска (null — не в розыске). */
+  /** Сколько секунд до снятия розыска (null — не в розыске; Infinity — бессрочно). */
   wantedLeft(c: Character): number | null {
     if (!c.law.wanted) return null;
-    return Math.max(0, LAW.wantedTerm.expire - (this.time - (this.wantedAt.get(c) ?? this.time)));
+    return Math.max(0, chargeDef(c).term - (this.time - (this.wantedAt.get(c) ?? this.time)));
   }
 
   /**
-   * Срок розыска (LAW.wantedTerm): идёт с последнего «засвета»; пока враг Протектората (hostile) или в руках ВС —
+   * Срок заключения (LAW.wanted.charges.jail): по статье ареста (убийство, нападение — дело Suspects) или розыска;
+   * повстанец-NPC в тюрьме — бессрочно (вызволяют штурмом); прочие аресты в КПЗ — LAW.jailTime. Игроку — не больше
+   * LAW.wanted.playerJail; пришёл с повинной — × surrender.jailMul.
+   */
+  private jailTerm(c: Character, prison: boolean): number {
+    const law = c.law;
+    const W = LAW.wanted;
+    if (prison && c.faction === 'rebel') return c.isPlayer ? LAW.prison.playerTime : Infinity;
+    const charge: WantedCharge | null = law.reason === 'murder' ? 'murder' : law.reason === 'assault' ? 'assault' : law.wanted ? chargeOf(c) : null;
+    let t = charge ? W.charges[charge].jail : c.isPlayer ? LAW.jailTime.player : LAW.jailTime.npc;
+    if (c.isPlayer) t = Math.min(t, W.playerJail);
+    if (law.surrendered) t *= W.surrender.jailMul;
+    return t;
+  }
+
+  /** За что сидит (статья) — для журнала. */
+  private chargeName(c: Character): string {
+    const r = c.law.reason;
+    return r === 'murder' || r === 'assault' ? LAW.wanted.charges[r].name : chargeDef(c).name;
+  }
+
+  /** Снять розыск (отсидел, явка с повинной за мелкое, новые документы). */
+  pardon(c: Character): void {
+    c.law.wanted = false;
+    c.law.wantedFor = undefined;
+    c.law.surrendered = false;
+    this.wantedAt.delete(c);
+  }
+
+  /**
+   * Объявить в розыск по статье (LAW.wanted.charges): статья тяжелее прежней — заменяет её; срок ориентировки —
+   * заново. Игроку — в журнал, за что и насколько.
+   */
+  declare(c: Character, charge: WantedCharge): void {
+    const law = c.law;
+    const C = LAW.wanted.charges;
+    const prev = law.wanted ? law.wantedFor ?? 'flight' : null;
+    if (!prev || C[charge].level >= C[prev].level) law.wantedFor = charge;
+    law.wanted = true;
+    this.wantedAt.set(c, this.time);
+    if (c.isPlayer && law.wantedFor !== prev) {
+      const d = chargeDef(c);
+      const term = Number.isFinite(d.term) ? `ориентировку снимут через ${Math.round(d.term / 60)} мин, если не попадётесь ВС` : 'бессрочно';
+      this.log(`Вы объявлены в розыск: ${d.name} (${'★'.repeat(d.level)}) — ${term}.`, 'law');
+    }
+  }
+
+  /**
+   * Срок розыска (LAW.wanted, по статье): идёт с последнего «засвета»; пока враг Протектората (hostile) или в руках ВС —
    * не идёт. Истёк — розыск снят. Раньше розыск не снимался никогда: бандит, раз напавший на ВС, навсегда выпадал
    * из дел банды, а игрок мог его снять только отсидкой или «липой».
    */
@@ -644,8 +707,9 @@ export class LawSystem {
         this.wantedAt.set(c, this.time);
         continue;
       }
-      if (this.time - at < LAW.wantedTerm.expire) continue;
+      if (this.time - at < chargeDef(c).term) continue;
       c.law.wanted = false;
+      c.law.wantedFor = undefined;
       this.wantedAt.delete(c);
       if (c.isPlayer) this.log('Розыск снят: ориентировка устарела.', 'law');
     }
@@ -700,14 +764,17 @@ export class LawSystem {
             law.handler = null;
             c.hostile = false;
             this.closeCase(c);
+            const term = this.jailTerm(c, !!cell.prison);
             if (cell.prison) {
-              // Тюрьма: бессрочно (игроку — срок LAW.prison.playerTime), оружие — в комнату изъятого.
-              law.jailUntil = c.isPlayer ? this.time + LAW.prison.playerTime : Infinity;
+              // Тюрьма: срок по статье (повстанцам — бессрочно, игроку — срок по статье), оружие — в комнату изъятого.
+              law.jailUntil = this.time + term;
               this.confiscate(c);
-              this.log(`${who(c, true)} помещён в тюрьму Протектората${c.isPlayer ? ` на ${LAW.prison.playerTime} с` : ' — бессрочно'}`, 'law');
+              this.log(`${who(c, true)} помещён в тюрьму Протектората${Number.isFinite(term) ? ` на ${Math.round(term)} с (${this.chargeName(c)})` : ' — бессрочно'}`, 'law');
             } else {
-              law.jailUntil = this.time + (c.isPlayer ? LAW.jailTime.player : LAW.jailTime.npc);
+              law.jailUntil = this.time + term;
               law.wanted = false;
+              law.wantedFor = undefined;
+              law.surrendered = false;
               law.hasCid = true;
               // Оружие, патроны и гранаты изымают и после срока не возвращают (раньше бандит выходил из
               // ворот Управы со стволом в руках — и его тут же задерживали снова, по кругу).
@@ -736,8 +803,15 @@ export class LawSystem {
             law.cell = -1;
             // Отсидел — документы в порядке: какое-то время его не проверяют (LAW.releasedGrace).
             if (!cell?.prison) law.lastCheck = this.time + LAW.releasedGrace - LAW.recheckCooldown;
-            // Отсидевшему изъятое оружие не вернут, остальное — да.
+            // Отсидевшему изъятое оружие не вернут, остальное — да. Отсидел по статье — розыск снят (повстанец остаётся
+            // повстанцем), документы в порядке.
             this.returnEvidence(c, false);
+            if (c.faction !== 'rebel') {
+              law.wanted = false;
+              law.wantedFor = undefined;
+              law.hasCid = true;
+            }
+            law.surrendered = false;
             if (cell?.prison && this.prisonGate) this.releaseSpot.set(c, this.prisonGate);
             this.log(`${who(c, true)} отбыл срок и отпущен`, 'law');
             if (c.isPlayer) {
@@ -813,21 +887,21 @@ export class LawSystem {
       if (cell.prison) {
         // Изъятое остаётся в комнате улик — беглый заберёт сам (или вооружится в оружейной).
         c.law.cell = -1;
-        c.law.wanted = true;
+        this.declare(c, 'escape');
         if (c.law.savedBrain || c.brain instanceof PrisonerBrain) this.restoreBrain(c);
         this.clear(c);
-        c.law.wanted = true;
+        this.declare(c, 'escape');
         this.onFreed?.(c);
         continue;
       }
       c.law.phase = 'releasing';
       c.law.since = this.time;
       c.law.cell = -1;
-      c.law.wanted = true;
+      this.declare(c, 'escape');
       if (c.isPlayer) {
         this.restoreBrain(c);
         this.clear(c);
-        c.law.wanted = true;
+        this.declare(c, 'escape');
       }
     }
     cell.brokenUntil = this.time + LAW.brokenDoor;

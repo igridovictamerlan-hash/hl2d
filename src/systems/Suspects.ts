@@ -566,7 +566,7 @@ export class Suspects {
     this.stats.named++;
     const a = cs.actor;
     if (a.alive) {
-      a.law.wanted = true;
+      this.ctx.law.declare(a, cs.kind === 'murder' ? 'murder' : 'assault');
       this.ctx.war.operatives.add(a);
       this.ctx.war.lastKnown.set(a, { x: cs.lastX, y: cs.lastY });
     }
@@ -614,7 +614,7 @@ export class Suspects {
     cs.lastY = a.y;
     // Огонь на поражение — ранил или убил при сотруднике.
     a.hostile = true;
-    a.law.wanted = true;
+    this.ctx.law.declare(a, cs.kind === 'murder' ? 'murder' : 'assault');
     this.ctx.war.operatives.add(a);
     this.ctx.war.lastKnown.set(a, { x: a.x, y: a.y });
     if (!cs.named) {

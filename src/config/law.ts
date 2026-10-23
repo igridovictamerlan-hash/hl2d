@@ -1,4 +1,7 @@
 /** Законы Верхнеречье и работа ВС. Время — секунды, расстояния — px, деньги — токены. */
+/** Статья розыска (LAW.wanted.charges). */
+export type WantedCharge = 'flight' | 'informed' | 'fraud' | 'theft' | 'riot' | 'assault' | 'escape' | 'sabotage' | 'fugitive' | 'murder' | 'attackCp' | 'rebel';
+
 export const LAW = {
   /**
    * Оружие в городе: стрелявший ближе firedWithin с назад (бандит, стычка банд) — уже не нарушитель, а
@@ -58,11 +61,41 @@ export const LAW = {
   juryFineMul: 2,
 
   /**
-   * Срок розыска: ориентировка живёт expire с с последнего «засвета» (объявили в розыск, опознали; пока напавший —
-   * враг Протектората или задержан, срок не идёт). Не попадался столько — розыск снимают. ВС узнаёт
-   * разыскиваемого в лицо ближе face px (на виду; в личине — нет) и задерживает.
+   * Розыск по статьям (LawSystem.declare): у каждой — степень level (1 — мелкое, 2 — тяжкое, 3 — особо тяжкое; беглый —
+   * мелкое, но бессрочно),
+   * срок ориентировки term с с последнего «засвета» (объявили, опознали; пока враг Протектората — hostile — или в
+   * руках ВС, срок не идёт; Infinity — бессрочно), срок заключения jail с (1-я степень — КПЗ, выше — тюрьма; повстанцам
+   * в тюрьме — бессрочно, игроку — не больше playerJail). Новая статья тяжелее прежней — заменяет её. ВС узнаёт
+   * разыскиваемого в лицо ближе face[level − 1] px (на виду; в личине — нет) и задерживает.
    */
-  wantedTerm: { expire: 360, face: 150 },
+  wanted: {
+    charges: {
+      flight: { level: 1, name: 'неподчинение ВС', term: 240, jail: 40 },
+      informed: { level: 1, name: 'по доносу', term: 240, jail: 40 },
+      fraud: { level: 1, name: 'подделка документов', term: 300, jail: 60 },
+      theft: { level: 1, name: 'кража', term: 300, jail: 60 },
+      riot: { level: 1, name: 'беспорядки', term: 300, jail: 60 },
+      assault: { level: 2, name: 'вооружённое нападение', term: 480, jail: 240 },
+      escape: { level: 2, name: 'побег из-под стражи', term: 600, jail: 300 },
+      sabotage: { level: 2, name: 'диверсия', term: 600, jail: 300 },
+      fugitive: { level: 1, name: 'беглый, без документов', term: Infinity, jail: 60 },
+      murder: { level: 3, name: 'убийство', term: 900, jail: 600 },
+      attackCp: { level: 3, name: 'нападение на Протекторат', term: 900, jail: 600 },
+      rebel: { level: 3, name: 'участие в сопротивлении', term: 900, jail: 600 },
+    } satisfies Record<WantedCharge, { level: 1 | 2 | 3; name: string; term: number; jail: number }>,
+    face: [100, 150, 210] as const,
+    playerJail: 300,
+    /**
+     * Явка с повинной (игрок, E у стойки дежурного Управы): 1-я степень — штраф fine и розыск снят; выше — арест
+     * (ВС не дальше reach px от стойки), срок × jailMul.
+     */
+    surrender: { fine: 20, jailMul: 0.5, reach: 520 },
+    /**
+     * Горожане узнают разыскиваемого (не ниже level, без личины) ближе r px на виду: лояльный (от loyalty, не друг ему) с
+     * шансом chance зовёт ВС, если тот виден (Senses.callCp, не чаще SENSES.armed.call.every на человека); раз в every с.
+     */
+    inform: { level: 2, r: 200, loyalty: 10, chance: 0.5, every: 3 },
+  },
   chaseLoseTime: 6,
   catchDistance: 30,
   cpWalkSpeed: 78,

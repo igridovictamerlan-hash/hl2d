@@ -732,7 +732,7 @@ export class CpBrain implements Brain {
     const violent = !!o.weapon && ctx.combat.now - o.lastViolent < A.firedWithin;
     if (shot || violent) {
       o.hostile = true;
-      o.law.wanted = true;
+      ctx.law.declare(o, 'assault');
       if (shot) this.self.say('Стрельба! Огонь на поражение!', now, 2);
       else this.self.say(phrase(ctx.rng, this.self, SUSPECTS.lines.cpSawHit), now, 2);
       ctx.war.raiseAlarm(o.x, o.y, shot ? 'стрельба в городе' : 'нападение с оружием в городе', false, { kind: shot ? 'gunfire' : 'stabbing', reporter: this.self, suspect: o });
@@ -895,7 +895,7 @@ export class CpBrain implements Brain {
     const R = SUSPECTS.recognize;
     if (cs.kind === 'murder' && o.weapon && ctx.escalation.tierAt(o.x, o.y) >= R.armedTier) {
       o.hostile = true;
-      o.law.wanted = true;
+      ctx.law.declare(o, 'murder');
       ctx.war.operatives.add(o);
       self.say(phrase(ctx.rng, self, SUSPECTS.lines.cpSawKill), now, R.sayTime);
       ctx.war.raiseAlarm(o.x, o.y, 'вооружённый убийца в квартале', false, { kind: 'murder', reporter: self, suspect: o });

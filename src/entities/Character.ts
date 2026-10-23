@@ -7,7 +7,7 @@ import { ECONOMY } from '../config/economy';
 import { Inventory } from './Inventory';
 import { CHARACTER } from '../config/entities';
 import type { Brain } from '../ai/Brain';
-import type { Violation } from '../config/law';
+import type { Violation, WantedCharge } from '../config/law';
 import type { CadetRecord } from '../config/academy';
 import type { AccessSite } from '../config/access';
 import { newMeleeState, type MeleeState } from './meleeState';
@@ -28,6 +28,10 @@ export interface LawState {
   hasCid: boolean;
   /** В розыске. */
   wanted: boolean;
+  /** Статья розыска (LawSystem.declare; нет — «неподчинение»). */
+  wantedFor?: WantedCharge;
+  /** Пришёл с повинной (срок × LAW.wanted.surrender.jailMul). */
+  surrendered?: boolean;
   phase: LawPhase;
   /** Кто разбирается (сотрудник ВС или игрок-ВС). */
   handler: Character | null;

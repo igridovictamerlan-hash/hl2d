@@ -749,7 +749,7 @@ export class CombatSystem {
     // Под личиной ранивший остаётся неузнанным — выдаёт только убийство (kill).
     if (attacker && !attacker.disguised && !FACTIONS[attacker.faction].authority && FACTIONS[target.faction].authority && !attacker.hostile) {
       attacker.hostile = true;
-      attacker.law.wanted = true;
+      this.law.declare(attacker, 'attackCp');
       if (attacker.isPlayer) this.bus.emit('log', { text: 'Вы напали на Протекторат — ВС будет стрелять без предупреждения.', kind: 'law' });
     }
     if (target.health <= 0) {
@@ -976,8 +976,9 @@ export class CombatSystem {
     if (killer && killer !== c && killer.disguised) {
       this.reveal(killer, `убили ${c.name}`);
       if (!FACTIONS[killer.faction].authority) {
-        killer.law.wanted = true;
-        if (FACTIONS[c.faction].authority) killer.hostile = true;
+        const cop = FACTIONS[c.faction].authority;
+        this.law.declare(killer, cop ? 'attackCp' : 'murder');
+        if (cop) killer.hostile = true;
       }
     }
     // Реплики: убийца радуется, свои рядом замечают потерю.

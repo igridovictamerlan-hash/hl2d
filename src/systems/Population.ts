@@ -126,7 +126,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
     if (prof === 'fugitive') {
       c.loyalty = Math.min(c.loyalty, -20);
       c.law.hasCid = false;
-      c.law.wanted = true;
+      ctx.law.declare(c, 'fugitive');
     }
     // Часть обычных граждан — лоялисты (ходят в канцелярию Управы на бумажную работу).
     if (prof === 'citizen' && ctx.rng.chance(P.loyalistShare)) c.loyalty = Math.round(ctx.rng.range(P.loyalistLoyalty[0], P.loyalistLoyalty[1]));

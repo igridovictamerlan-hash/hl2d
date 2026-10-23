@@ -287,7 +287,7 @@ export class InsurgencySystem {
     for (const m of g.members) {
       ctx.combat.reveal(m, hunt ? 'напали на патруль ВС' : 'напали на конвой ВС');
       m.hostile = true;
-      m.law.wanted = true;
+      ctx.law.declare(m, 'attackCp');
       if (hunt) {
         const w = ctx.combat.bestWeapon(m, 200);
         if (w) ctx.combat.equip(m, w);
@@ -958,7 +958,7 @@ export class InsurgencySystem {
     for (const m of g.members) {
       ctx.combat.reveal(m, 'штурм тюрьмы');
       m.hostile = true;
-      m.law.wanted = true;
+      ctx.law.declare(m, 'attackCp');
       const w = ctx.combat.bestWeapon(m, 200);
       if (w) ctx.combat.equip(m, w);
     }
@@ -1037,7 +1037,7 @@ export class InsurgencySystem {
   revealAgent(c: Character, why: string): void {
     this.ctx.combat.reveal(c, why);
     c.hostile = true;
-    c.law.wanted = true;
+    this.ctx.law.declare(c, 'attackCp');
   }
 
   /** Взлом камеры КПЗ или тюрьмы: все сидевшие сбегают, тревога. Возвращает, сколько сбежало. */
@@ -1122,7 +1122,7 @@ export class InsurgencySystem {
           if (other) {
             other.disguised = false;
             other.cover = null;
-            other.law.wanted = true;
+            ctx.law.declare(other, 'rebel');
             ctx.law.log(`Допрос: пленный выдал подпольщика — ${other.name} объявлен(а) в розыск.`, 'radio');
           }
         }

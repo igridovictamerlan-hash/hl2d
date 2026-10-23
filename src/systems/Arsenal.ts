@@ -2069,7 +2069,7 @@ export class ArsenalSystem {
     else ok = this.breakBeacon();
     if (ok && act !== 'bomb' && this.watched(by.x, by.y, by) && ctx.rng.chance(ARSENAL.ops.caught)) {
       ctx.combat.reveal(by, 'пойманы на складе Протектората');
-      by.law.wanted = true;
+      ctx.law.declare(by, 'sabotage');
       ctx.war.raiseAlarm(by.x, by.y, 'диверсия на складе Протектората', false, { kind: 'depot' });
     }
     return ok;

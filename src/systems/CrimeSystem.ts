@@ -125,7 +125,7 @@ export class CrimeSystem {
       this.ctx.staffing?.merit(obs, STAFFING.merit.investigate);
       return `Надзор: скан тела (${zone}) — ${corpse.name}: виновник установлен.`;
     }
-    k.law.wanted = true;
+    this.ctx.law.declare(k, FACTIONS[corpse.faction].authority ? 'attackCp' : 'murder');
     // Заслуга следователя: убийца найден.
     this.ctx.staffing?.merit(obs, STAFFING.merit.investigate);
     if (k.alive) {

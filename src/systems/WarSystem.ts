@@ -1457,7 +1457,7 @@ export class WarSystem {
     c.profession = 'rebel_soldier';
     c.disguised = false;
     c.carrying = false;
-    c.law.wanted = true;
+    this.ctx.law.declare(c, 'rebel');
     this.ctx.law.clear(c);
     equipKit(c, 'rebel_soldier', this.ctx);
     this.stats.defected++;

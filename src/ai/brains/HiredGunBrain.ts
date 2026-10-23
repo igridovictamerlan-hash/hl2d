@@ -79,7 +79,7 @@ export class HiredGunBrain implements Brain {
     // Вблизи — достать ствол: теперь он враг Протектората (и в розыске).
     if (!self.hostile && Math.hypot(prey.x - self.x, prey.y - self.y) < H.engage) {
       self.hostile = true;
-      self.law.wanted = true;
+      ctx.law.declare(self, 'attackCp');
       this.engaged = true;
     }
     const fighting = self.hostile && this.gunner.update(self, ctx, dt);

@@ -16,7 +16,8 @@ import { FACTIONS, cpHas, cpUnit } from '../config/factions';
 import { poiWorld, cpKit } from '../systems/Population';
 import { WEAPONS, KITS, ITEMS, type ItemId } from '../config/items';
 import { UNDERGROUND, INSURGENCY, PARTISANS } from '../config/underground';
-import type { Cell } from '../systems/LawSystem';
+import { chargeDef, type Cell } from '../systems/LawSystem';
+import { CpBrain } from '../ai/brains/CpBrain';
 import { PRISON } from '../config/prison';
 import { ECONOMY } from '../config/economy';
 import { COMBAT, HITS, MINE } from '../config/combat';
@@ -724,6 +725,8 @@ export class PlayerController {
     }
     // ВС: у стойки дежурного Управы — только медицина; патроны и гранаты — на складе Протектората.
     const desk = poiWorld(ctx, 'nexus_desk');
+    // Явка с повинной: разыскиваемый у стойки дежурного (LAW.wanted.surrender).
+    if (p.faction !== 'cp' && p.law.wanted && p.law.phase === 'none' && d(desk) < REACH * 1.5) return this.surrender(p, ctx);
     if (p.faction === 'cp' && d(desk) < REACH * 1.5) {
       for (const [id, qty] of KITS[cpKit(p.rank)] ?? []) {
         if (ITEMS[id].kind === 'medical' && p.inventory.count(id) < qty) p.inventory.add(id, qty - p.inventory.count(id));
@@ -731,6 +734,33 @@ export class PlayerController {
       return this.say(ctx.arsenal?.present ? 'Аптечка пополнена. Патроны и гранаты — на складе Протектората, у окна выдачи.' : 'Аптечка пополнена.', 'world');
     }
     this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Протектората, тел и людей (поговорить).');
+  }
+
+  /**
+   * Явка с повинной у стойки дежурного Управы (LAW.wanted.surrender): мелкое (1-я степень) — штраф и розыск снят;
+   * тяжкое — ближайший свободный патрульный задерживает, срок × jailMul (LawSystem.jailTerm).
+   */
+  private surrender(p: Character, ctx: AiContext): void {
+    const S = LAW.wanted.surrender;
+    const def = chargeDef(p);
+    if (def.level === 1) {
+      const paid = Math.min(Math.floor(p.money), S.fine);
+      p.money -= paid;
+      ctx.law.pardon(p);
+      return this.say(`Дежурный: «${def.name}… Явка с повинной — учтём. Штраф ${paid} токенов, и свободны». Розыск снят.`, 'law');
+    }
+    let cp: Character | null = null;
+    let best: number = S.reach;
+    for (const o of ctx.entities.list) {
+      const b = o.brain;
+      if (!o.alive || !o.fit || o.isPlayer || !(b instanceof CpBrain) || !b.checksPeople || b.target) continue;
+      const dd = Math.hypot(o.x - p.x, o.y - p.y);
+      if (dd < best) [best, cp] = [dd, o];
+    }
+    if (!cp) return this.say('Дежурный: «Ждите, свободных патрульных нет». Подойдите позже.', 'world');
+    p.law.surrendered = true;
+    (cp.brain as CpBrain).engage(p, 'wanted');
+    this.say(`Дежурный: «${def.name}. Явка с повинной — срок вдвое меньше». Стойте на месте: за вами идёт ${cp.name}.`, 'law');
   }
 
   /**

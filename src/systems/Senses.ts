@@ -12,6 +12,8 @@ import { Gunner } from '../ai/Gunner';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { phrase } from './phrases';
+import { wantedLevel } from './LawSystem';
+import { LAW } from '../config/law';
 
 /**
  * Раздражитель: где, что, кто виновник и кто пострадал. src — откуда исходит угроза (крик и бегущие передают
@@ -40,6 +42,7 @@ interface Last {
 
 const buf: Character[] = [];
 const callBuf: Character[] = [];
+const informBuf: Character[] = [];
 
 /** Мирные: те, кого пугает и кто может быть свидетелем (горожане, ТС, поднадзорные, бандиты и воры). */
 export function civilian(c: Character): boolean {
@@ -63,10 +66,10 @@ export class Senses {
   /** Раненый кричит и пугает не чаще, чем раз в hurtEvery с (горение бьёт 60 раз в секунду). */
   private readonly hurtAt = new WeakMap<Character, number>();
   private readonly last = new WeakMap<Character, Last>();
-  private readonly emitted = new WeakMap<Character, { scream: number; runner: number; armed: number; called: number }>();
+  private readonly emitted = new WeakMap<Character, { scream: number; runner: number; armed: number; called: number; informed: number }>();
   private bodyTimer = 0;
   private scanIndex = 0;
-  readonly stats = { stimuli: 0, felt: 0, panics: 0, hides: 0, screams: 0, bodies: 0, gawks: 0, grieves: 0, witnessed: 0, cpSaw: 0, armedCalls: 0, freezes: 0 };
+  readonly stats = { stimuli: 0, felt: 0, panics: 0, hides: 0, screams: 0, bodies: 0, gawks: 0, grieves: 0, witnessed: 0, cpSaw: 0, armedCalls: 0, freezes: 0, informed: 0 };
 
   constructor(private readonly ctx: AiContext) {
     this.rng = ctx.rng.fork(0x5e45e);
@@ -160,9 +163,9 @@ export class Senses {
     return true;
   }
 
-  private timers(c: Character): { scream: number; runner: number; armed: number; called: number } {
+  private timers(c: Character): { scream: number; runner: number; armed: number; called: number; informed: number } {
     let e = this.emitted.get(c);
-    if (!e) this.emitted.set(c, (e = { scream: -1e9, runner: -1e9, armed: -1e9, called: -1e9 }));
+    if (!e) this.emitted.set(c, (e = { scream: -1e9, runner: -1e9, armed: -1e9, called: -1e9, informed: -1e9 }));
     return e;
   }
 
@@ -307,12 +310,12 @@ export class Senses {
    * Свидетель видит ВС рядом — зовёт его к вооружённому (SENSES.armed.call): свободный ВС, что проверяет людей,
    * идёт останавливать; нет такого — тревога «вооружённый на улице». Не чаще call.every с на одного вооружённого.
    */
-  private callCp(w: Character, actor: Character): void {
+  private callCp(w: Character, actor: Character, why: 'weapon' | 'wanted' = 'weapon', chance: number = SENSES.armed.call.chance): void {
     const { ctx } = this;
     const C = SENSES.armed.call;
     const now = this.now;
     const e = this.timers(actor);
-    if (now - e.called < C.every || actor.law.phase !== 'none' || !this.rng.chance(C.chance)) return;
+    if (now - e.called < C.every || actor.law.phase !== 'none' || !this.rng.chance(chance)) return;
     let cp: Character | null = null;
     let best: number = C.shout;
     for (const o of ctx.entities.near(w.x, w.y, C.shout, callBuf)) {
@@ -322,11 +325,30 @@ export class Senses {
     }
     if (!cp) return;
     e.called = now;
-    this.stats.armedCalls++;
-    if (!(w.speech && w.speech.until > ctx.law.now)) w.say(phrase(this.rng, w, SENSES.lines.callArmed), ctx.law.now, 2);
+    if (why === 'wanted') this.stats.informed++;
+    else this.stats.armedCalls++;
+    if (!(w.speech && w.speech.until > ctx.law.now)) w.say(phrase(this.rng, w, why === 'wanted' ? SENSES.lines.callWanted : SENSES.lines.callArmed), ctx.law.now, 2);
     const b = cp.brain as CpBrain;
-    if (b.checksPeople && !b.target && !ctx.combat.threat(cp, actor)) b.engage(actor, 'weapon');
-    else ctx.war.raiseAlarm(actor.x, actor.y, 'вооружённый на улице', false, { kind: 'armed', reporter: w, suspect: actor });
+    if (b.checksPeople && !b.target && !ctx.combat.threat(cp, actor)) b.engage(actor, why);
+    else ctx.war.raiseAlarm(actor.x, actor.y, why === 'wanted' ? 'разыскиваемый на улице' : 'вооружённый на улице', false, { kind: why === 'wanted' ? 'tip' : 'armed', reporter: w, suspect: actor });
+  }
+
+  /**
+   * Разыскиваемого (не ниже LAW.wanted.inform.level, без личины) узнаёт лояльный прохожий (от inform.loyalty, не
+   * родня и не друг ему), видящий его ближе inform.r, — и с шансом inform.chance зовёт ВС, если тот виден.
+   */
+  private informOn(c: Character): void {
+    const { ctx } = this;
+    const I = LAW.wanted.inform;
+    const rel = ctx.relations;
+    for (const o of ctx.entities.near(c.x, c.y, I.r, informBuf)) {
+      if (o === c || !o.alive || o.isPlayer || o.downed || o.gang >= 0 || o.law.phase !== 'none' || o.loyalty < I.loyalty) continue;
+      if (!(o.brain instanceof CitizenBrain) || !civilian(o)) continue;
+      if (rel?.enabled && rel.loved(o, c)) continue;
+      if (!lineOfSight(ctx.map, o.x, o.y, c.x, c.y) || !Gunner.inView(o, c.x, c.y)) continue;
+      this.callCp(o, c, 'wanted', I.chance);
+      return;
+    }
   }
 
   /**
@@ -347,6 +369,12 @@ export class Senses {
       if (c.brain instanceof CitizenBrain && c.brain.fsm.current === 'panic' && c.moveSpeed > 60 && now - e.runner >= C.runnerEvery && c.fearHop < C.hops) {
         e.runner = now;
         this.emit('runner', c.x, c.y, { actor: c, src: { x: c.fearX, y: c.fearY }, hop: c.fearHop + 1, power: C.decay ** (c.fearHop + 1) });
+      }
+      // Разыскиваемый на улице (тяжкое и выше, без личины): лояльные прохожие узнают и зовут ВС.
+      const I = LAW.wanted.inform;
+      if (c.law.wanted && !c.disguised && c.law.phase === 'none' && now - e.informed >= I.every && wantedLevel(c) >= I.level && this.ctx.war.inCity(c.x, c.y)) {
+        e.informed = now;
+        this.informOn(c);
       }
       // Ствол в руках на улице (не сотрудник Протектората, не на фронте): прохожие сторонятся.
       // (Переодетый в форму ВС — «свой» со стволом: не пугает.)

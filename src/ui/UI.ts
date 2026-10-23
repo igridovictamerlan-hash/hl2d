@@ -37,6 +37,7 @@ import type { SquadArena } from '../systems/SquadArena';
 import { FACTIONS } from '../config/factions';
 import type { Transmission } from '../systems/Radio';
 import { ArenaBar } from './ArenaBar';
+import { chargeDef, wantedLevel } from '../systems/LawSystem';
 
 
 export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
@@ -236,7 +237,7 @@ export class UI {
     this.hud.update(player, now, {
       suspect,
       bloody: player.bloodyUntil > this.host.law.now,
-      wantedLeft: this.host.law.wantedLeft(player),
+      wanted: player.law.wanted ? { name: chargeDef(player).name, level: wantedLevel(player), left: this.host.law.wantedLeft(player) ?? Infinity } : null,
       look: this.host.pawnLook(player),
       weapon: player.weapon,
       mag: player.mag,

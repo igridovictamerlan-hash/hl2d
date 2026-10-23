@@ -12,6 +12,7 @@ import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { REBEL_RANKS, REBEL_UNIT, rebelUnitOf } from '../src/config/factions';
 import { ROSTER } from '../src/config/roster';
 import { PARTISANS } from '../src/config/underground';
+import { LAW } from '../src/config/law';
 import type { Character } from '../src/entities/Character';
 
 type Sim = ReturnType<typeof makeSim>;
@@ -304,15 +305,19 @@ describe('подполье: взлом и растяжки', () => {
     sim.insurgency.paused = true;
     expect(sim.insurgency.occupiedCell()).toBe(cell);
     // Тест про взлом, а не про вахту: «липу» у подпольщика могут раскрыть у ворот Управы — даём настоящий пропуск;
-    // и поддельную CID по дороге не раскрывают (иначе исход решает случайная проверка, а не взлом).
+    // поддельную CID по дороге не раскрывают и на блок-посту стены спрятанный ствол не находят (иначе исход решает
+    // случайная проверка, а не взлом).
     free.passes.push('nexus');
     const reveal = PARTISANS.checkReveal;
     (PARTISANS as { checkReveal: number }).checkReveal = 0;
+    const hidden = LAW.border.findHidden;
+    (LAW.border as { findHidden: number }).findHidden = 0;
     const op = sim.insurgency.startOperation('jailbreak');
     expect(op?.kind).toBe('jailbreak');
     expect(op?.team[0]).toBe(free);
     const t = run(sim, 200, () => sim.insurgency.stats.jailbreaks > 0 && sim.combat.mineStats.planted > 0);
     (PARTISANS as { checkReveal: number }).checkReveal = reveal;
+    (LAW.border as { findHidden: number }).findHidden = hidden;
     console.log(`взлом за ${t.toFixed(0)} с; растяжек: ${sim.combat.mineStats.planted}`);
     expect(sim.insurgency.stats.jailbreaks).toBeGreaterThan(0);
     expect(caught.law.phase === 'jailed').toBe(false);

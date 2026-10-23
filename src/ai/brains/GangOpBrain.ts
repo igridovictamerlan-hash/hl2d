@@ -324,7 +324,7 @@ export class GangOpBrain implements Brain {
     for (const c of this.op.team) {
       if (!c.alive || c.hostile) continue;
       c.hostile = true;
-      c.law.wanted = true;
+      ctx.law.declare(c, 'attackCp');
     }
     self.say(ctx.rng.pick(GANGS.lines[what === 'storm' && this.op.group?.task === 'hunt' ? 'hit' : what]), ctx.law.now, 2);
     // Штурм тюрьмы: тревогу уже подняло подполье (InsurgencySystem.prisonAttack).
