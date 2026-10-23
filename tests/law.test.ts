@@ -3,6 +3,7 @@ import { PRISON } from '../src/config/prison';
 import { ACADEMY } from '../src/config/academy';
 import { ARSENAL } from '../src/config/arsenal';
 import { AI } from '../src/config/ai';
+import { LAW } from '../src/config/law';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
@@ -107,6 +108,36 @@ describe('ВС: проверка, арест, КПЗ', () => {
     expect(t.brain).toBeInstanceOf(CitizenBrain);
     expect(law.occupants(cell)).not.toContain(t);
     expect(t.law.wanted).toBe(false);
+  });
+
+  test('розыск: ВС узнаёт в лицо вблизи и задерживает; не попадался — розыск снимают по сроку', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    const { entities, ctx, law, nav } = sim;
+    const [a, b] = pairInSight(sim, 80);
+    const cp = createCharacter(entities, ctx.rng, 'cp', nav.worldX(a), nav.worldY(a));
+    cp.brain = new CpBrain(cp, ctx);
+    // ВС смотрит на него: опознание — в угле обзора.
+    cp.facing = Math.atan2(nav.worldY(b) - cp.y, nav.worldX(b) - cp.x);
+    const t = createCharacter(entities, ctx.rng, 'citizen', nav.worldX(b), nav.worldY(b));
+    t.brain = new CitizenBrain(t, ctx);
+    t.law.wanted = true;
+    expect(law.observe(cp, t)).toBe('wanted');
+    // В личине (подпольщик) — не узнаёт.
+    t.disguised = true;
+    expect(law.observe(cp, t)).toBeNull();
+    t.disguised = false;
+    // Далеко — тоже нет: только на проверке документов.
+    const far = createCharacter(entities, ctx.rng, 'citizen', cp.x + LAW.wantedTerm.face * 3, cp.y);
+    far.law.wanted = true;
+    expect(law.observe(cp, far)).not.toBe('wanted');
+    // Срок: не попадался expire с — розыск снят; пока враг Протектората (hostile) — срок не идёт.
+    entities.remove(cp);
+    far.hostile = true;
+    run(sim, LAW.wantedTerm.expire + 2);
+    expect(t.law.wanted).toBe(false);
+    expect(far.law.wanted).toBe(true);
+    far.hostile = false;
+    expect(law.wantedLeft(far)).toBeGreaterThan(LAW.wantedTerm.expire - 5);
   });
 
   test('беглец: ВС гонится и либо задерживает, либо объявляет в розыск', { timeout: 60_000 }, () => {

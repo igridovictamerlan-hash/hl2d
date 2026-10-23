@@ -249,7 +249,8 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Преступность: ${JSON.stringify((sim.crime as unknown as { stats?: object }).stats ?? {})}`);
   out.push(`Банды: ${JSON.stringify((sim.ctx.gangs as unknown as { stats?: object }).stats ?? {})}; драки: ${JSON.stringify(sim.ctx.brawls.stats)}`);
   out.push(`Подполье: ${JSON.stringify((sim.insurgency as unknown as { stats?: object }).stats ?? {})}`);
-  out.push(`Тюрьма: ${JSON.stringify(sim.prison.stats)}; штурмы банд: ${sim.ctx.gangs.gangs.map((g) => g.stats.storms).join('/')}`);
+  out.push(`Тюрьма: ${JSON.stringify(sim.prison.stats)}; дела банд с подпольем (штурм+охота): ${sim.ctx.gangs.gangs.map((g) => g.stats.storms).join('/')}, из них охоты: ${sim.ctx.gangs.gangs.map((g) => g.stats.hunts).join('/')}`);
+  out.push(`Война банд: стычек ${sim.ctx.gangs.stats.feuds}, налётов ${sim.ctx.gangs.gangs.map((g) => g.stats.raids).join('/')}, из них мести ${sim.ctx.gangs.gangs.map((g) => g.stats.revenges).join('/')}, сборов на защиту ${sim.ctx.gangs.gangs.map((g) => g.stats.defends).join('/')}`);
   for (let i = 0; i < 2; i++) {
     const part = [0, 1].map((o) => {
       const c = fronts[i][o];

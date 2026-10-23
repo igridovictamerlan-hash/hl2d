@@ -27,6 +27,8 @@ export interface HudInfo {
   suspect: string | null;
   /** Кровь на одежде (bloodyUntil по часам закона). */
   bloody: boolean;
+  /** До снятия розыска, с (LawSystem.wantedLeft; null — не в розыске). */
+  wantedLeft: number | null;
 }
 
 /** Значок состояния (S1); hint — подсказка при наведении (полный текст). */
@@ -306,7 +308,11 @@ function statusOf(p: Character, now: number, info: HudInfo): Status[] {
   if (p.crouch || p.trench) out.push({ icon: 'crouch', label: p.trench ? (p.crouch ? 'в окопе · присел' : 'в окопе') : 'присел', key: 'C', tone: 'dark' });
   if (p.hunger <= HUD.ring.low * 100) out.push({ icon: 'hunger', label: p.hunger <= 0 ? 'голод!' : 'голоден', tone: 'amber', blink: p.hunger <= 0 });
   // Розыск и «ищут» не дублируют друг друга: в розыске одна плашка, приметы — в подсказке.
-  if (p.law.wanted) out.push({ icon: 'wanted', label: 'розыск', tone: 'red', hint: info.suspect ?? undefined });
+  if (p.law.wanted) {
+    const left = info.wantedLeft;
+    const term = left !== null ? `Розыск снимут через ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}, если не попадётесь ВС на глаза (узнают в лицо вблизи). Сразу — маскировка или поддельная CID.` : '';
+    out.push({ icon: 'wanted', label: left !== null ? `розыск ${Math.ceil(left / 60)} мин` : 'розыск', tone: 'red', hint: [info.suspect, term].filter(Boolean).join('\n') || undefined });
+  }
   else if (info.suspect) out.push({ icon: 'search', label: 'ищут', tone: 'amber', hint: info.suspect });
   if (info.bloody) out.push({ icon: 'bloody_shirt', label: 'в крови', tone: 'red', hint: 'Кровь на одежде: по ней узнают в ориентировке. Новая одежда на корпус (плащ, бронежилет) её снимает.' });
   if (p.disguised || p.cover) out.push({ icon: 'mask', label: 'личина', tone: 'blue' });

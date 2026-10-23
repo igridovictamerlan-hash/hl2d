@@ -84,6 +84,45 @@ describe('банды', () => {
     expect(sim.log.some((l) => l.includes('Стычка банд'))).toBe(true);
   });
 
+  test('война банд: стычка на районе — свои сбегаются; убили бойца — налёт мести на район обидчика', { timeout: 120_000 }, () => {
+    const sim = setup();
+    const G = sim.ctx.gangs;
+    const [ga, gb] = G.gangs;
+    const a = G.members(ga).find((c) => c.profession === 'bandit')!;
+    const b = G.members(gb).find((c) => c.profession === 'bandit')!;
+    // Чужак у общаги первой банды — стычка на её районе: свободные бойцы сбегаются на подмогу (дело defend).
+    const hq = sim.nav.nearestWalkable(ga.hq.x, ga.hq.y, 4);
+    const k = sim.nav.nearestWalkable(ga.hq.x + 90, ga.hq.y, 3);
+    a.x = a.prevX = sim.nav.worldX(hq);
+    a.y = a.prevY = sim.nav.worldY(hq);
+    b.x = b.prevX = sim.nav.worldX(k);
+    b.y = b.prevY = sim.nav.worldY(k);
+    sim.entities.rebuildHash();
+    (G as unknown as { startFeud(a: Character, b: Character): void }).startFeud(a, b);
+    expect(G.feuding(ga.id, gb.id)).toBe(true);
+    expect(ga.op?.kind).toBe('defend');
+    expect(ga.op!.team.length).toBeGreaterThanOrEqual(1);
+    expect(ga.stats.defends).toBe(1);
+    // Стычка кончилась — защитники расходятся.
+    for (let t = 0; t < (GANGS.feud.time + 15) * 60; t++) sim.step();
+    expect(ga.op?.kind).not.toBe('defend');
+    // Боец второй банды убил бойца первой — счёт обид; следующее дело первой — налёт мести на район второй.
+    const victim = G.members(ga).find((c) => c.alive && c.profession === 'bandit' && c !== a)!;
+    const killer = G.members(gb).find((c) => c.alive && c.profession === 'bandit')!;
+    sim.combat.kill(victim, killer);
+    expect(ga.grudge.get(gb.id)).toBe(GANGS.war.revenge);
+    expect(sim.log.some((l) => l.includes('поклялись отомстить'))).toBe(true);
+    if (ga.op) (G as unknown as { endOp(g: unknown): void }).endOp(ga);
+    for (const c of G.members(ga)) c.law.wanted = false;
+    const op = G.startOp(ga)!;
+    expect(op.kind).toBe('raid');
+    expect(op.revenge).toBe(true);
+    expect(op.rival).toBe(gb);
+    expect(op.team.length).toBeGreaterThanOrEqual(GANGS.war.size[0] - 1);
+    expect(ga.grudge.has(gb.id)).toBe(false);
+    expect(sim.log.some((l) => l.includes('идут мстить'))).toBe(true);
+  });
+
   test('дела: дань с лавки — в общак, ствол у барыги — в общак', { timeout: 120_000 }, () => {
     const sim = setup();
     // Без ВС: проверка CID по дороге (ведомый побежал — арестован, дело сорвано) — дело случая.

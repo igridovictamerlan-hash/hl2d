@@ -11,6 +11,7 @@ import { complyWithCp } from '../comply';
 import { Gunner } from '../Gunner';
 import { HatchTravel } from '../HatchTravel';
 import { PrisonAssault } from '../PrisonAssault';
+import { HuntAmbush } from '../HuntAmbush';
 import { faceMovement, faceTowards } from '../facing';
 import { randomAnchorInZone } from '../destinations';
 import { canSeeCircle } from '../../world/visibility';
@@ -21,7 +22,7 @@ import { COMBAT } from '../../config/combat';
 import { INSURGENCY, PARTISANS } from '../../config/underground';
 import { poiWorld } from '../../systems/Population';
 
-export type AgentMission = 'assassinate' | 'jailbreak' | 'riot' | 'requisition' | 'prison';
+export type AgentMission = 'assassinate' | 'jailbreak' | 'riot' | 'requisition' | 'prison' | 'hunt';
 export type AgentMode = 'base' | 'dress' | 'mission' | 'return';
 
 /**
@@ -59,6 +60,8 @@ export class AgentBrain implements Brain {
   private planting = false;
   /** Штурм тюрьмы вместе с подпольем (миссия prison). */
   private assault: PrisonAssault | null = null;
+  /** Охота на патруль ВС вместе с подпольем (миссия hunt). */
+  private hunt: HuntAmbush | null = null;
   /** Итоги (для тестов и отладки). */
   stats = { dressed: 0, assassinations: 0, jailbreaks: 0, riots: 0, requisitions: 0 };
 
@@ -125,6 +128,20 @@ export class AgentBrain implements Brain {
     this.backup = false;
     this.partner = null;
     this.assault = new PrisonAssault(spot);
+    this.missionUntil = ctx.combat.now + PARTISANS.agent.missionMax;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    this.travel.start(self, ctx, this.mover, spot);
+  }
+
+  /** Охота на патруль ВС с подпольем (InsurgencySystem.startHunt): к своему месту — дальше HuntAmbush. */
+  joinHunt(self: Character, ctx: AiContext, spot: Vec2): void {
+    this.mission = 'hunt';
+    this.mode = 'mission';
+    this.target = null;
+    this.cell = null;
+    this.backup = false;
+    this.partner = null;
+    this.hunt = new HuntAmbush(spot);
     this.missionUntil = ctx.combat.now + PARTISANS.agent.missionMax;
     this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
     this.travel.start(self, ctx, this.mover, spot);
@@ -235,13 +252,15 @@ export class AgentBrain implements Brain {
 
   update(self: Character, ctx: AiContext, dt: number): void {
     if (this.mission === 'prison' && this.mode === 'mission' && this.assault) PrisonAssault.resist(self, ctx, ctx.insurgency.groupOf(self), this.assault.spot);
+    if (this.mission === 'hunt' && this.mode === 'mission') HuntAmbush.resist(self, ctx, ctx.insurgency.groupOf(self));
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
     const A = PARTISANS.agent;
     const now = ctx.combat.now;
     // Скрытен: стреляет только на покушении или если ранили.
     const hurt = now - self.lastHurt < INSURGENCY.returnFireFor;
     const prison = this.mode === 'mission' && this.mission === 'prison';
-    this.gunner.holdFire = prison
+    const hunting = this.mode === 'mission' && this.mission === 'hunt';
+    this.gunner.holdFire = prison || hunting
       ? PrisonAssault.holdFire(ctx.insurgency.groupOf(self), hurt)
       : !(hurt || (this.mode === 'mission' && this.mission === 'assassinate' && this.fightUntil > 0));
     const fighting = this.gunner.update(self, ctx, dt);
@@ -378,6 +397,13 @@ export class AgentBrain implements Brain {
     if (this.mission === 'prison') {
       if (!this.assault || !this.assault.step(self, ctx, ctx.insurgency.groupOf(self), this.travel, this.mover, this.gunner, dt, fighting)) {
         this.assault = null;
+        this.goHome(self, ctx);
+      }
+      return;
+    }
+    if (this.mission === 'hunt') {
+      if (!this.hunt || !this.hunt.step(self, ctx, ctx.insurgency.groupOf(self), this.travel, this.mover, this.gunner, dt, fighting)) {
+        this.hunt = null;
         this.goHome(self, ctx);
       }
       return;

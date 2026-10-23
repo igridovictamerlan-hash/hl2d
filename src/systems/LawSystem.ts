@@ -99,6 +99,8 @@ export class LawSystem {
   prisonGate: Vec2 | null = null;
   /** Куда выводить отпущенного (из тюрьмы — за её ворота; иначе ворота Управы). */
   readonly releaseSpot = new Map<Character, Vec2>();
+  /** Последний «засвет» разыскиваемого: от него идёт срок розыска (LAW.wantedTerm). */
+  private readonly wantedAt = new WeakMap<Character, number>();
   /** Когда человека последний раз оштрафовали за комендантский час в квартале (повторно — арест, LAW.zoneCurfewRepeat). */
   private readonly zoneCurfewFined = new WeakMap<Character, number>();
   /** Площади блок-постов на стене Верхнего города и когда кого там досматривали. */
@@ -262,6 +264,11 @@ export class LawSystem {
     if ((target.law.crimeUntil ?? -1) > this.time) return 'theft';
     if ((target.law.riotUntil ?? -1) > this.time) return 'riot';
     if (target.weapon) return 'weapon';
+    // Разыскиваемого узнают в лицо вблизи (ориентировка); в личине — нет. Опознали — срок розыска заново.
+    if (target.law.wanted && !target.disguised && Math.hypot(target.x - observer.x, target.y - observer.y) <= LAW.wantedTerm.face) {
+      this.wantedAt.set(target, this.time);
+      return 'wanted';
+    }
     if (this.fightCheck(target)) return 'fight';
     const zk = this.map.zoneAtWorld(target.x, target.y)?.kind;
     // В порт (зона ГЭС) докерам ТС — по работе.
@@ -306,6 +313,7 @@ export class LawSystem {
       : reason === 'suspect' ? LINES.cpOrderSuspect
       : reason === 'insult' ? LINES.cpOrderInsult
       : reason === 'rebel' || reason === 'weapon' ? LINES.cpOrderRebel
+      : reason === 'wanted' ? LINES.cpOrderWanted
       : LINES.cpOrder;
     handler.say(phrase(this.rng, handler, lines, target), this.time);
     if (!target.isPlayer) {
@@ -617,8 +625,35 @@ export class LawSystem {
     return x > c.bounds.x0 * ts && y > c.bounds.y0 * ts && x < (c.bounds.x1 + 1) * ts && y < (c.bounds.y1 + 1) * ts;
   }
 
+  /** Сколько секунд до снятия розыска (null — не в розыске). */
+  wantedLeft(c: Character): number | null {
+    if (!c.law.wanted) return null;
+    return Math.max(0, LAW.wantedTerm.expire - (this.time - (this.wantedAt.get(c) ?? this.time)));
+  }
+
+  /**
+   * Срок розыска (LAW.wantedTerm): идёт с последнего «засвета»; пока враг Протектората (hostile) или в руках ВС —
+   * не идёт. Истёк — розыск снят. Раньше розыск не снимался никогда: бандит, раз напавший на ВС, навсегда выпадал
+   * из дел банды, а игрок мог его снять только отсидкой или «липой».
+   */
+  private updateWanted(): void {
+    for (const c of this.entities.list) {
+      if (!c.alive || !c.law.wanted) continue;
+      const at = this.wantedAt.get(c);
+      if (at === undefined || c.hostile || c.law.phase !== 'none') {
+        this.wantedAt.set(c, this.time);
+        continue;
+      }
+      if (this.time - at < LAW.wantedTerm.expire) continue;
+      c.law.wanted = false;
+      this.wantedAt.delete(c);
+      if (c.isPlayer) this.log('Розыск снят: ориентировка устарела.', 'law');
+    }
+  }
+
   update(dt: number, player: Character | null): void {
     this.time += dt;
+    this.updateWanted();
     for (const c of this.entities.list) {
       const law = c.law;
       switch (law.phase) {

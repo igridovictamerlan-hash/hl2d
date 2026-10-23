@@ -12,6 +12,7 @@ import { canSeeCircle } from '../../world/visibility';
 import { LAW } from '../../config/law';
 import { followColumn, watchSector } from '../Tactics';
 import { PRISON } from '../../config/prison';
+import { PARTISANS } from '../../config/underground';
 import { randomAnchorAround } from '../destinations';
 
 /**
@@ -21,8 +22,10 @@ import { randomAnchorAround } from '../destinations';
  *  hit — к патрульному ВС у района, ближе engage — ствол в руки (враг Протектората, розыск), огонь;
  *  convoy — наперерез колонне склада, ближе engage и на виду — огонь; брошенные ящики — в общак;
  *  buy — к барыге, купить ствол в общак;
- *  storm — штурм тюрьмы с подпольем: к месту сбора, огня не открывают; сигнал группы (group.attack) —
- *    стволы, огонь по охране, внутрь тюрьмы; группа ушла и бой дольше PRISON.assault.fight — домой.
+ *  defend — стычка на своём районе (война банд): бегом к месту, бой берёт на себя Gunner; стычка кончилась — домой;
+ *  storm — дело с подпольем (group): штурм тюрьмы — к месту сбора, огня не открывают; сигнал группы
+ *    (group.attack) — стволы, огонь по охране, внутрь тюрьмы; охота на патруль ВС — держатся у ведущего
+ *    подполья, по сигналу — огонь по патрулю; бой дольше PRISON.assault.fight / PARTISANS.hunt.fight — домой.
  * Стреляет по врагам (Gunner): бойцам чужой банды в стычке и, раз напал, — по ВС. По городу — вместе
  * (GANGS.pairs): остальные идут колонной за ведущим (первый живой из команды), ведущий ждёт отставших;
  * ведущий остался один — дело бросает.
@@ -97,6 +100,8 @@ export class GangOpBrain implements Brain {
    * никого (true — стоит). Ведущий один — дело брошено.
    */
   private together(self: Character, ctx: AiContext, dt: number): boolean {
+    // На подмогу у себя на районе бегут каждый сам (по одному на районе можно).
+    if (this.op.kind === 'defend') return false;
     const crew = this.crew();
     const lead = crew[0];
     if (!lead) return false;
@@ -138,7 +143,7 @@ export class GangOpBrain implements Brain {
     const now = ctx.combat.now;
     if (self.law.phase !== 'none') return;
     // Ранен — домой; на штурме тюрьмы после сигнала держатся, как подполье, до тяжёлого (PRISON.assault.woundedLeave).
-    const leave = op.kind === 'storm' && op.group?.attack ? PRISON.assault.woundedLeave : COMBAT.woundedFraction;
+    const leave = op.kind === 'storm' && op.group?.attack && op.group.task === 'prison' ? PRISON.assault.woundedLeave : COMBAT.woundedFraction;
     if (self.health < self.maxHealth * leave) {
       this.finish(self, ctx);
       return;
@@ -214,6 +219,22 @@ export class GangOpBrain implements Brain {
           }
           break;
         }
+        case 'defend': {
+          const to = op.target;
+          if (!to || !op.rival || !ctx.gangs.feuding(op.gang.id, op.rival.id)) {
+            this.over();
+            return;
+          }
+          this.mover.speed = CHARACTER.runSpeed * 0.85;
+          const st = this.mover.status;
+          if (this.repath <= 0 || st === 'idle' || st === 'failed' || st === 'arrived') {
+            this.repath = ctx.rng.range(2, 4);
+            const a = randomAnchorAround(to, ctx, 0, 5, new Set());
+            if (a >= 0) this.mover.goTo(self, ctx, a);
+            else this.goTo(self, ctx, to);
+          }
+          break;
+        }
         case 'storm': {
           const g = op.group;
           const to = op.target;
@@ -221,20 +242,37 @@ export class GangOpBrain implements Brain {
             this.over();
             return;
           }
+          const hunt = g.task === 'hunt';
           if (!g.attack) {
-            // Ждут у места сбора, чуть в стороне друг от друга.
+            // Охота — держатся у ведущего подполья (он выслеживает патруль); штурм — у места сбора.
+            const lead = g.lead;
+            const at = hunt && lead.alive && ctx.map.levelAt(lead.x, lead.y) === 'city' ? lead : to;
+            if (hunt && !lead.alive) {
+              this.over();
+              return;
+            }
             const st = this.mover.status;
-            if (Math.hypot(to.x - self.x, to.y - self.y) > 90 && (this.repath <= 0 || st === 'idle' || st === 'failed')) {
+            if (Math.hypot(at.x - self.x, at.y - self.y) > 90 && (this.repath <= 0 || st === 'idle' || st === 'failed')) {
               this.repath = 2;
-              const a = randomAnchorAround(to, ctx, 1, 4, new Set());
+              const a = randomAnchorAround(at, ctx, 1, 4, new Set());
               if (a >= 0) this.mover.goTo(self, ctx, a);
-              else this.goTo(self, ctx, to);
+              else this.goTo(self, ctx, at);
             } else if (st === 'arrived') this.mover.stop();
             break;
           }
-          if (now - g.firedAt > PRISON.assault.fight) {
+          if (now - g.firedAt > (hunt ? PARTISANS.hunt.fight : PRISON.assault.fight)) {
             this.over();
             return;
+          }
+          if (hunt) {
+            // По патрулю: к нему (или к ближайшему ВС у места боя); бой берёт на себя Gunner.
+            const prey = ctx.insurgency.huntTarget(g, self);
+            const st = this.mover.status;
+            if (prey && (this.repath <= 0 || st === 'idle' || st === 'failed' || st === 'arrived')) {
+              this.repath = 1.5;
+              this.goTo(self, ctx, prey);
+            }
+            break;
           }
           // Внутрь: точки вокруг центра тюрьмы (бой берёт на себя Gunner — стоят и стреляют).
           const c = ctx.prison.center ?? to;
@@ -288,7 +326,7 @@ export class GangOpBrain implements Brain {
       c.hostile = true;
       c.law.wanted = true;
     }
-    self.say(ctx.rng.pick(GANGS.lines[what]), ctx.law.now, 2);
+    self.say(ctx.rng.pick(GANGS.lines[what === 'storm' && this.op.group?.task === 'hunt' ? 'hit' : what]), ctx.law.now, 2);
     // Штурм тюрьмы: тревогу уже подняло подполье (InsurgencySystem.prisonAttack).
     if (what === 'storm') return;
     ctx.law.log(`${this.op.gang.def.name}: нападение на ${what === 'hit' ? 'патруль ВС' : 'конвой склада'}!`, 'radio');

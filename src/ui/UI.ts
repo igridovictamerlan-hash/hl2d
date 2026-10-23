@@ -236,6 +236,7 @@ export class UI {
     this.hud.update(player, now, {
       suspect,
       bloody: player.bloodyUntil > this.host.law.now,
+      wantedLeft: this.host.law.wantedLeft(player),
       look: this.host.pawnLook(player),
       weapon: player.weapon,
       mag: player.mag,

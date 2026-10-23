@@ -53,7 +53,20 @@ export const GANGS = {
    * видимости — только перебранка (lines.standoff, не чаще barkEvery с). Раньше банды стрелялись при
    * каждой встрече — каждый боец гибнул по четыре раза за двое суток.
    */
-  feud: { see: 200, time: 25, cooldown: 150, scanEvery: 0.5, cops: 320, barkEvery: 20 },
+  feud: { see: 200, time: 40, cooldown: 120, scanEvery: 0.5, cops: 320, barkEvery: 20 },
+  /**
+   * Война банд. Счёт обид (Gang.grudge): за бойца, убитого бойцом чужой банды, — +1 к ней; набралось revenge —
+   * следующее дело авторитет шлёт налётом мести на её район (size бойцов, до time с; на районе обидчика стычку
+   * начинают и на чужой земле). Стычка на районе банды — её свободные бойцы ближе rally px сбегаются на подмогу
+   * (дело defend, до defend бойцов, пока идёт стычка).
+   */
+  war: {
+    revenge: 1, size: [4, 6] as const, time: 140, rally: 1000, defend: 4,
+    lines: {
+      revenge: ['Они за это ответят. На их район!', 'Кровь за кровь. Собирайтесь!', 'За нашего — всех положим!'],
+      defend: ['Наших бьют! Все туда!', 'На районе чужие — валим!', 'Пацаны, подтягивайтесь!'],
+    },
+  },
   /**
    * Дела банды: раз в every с авторитет посылает бойцов (weights — доли):
    *  racket — дань с лавки не дальше seek px от общаги (take токенов, стоят stay с у прилавка; город широкий, лавки —
@@ -71,9 +84,9 @@ export const GANGS = {
     every: [22, 40] as const,
     first: [10, 22] as const,
     // Силовые дела (налёт, удар по ВС, засада) — реже, чем дань и торговля: банда живёт делами, а не войной.
-    weights: { racket: 3, raid: 1.4, hit: 1, convoy: 1.4, buy: 2, sell: 2 },
+    weights: { racket: 3, raid: 2, hit: 1, convoy: 1.4, buy: 2, sell: 2 },
     racket: { take: [8, 16] as const, stay: 5, seek: 2600 },
-    raid: { size: [2, 3] as const, time: 70 },
+    raid: { size: [3, 4] as const, time: 90 },
     hit: { size: [2, 4] as const, engage: 220, seek: 1800, time: 90, cooldown: [360, 600] as const, homeClear: 400 },
     convoy: { size: [3, 4] as const, seek: 2600, engage: 260, time: 100 },
     buy: { minBank: 40, time: 120 },
@@ -83,6 +96,11 @@ export const GANGS = {
      * сбора; по сигналу подполья — стволы, огонь по охране, внутрь до ring якорей от центра тюрьмы; дело — до time с.
      */
     storm: { size: [4, 6] as const, time: 330, ring: [0, 8] as const },
+    /**
+     * Охота подполья на патруль ВС (InsurgencySystem.startHunt): банды, чья общага не дальше seek px от места, шлют
+     * size бойцов (то же дело storm: ждут у подполья, по сигналу — стволы и огонь по патрулю); дело — до time с.
+     */
+    hunt: { size: [2, 4] as const, seek: 4200, time: 300 },
   },
   /**
    * Помощь повстанцам: пока у КПП капт или волна на Управу, банда с шансом assistChance за дело
