@@ -35,26 +35,33 @@ function worker(sim: Sim, faction: FactionId, prof: ProfessionId, at: { x: numbe
 function calm(sim: Sim): void {
   sim.war.command.paused = true;
   sim.insurgency.paused = true;
+  // Перерыв в комнате отдыха — по случайности мира; тесты цепочки снабжения — про работу, не про перерывы.
+  (sim.ctx.cwuHq.restSpots as unknown[]).length = 0;
 }
 
 describe('профессии ТС: цепочка снабжения', () => {
-  test('фасовщик собирает коробки на заводе, курьер несёт их на склад будки', { timeout: 120_000 }, () => {
+  test('докер везёт ящики с пирса на склад штаба ТС, курьер несёт рационы на склад будки', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
     const labor = sim.labor;
-    expect(labor.factory).not.toBeNull();
-    labor.boxes = 0;
-    const packer = worker(sim, 'cwu', 'packer', labor.factory!);
-    run(sim, 40, () => labor.boxes >= 2);
-    expect(labor.stats.packed).toBeGreaterThanOrEqual(2);
-    expect(packer.money).toBeGreaterThan(40);
+    const S = sim.ctx.supply;
+    expect(S.present).toBe(true);
+    expect(S.store).not.toBeNull();
+    const dock = S.docks[0];
+    const before = dock.crates.length;
+    expect(before).toBeGreaterThan(0);
+    const packer = worker(sim, 'cwu', 'packer', dock.spot);
+    const money = packer.money;
+    run(sim, 200, () => S.stats.unloaded >= 1);
+    expect(S.stats.unloaded).toBeGreaterThanOrEqual(1);
+    expect(packer.money).toBeGreaterThan(money);
     const stock = sim.economy.rationStock;
     sim.economy.rationStock = 0;
-    const courier = worker(sim, 'cwu', 'courier', labor.factoryStore!);
+    const courier = worker(sim, 'cwu', 'courier', S.store!);
     const t = run(sim, 240, () => labor.stats.delivered > 0);
     console.log(`курьер донёс коробку за ${t.toFixed(0)} с`);
     expect(labor.stats.delivered).toBeGreaterThan(0);
-    expect(sim.economy.rationStock).toBe(LABOR.factory.boxRations);
+    expect(sim.economy.rationStock).toBe(LABOR.booth.boxRations);
     expect(courier.carrying).toBe(false);
     void stock;
   });
@@ -144,7 +151,7 @@ describe('профессии ТС: цепочка снабжения', () => {
     run(sim, 60, () => (count(), served > 3));
     const s = sim.labor.stats;
     console.log(`за 150 с: ${JSON.stringify(s)}, склад будки ${sim.economy.rationStock}, выдано ${served}`);
-    expect(s.packed).toBeGreaterThan(0);
+    expect(sim.ctx.supply.stats.taken).toBeGreaterThan(0);
     expect(s.delivered).toBeGreaterThan(0);
     expect(s.cleaned).toBeGreaterThan(3);
     expect(served).toBeGreaterThan(3);
@@ -255,7 +262,8 @@ describe('граждане: вор, поднадзорные', () => {
   test('NPC-воры сами обворовывают прохожих в городе', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
-    spawnPopulation(sim.ctx, 25);
+    // На большой карте 25 жителей редко встречаются — воров и прохожих побольше.
+    spawnPopulation(sim.ctx, 60);
     run(sim, 480, () => sim.crime.stats.pickpockets > 0);
     console.log(`краж: ${sim.crime.stats.pickpockets}, украдено ${sim.crime.stats.stolen}, крики ${sim.crime.stats.cries}`);
     expect(sim.crime.stats.pickpockets).toBeGreaterThan(0);

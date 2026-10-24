@@ -1,3 +1,4 @@
+/** Описание системы — docs/law.md. */
 import { ARSENAL } from '../../config/arsenal';
 import { PRISON } from '../../config/prison';
 import type { Brain } from '../Brain';
@@ -24,6 +25,8 @@ import { dist, type Vec2 } from '../../core/math';
 import { Gunner } from '../Gunner';
 import { Tactician, followColumn, watchSector } from '../Tactics';
 import { TACTICS } from '../../config/tactics';
+import { WAR } from '../../config/war';
+import { FireDiscipline } from '../FireDiscipline';
 import { COMBAT } from '../../config/combat';
 import { ALARM } from '../../config/underground';
 import { hasLoyalty, loyaltyTier } from '../../systems/Loyalty';
@@ -34,9 +37,15 @@ import type { KppPoint } from '../../systems/Arsenal';
 import type { RadioCall } from '../../systems/Radio';
 import { RADIO } from '../../config/radio';
 import { LINES } from '../../config/lines';
+import { SUSPECTS } from '../../config/suspects';
 import { phrase } from '../../systems/phrases';
+import { whereOf } from '../../world/places';
 
 const near: Character[] = [];
+/** Отдельный буфер для опознания по ориентировке: не портит список, по которому идут плановые проверки. */
+const nearSuspect: Character[] = [];
+/** Вызов из-за крика — не происшествие рации (Radio ищет вызовы по id происшествия, −1 ни с чем не совпадёт). */
+const SCREAM_CALL = -1;
 /** Обход живого поста — в пределах зоны поста (проверка зоны — в postLife). */
 const NO_AVOID: ReadonlySet<number> = new Set();
 
@@ -205,7 +214,7 @@ export class CpBrain implements Brain {
     this.lead = opts.lead ?? false;
     // Городская полиция PCU на бойню у КПП не ходит: КПП держат SU и OTA.
     const pcu = self.faction === 'cp' && cpUnit(self.rank).group === 'pcu' && this.front < 0;
-    this.patrolAvoid = zoneIds(ctx, pcu ? ['outlands', 'wasteland', 'rebel_camp', 'checkpoint', 'arsenal', 'prison', 'academy'] : ['outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
+    this.patrolAvoid = zoneIds(ctx, pcu ? ['outlands', 'wasteland', 'rebel_camp', 'checkpoint', 'arsenal', 'prison', 'academy', 'ges'] : ['outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy', 'ges']);
     this.mover = new Mover(LAW.cpWalkSpeed);
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
@@ -214,6 +223,49 @@ export class CpBrain implements Brain {
       this.idleState,
     );
     this.scan = ctx.rng.range(0, LAW.scanInterval);
+  }
+
+  /**
+   * Часовой точки КПП пока у КПП стреляют (не тише sitFor с, WarSystem.sinceShot) сидит на посту присев — даже когда врага не видно:
+   * за мешком или в траншее его не разглядеть, а встречная очередь не застаёт стоящим (WAR.line.garrison).
+   */
+  get sits(): boolean {
+    if (this.front < 0 || !this.guardPost || this.medicStation) return false;
+    const cur = this.fsm.current;
+    if (cur !== 'guard' && cur !== 'fight') return false;
+    const f = this.ctx.war.fronts[this.front];
+    return !!f && this.ctx.war.sinceShot(f) < WAR.line.garrison.sitFor;
+  }
+
+  /** Дисциплина огня часового КПП в позиционной перестрелке (WAR.line.garrison.duel). */
+  readonly duel = new FireDiscipline(WAR.line.garrison.duel);
+
+  /** Часовому в затишье не до дисциплины: ранен недавно, прижат огнём или цель вплотную (WAR.line.garrison.answer). */
+  private threatened(self: Character, now: number): boolean {
+    const A = WAR.line.garrison.answer;
+    if (now - self.lastHurt < A.returnFor || self.suppress >= A.returnSuppress) return true;
+    const t = this.gunner.target;
+    return !!t && t.alive && Math.hypot(t.x - self.x, t.y - self.y) < A.closeRange;
+  }
+
+  /** Позиционная перестрелка у этого КПП: линия армии включена, нет капта, наступления и прорыва — часовой на посту. */
+  private positional(): boolean {
+    if (this.front < 0 || !this.guardPost || this.medicStation || this.rally) return false;
+    const { war } = this.ctx;
+    const f = war.fronts[this.front];
+    return !!f && war.command.lineEnabled && f.owner === 'combine' && !f.capture && !war.command.offensive && !war.cityPush;
+  }
+
+  /**
+   * Позиционная перестрелка (линия фронта армии включена): раненый часовой точки КПП, пока у КПП стреляют, не
+   * бежит в бункер через открытый двор под огнём — сидит на посту за мешком и перевязывается; уходит, когда
+   * здоровья осталось меньше WAR.line.garrison.stayAbove доли.
+   */
+  private holdsWounded(): boolean {
+    if (this.front < 0 || !this.guardPost || this.medicStation || this.rally) return false;
+    const { war } = this.ctx;
+    const f = war.fronts[this.front];
+    return !!f && war.command.lineEnabled && this.self.health > this.self.maxHealth * WAR.line.garrison.stayAbove && war.sinceShot(f) < WAR.line.garrison.sitFor;
   }
 
   get stateName(): string {
@@ -294,6 +346,44 @@ export class CpBrain implements Brain {
     return cur === 'patrol' || cur === 'patrol-again' || cur === 'hunt' || cur === 'post';
   }
 
+  /**
+   * Свободен для поста на выходе из квартала (Escalation.updatePosts): патрульный или ведомый группы в обходе, не пост
+   * и не служба (КПП, склад, тюрьма, командование), не в бою, не на вызове по рации, не раненый и не при деле.
+   */
+  canExitPost(): boolean {
+    if (this.guardPost || this.medicStation || this.rally || this.raidPost || this.formation || this.ward || this.scene || this.front >= 0) return false;
+    if (this.duty && this.duty !== 'squad') return false;
+    if (this.self.cadet || this.target || this.self.health < this.self.maxHealth * COMBAT.woundedFraction || this.activeCall()) return false;
+    const cur = this.fsm.current;
+    return cur === 'patrol' || cur === 'patrol-again' || cur === 'post' || cur === 'follow';
+  }
+
+  /**
+   * Встать на пост у выхода из квартала (rally, как заслон у прорыва): стоит лицом наружу, а lookAround в состоянии
+   * guard проверяет проходящих с множителем ступени квартала. Снимает Escalation (rally = null).
+   */
+  assignExitPost(spot: Vec2, face: number): void {
+    this.rally = spot;
+    this.rallyFacing = face;
+    if (this.fsm.current !== 'fight' && this.fsm.current !== 'retreat') this.fsm.change('guard');
+  }
+
+  /**
+   * Крик о помощи в городе (Suspects.cpHeard): свободный патрульный или ведущий группы бегом идёт проверить —
+   * вызов на это место, дальше прочёсывание как по вызову Надзора (hunt). Занятый или на посту не уходит:
+   * поворачивается на крик и отвечает репликой.
+   */
+  hearScream(x: number, y: number): void {
+    const { self, ctx } = this;
+    const S = SUSPECTS.scream;
+    const now = ctx.law.now;
+    const prio = RADIO.kinds.screams.prio;
+    if (this.canRespond(prio)) this.call = { id: SCREAM_CALL, x, y, until: now + S.callTime, urgent: true, prio };
+    this.alertFace = Math.atan2(y - self.y, x - self.x);
+    this.alertUntil = now + S.look;
+    self.say(phrase(ctx.rng, self, SUSPECTS.lines.heardScream), now, S.sayTime);
+  }
+
   /** Прочёсывание вокруг места p: своя точка, не у точек других; дошёл — осмотрелся — следующая. */
   sweep(p: Vec2, dt: number): void {
     const H = LAW.hunt;
@@ -348,7 +438,8 @@ export class CpBrain implements Brain {
     this.ward = ward;
     this.self.guarding = ward;
     this.wardUntil = until;
-    this.fsm.change('bodyguard');
+    // Ведёт задержанного — сперва доведёт до камеры (потом idleState вернёт к охране), иначе тот стоял бы в наручниках.
+    if (this.fsm.current !== 'escort') this.fsm.change('bodyguard');
   }
 
   /** Куда возвращаться после разбирательства. */
@@ -450,7 +541,7 @@ export class CpBrain implements Brain {
         [ctx.economy.dispenserSpot, SECURITY.lines.inspectCook],
         [pick('clerk_desk'), SECURITY.lines.inspectClerk],
         [pick('clerk_desk'), SECURITY.lines.inspectClerk],
-        [ctx.labor.factory, SECURITY.lines.inspectCook],
+        [ctx.supply.shift, SECURITY.lines.inspectCook],
         // Штаб ТС: глава отчитывается инспектору (CwuHqSystem).
         [ctx.cwuHq?.desk ?? null, CWU_HQ.lines.inspect],
         [ctx.cwuHq?.desk ?? null, CWU_HQ.lines.inspect],
@@ -513,10 +604,14 @@ export class CpBrain implements Brain {
     this.healCooldown -= dt;
     let cur = this.fsm.current;
     // Бой: гарнизон отстреливается из любого состояния (даже на конвое).
+    // Позиционная перестрелка: часовой стреляет очередями и затаивается, а не бьёт без перерыва (дисциплина огня).
+    // Затишье снимается, если по нему стреляли, прижали или враг вплотную (WAR.line.garrison.answer).
+    if (this.positional()) this.gunner.holdFire = this.duel.update(self, ctx.combat.now) && !this.threatened(self, ctx.combat.now);
+    else if (this.gunner.holdFire && this.front >= 0) this.gunner.holdFire = false;
     const engaged = this.gunner.update(self, ctx, dt);
     if (!engaged && (cur === 'patrol' || cur === 'post' || cur === 'guard') && ctx.rng.chance(BARKS.ambientPerSec * dt)) streetBark(self, ctx);
     if (engaged && this.gunner.target) ctx.war.sighted(this.gunner.target);
-    const wounded = self.health < self.maxHealth * COMBAT.woundedFraction;
+    const wounded = self.health < self.maxHealth * COMBAT.woundedFraction && !this.holdsWounded();
     if (wounded && cur !== 'retreat' && cur !== 'escort') {
       // Отходит — кого остановил или проверял, отпускает (не стоять им до его возвращения).
       const t = this.target;
@@ -592,6 +687,11 @@ export class CpBrain implements Brain {
     // Цель или тревога (ранили, стреляют рядом) перебивают дежурный взгляд.
     if (this.gunner.look(self, ctx, dt)) return;
     if (this.tactics.face(self, dt)) return;
+    // Крик рядом (hearScream): стоящий на дежурстве юнит оборачивается на звук; живой пост — сам (postLife).
+    if (WATCHING.has(now) && ctx.law.now < this.alertUntil && self.moveSpeed < 8 && !(now === 'guard' && this.lively)) {
+      turnTowards(self, this.alertFace, dt, 3);
+      return;
+    }
     // В колонне на месте — каждый смотрит в свой сектор.
     if (now === 'follow' && self.moveSpeed < 8 && this.leaderCache) {
       watchSector(self, this.leaderCache, this.colIndex, this.colLast, dt);
@@ -627,11 +727,15 @@ export class CpBrain implements Brain {
     const now = ctx.law.now;
     const A = LAW.armed;
     if (o.hostile || o.faction === 'rebel' || ctx.map.levelAt(o.x, o.y) !== 'city' || ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint') return;
-    if (now - o.lastFired < A.firedWithin) {
+    // Стрелял недавно — или ударил кого-то (нож, дубинка, любое оружие в руке): такой же вооружённый враг.
+    const shot = now - o.lastFired < A.firedWithin;
+    const violent = !!o.weapon && ctx.combat.now - o.lastViolent < A.firedWithin;
+    if (shot || violent) {
       o.hostile = true;
-      o.law.wanted = true;
-      this.self.say('Стрельба! Огонь на поражение!', now, 2);
-      ctx.war.raiseAlarm(o.x, o.y, 'стрельба в городе', false, { kind: 'gunfire', reporter: this.self, suspect: o });
+      ctx.law.declare(o, 'assault');
+      if (shot) this.self.say('Стрельба! Огонь на поражение!', now, 2);
+      else this.self.say(phrase(ctx.rng, this.self, SUSPECTS.lines.cpSawHit), now, 2);
+      ctx.war.raiseAlarm(o.x, o.y, shot ? 'стрельба в городе' : 'нападение с оружием в городе', false, { kind: shot ? 'gunfire' : 'stabbing', reporter: this.self, suspect: o });
       armedAlarm.set(o, now);
       return;
     }
@@ -687,36 +791,59 @@ export class CpBrain implements Brain {
         return;
       }
     }
+    // Комендантский час в квартале: сперва окрик «по домам» (Escalation.warn), останавливают — только упрямых.
+    const warns = ctx.escalation.curfewOn && this.checksPeople && ctx.war.code !== 'red';
     for (const o of ctx.entities.near(self.x, self.y, VISION.npcRange, near)) {
       if (o === self) continue;
       const v = law.observe(self, o);
-      if (!v) continue;
+      if (!v) {
+        if (warns && this.watches(o, atCheckpoint) && !ctx.combat.threat(self, o)) ctx.escalation.warn(self, o);
+        continue;
+      }
       if (v === 'rebel') ctx.war.sighted(o);
       if (v === 'weapon') this.armedSeen(o);
       if (v === 'fight') ctx.radio?.brawl(self, o);
       // Вооружённого врага берёт на себя бой (Gunner), остальных — задерживаем.
       if (ctx.combat.threat(self, o)) continue;
       // Часовой не уходит с поста ради беготни по городу; постовой RCT — только рядом с постом.
-      if (this.guardPost && !atCheckpoint && !((this.duty === 'post' || this.duty === 'sentry' || this.duty === 'jailer') && dist(this.guardPost.x, this.guardPost.y, o.x, o.y) < SECURITY.postReach)) continue;
+      if (!this.watches(o, atCheckpoint)) continue;
       // Командование, охрана и кладовщик за нарушителями не бегают — это работа PCU.
       if ((this.duty && STAFF.has(this.duty) && this.duty !== 'officer') || this.duty === 'qm' || this.duty === 'convoy') continue;
       this.engage(o, v);
       return;
     }
+    // Опознание по ориентировке: похожий на известного преступника — остановить и проверить, даже если сейчас
+    // ничего не нарушает (нож спрятан, в руках пусто). Только у тех, кто проверяет (и при красном коде тоже).
+    if (ctx.suspects.enabled && this.checksPeople) {
+      for (const o of ctx.entities.near(self.x, self.y, VISION.npcRange, nearSuspect)) {
+        if (o === self || !law.checkable(o) || !law.canSee(self, o) || !this.watches(o, atCheckpoint)) continue;
+        if (ctx.combat.threat(self, o)) continue;
+        if (this.recognizeSuspect(o)) return;
+      }
+    }
     if (ctx.war.code === 'red' || this.medicStation) return;
-    // Плановые проверки CID — работа PCU (и следователей), не командования и не охраны.
-    if ((this.duty && STAFF.has(this.duty) && this.duty !== 'officer') || this.duty === 'qm' || this.duty === 'convoy' || this.duty === 'jailer' || this.formation) return;
+    // Плановые проверки CID — работа PCU (и следователей), не командования и не охраны. Юнит с постом проверяет только у
+    // поста: идущий на пост через город (часовой КПП после повышения) по дороге документы не спрашивает.
+    if (!this.checksPeople) return;
+    if (this.guardPost && !atCheckpoint && dist(this.guardPost.x, this.guardPost.y, self.x, self.y) > SECURITY.postReach) return;
+    // Едет на вызов по рации — не до плановых проверок.
+    if (this.call && this.call.until > ctx.law.now) return;
     for (const o of near) {
       // Работника ТС на раздаче плановой проверкой не дёргают.
       if (o === self || !law.checkable(o) || o === ctx.economy.dispenser) continue;
       // Грузчиков и оружейника склада (с допуском, на службе) плановой проверкой не дёргают.
       if (o.profession === 'loader' || o.profession === 'armorer') continue;
       const inCheckpoint = ctx.map.zoneAtWorld(o.x, o.y)?.kind === 'checkpoint';
+      // Блок-пост на стене Верхнего города: на его площади часовые проверяют каждого (одного — не чаще LAW.border.recheck).
+      const border = !!self.role?.border && law.atBorder(o);
+      if (border && !law.borderDue(o)) continue;
       // Код жёлтый — проверки чаще.
       // Неблагонадёжных проверяют чаще, лоялистов — реже.
-      const chance = atCheckpoint && inCheckpoint
+      // Квартал на ступени тревоги (Escalation) — проверяют чаще.
+      const chance = border ? LAW.border.check : (atCheckpoint && inCheckpoint
         ? LAW.checkpointCheckChance
-        : LAW.randomCheckChance * (ctx.war.code === 'yellow' ? LAW.alarmCheckMul : 1) * (hasLoyalty(o) ? loyaltyTier(o).checkMul : 1) * (ctx.routine.night && ctx.war.outdoors(o) ? ROUTINE.night.checkMul : 1);
+        : LAW.randomCheckChance * (ctx.war.code === 'yellow' ? LAW.alarmCheckMul : 1) * (hasLoyalty(o) ? loyaltyTier(o).checkMul : 1) * (ctx.routine.night && ctx.war.outdoors(o) ? ROUTINE.night.checkMul : 1)) *
+        ctx.escalation.checkMul(o.x, o.y);
       if (ctx.rng.chance(chance) && law.canSee(self, o)) {
         this.engage(o, 'routine');
         return;
@@ -743,6 +870,42 @@ export class CpBrain implements Brain {
     this.ctx.law.order(this.self, o, reason);
     this.target = o;
     this.fsm.change(o.law.phase === 'fleeing' ? 'chase' : 'approach');
+  }
+
+  /** Осматривает ли юнит этого человека: часовой и постовой — только у своего поста (на КПП — всё рядом). */
+  private watches(o: Character, atCheckpoint: boolean): boolean {
+    return !this.guardPost || atCheckpoint || ((this.duty === 'post' || this.duty === 'sentry' || this.duty === 'jailer') && dist(this.guardPost.x, this.guardPost.y, o.x, o.y) < SECURITY.postReach);
+  }
+
+  /** Плановые проверки CID и опознание — работа патрульных и офицера, не командования, охраны, кладовщика и конвоя. */
+  get checksPeople(): boolean {
+    return !this.medicStation && !((this.duty && STAFF.has(this.duty) && this.duty !== 'officer') || this.duty === 'qm' || this.duty === 'convoy' || this.duty === 'jailer' || this.formation);
+  }
+
+  /**
+   * Опознание по ориентировке (Suspects.recognize): похож на известного преступника — остановить и проверить
+   * (engage 'suspect', реплика с местом преступления). Убийца с оружием в квартале высшей ступени (Escalation) —
+   * вооружённый враг сразу, как стрелявший: розыск, тревога, огонь без проверки (Gunner). true — юнит занялся им.
+   */
+  private recognizeSuspect(o: Character): boolean {
+    const { self, ctx } = this;
+    const cs = ctx.suspects.recognize(self, o);
+    if (!cs) return false;
+    const now = ctx.law.now;
+    const R = SUSPECTS.recognize;
+    if (cs.kind === 'murder' && o.weapon && ctx.escalation.tierAt(o.x, o.y) >= R.armedTier) {
+      o.hostile = true;
+      ctx.law.declare(o, 'murder');
+      ctx.war.operatives.add(o);
+      self.say(phrase(ctx.rng, self, SUSPECTS.lines.cpSawKill), now, R.sayTime);
+      ctx.war.raiseAlarm(o.x, o.y, 'вооружённый убийца в квартале', false, { kind: 'murder', reporter: self, suspect: o });
+      armedAlarm.set(o, now);
+      return true;
+    }
+    this.engage(o, 'suspect');
+    const where = whereOf(ctx.map.zones[cs.zone] ?? null);
+    self.say(phrase(ctx.rng, self, SUSPECTS.lines.suspect).replace('{where}', where), now, R.sayTime);
+    return true;
   }
 
   /** Цель всё ещё «наша»? */
@@ -1054,7 +1217,10 @@ function postLife(b: CpBrain, dt: number): void {
   let face = b.postSpot ? b.postFace + rng.range(-0.02, 0.02) : b.postFace;
   let passer: Character | null = null;
   let pd: number = P.watch;
+  const myCommand = cpUnit(self.rank).command;
   for (const o of ctx.entities.near(self.x, self.y, P.watch, near)) {
+    // Офицер рядом — честь (не чаще раза в saluteEvery с).
+    if (o !== self && o.alive && o.faction === 'cp' && now >= self.saluteUntil + P.saluteEvery && cpUnit(o.rank).command > myCommand && dist(self.x, self.y, o.x, o.y) < P.saluteDist) self.saluteUntil = now + P.saluteTime;
     if (o === self || !o.alive || o.moveSpeed < 20 || FACTIONS[o.faction].authority) continue;
     const d = dist(self.x, self.y, o.x, o.y);
     if (d < pd) {
@@ -1369,7 +1535,16 @@ const FIGHT: State<CpBrain> = {
     b.fightHome = { x: b.self.x, y: b.self.y };
   },
   update(b, dt) {
-    if (!b.gunner.target) return b.idleState;
+    if (!b.gunner.target) {
+      // Часовой КПП потерял стрелка из виду (залёг в траншею, ушёл за блок) — ещё немного давит огнём по месту,
+      // где его видел: пули прижимают, высунуться труднее (WAR.line.garrison). С поста не уходит.
+      if (b.front >= 0 && b.guardPost && !b.duel.cooling(b.ctx.combat.now) && b.ctx.combat.now - b.gunner.lastSeenAt.t < WAR.line.garrison.suppressFor) {
+        b.mover.stop();
+        b.tactics.suppressive(b.self, b.ctx, b.gunner, dt);
+        return;
+      }
+      return b.idleState;
+    }
     const gp = b.guardPost ? postOf(b) : null;
     if (b.tactics.fight(b.self, b.ctx, b.gunner, b.mover, dt, gp ?? b.fightHome, gp ? TACTICS.postLeash : TACTICS.leash)) return;
     // Отошёл от поста — вернуться на пост (там укрытие).
@@ -1453,6 +1628,7 @@ const HEAL: State<CpBrain> = {
     faceTowards(b.self, p.x, p.y, dt);
     if (b.healCooldown <= 0 && b.ctx.combat.heal(p, COMBAT.healAmount)) {
       b.healCooldown = COMBAT.healCooldown;
+      b.ctx.relations?.event('help', b.self, p);
       b.self.say(phrase(b.ctx.rng, b.self, LINES.cpMedic), b.ctx.law.now, 1.5);
     }
   },

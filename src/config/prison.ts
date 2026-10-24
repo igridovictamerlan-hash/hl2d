@@ -35,8 +35,20 @@ export const PRISON = {
    * Патруль ВС ближе patrolClear px к ведущему — сигнал ждёт, пока уйдёт (но не дольше wait). Вдали от двери бой — из укрытия не дальше leash px от места. Засветившийся до сигнала ближе early px к месту сбора — начинает штурм сразу, дальше — уходит к люку.
    */
   assault: {
-    team: [3, 5] as const, gather: [10, 16] as const, huddle: 150, wait: 150, fight: 150, breakTime: 3, chance: 0.7, minArmy: 3,
+    team: [2, 10] as const, gather: [10, 16] as const, huddle: 150, wait: 150, fight: 150, breakTime: 3, chance: 0.7, minArmy: 3,
     shoot: [1.2, 2.2] as const, dash: [1.2, 2] as const, reach: 40, grenades: 2, vest: 'vest' as const, helmet: 'helmet' as const, woundedLeave: 0.12, early: 420, leash: 260, patrolClear: 380,
+    /**
+     * Налёт и без своих в тюрьме: сидит хоть inmates человек (бандиты, горожане) — штурм не чаще раза в
+     * every с (первый — не раньше every[0] с). На него зовут банды (GANGS.ops.storm); ведущий ждёт и их —
+     * пока бойцы банд не ближе allyHuddle px (но не дольше wait с).
+     */
+    inmates: 1, every: [300, 480] as const, allyHuddle: 320,
+    /**
+     * Сбор: пора на тюрьму — новых дел и вылазок не дают, спецагенты не уходят на миссии, вернувшиеся ждут в
+     * схроне; набралось muster.min — штурм, к концу сбора (muster.time с) хватит и team[0]. Не собрались —
+     * следующая попытка через muster.time с.
+     */
+    muster: { time: 180, min: 4 },
   },
   /**
    * Оружейная тюрьмы (комната за запертой дверью из шлюза): стволы на стойках (по списку weapons по кругу —

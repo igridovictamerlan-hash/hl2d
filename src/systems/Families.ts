@@ -1,8 +1,10 @@
+/** Описание системы — docs/city-life.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { Poi } from '../world/GameMap';
 import { FAMILIES } from '../config/families';
 import { HOUSING } from '../config/housing';
+import { HOODS } from '../config/crowd';
 import { FEMALE_FIRST, LAST_NAMES, genderedLastName } from '../config/names';
 
 export interface Family {
@@ -64,7 +66,10 @@ export class FamilySystem {
       // Дом семьи (Housing): богатые — особняк, остальные — половина на Арбат, половина в общежития.
       const rich = members[0].loyalty >= F.richLoyalty && !!H?.free('villa');
       const P = HOUSING.prefs;
-      const dwelling = H ? H.pick(rich ? ['villa'] : rng.chance(HOUSING.familyArbat) ? P.family : P.familyDorm) : null;
+      // Люди живут своим районом (HOODS.homes): Арбат реже, остальные — общежития, улицы, кварталы вперемешку.
+      const spread = !!ctx.hoods?.enabled && !rich;
+      const arbat = !rich && rng.chance(spread ? HOODS.homes.familyArbat : HOUSING.familyArbat);
+      const dwelling = !H ? null : spread && !arbat ? H.spread(['dorm', 'street', 'house']) ?? H.pick(P.family) : H.pick(rich ? ['villa'] : arbat ? P.family : P.familyDorm);
       if (dwelling) H.settle(members, dwelling);
       const home = dwelling ? { type: 'home' as const, ...dwelling.room, kind: dwelling.kind === 'villa' || dwelling.kind === 'dorm' ? dwelling.kind : undefined } : null;
       const surname = surnames[id % surnames.length];

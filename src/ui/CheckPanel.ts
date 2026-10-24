@@ -3,6 +3,7 @@ import type { Character } from '../entities/Character';
 import type { Verdict } from '../systems/LawSystem';
 import { VIOLATION_NAMES, LAW } from '../config/law';
 import { FACTIONS } from '../config/factions';
+import { chargeDef, wantedLevel } from '../systems/LawSystem';
 
 export type CheckChoice = 'release' | 'fine' | 'arrest';
 
@@ -29,7 +30,7 @@ export class CheckPanel {
   private show(t: Character, v: Verdict): void {
     this.target = t;
     const cid = t.law.hasCid ? `#${t.cid}` : '<span class="bad">нет действующей CID</span>';
-    const status = t.law.wanted ? '<span class="bad">В РОЗЫСКЕ</span>' : 'чист';
+    const status = t.law.wanted ? `<span class="bad">В РОЗЫСКЕ ${'★'.repeat(wantedLevel(t))} — ${chargeDef(t).name}</span>` : 'чист';
     const hint = v.kind === 'arrest' ? 'рекомендуется арест' : v.kind === 'fine' ? `рекомендуется штраф ${v.fine}` : 'нарушений нет';
     const fine = v.fine || LAW.fines.running;
     this.el.innerHTML = `

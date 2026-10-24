@@ -1,3 +1,4 @@
+/** Описание системы — docs/war.md. */
 import { REBEL_UNIT } from '../config/factions';
 import { COMBAT } from '../config/combat';
 import type { Character } from '../entities/Character';
@@ -19,9 +20,11 @@ import { spawnRole } from './Roster';
 import { armySpec } from './Population';
 import type { Corpse } from './CombatSystem';
 import { CrimeScenes } from './CrimeScenes';
+import { Dugouts } from './Dugouts';
 import { lineOfSight } from '../world/visibility';
 import { VISION } from '../config/vision';
 import type { IncidentKind } from '../config/radio';
+import { computeLinePositions, makeCoverCost, type LinePos } from './FrontLine';
 
 /** Мозг бойца отряда — если он сейчас «свой» (задержанный ведёт себя как PrisonerBrain). */
 function rebelBrain(r: Character): RebelBrain | null {
@@ -42,6 +45,11 @@ export interface AlarmInfo {
   suspect?: Character | null;
   victim?: { name: string } | null;
   radio?: boolean;
+  /** Приметы и направление для рации (Radio.ReportOpts). */
+  desc?: string;
+  dirText?: string;
+  /** Где прочёсывать (точка тревоги для патрулей); null/нет — место происшествия. Рация — по месту происшествия. */
+  sweep?: { x: number; y: number } | null;
 }
 
 export interface Capture {
@@ -188,11 +196,14 @@ export class WarSystem {
   readonly command: RebelCommand;
   /** Места преступления: оцепление у тел убитых ВС в городе. */
   readonly scenes: CrimeScenes;
+  /** Передовые блиндажи повстанцев у КПП (WAR.dugout): запас, подвоз, отдых, вылазки Протектората. */
+  readonly dugouts: Dugouts;
 
   constructor(private readonly ctx: AiContext) {
     this.command = new RebelCommand(ctx);
     this.scenes = new CrimeScenes(ctx);
     this.buildFronts();
+    this.dugouts = new Dugouts(ctx, this);
     ctx.economy.paused = () => this.curfew;
     ctx.economy.onSabotage = (spot) => this.raiseAlarm(spot.x, spot.y, 'саботаж узла Протектората', false, { kind: 'sabotage' });
     ctx.combat.onDamage = (target, attacker, killed) => this.onDamage(target, attacker, killed);
@@ -287,7 +298,13 @@ export class WarSystem {
       const gatePosts = map.poisOf('gate_post').map((p) => ({ x: (p.x + 0.5) * ts, y: (p.y + 0.5) * ts })).filter((p) => nearestExit(p) === index);
       const outlands: number[] = [];
       for (const a of nav.walkable) {
-        if (map.zones[nav.zone[a]]?.kind === 'outlands' && dExit({ x: nav.worldX(a), y: nav.worldY(a) }) < 14 * ts) outlands.push(a);
+        if (map.zones[nav.zone[a]]?.kind !== 'outlands' || dExit({ x: nav.worldX(a), y: nav.worldY(a) }) >= 14 * ts) continue;
+        // Пол и порог передового блиндажа — не «открытая пустошь»: ни собираться, ни занимать позицию внутри незачем
+        // (мозги армии научатся пользоваться блиндажом позже).
+        const tx = nav.ax(a);
+        const ty = nav.ay(a);
+        if (map.tileAt(tx, ty) === T.DUGOUT || map.tileAt(tx + 1, ty) === T.DUGOUT || map.tileAt(tx, ty + 1) === T.DUGOUT || map.tileAt(tx + 1, ty + 1) === T.DUGOUT) continue;
+        outlands.push(a);
       }
       const bunker = zonesHere.flatMap((z) => anchorsOf(z).filter((a) => map.tileAt(nav.ax(a) + 1, nav.ay(a) + 1) === T.INTERIOR));
       const byDist = (from: Vec2) => (a: number, b: number) =>
@@ -487,7 +504,7 @@ export class WarSystem {
   }
 
   /** В городе ли точка (не КПП, не пустошь, не канализация) — там нападение поднимает тревогу. */
-  private inCity(x: number, y: number): boolean {
+  inCity(x: number, y: number): boolean {
     if (this.ctx.map.levelAt(x, y) !== 'city') return false;
     const kind = this.ctx.map.zoneAtWorld(x, y)?.kind;
     return kind !== 'checkpoint' && kind !== 'outlands' && kind !== 'wasteland' && kind !== 'rebel_camp';
@@ -685,7 +702,7 @@ export class WarSystem {
   rebelsAtFronts(): number[] {
     const n = this.fronts.map(() => 0);
     for (const c of this.ctx.entities.list) {
-      if (!c.alive || c.faction !== 'rebel') continue;
+      if (!c.alive || c.faction !== 'rebel' || rebelBrain(c)?.onService) continue;
       const f = this.frontAt(c.x, c.y);
       if (f) n[f.index]++;
     }
@@ -733,22 +750,54 @@ export class WarSystem {
     }
   }
 
+  /** Тело в городе, о котором может знать Протекторат: убитый ВС или гражданский, не сожжённый. */
+  private bodyCounts(b: Corpse): boolean {
+    return (b.faction === 'cp' || CIVIL.has(b.faction)) && !b.burning && this.inCity(b.x, b.y);
+  }
+
+  /**
+   * Тело заметили (сотрудник Протектората или ВС, которому рассказали): убитый патрульный — код жёлтый;
+   * убитый гражданский — точка тревоги рядом. Проходы перекрывают, на осмотр идут следователь и медик —
+   * когда рядом стихнет стрельба (при штурме Управы — не до того). Гражданского — только убитого (не от голода).
+   */
+  private noteBody(b: Corpse, seer: Character): void {
+    const cp = b.faction === 'cp';
+    if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true, { kind: 'officerDown', reporter: seer, victim: b, suspect: b.killer });
+    // Убитого самим Протекторатом (законное применение силы) не ищут — только осмотр.
+    else if (b.killer && !FACTIONS[b.killer.faction].authority) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`, false, { kind: 'body', reporter: seer, victim: b, suspect: b.killer });
+    if (cp || b.killer) this.sceneQueue.add(b);
+  }
+
+  /**
+   * Гражданин рассказал ВС о теле (Senses: житель нашёл и кричит). Тело уже найдено — ничего.
+   * Убитый ВС — код жёлтый, как при виде; тело гражданского — точка тревоги с докладом, убитого — на осмотр.
+   */
+  bodyReported(k: Corpse, cp: Character): void {
+    if (k.found || !this.bodyCounts(k)) return;
+    k.found = true;
+    k.foundBy = cp.pid;
+    this.seenCorpses.add(k);
+    if (k.faction === 'cp') {
+      this.noteBody(k, cp);
+      return;
+    }
+    // Умер сам (голод, кровотечение без виновника) или убит самим Протекторатом — без прочёсывания, только осмотр.
+    if (k.killer && !FACTIONS[k.killer.faction].authority) this.raiseAlarm(k.x, k.y, 'найдено тело', false, { kind: 'body', reporter: cp, victim: k, suspect: k.killer });
+    if (k.killer) this.sceneQueue.add(k);
+  }
+
   /** Убитый ВС в городе, которого увидел кто-то из Протектората, — код жёлтый. */
   private scanCorpses(): void {
     const { combat, entities, map } = this.ctx;
     for (const b of combat.corpses) {
-      const cp = b.faction === 'cp';
-      if ((!cp && !CIVIL.has(b.faction)) || b.burning || this.seenCorpses.has(b) || !this.inCity(b.x, b.y)) continue;
+      if (!this.bodyCounts(b) || this.seenCorpses.has(b)) continue;
       for (const o of entities.list) {
         if (!o.alive || !FACTIONS[o.faction].authority) continue;
         if (Math.hypot(o.x - b.x, o.y - b.y) > VISION.npcRange || !lineOfSight(map, o.x, o.y, b.x, b.y)) continue;
         this.seenCorpses.add(b);
-        // Убит патрульный — код жёлтый; гражданский — точка тревоги рядом.
-        if (cp) this.raiseAlarm(b.x, b.y, `найден убитый патрульный ${b.name}`, true, { kind: 'officerDown', reporter: o, victim: b, suspect: b.killer });
-        else if (b.killer) this.raiseAlarm(b.x, b.y, `найдено тело гражданина ${b.name}`, false, { kind: 'body', reporter: o, victim: b, suspect: b.killer });
-        // Проходы перекрывают, на осмотр идут следователь и медик — когда рядом стихнет стрельба
-        // (при штурме Управы — не до того). Гражданского — только убитого (не от голода).
-        if (cp || b.killer) this.sceneQueue.add(b);
+        b.found = true;
+        b.foundBy ??= o.pid;
+        this.noteBody(b, o);
         break;
       }
     }
@@ -990,11 +1039,19 @@ export class WarSystem {
    */
   raiseAlarm(x: number, y: number, what: string, yellow = false, info: AlarmInfo = {}): void {
     this.lastAlarmRaise = this.time;
-    this.alarm = { x, y, until: this.time + ALARM.pointTime };
+    const sweep = info.sweep ?? { x, y };
+    this.alarm = { x: sweep.x, y: sweep.y, until: this.time + ALARM.pointTime };
     const zone = this.ctx.map.zoneAtWorld(x, y)?.name ?? 'город';
     // В эфир — рацией (доклад, вызов Надзора, кто едет); без рации — строкой журнала, как раньше.
     const radio = info.radio !== false ? this.ctx.radio : null;
-    const aired = radio?.report(info.kind ?? 'generic', x, y, { what, reporter: info.reporter ?? null, suspect: info.suspect ?? null, victim: info.victim ?? null });
+    const aired = radio?.report(info.kind ?? 'generic', x, y, {
+      what,
+      reporter: info.reporter ?? null,
+      suspect: info.suspect ?? null,
+      victim: info.victim ?? null,
+      desc: info.desc,
+      dirText: info.dirText,
+    });
     if (this.code !== 'green' || !yellow) {
       if (!aired && info.radio !== false) this.ctx.law.log(`Надзор: ${what} — ${zone}. Всем патрулям в квартале — усилить поиск.`, 'radio');
       return;
@@ -1074,7 +1131,7 @@ export class WarSystem {
     this.ctx.bus.emit('announce', { text: 'Код красный · комендантский час' });
     for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код красный. Комендантский час!', this.ctx.law.now, 5);
     // OTA по городу не ходит — держит ГЭС и КПП; прочёсывают город PCU и SU.
-    if (this.ota.some((o) => o.alive)) this.ctx.law.log('Надзор: Легион держит Управу. PCU и SU — прочёсывание кварталов.', 'radio');
+    if (this.ota.some((o) => o.alive)) this.ctx.law.log('Надзор: Легион держит Управу. Патрули и спецотряд — прочёсывание кварталов.', 'radio');
   }
 
   /**
@@ -1400,7 +1457,7 @@ export class WarSystem {
     c.profession = 'rebel_soldier';
     c.disguised = false;
     c.carrying = false;
-    c.law.wanted = true;
+    this.ctx.law.declare(c, 'rebel');
     this.ctx.law.clear(c);
     equipKit(c, 'rebel_soldier', this.ctx);
     this.stats.defected++;
@@ -1419,9 +1476,44 @@ export class WarSystem {
     f.squad.push(c);
   }
 
+  /** Кэш огневых позиций линии фронта: фронт × число удерживаемых точек. */
+  private readonly linePos = new Map<number, LinePos[]>();
+  private readonly coverCosts = new Map<number, (anchor: number) => number>();
+
+  /**
+   * Огневые позиции линии (WAR.line) фронта f при held захваченных точках (по умолчанию — сейчас); считаются
+   * один раз на (фронт, held) — карта и посты не меняются. Пусто — на КПП линии нет.
+   */
+  linePositions(f: Front, held: number = f.held): readonly LinePos[] {
+    const key = f.index * 8 + held;
+    let list = this.linePos.get(key);
+    if (!list) {
+      list = computeLinePositions(this.ctx, f, held);
+      this.linePos.set(key, list);
+    }
+    return list;
+  }
+
+  /** Цена прохода по якорям фронта для A* бойцов линии и блиндажа (открытое под огнём — дороже); undefined — нет такого фронта. */
+  coverCost(front: number): ((anchor: number) => number) | undefined {
+    const f = this.fronts[front];
+    if (!f) return undefined;
+    let fn = this.coverCosts.get(front);
+    if (!fn) {
+      fn = makeCoverCost(this.ctx, f);
+      this.coverCosts.set(front, fn);
+    }
+    return fn;
+  }
+
   /** Идёт ли сейчас бой у КПП (стреляли недавно). */
   active(f: Front): boolean {
     return this.time - f.lastShot < WAR.activeWindow;
+  }
+
+  /** Сколько секунд у КПП не стреляли. */
+  sinceShot(f: Front): number {
+    return this.time - f.lastShot;
   }
 
   update(dt: number): void {
@@ -1446,6 +1538,7 @@ export class WarSystem {
     }
     // Командование сопротивления: лагерь, цель главы, отряды фронтов, клич.
     this.command.update(dt);
+    this.dugouts.update(dt);
     const counts = this.rebelsAtFronts();
     this.otaTimer -= dt;
     if (this.otaTimer <= 0) {
@@ -1538,8 +1631,10 @@ export class WarSystem {
       this.manualBy = null;
     }
     if (this.code === 'yellow' && this.manualCode !== 'yellow') {
-      // Тревога держится, пока есть нападавшие или КПП в руках повстанцев.
-      this.calm = this.operatives.size === 0 && this.fronts.every((f) => f.held === 0) ? this.calm + dt : 0;
+      // Тревога держится, пока есть нападавшие или КПП в руках повстанцев; серия убийств (Escalation) — тоже:
+      // покой отсчитывается заново, когда серия кончилась.
+      const hold = !!this.ctx.escalation?.holdYellow;
+      this.calm = !hold && this.operatives.size === 0 && this.fronts.every((f) => f.held === 0) ? this.calm + dt : 0;
       if (this.calm >= ALARM.calmToGreen && this.time - this.yellowSince >= ALARM.minTime) this.declareGreen();
     }
     // «Надзор» периодически засекает прорвавшихся.

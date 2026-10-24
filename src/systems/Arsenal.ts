@@ -1,3 +1,4 @@
+/** Описание системы — docs/arsenal.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
@@ -708,8 +709,8 @@ export class ArsenalSystem {
     const { ctx } = this;
     const p = this.pad!;
     const s = this.ship;
-    // Прилетает со стороны ГЭС (Управы), уходит дальше.
-    const nx = ctx.map.poisOf('nexus_gate')[0];
+    // Груз приходит баржами в речной порт у ГЭС — борт прилетает оттуда (на старых картах — от ГЭС или Управы), уходит дальше.
+    const nx = ctx.map.poisOf('port_warehouse')[0] ?? ctx.map.poisOf('ges_hall')[0] ?? ctx.map.poisOf('nexus_gate')[0];
     const ts = ctx.map.tileSize;
     const dir = nx ? Math.atan2((nx.y + 0.5) * ts - p.y, (nx.x + 0.5) * ts - p.x) : -Math.PI / 2;
     const R = 900;
@@ -2068,7 +2069,7 @@ export class ArsenalSystem {
     else ok = this.breakBeacon();
     if (ok && act !== 'bomb' && this.watched(by.x, by.y, by) && ctx.rng.chance(ARSENAL.ops.caught)) {
       ctx.combat.reveal(by, 'пойманы на складе Протектората');
-      by.law.wanted = true;
+      ctx.law.declare(by, 'sabotage');
       ctx.war.raiseAlarm(by.x, by.y, 'диверсия на складе Протектората', false, { kind: 'depot' });
     }
     return ok;

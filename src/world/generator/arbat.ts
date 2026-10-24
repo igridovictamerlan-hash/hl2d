@@ -68,8 +68,11 @@ export function constrainAvenueLanes(lat: Lattice, av: Avenue, line: number): vo
     }
     return { lo, hi };
   };
+  const end = av.segs[av.segs.length - 1].to;
   if (av.horizontal) {
     for (let i = 0; i < lat.cols; i++) {
+      // За концом проспекта (если он не доходит до стены) линия — обычная решётка.
+      if (lat.node(i, line).x > end) continue;
       const up = lat.vEdge(i, line - 1);
       if (up) {
         const A = lat.nodes[up.a];
@@ -154,6 +157,8 @@ export interface FacadeOptions {
   plazaCenter: { x: number; y: number } | null;
   addZone: (kind: ZoneKind, name: string) => number;
   pois: Poi[];
+  /** Где начинается Верхний город (тайлы, за стеной): там — лавки ARBAT.upperShops; нет — не ставятся. */
+  upperX?: number;
 }
 
 /**
@@ -241,15 +246,17 @@ export function buildFacades(g: GenGrid, rng: Rng, o: FacadeOptions): FacadeBuil
     return { id: out.length, rect, interior, face: faceOf(fr), use: 'house', fr, ua, ub, fIn, back };
   };
 
-  // 1. Столовая: на главном проспекте, почти прямой кусок фасада (ступеньки до 2 тайлов) ближе к площади.
+  // 1. Столовая: фасадом на площадь (иначе — на главном проспекте), почти прямой кусок фасада (ступеньки до 2
+  // тайлов) ближе к площади.
   const C = F.canteen;
   const pc = o.plazaCenter;
   {
     const best: { fr: Frontage | null; a: number; b: number } = { fr: null, a: 0, b: 0 };
     let bestD = Infinity;
     const want = rng.int(C.width[0], C.width[1]);
-    for (const fr of o.frontages) {
-      if (!fr.main || fr.street !== 'avenue') continue;
+    const order = [...o.frontages.filter((fr) => fr.street === 'plaza'), ...o.frontages.filter((fr) => fr.main && fr.street === 'avenue')];
+    for (const fr of order) {
+      if (best.fr && best.fr.street === 'plaza' && fr.street !== 'plaza') break;
       for (const [a, b] of runs(fr, C.depth[0])) {
         for (let wdt = want; wdt >= C.width[0]; wdt--) {
           for (let s = a; s + wdt - 1 <= b; s++) {
@@ -318,8 +325,14 @@ export function buildFacades(g: GenGrid, rng: Rng, o: FacadeOptions): FacadeBuil
     if (b) taken.push(b);
     return b ?? null;
   };
+  const hasDoor = (b: FacadeBuilding) => {
+    for (let u = b.ua + 1; u <= b.ub - 2; u++) if (b.fr.front(u) === b.fIn && b.fr.front(u + 1) === b.fIn) return true;
+    return false;
+  };
+  // Ателье «Старый город» — по эту сторону стены (площадь бывает у самой стены): с дверью — та же случайность, что у дома.
+  const oldTown = (b: FacadeBuilding) => o.upperX === undefined || (b.rect.x + b.rect.w <= o.upperX - GENERATOR.wealth.wall && hasDoor(b));
   for (const def of ARBAT.shops) {
-    const b = pick((c) => inDepth(c) >= shopDepth && inWidth(c) >= 4);
+    const b = pick((c) => inDepth(c) >= shopDepth && inWidth(c) >= 4 && (def.id !== 'tailor' || oldTown(c)));
     if (!b) break;
     b.use = 'shop';
     b.sub = def.id;
@@ -329,6 +342,21 @@ export function buildFacades(g: GenGrid, rng: Rng, o: FacadeOptions): FacadeBuil
     if (!b) break;
     b.use = 'cafe';
     b.sub = def.id;
+  }
+
+  // 3б. Лавки Верхнего города: дом с дверью на улицу за стеной — на главном проспекте, иначе на любом проспекте или
+  // улице, ближе к блок-посту. Дверь есть — finish тратит случайность как на жилой дом (раскладка города не сдвигается).
+  if (o.upperX !== undefined) {
+    const ux = o.upperX;
+    const rank = (b: FacadeBuilding) => (b.fr.main ? 0 : b.fr.street === 'avenue' ? 1e5 : 2e5) + (b.rect.x - ux);
+    const up = out.filter((b) => b.use === 'house' && b.rect.x >= ux && inDepth(b) >= shopDepth && inWidth(b) >= 4 && hasDoor(b)).sort((p, q) => rank(p) - rank(q));
+    for (const def of ARBAT.upperShops) {
+      const b = up.find((c) => c.use === 'house' && !neighbour(c));
+      if (!b) break;
+      b.use = 'shop';
+      b.sub = def.id;
+      taken.push(b);
+    }
   }
 
   // 4. Двери, прилавки, столы, зоны и точки интереса.
@@ -410,7 +438,7 @@ function finish(g: GenGrid, rng: Rng, b: FacadeBuilding, o: FacadeOptions): void
       o.pois.push({ type: 'home', ...b.interior });
       break;
     case 'shop': {
-      const d = def(ARBAT.shops);
+      const d = def([...ARBAT.shops, ...ARBAT.upperShops]);
       zoneOver(o.addZone('shop', d?.name ?? 'Лавка'));
       const k = F.counterRow;
       counter(k);

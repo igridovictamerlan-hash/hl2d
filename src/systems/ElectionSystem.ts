@@ -1,3 +1,4 @@
+/** Описание системы — docs/roster.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { ELECTION } from '../config/election';

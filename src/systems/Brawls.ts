@@ -1,3 +1,4 @@
+/** Описание системы — docs/city-life.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
@@ -99,7 +100,9 @@ export class Brawls {
   /** Ударили кулаком: житель отвечает (или убегает), за бандита — братва. */
   private punched(t: Character, a: Character): void {
     if (!this.fighting(t) && !t.isPlayer && t.brain instanceof CitizenBrain && this.canBrawl(t) && this.canBrawl(a)) {
-      if (t.gang >= 0 || this.ctx.rng.chance(BRAWL.fightBack)) this.start(t, a, true);
+      // Храбрые и вспыльчивые отвечают чаще, робкие — убегают; на недруга — злее.
+      const mul = this.ctx.relations?.fightBackMul(t, a) ?? 1;
+      if (t.gang >= 0 || this.ctx.rng.chance(Math.min(0.95, BRAWL.fightBack * mul))) this.start(t, a, true);
       else {
         t.say(this.ctx.rng.pick(BRAWL.lines.flee), this.now, 2);
         t.brain.fleeFrom(a);
@@ -119,13 +122,20 @@ export class Brawls {
     if (!g || attacker.gang === victim.gang || !attacker.alive) return;
     const B = BRAWL.backup;
     const now = this.now;
-    const unarmed = fists && !attacker.weapon && !FACTIONS[attacker.faction].authority;
+    const authority = FACTIONS[attacker.faction].authority;
+    const unarmed = fists && !attacker.weapon && !authority;
+    // Против Протектората банда не воюет за своего — только кричит (BRAWL.backup.vsAuthority).
+    const shout = authority && !B.vsAuthority;
     let n = 0;
     for (const m of this.ctx.gangs.members(g)) {
       if (m === victim || m.isPlayer || !m.fit || m.law.phase !== 'none') continue;
       if (Math.hypot(m.x - victim.x, m.y - victim.y) > B.radius) continue;
       if (now - (this.backupAt.get(m) ?? -1e9) < B.every) continue;
       this.backupAt.set(m, now);
+      if (shout) {
+        if (this.ctx.law.canSee(m, victim)) m.say(this.ctx.rng.pick(BRAWL.lines.backup), now, 2);
+        continue;
+      }
       if (unarmed) {
         if (!this.fighting(m)) this.start(m, attacker, true);
       } else this.addVendetta(g.id, attacker);
@@ -166,7 +176,10 @@ export class Brawls {
       return `${target.name} делает вид, что не слышит.`;
     }
     const brawler = target.brain instanceof CitizenBrain && this.canBrawl(target) && this.canBrawl(by);
-    const anger = target.gang >= 0 ? BRAWL.insult.banditAnger : target.loyalty >= BRAWL.calmLoyalty ? BRAWL.insult.anger / 3 : BRAWL.insult.anger;
+    const anger0 = target.gang >= 0 ? BRAWL.insult.banditAnger : target.loyalty >= BRAWL.calmLoyalty ? BRAWL.insult.anger / 3 : BRAWL.insult.anger;
+    // Характер, настроение и отношение к обидчику: вспыльчивый и мрачный взрываются быстрее, друг — прощает.
+    const anger = Math.min(0.95, anger0 * (ctx.relations?.angerMul(target, by) ?? 1));
+    ctx.relations?.event('insult', by, target);
     if (brawler && ctx.rng.chance(anger) && this.start(target, by, true)) {
       if (target.gang >= 0) this.backup(target, by, true);
       return `${target.name} бросается на вас!`;
@@ -192,7 +205,7 @@ export class Brawls {
 
   /** Ссора после разговора (CitizenBrain.endChat). */
   quarrel(a: Character, b: Character): void {
-    if (!this.enabled || a.loyalty >= BRAWL.calmLoyalty || b.loyalty >= BRAWL.calmLoyalty || !this.ctx.rng.chance(BRAWL.chatChance)) return;
+    if (!this.enabled || a.loyalty >= BRAWL.calmLoyalty || b.loyalty >= BRAWL.calmLoyalty || !this.ctx.rng.chance(BRAWL.chatChance * (this.ctx.relations?.quarrelMul(a, b) ?? 1))) return;
     this.start(a, b);
   }
 
@@ -233,16 +246,25 @@ export class Brawls {
     if (!this.enabled || (this.nextRandom -= dt) > 0) return;
     this.nextRandom = BRAWL.every;
     if (ctx.war.code === 'red' || !ctx.rng.chance(BRAWL.randomChance)) return;
-    const pool = ctx.entities.list.filter(
-      (c) => !c.isPlayer && c.faction === 'citizen' && c.loyalty < BRAWL.calmLoyalty && c.brain instanceof CitizenBrain && c.brain.fsm.current === 'walk' && this.canBrawl(c),
-    );
-    if (!pool.length) return;
-    const a = ctx.rng.pick(pool);
+    // Задира — из тех, у кого рядом есть прохожий (раньше брали любого гуляющего и чаще всего зря).
+    const pairs: [Character, Character][] = [];
+    for (const a of ctx.entities.list) {
+      if (a.isPlayer || a.faction !== 'citizen' || a.loyalty >= BRAWL.calmLoyalty || !(a.brain instanceof CitizenBrain) || a.brain.fsm.current !== 'walk' || !this.canBrawl(a)) continue;
+      const o = this.markFor(a);
+      if (o) pairs.push([a, o]);
+    }
+    if (!pairs.length) return;
+    const [a, o] = ctx.rng.pick(pairs);
+    this.start(a, o);
+  }
+
+  /** Прохожий, к которому задира a может прицепиться: житель рядом (seek px), на виду, не в драке. */
+  private markFor(a: Character): Character | null {
+    const { ctx } = this;
     for (const o of ctx.entities.near(a.x, a.y, BRAWL.seek, near)) {
       if (o === a || o.isPlayer || o.faction !== 'citizen' || !this.canBrawl(o) || this.fighting(o)) continue;
-      if (!lineOfSight(ctx.map, a.x, a.y, o.x, o.y)) continue;
-      this.start(a, o);
-      return;
+      if (lineOfSight(ctx.map, a.x, a.y, o.x, o.y) && (!ctx.relations || ctx.relations.mayBully(a, o))) return o;
     }
+    return null;
   }
 }

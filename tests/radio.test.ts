@@ -6,6 +6,8 @@ import { RADIO } from '../src/config/radio';
 import { whereOf } from '../src/world/places';
 import { fmt, Radio } from '../src/systems/Radio';
 import type { Character } from '../src/entities/Character';
+import { spawnRole } from '../src/systems/Roster';
+import { CP_UNIT, cpUnit } from '../src/config/factions';
 
 type Sim = ReturnType<typeof makeSim>;
 const run = (sim: Sim, sec: number, until?: () => boolean) => {
@@ -48,6 +50,31 @@ function spotFrom(sim: Sim, c: Character, dx: number): { x: number; y: number } 
 
 const said = (sim: Sim, who: Character | null) => sim.ctx.radio.feed.filter((t) => t.from === who).map((t) => t.text);
 
+/**
+ * Первые секунды города (кто-то уже бежит от патруля, пост вышел на связь) занимают единственную частоту и ставят откаты
+ * погони и драки — от раскладки карты это зависит. Сценарий теста должен идти по собственным правилам: сбрасываем откаты
+ * (они закрывают `chase`/`brawl` на 40–45 с после любого фонового случая) и очередь эфира, а реплики ждём по факту выхода
+ * в эфир, а не по часам.
+ */
+function resetThrottles(sim: Sim): void {
+  Object.assign(sim.ctx.radio, { lastChase: -1e9, lastBrawl: -1e9, lastArrest: -1e9, busyUntil: -1e9 });
+  // Фоновые передачи в очереди (чужая погоня, переклички) тоже не наши: эфир — сценарию теста.
+  (sim.ctx.radio as unknown as { queue: unknown[] }).queue.length = 0;
+}
+
+/** Житель на сети рации вдали от открытых происшествий — сюжет не сольётся с фоновым вызовом (RADIO.incident.merge). */
+function citizenAway(sim: Sim): Character {
+  const R = sim.ctx.radio;
+  const c = sim.entities.list.find((p) => {
+    if (p.faction !== 'citizen' || !p.alive || sim.map.levelAt(p.x, p.y) !== 'city') return false;
+    const z = sim.map.zoneAtWorld(p.x, p.y)?.kind;
+    if (!z || !['residential', 'avenue', 'plaza', 'industrial', 'shop'].includes(z)) return false;
+    return R.open.every((i) => Math.hypot(i.x - p.x, i.y - p.y) > RADIO.incident.merge + 100);
+  });
+  expect(c).toBeTruthy();
+  return c!;
+}
+
 describe('рация: места в речи', () => {
   test('предложный падеж названий зон', () => {
     expect(whereOf({ name: 'Заводская улица', kind: 'avenue' })).toBe('на Заводской улице');
@@ -73,31 +100,54 @@ describe('рация: вызов и выезд', () => {
     const sim = city();
     run(sim, 2);
     const R = sim.ctx.radio;
-    const reporter = freeUnit(sim);
-    const p = spotFrom(sim, reporter, 600);
-    const inc = R.report('shots', p.x, p.y, { reporter, what: 'выстрелы в квартале' })!;
-    expect(inc).toBeTruthy();
-    expect(inc.where.length).toBeGreaterThan(3);
-    // Послали ближайших (доложивший тоже идёт — молча).
-    const sent = inc.responders.filter((c) => c !== reporter);
-    expect(sent.length).toBeGreaterThan(0);
-    const u = sent[0];
-    expect((u.brain as CpBrain).call?.id).toBe(inc.id);
-    // Эфир: доклад доложившего, потом вызов Надзора с местом и позывными, потом «принял».
-    run(sim, 12);
+    // Частота одна, и фоновые передачи города идут впереди очереди — ждём, пока дойдёт до нашего вызова. В живом
+    // городе дело могут закрыть раньше, чем доклад выйдет в эфир (с ним слилась погоня рядом и беглеца взяли), —
+    // тогда новый вызов.
+    let reporter!: Character;
+    let inc!: ReturnType<typeof R.report> & object;
+    let u!: Character;
+    const aired = () => {
+      const f = R.feed;
+      const i = f.findIndex((t) => t.from === null && t.text.includes(inc.where) && t.text.includes(u.name));
+      return i >= 0 && f.some((t) => t.from === reporter && t.text.includes(inc.where)) && f.slice(i + 1).some((t) => t.from === u);
+    };
+    for (let k = 0; k < 3; k++) {
+      reporter = freeUnit(sim);
+      const p = spotFrom(sim, reporter, 600);
+      inc = R.report('shots', p.x, p.y, { reporter, what: 'выстрелы в квартале' })!;
+      expect(inc).toBeTruthy();
+      expect(inc.where.length).toBeGreaterThan(3);
+      // Послали ближайших (доложивший тоже идёт — молча).
+      const sent = inc.responders.filter((c) => c !== reporter);
+      expect(sent.length).toBeGreaterThan(0);
+      u = sent[0];
+      expect((u.brain as CpBrain).call?.id).toBe(inc.id);
+      // Эфир: доклад доложившего, потом вызов Надзора с местом и позывными, потом «принял».
+      if (run(sim, 45, () => aired() || inc.closed) && !inc.closed) break;
+    }
+    expect(aired()).toBe(true);
     const rep = said(sim, reporter);
     expect(rep.some((t) => t.includes(inc.where))).toBe(true);
     const nad = said(sim, null);
     expect(nad.some((t) => t.includes(inc.where) && t.includes(u.name))).toBe(true);
     expect(said(sim, u).length).toBeGreaterThan(0);
-    // Едет и доезжает.
-    const d0 = Math.hypot(u.x - inc.x, u.y - inc.y);
-    expect(run(sim, 90, () => inc.arrived.has(u) || inc.closed)).toBe(true);
-    if (!inc.closed) expect(Math.hypot(u.x - inc.x, u.y - inc.y)).toBeLessThan(Math.max(d0, RADIO.incident.arrive + 1));
+    // Едет и доезжает. В живом городе вызов могут закрыть до выезда (слился с соседним делом, подозреваемого взяли) —
+    // тогда новый вызов туда же.
+    let cur = inc;
+    let unit = u;
+    expect(run(sim, 90, () => cur.arrived.has(unit) || cur.closed)).toBe(true);
+    for (let k = 0; k < 3 && cur.closed && !cur.arrived.has(unit); k++) {
+      const q = spotFrom(sim, reporter, 600);
+      cur = R.report('shots', q.x, q.y, { reporter, what: 'выстрелы в квартале' })!;
+      unit = cur.responders.find((c) => c !== reporter) ?? unit;
+      expect(run(sim, 90, () => cur.arrived.has(unit) || cur.closed)).toBe(true);
+    }
+    // Не закрыт — значит, доехал (дальше он прочёсывает вокруг, и расстояние может снова расти).
+    if (!cur.closed) expect(cur.arrived.has(unit)).toBe(true);
     // Тихо — «чисто» и отбой, вызов снят.
-    expect(run(sim, 80, () => inc.closed)).toBe(true);
-    expect(['clear', 'arrested', 'killed', 'timeout']).toContain(inc.result);
-    expect((u.brain as CpBrain).call?.id === inc.id).toBe(false);
+    expect(run(sim, 80, () => cur.closed)).toBe(true);
+    expect(['clear', 'arrested', 'killed', 'timeout']).toContain(cur.result);
+    expect((unit.brain as CpBrain).call?.id === cur.id).toBe(false);
     expect(R.stats.arrived).toBeGreaterThan(0);
   });
 
@@ -108,13 +158,19 @@ describe('рация: вызов и выезд', () => {
     const u = freeUnit(sim);
     const p = spotFrom(sim, u, 500);
     const inc = R.report('armed', p.x, p.y, { what: 'вооружённый на улице' })!;
+    // Фоновые вызовы города (погоня на площади) тоже открыты — считаем разницу, а не абсолют.
+    const openAfterFirst = R.open.length;
     const before = inc.responders.length;
+    // Свободная патрульная группа неподалёку — подмоге есть кого слать (город большой, свободных юнитов мало).
+    const lead = CP_UNIT.pcu2;
+    spawnRole(sim.ctx, { kind: 'squad', faction: 'cp', profession: null, division: cpUnit(lead).group, rank: lead, kit: cpUnit(lead).kit, squad: 99, lead: true }, spotFrom(sim, u, 300));
     const again = R.report('attack', p.x + 40, p.y, { what: 'нападение на сотрудника' });
     expect(again).toBe(inc);
     expect(inc.kind).toBe('attack');
     expect(inc.responders.length).toBeGreaterThan(before);
     expect(inc.responders.some((c) => (c.brain as CpBrain).call?.urgent)).toBe(true);
-    expect(R.open.length).toBe(1);
+    // Второй сигнал слился с первым: нового происшествия не открыли.
+    expect(R.open.length).toBe(openAfterFirst);
   });
 
   test('погиб юнит в городе — «потеря биосигнала», на место шлют юниты', () => {
@@ -127,8 +183,8 @@ describe('рация: вызов и выезд', () => {
     expect(inc).toBeTruthy();
     expect(inc.victim?.name).toBe(victim.name);
     expect(inc.responders.length).toBeGreaterThan(0);
-    run(sim, 6);
-    expect(said(sim, null).some((t) => t.includes(victim.name))).toBe(true);
+    // Частота одна — вызов Надзора выходит в свой черёд, после фоновых передач.
+    expect(run(sim, 45, () => said(sim, null).some((t) => t.includes(victim.name)))).toBe(true);
   });
 
   test('погоня: доклад с приметами, перехват; упустил — ориентировка', () => {
@@ -136,12 +192,13 @@ describe('рация: вызов и выезд', () => {
     run(sim, 2);
     const R = sim.ctx.radio;
     const h = freeUnit(sim);
-    const t = sim.entities.list.find((c) => c.faction === 'citizen' && c.alive && sim.map.levelAt(c.x, c.y) === 'city' && R.report !== undefined)!;
+    const t = citizenAway(sim);
+    resetThrottles(sim);
     R.chase(h, t);
-    const inc = R.incidents.find((i) => i.kind === 'fugitive')!;
-    expect(inc.suspect).toBe(t);
+    const inc = R.incidents.find((i) => i.kind === 'fugitive' && i.suspect === t)!;
+    expect(inc).toBeTruthy();
     expect(inc.responders.includes(h)).toBe(false);
-    run(sim, 10);
+    run(sim, 45, () => said(sim, h).length > 0);
     const rep = said(sim, h);
     expect(rep.some((s) => /беглец|бежит|Преследую/i.test(s))).toBe(true);
     expect(rep.some((s) => s.includes(R.describe(t).split(',')[0][0].toUpperCase() + R.describe(t).split(',')[0].slice(1)))).toBe(true);
@@ -155,13 +212,14 @@ describe('рация: вызов и выезд', () => {
     run(sim, 2);
     const R = sim.ctx.radio;
     const u = freeUnit(sim);
-    const t = sim.entities.list.find((c) => c.faction === 'citizen' && c.alive)!;
+    const t = citizenAway(sim);
+    resetThrottles(sim);
     R.brawl(u, t);
     const inc = R.incidents.find((i) => i.kind === 'brawl')!;
+    expect(inc).toBeTruthy();
     expect(inc.closed).toBe(true);
     expect(inc.responders.length).toBe(0);
-    run(sim, 8);
-    expect(said(sim, u).some((s) => /драк|мордобой|сцепились/i.test(s))).toBe(true);
+    expect(run(sim, 45, () => said(sim, u).some((s) => /драк|мордобой|сцепились/i.test(s)))).toBe(true);
   });
 });
 
@@ -185,15 +243,18 @@ describe('рация: эфир и плановое', () => {
     const sim = city();
     run(sim, 2);
     const R = sim.ctx.radio;
-    const post = sim.entities.list.find((c) => c.alive && c.brain instanceof CpBrain && c.brain.duty === 'post' && c.brain.guardPost)!;
+    // Вахтёр у ворот Управы (на постах стены Верхнего города мимо идёт весь проспект — там и свои доклады).
+    const post = sim.entities.list.find((c) => c.alive && c.brain instanceof CpBrain && c.brain.duty === 'post' && c.brain.guardPost && c.role?.access === 'nexus')!;
     expect(post).toBeTruthy();
     expect(R.status(post)).toMatch(/пост|стою|ночь|Людно|пусто/i);
     // Эфир свободен (плановая перекличка не чаще RADIO.routine.checkIn) — пост выходит на связь, второй раз сразу — нет.
-    const before = said(sim, post).length;
+    // Считаем только доклады о посте: пока ждём, пост может и задержать прохожего («конвоирую задержанного»).
+    const reports = () => said(sim, post).filter((t) => /пост|стою|ночь|Людно|пусто/i.test(t)).length;
+    const before = reports();
     expect(run(sim, 90, () => R.queued === 0 && R.checkIn(post))).toBe(true);
     expect(R.checkIn(post)).toBe(false);
     run(sim, 6);
-    expect(said(sim, post).length).toBe(before + 1);
+    expect(reports()).toBe(before + 1);
     expect(R.feed.some((f) => f.from === null && /Принято|Понял/.test(f.text))).toBe(true);
   });
 
@@ -203,8 +264,11 @@ describe('рация: эфир и плановое', () => {
     const R = sim.ctx.radio;
     const f = sim.war.fronts[0];
     R.front('capture', f, f.points[0]);
-    run(sim, 8);
-    const unit = R.feed.find((t) => t.from && (t.from.brain as CpBrain).front === f.index);
+    // Эфир занят фоновыми передачами — ждём, пока гарнизон КПП доложит, а Надзор ответит.
+    const fromGarrison = () => R.feed.find((t) => t.from && (t.from.brain as CpBrain).front === f.index && t.text.includes(f.points[0].name));
+    const reply = () => said(sim, null).some((t) => t.includes(f.points[0].name));
+    expect(run(sim, 45, () => !!fromGarrison() && reply())).toBe(true);
+    const unit = fromGarrison();
     expect(unit?.text).toContain(f.points[0].name);
     expect(said(sim, null).some((t) => t.includes(f.points[0].name))).toBe(true);
     R.front('breach', f, f.points[1]);
@@ -214,6 +278,8 @@ describe('рация: эфир и плановое', () => {
 
   test('вызов по рации — юнит прочёсывает место, даже если тревоги в городе нет', () => {
     const sim = city();
+    // Без воров и бандитов: юнит по дороге не должен отвлекаться на погоню (сценарий — о вызове, не о нарушителях).
+    for (const c of [...sim.entities.list]) if (c.profession === 'bandit' || c.profession === 'thief') sim.entities.remove(c);
     run(sim, 2);
     const u = freeUnit(sim);
     const b = u.brain as CpBrain;
@@ -224,7 +290,8 @@ describe('рация: эфир и плановое', () => {
     const d0 = Math.hypot(u.x - p.x, u.y - p.y);
     run(sim, 8);
     expect(b.fsm.current).toBe('hunt');
-    expect(Math.hypot(u.x - p.x, u.y - p.y)).toBeLessThan(d0);
+    // Едет к месту (путь в обход застройки сперва может уводить в сторону — ждём, пока станет ближе).
+    expect(run(sim, 30, () => Math.hypot(u.x - p.x, u.y - p.y) < d0 * 0.8)).toBe(true);
     expect(Radio.callOf(u)?.id).toBe(999);
   });
 });

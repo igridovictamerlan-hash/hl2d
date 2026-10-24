@@ -1,12 +1,14 @@
+/** Описание системы — docs/ui.md. */
 import type { Character } from '../entities/Character';
 import type { FactionId, DivisionId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import type { Stack } from '../entities/Inventory';
 import type { ItemId, WeaponId, GearId, GearSlot } from '../config/items';
-import { capacityOf } from './Gear';
+import { capacityOf, refreshClothes } from './Gear';
 import { ITEMS, WEAPONS } from '../config/items';
 import type { CadetRecord } from '../config/academy';
-import { FACTIONS } from '../config/factions';
+import { FACTIONS, cpUnit } from '../config/factions';
+import type { SocialSave } from './Relations';
 
 /**
  * Сохранение игрока (формат версии 1): карта (seed), роль, личность, деньги, лояльность,
@@ -39,6 +41,8 @@ export interface SaveData {
   /** Служба ВС: заслуги; курсант — баллы учёбы (нет в старых сохранениях). */
   merit?: number;
   cadet?: CadetRecord | null;
+  /** Знакомства и память отношений (systems/Relations.ts; нет в старых сохранениях). */
+  social?: SocialSave;
 }
 
 export function capturePlayer(
@@ -48,6 +52,7 @@ export function capturePlayer(
   civilName: string,
   knowledge: { explored: Uint8Array; hatches: Iterable<number> },
   now = Date.now(),
+  social?: SocialSave,
 ): SaveData {
   // Задержанный «сбежать» перезагрузкой не может: он в розыске.
   const caught = p.law.phase !== 'none';
@@ -75,6 +80,7 @@ export function capturePlayer(
     hatches: [...knowledge.hatches],
     merit: p.merit,
     cadet: p.cadet ? { ...p.cadet } : null,
+    social,
   };
 }
 
@@ -106,9 +112,14 @@ export function applyToPlayer(p: Character, d: SaveData): void {
   p.inventory.clear();
   // Снаряжение — до вещей: рюкзак добавляет ячейки.
   p.gear = {};
-  for (const [slot, id] of Object.entries(d.gear ?? {}) as [GearSlot, GearId][]) {
-    if (id in ITEMS && ITEMS[id].gear?.slot === slot) p.gear[slot] = id;
+  for (const [, id] of Object.entries(d.gear ?? {}) as [GearSlot, GearId][]) {
+    // Слот — по предмету: плащ и кепка из старых сохранений (были на месте брони) переходят в слоты одежды.
+    const slot = id in ITEMS ? ITEMS[id].gear?.slot : undefined;
+    if (slot && !p.gear[slot]) p.gear[slot] = id;
   }
+  // Форма ВС из сохранения — как была (что снял, то снято): заново не выдаётся.
+  if (p.faction === 'cp') p.kitUnit = cpUnit(p.rank).unit;
+  refreshClothes(p);
   p.inventory.capacity = capacityOf(p);
   for (const s of d.inventory) p.inventory.add(s.id as ItemId, s.qty);
   p.mags = { ...(d.mags ?? {}) };

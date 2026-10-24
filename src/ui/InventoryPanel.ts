@@ -3,11 +3,13 @@ import type { PawnDir, PawnLook } from '../entities/PawnRenderer';
 import type { CombatSystem } from '../systems/CombatSystem';
 import { GRENADE_KINDS } from '../systems/CombatSystem';
 import { armorOf, roleArmor } from '../systems/wounds';
+import { CLOTH_SLOTS } from '../config/clothes';
 import { ITEMS, WEAPONS, type ItemId, type WeaponId, type WeaponDef, type GrenadeId, type GearId, type GearSlot } from '../config/items';
 import { REBEL_RANKS } from '../config/factions';
 import { HUD } from '../config/hud';
 import { drawGunIcon, drawIcon, iconOf } from './icons';
 import { drawPawnFigure } from './pawnFigure';
+import { MELEE as MELEE_CFG } from '../config/melee';
 
 export interface InventoryHost {
   useItem(id: ItemId): void;
@@ -132,7 +134,7 @@ export class InventoryPanel {
   update(p: Character, combat: CombatSystem, look: PawnLook): void {
     if (!this.isOpen) return;
     const hoverKey = this.hover ? `${this.hover.x},${this.hover.y}` : '';
-    const sig = `${p.inventory.slots.map((s) => `${s.id}:${s.qty}`).join(',')}|${p.weapon}|${p.gear.head}|${p.gear.torso}|${p.gear.back}|${p.mag}|${p.grenadeKind}|${p.money}|${this.dir}|${hoverKey}|${look.seed}|${look.color}|${combat.reloading(p)}|${window.innerWidth}x${window.innerHeight}|${this.touch}`;
+    const sig = `${p.inventory.slots.map((s) => `${s.id}:${s.qty}`).join(',')}|${p.weapon}|${p.gear.head}|${p.gear.torso}|${p.gear.back}|${p.clothesKey}|${p.mag}|${p.grenadeKind}|${p.money}|${this.dir}|${hoverKey}|${look.seed}|${look.color}|${combat.reloading(p)}|${window.innerWidth}x${window.innerHeight}|${this.touch}`;
     if (sig === this.sig) return;
     this.sig = sig;
     this.draw(p, combat, look);
@@ -168,45 +170,40 @@ export class InventoryPanel {
     text(ctx, this.touch ? '' : 'Tab — закрыть', W - 56, 22, 11, C.textDim, 'right', 700);
 
     // --- снаряжение: надетое (шлем, бронежилет, рюкзак — снимается) и форма роли (не снять) ---
-    const role = roleArmor(p);
+    // Форма ВС выдана по частям (Gear.issueUniform) — в слотах настоящие вещи, «формы роли» нет.
+    const issued = !!p.kitUnit;
+    const role = issued ? { head: 0, torso: 0 } : roleArmor(p);
     const army = p.faction === 'rebel' && !!p.profession && ARMY.has(p.profession);
-    const uniformed = p.faction === 'cp' || p.faction === 'ota';
-    const worn = {
+    const worn = issued ? { head: null, face: null, torso: null, back: null } : {
       head: role.head > 0 ? 'helmet' : p.faction === 'cwu' ? 'cap' : null,
       face: (p.faction === 'cp' && p.division === 'pcu') || p.faction === 'ota' ? 'gasmask' : null,
       torso: role.torso > 0 ? 'vest' : null,
       back: army || p.faction === 'ota' ? 'backpack' : null,
-      radio: uniformed || army ? 'radio' : null,
-      p1: uniformed || army ? 'flashlight' : null,
     };
     const pct = (v: number) => `${Math.round(v * 100)}%`;
-    /** Слот формы роли (лицо, рация, фонарь, одежда): только показывает. */
-    const roleSlot = (x: number, y: number, w: number, h: number, label: string, id: string | null, ghost: string, name: string) => {
-      this.slot(ctx, x, y, w, h, label, id ? null : ghost);
-      if (id) drawIcon(ctx, id, x + w / 2, y + h / 2 + 2, 0.85);
-      this.hits.push({ x, y, w, h, title: id ? name : `${label.toLowerCase()}: пусто`, desc: id ? 'Часть формы вашей роли.' : 'Выдаётся по роли.', act: '' });
-    };
     /** Рабочий слот: надетое — снять; нет — форма роли или пусто (надеть из рюкзака). */
-    const gearSlot = (x: number, y: number, label: string, slot: GearSlot, uniform: string | null, uniformArmor: number, ghost: string) => {
+    const gearSlot = (x: number, y: number, label: string, slot: GearSlot, uniform: string | null, uniformArmor: number, ghost: string, h: number = S) => {
       const on = p.gear[slot];
       const hot = !!on && this.hover?.x === x && this.hover?.y === y;
-      this.slot(ctx, x, y, S, S, label, on || uniform ? null : ghost, hot);
+      const cloth = (CLOTH_SLOTS as readonly string[]).includes(slot);
+      this.slot(ctx, x, y, S, h, label, on || uniform ? null : ghost, hot);
       if (on) {
         const g = ITEMS[on].gear!;
-        drawIcon(ctx, iconOf(on), x + S / 2, y + S / 2 + 2, 0.85);
+        drawIcon(ctx, iconOf(on), x + S / 2, y + h / 2 + 2, h < S ? 0.75 : 0.85);
         ctx.lineWidth = 3;
         ctx.strokeStyle = C.equipped;
-        ctx.strokeRect(x + 4, y + 4, S - 8, S - 8);
-        const stat = g.capacity ? `+${g.capacity} ячейки` : `броня ${pct(g.head ?? g.torso ?? 0)}`;
-        this.hits.push({ x, y, w: S, h: S, title: `${ITEMS[on].name} (надето)`, desc: `${ITEMS[on].desc} ${stat[0].toUpperCase()}${stat.slice(1)}.`, act: `${this.press} — снять`, click: () => this.host.takeOffGear(slot) });
+        ctx.strokeRect(x + 4, y + 4, S - 8, h - 8);
+        const stat = g.cloth ? '' : g.capacity ? ` +${g.capacity} ячейки.` : ` Броня ${pct(g.head ?? g.torso ?? 0)}.`;
+        this.hits.push({ x, y, w: S, h, title: `${ITEMS[on].name} (надето)`, desc: `${ITEMS[on].desc}${stat}`, act: `${this.press} — снять`, click: () => this.host.takeOffGear(slot) });
       } else if (uniform) {
         ctx.globalAlpha = 0.75;
-        drawIcon(ctx, uniform, x + S / 2, y + S / 2 + 2, 0.85);
+        drawIcon(ctx, uniform, x + S / 2, y + h / 2 + 2, h < S ? 0.75 : 0.85);
         ctx.globalAlpha = 1;
-        text(ctx, 'форма', x + 6, y + S - 10, 9, C.ink, 'left', 800);
-        this.hits.push({ x, y, w: S, h: S, title: 'Форма роли', desc: uniformArmor > 0 ? `Броня формы ${pct(uniformArmor)}: не снять. Надетое из рюкзака заменит, если крепче.` : 'Часть формы роли. Можно надеть поверх снаряжение из рюкзака.', act: '' });
+        text(ctx, 'форма', x + 6, y + h - 10, 9, C.ink, 'left', 800);
+        this.hits.push({ x, y, w: S, h, title: 'Форма роли', desc: uniformArmor > 0 ? `Броня формы ${pct(uniformArmor)}: не снять. Надетое из рюкзака заменит, если крепче.` : 'Часть формы роли. Можно надеть поверх снаряжение из рюкзака.', act: '' });
       } else {
-        this.hits.push({ x, y, w: S, h: S, title: `${label.toLowerCase()}: пусто`, desc: 'Наденьте снаряжение из рюкзака: ЛКМ по предмету. Найти — на телах, купить — у барыги.', act: '' });
+        const desc = cloth ? 'Наденьте вещь из рюкзака: ЛКМ по предмету. Купить — в ателье: в Старом городе у площади и в Верхнем городе.' : 'Наденьте снаряжение из рюкзака: ЛКМ по предмету. Найти — на телах, купить — у барыги. Надевается поверх одежды.';
+        this.hits.push({ x, y, w: S, h, title: `${label.toLowerCase()}: пусто`, desc, act: '' });
       }
     };
     // Верхний ряд: CID и токены; лицо и рация — над правой колонкой.
@@ -221,15 +218,18 @@ export class InventoryPanel {
     const dollX = L + S + G;
     const dollW = 2 * S + G + 120;
     const rx = dollX + dollW + G;
-    roleSlot(rx - S - G, T, S, S - 4, 'ЛИЦО', worn.face, 'gasmask', 'Противогаз');
-    roleSlot(rx, T, S, S - 4, 'РАЦИЯ', worn.radio, 'radio', 'Рация');
+    // Верхний ряд справа: лицо (форма роли), броня — поверх одежды: шлем и бронежилет.
+    gearSlot(L + 2 * (S + G), T, 'ЛИЦО', 'face', worn.face, 0, 'gasmask', S - 4);
     const y0 = T + S + 2;
-    gearSlot(L, y0, 'ГОЛОВА', 'head', worn.head, role.head, 'helmet');
-    gearSlot(L, y0 + S + 4, 'БРОНЯ', 'torso', worn.torso, role.torso, 'vest');
-    roleSlot(L, y0 + 2 * (S + 4), S, S, 'ОДЕЖДА', 'jumpsuit', 'jumpsuit', 'Одежда');
-    gearSlot(rx, y0, 'РЮКЗАК', 'back', worn.back, 0, 'backpack');
-    roleSlot(rx, y0 + S + 4, S, S, 'КАРМАН', worn.p1, 'flashlight', 'Фонарь');
-    roleSlot(rx, y0 + 2 * (S + 4), S, S, 'КАРМАН', null, 'lockpick', '');
+    gearSlot(rx - S - G, T, 'ШЛЕМ', 'head', worn.head, role.head, 'helmet', S - 4);
+    gearSlot(rx, T, 'БРОНЯ', 'torso', worn.torso, role.torso, 'vest', S - 4);
+    // Одежда: слева — убор, верх, низ; справа — шея, обувь, рюкзак. Без низа — одежда роли («форма»).
+    gearSlot(L, y0, 'УБОР', 'hat', worn.head === 'cap' ? 'cap' : null, 0, 'ghost_hat');
+    gearSlot(L, y0 + S + 4, 'ВЕРХ', 'outer', null, 0, 'ghost_outer');
+    gearSlot(L, y0 + 2 * (S + 4), 'НИЗ', 'top', p.clothes ? null : 'jumpsuit', 0, 'ghost_top');
+    gearSlot(rx, y0, 'ШЕЯ', 'neck', null, 0, 'ghost_neck');
+    gearSlot(rx, y0 + S + 4, 'ОБУВЬ', 'feet', null, 0, 'ghost_feet');
+    gearSlot(rx, y0 + 2 * (S + 4), 'РЮКЗАК', 'back', worn.back, 0, 'backpack');
 
     // --- пешка с оружием в руках ---
     const dollH = 3 * S + 8;
@@ -459,7 +459,8 @@ function wrap(ctx: CanvasRenderingContext2D, s: string, width: number, font: str
 
 /** Характеристики оружия одной строкой (подсказка). */
 function weaponStats(w: WeaponDef): string {
-  if (w.mode === 'melee') return `Урон ${w.damage}, ${w.fireRate} уд/с.`;
+  // Холодное: серия из трёх ударов (config/melee), третий — тяжёлый; ПКМ — блок.
+  if (w.mode === 'melee') return `Урон ${w.damage}, серия: ${MELEE_CFG.styles[w.class === 'blade' ? 'blade' : 'baton'].map((s) => s.name).join(' — ')}; ПКМ — блок.`;
   const dmg = w.pellets > 1 ? `${w.damage}×${w.pellets}` : `${w.damage}`;
   const parts = [`урон ${dmg}`, `${w.fireRate} выстр/с`, `дальность ${w.effectiveRange}/${w.range}`, `магазин ${w.magazine}`, `перезарядка ${w.reload} с`];
   if (w.penetration > 0) parts.push(`пробитие ${Math.round(w.penetration * 100)}%`);

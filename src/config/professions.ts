@@ -81,14 +81,14 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
     perks: ['E у окна раздачи — встать на выдачу (оплата за рацион)', 'E у прилавка магазина — работать продавцом', 'Рационы берутся со склада будки — его пополняют курьеры'],
   },
   packer: {
-    id: 'packer', faction: 'cwu', name: 'Фасовщик ТС', kit: 'cwu', selectable: true,
-    desc: 'Собирает рационы в цехе штаба ТС у главного проспекта.',
-    perks: ['E у конвейера цеха — собрать коробку рационов (оплата за коробку)'],
+    id: 'packer', faction: 'cwu', name: 'Докер ТС', kit: 'cwu', selectable: true,
+    desc: 'Разгружает баржи в речном порту: везёт ящики тележкой на склад штаба ТС.',
+    perks: ['E у штабеля ящиков у пирса — нагрузить тележку', 'E у склада штаба ТС — сдать (оплата за ящик)'],
   },
   courier: {
     id: 'courier', faction: 'cwu', name: 'Курьер ТС', kit: 'cwu', selectable: true,
-    desc: 'Носит коробки рационов со склада штаба ТС к будке раздачи.',
-    perks: ['E у склада цеха — взять коробку', 'E у будки раздачи — сдать (оплата за доставку)'],
+    desc: 'Носит коробки со склада штаба ТС: рационы — к будке раздачи, товар — на полки лавок, продукты — в столовую.',
+    perks: ['E у склада штаба ТС — взять коробку (туда, где нужнее)', 'E у будки, прилавка или раздачи столовой — сдать (оплата за доставку)'],
   },
   janitor: {
     id: 'janitor', faction: 'cwu', name: 'Уборщик ТС', kit: 'cwu', selectable: true,
@@ -97,7 +97,7 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
   },
   cwu_head: {
     id: 'cwu_head', faction: 'cwu', name: 'Глава ТС', kit: 'cwu_head', selectable: false,
-    desc: 'Руководит штабом ТС: принимает граждан на работу, отчитывается перед инспектором SU.',
+    desc: 'Руководит штабом ТС: принимает граждан на работу, отчитывается перед инспектором.',
     perks: ['Сидит в кабинете штаба, выходит к стойке найма', 'Зарплата выше, чем у рабочих'],
   },
   cwu_medic: {
@@ -201,7 +201,7 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
     perks: ['Импульсная винтовка и два пистолета', 'Противогаз и бронежилет'],
   },
   hydra_rct: {
-    id: 'hydra_rct', faction: 'rebel', name: 'RCT «Грозы»', kit: 'hydra_rct', selectable: true,
+    id: 'hydra_rct', faction: 'rebel', name: 'Боец «Грозы»', kit: 'hydra_rct', selectable: true,
     desc: 'Рекрут спецотряда «Гроза»: 150 HP.',
     perks: ['MP7 и пистолет', 'Гранат больше, чем у простых бойцов'],
   },

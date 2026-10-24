@@ -41,7 +41,7 @@ const RULES: readonly [RegExp, (m: RegExpMatchArray) => string][] = [
 
 /**
  * Где это — для реплик и рации: «на Заводской улице», «в Старом квартале», «у склада Протектората»,
- * «на КПП «Запад», в шорте». Имена — из PLACES и правил по форме имени.
+ * «на КПП «Север», в шорте». Имена — из PLACES и правил по форме имени.
  */
 export function whereOf(zone: Pick<Zone, 'name' | 'kind'> | null | undefined): string {
   if (!zone) return PLACES.nowhere;

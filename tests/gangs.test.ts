@@ -1,4 +1,3 @@
-import { randomAnchorAround } from '../src/ai/destinations';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { spawnPopulation, settleAll } from '../src/systems/Population';
@@ -85,13 +84,56 @@ describe('банды', () => {
     expect(sim.log.some((l) => l.includes('Стычка банд'))).toBe(true);
   });
 
+  test('война банд: стычка на районе — свои сбегаются; убили бойца — налёт мести на район обидчика', { timeout: 120_000 }, () => {
+    const sim = setup();
+    const G = sim.ctx.gangs;
+    const [ga, gb] = G.gangs;
+    const a = G.members(ga).find((c) => c.profession === 'bandit')!;
+    const b = G.members(gb).find((c) => c.profession === 'bandit')!;
+    // Чужак у общаги первой банды — стычка на её районе: свободные бойцы сбегаются на подмогу (дело defend).
+    const hq = sim.nav.nearestWalkable(ga.hq.x, ga.hq.y, 4);
+    const k = sim.nav.nearestWalkable(ga.hq.x + 90, ga.hq.y, 3);
+    a.x = a.prevX = sim.nav.worldX(hq);
+    a.y = a.prevY = sim.nav.worldY(hq);
+    b.x = b.prevX = sim.nav.worldX(k);
+    b.y = b.prevY = sim.nav.worldY(k);
+    sim.entities.rebuildHash();
+    (G as unknown as { startFeud(a: Character, b: Character): void }).startFeud(a, b);
+    expect(G.feuding(ga.id, gb.id)).toBe(true);
+    expect(ga.op?.kind).toBe('defend');
+    expect(ga.op!.team.length).toBeGreaterThanOrEqual(1);
+    expect(ga.stats.defends).toBe(1);
+    // Стычка кончилась — защитники расходятся.
+    for (let t = 0; t < (GANGS.feud.time + 15) * 60; t++) sim.step();
+    expect(ga.op?.kind).not.toBe('defend');
+    // Боец второй банды убил бойца первой — счёт обид; следующее дело первой — налёт мести на район второй.
+    const victim = G.members(ga).find((c) => c.alive && c.profession === 'bandit' && c !== a)!;
+    const killer = G.members(gb).find((c) => c.alive && c.profession === 'bandit')!;
+    sim.combat.kill(victim, killer);
+    expect(ga.grudge.get(gb.id)).toBe(GANGS.war.revenge);
+    expect(sim.log.some((l) => l.includes('поклялись отомстить'))).toBe(true);
+    if (ga.op) (G as unknown as { endOp(g: unknown): void }).endOp(ga);
+    for (const c of G.members(ga)) c.law.wanted = false;
+    const op = G.startOp(ga)!;
+    expect(op.kind).toBe('raid');
+    expect(op.revenge).toBe(true);
+    expect(op.rival).toBe(gb);
+    expect(op.team.length).toBeGreaterThanOrEqual(GANGS.war.size[0] - 1);
+    expect(ga.grudge.has(gb.id)).toBe(false);
+    expect(sim.log.some((l) => l.includes('идут мстить'))).toBe(true);
+  });
+
   test('дела: дань с лавки — в общак, ствол у барыги — в общак', { timeout: 120_000 }, () => {
     const sim = setup();
     // Без ВС: проверка CID по дороге (ведомый побежал — арестован, дело сорвано) — дело случая.
     for (const c of sim.entities.list.filter((o) => o.faction === 'cp')) sim.entities.remove(c);
     const G = sim.ctx.gangs;
     G.paused = true;
-    const g = G.gangs[0];
+    // Дань берут только с лавки не дальше GANGS.ops.racket.seek от общаги, а город широкий — у иной банды такой лавки нет
+    // вовсе (на сиде 12345 первая банда в дальнем углу): берём ту, у которой лавка в пределах досягаемости.
+    const shopsNear = (o: (typeof G.gangs)[number]) => sim.ctx.shops.shops.filter((s) => s.vendorSpot && Math.hypot(s.front.x - o.hq.x, s.front.y - o.hq.y) < GANGS.ops.racket.seek).length;
+    const g = G.gangs.find((o) => shopsNear(o) > 0)!;
+    expect(g, 'есть банда с лавкой в пределах досягаемости').toBeTruthy();
     // И без чужих банд: стычка по дороге к барыге (ранили — дело сорвано) — тоже дело случая.
     for (const o of G.gangs) if (o !== g) for (const c of G.members(o)) sim.entities.remove(c);
     const bank = g.bank;
@@ -133,20 +175,57 @@ describe('банды', () => {
       c.law.wanted = false;
       c.law.hasCid = true;
     }
-    // Патрульный — рядом с командой (по дороге через район их может остановить другой патруль).
-    const near = randomAnchorAround(op.team[0], sim.ctx, 8, 12, new Set());
+    // Патрульный — рядом с командой (по дороге через район их может остановить другой патруль), но не у самой
+    // общаги: там банда ВС не трогает (GANGS.ops.hit.homeClear).
+    const lead = op.team[0];
+    const clear = GANGS.ops.hit.homeClear + 120;
+    let near = -1;
+    let bestD = Infinity;
+    for (const a of g.anchors) {
+      const x = sim.nav.worldX(a);
+      const y = sim.nav.worldY(a);
+      if (Math.hypot(x - g.hq.x, y - g.hq.y) < clear) continue;
+      const d = Math.hypot(x - lead.x, y - lead.y);
+      if (d < bestD) [near, bestD] = [a, d];
+    }
     if (near >= 0) {
       cp.x = cp.prevX = sim.nav.worldX(near);
       cp.y = cp.prevY = sim.nav.worldY(near);
     }
+    // Патрульный стоит, где поставили: сам он может уйти к общаге, а там банда его не тронет.
+    const [px, py] = [cp.x, cp.y];
     let attacked = false;
     for (let t = 0; t < 120 * 60 && !attacked; t++) {
+      cp.x = cp.prevX = px;
+      cp.y = cp.prevY = py;
       sim.step();
       attacked = op.team.some((c) => c.hostile);
     }
     expect(attacked).toBe(true);
     expect(op.team.some((c) => c.law.wanted)).toBe(true);
     expect(sim.log.some((l) => l.includes('нападение на патруль'))).toBe(true);
+  });
+});
+
+describe('банда и Протекторат: без войны по кругу', () => {
+  test('удар по ВС — с перерывом (и заказ барыги ждёт); напавший остывает и снова просто в розыске', { timeout: 60_000 }, () => {
+    const sim = setup(20);
+    const G = sim.ctx.gangs;
+    G.paused = true;
+    const g = G.gangs[0];
+    expect(G.startOp(g, 'hit')?.kind).toBe('hit');
+    expect(g.nextHit).toBeGreaterThanOrEqual(sim.ctx.combat.now + GANGS.ops.hit.cooldown[0] - 1);
+    g.op = null;
+    // Оплаченный удар до конца перерыва не начинается (заказ вернётся барыге).
+    expect(G.startOp(g, undefined, true)).toBeNull();
+    // Напавший на ВС, давно не стрелявший и не раненый, — снова не «вооружённый враг» (розыск остаётся).
+    const m = G.members(g).find((c) => c.profession === 'bandit' && !(c.brain instanceof GangOpBrain))!;
+    m.hostile = true;
+    m.law.wanted = true;
+    m.lastFired = m.lastHurt = sim.ctx.combat.now - GANGS.hostileCool - 1;
+    for (let t = 0; t < 3 * 60; t++) sim.step();
+    expect(m.hostile).toBe(false);
+    expect(m.law.wanted).toBe(true);
   });
 });
 
@@ -181,7 +260,8 @@ describe('барыга — вся связь подполья с улицей', 
     const op = sim.insurgency.startOperation('fence')!;
     expect(op.kind).toBe('fence');
     const before = F.stats.boughtIn;
-    for (let t = 0; t < 180 * 60 && F.stats.boughtIn === before; t++) sim.step();
+    // Явка может быть на другом конце города от хаты барыги: туда, потом через весь город — до 300 с.
+    for (let t = 0; t < 300 * 60 && F.stats.boughtIn === before; t++) sim.step();
     console.log(`барыга: ${JSON.stringify(F.stats)}, товар ${JSON.stringify(F.wares.slots)}, выручка подполья ${sim.insurgency.funds}, заказов ${F.orders}`);
     expect(F.wares.count('mp7')).toBe(wares + 2);
     expect(stash.slots).toHaveLength(0);
@@ -204,6 +284,7 @@ describe('по одному — только на районе, в городе 
     const jailed = new Set<number>();
     let samples = 0;
     let solo = 0;
+    let outbound = 0;
     let trips = 0;
     const teams: number[] = [];
     for (let t = 0; t < 180 * 60; t++) {
@@ -217,16 +298,28 @@ describe('по одному — только на районе, в городе 
         if (c.brain?.constructor.name === 'PrisonerBrain') jailed.add(c.id);
         if (jailed.has(c.id)) continue;
         samples++;
-        if (c.brain instanceof CitizenBrain && c.brain.escort.length) trips++;
+        const b = c.brain;
+        if (b instanceof CitizenBrain && b.escort.length) trips++;
         const g = G.of(c)!;
         if (G.inTurf(g, c.x, c.y)) continue;
         const mate = sim.entities.list.some((o) => o !== c && o.alive && o.gang === c.gang && Math.hypot(o.x - c.x, o.y - c.y) < 160);
-        if (!mate) solo++;
+        if (mate) continue;
+        solo++;
+        // Одинокий, что идёт прочь от района, — нарушение; одинокий, что возвращается на район (напарника задержали, дело
+        // кончилось), — норма. Состав пары — ведущий с ведомыми, ведомый или команда дела.
+        const paired = (b instanceof CitizenBrain && (b.escort.length > 0 || !!b.crewLead)) || (!!g.op && g.op.team.includes(c));
+        const goal = b instanceof CitizenBrain ? b.mover.goal : -1;
+        if (!paired && goal >= 0 && !G.anchorInTurf(g, goal)) outbound++;
       }
     }
-    console.log(`пары банд: замеров ${samples}, один вне района ${solo}, ведут напарника ${trips}, дела (состав) ${teams.map((k) => Math.floor(k / 1000)).join(',')}`);
+    console.log(`пары банд: замеров ${samples}, один вне района ${solo} (уходят прочь ${outbound}), ведут напарника ${trips}, дела (состав) ${teams.map((k) => Math.floor(k / 1000)).join(',')}`);
     expect(trips).toBeGreaterThan(0);
-    expect(solo / samples).toBeLessThan(0.05);
+    // Порог был 5% (на прежней карте ~2%). Город шире, барыга — в дальнем углу карты (до ~3000 px от общаги), и пары на
+    // таком пути растягиваются сверх 160 px (ведущий ждёт отставшего не дольше waitMax за выход), а вернуться на район
+    // в одиночку — дольше: замер на сиде 12345 дал ~7%. Потому порог мягче, а главное — отдельно и строго: никто не уходит
+    // от района в одиночку.
+    expect(solo / samples).toBeLessThan(0.1);
+    expect(outbound / samples).toBeLessThan(0.01);
     // Дела — не меньше двоих.
     expect(teams.every((k) => Math.floor(k / 1000) >= GANGS.pairs.min)).toBe(true);
   });

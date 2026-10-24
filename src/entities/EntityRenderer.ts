@@ -1,29 +1,49 @@
+/** Описание системы — docs/rendering.md. */
 import { ITEMS } from '../config/items';
 import type { Character, SpeechKind } from './Character';
 import type { View } from '../core/Camera';
-import { FACTIONS, colorsOf, rankOf } from '../config/factions';
+import { FACTIONS, colorsOf, cpUnit, rankOf } from '../config/factions';
+import { plainclothesOf } from '../config/clothes';
 import { LOYALTY } from '../config/loyalty';
 import { familyTitle, type FamilySystem } from '../systems/Families';
 import type { GangSystem } from '../systems/Gangs';
+import type { Relations } from '../systems/Relations';
+import type { Senses } from '../systems/Senses';
+import { RELATIONS } from '../config/relations';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
+import { SUPPLY_LOOK } from '../config/port';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
-import { bootColor, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
+import { bootColor, defaultKit, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
+import { animOf, isTalking, drawActionHands, drawBlanket, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash } from './poses';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
+import { clothesOf } from '../systems/Gear';
 import { PAWN } from '../config/pawns';
 import { apparentFaction, displayName } from './cover';
-import { CROUCH, DOWNED } from '../config/tactics';
+import { CROUCH, DOWNED, TRENCH } from '../config/tactics';
 import type { PawnLook } from './PawnRenderer';
+import { drawFists, fistsShown, flinchOf, meleeSwing } from './meleePose';
+import { MELEE_LOOK } from '../config/melee';
 
 /**
- * Подпись роли над пешкой — коротко: юнит у ВС («PCU.03»), юнит у армии («Ветеран»), профессия или
- * сторона у остальных («Бандит», «ТС», «Гражданин»); задержанный — «задержан», сидящий — «в КПЗ».
- * Номер CID, семья и банда — только в подробной подписи под курсором (labelDetail).
+ * Видит ли viewer «тайную» профессию c (RENDER.entity.labels.secret: бандит, вор, беглец): себя — да; бойцов банд —
+ * только тот, кто сам в банде. Остальным такой — просто «Гражданин», без цвета и названия банды.
  */
-export function roleLabel(c: Character): string {
+export function seesCrew(viewer: Character | null, c: Character): boolean {
+  if (viewer === c || !c.profession || !SECRET.has(c.profession)) return true;
+  return !!viewer && viewer.gang >= 0 && c.gang >= 0;
+}
+const SECRET = new Set<string>(RENDER.entity.labels.secret);
+
+/**
+ * Подпись роли над пешкой — коротко и по-русски: должность у ВС («Патрульный», «Следователь»), юнит у армии
+ * («Ветеран»), профессия или сторона у остальных («ТС», «Гражданин»); тайная профессия — только своим (seesCrew);
+ * задержанный — «задержан», сидящий — «в КПЗ». Номер CID, семья и банда — в подробной подписи под курсором.
+ */
+export function roleLabel(c: Character, viewer: Character | null = null): string {
   let s: string;
   // Партизан в маскировке подписан по личине: гражданин, рабочий ТС, сотрудник ВС.
   if (c.disguised) {
@@ -35,7 +55,7 @@ export function roleLabel(c: Character): string {
     const r = rankOf(c.faction, c.rank);
     const prof = c.profession ? PROFESSIONS[c.profession] : null;
     // Сопротивление: юнит и есть роль; ВС — юнит («ВС» уже в позывном); остальные — профессия или сторона.
-    s = c.faction === 'rebel' && r ? r.name : c.faction === 'cp' && r ? r.short : prof && prof.id !== DEFAULT_PROFESSION[c.faction] ? prof.name : FACTIONS[c.faction].role;
+    s = c.faction === 'rebel' && r ? r.name : c.faction === 'cp' && r ? r.short : prof && prof.id !== DEFAULT_PROFESSION[c.faction] && seesCrew(viewer, c) ? prof.name : FACTIONS[c.faction].role;
   }
   const phase = c.law.phase;
   if (phase === 'cuffed' || phase === 'entering') return 'задержан';
@@ -54,6 +74,10 @@ export class EntityRenderer {
   families: FamilySystem | null = null;
   /** Банды: повязка цвета банды и её название в подписи. */
   gangs: GangSystem | null = null;
+  /** Живые люди: характер, настроение и отношение к игроку в подписи под курсором. */
+  relations: Relations | null = null;
+  /** Страх (испуган, в панике — строка под курсором); задаёт Game. */
+  senses: Senses | null = null;
 
   /** Внешность пешки: партизан в маскировке — по личине; лоялист — в форме; семья и банда — повязка. */
   lookOf(c: Character): PawnLook {
@@ -62,7 +86,20 @@ export class EntityRenderer {
     const loyalist = isLoyalistUniform(c);
     const fam = !c.disguised ? this.families?.of(c) ?? null : null;
     const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
-    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.id), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band: gang?.def.color ?? fam?.color, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso') };
+    // Гражданская одежда — только у того, кто выглядит горожанином; лоялиста в ней узнают по фиолетовой повязке.
+    // Опер в штатском (SU.01) — гражданское по внешности, без брони на рисунке.
+    const op = faction === 'cp' && !c.disguised && cpUnit(rank).plainclothes ? plainclothesOf(c.pid) : null;
+    // Форма по частям: в маскировке — форма личины; стражник с выданной формой — что надето; NPC стражи — форма юнита
+    // (undefined: по рангу); горожанин — части формы, если надел (каска с тела).
+    // Форма по частям: выдана по частям (игрок) — только надетое; иначе форма стороны по умолчанию (ВС — юнита,
+    // армия — профессии, в маскировке — личины) и поверх неё надетые части (каска с тела, плитник из тюрьмы).
+    const profession = c.disguised ? c.cover?.profession ?? null : c.profession;
+    const base = op || c.kitUnit || (c.disguised && c.cover?.worn) ? null : defaultKit(faction, rank, profession, lookSeed(c.pid));
+    const kit = op ? null : c.kitUnit ? c.kit : base || c.kit ? { ...base, ...c.kit } : faction === 'citizen' ? null : undefined;
+    const worn = (faction === 'cp' || faction === 'citizen' || faction === 'rebel') && (!!c.kit || !!c.kitUnit);
+    const dressed = op ? op.clothes : worn ? c.clothes ?? clothesOf(c.gear, true) ?? null : c.clothes && faction === 'citizen' ? c.clothes : null;
+    const band = gang?.def.color ?? (dressed && loyalist ? LOYALTY.uniform.color : fam?.color);
+    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, kit, clothesKey: op ? op.key : dressed || worn ? c.clothesKey : undefined };
   }
 
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
@@ -85,12 +122,21 @@ export class EntityRenderer {
     for (const { c, x: gx, y: gy } of shown) {
       ctx.globalAlpha = c.visible ? 1 : 0.4;
       // Сторона — по походке (идёт — по ходу, боком — профилем; целится или стоит — куда смотрит).
-      const dir = c.bodyDir;
+      // Спящий лежит лицом к нам.
       const look = this.lookOf(c);
+      // Мимика: лежит без сознания или спит — глаза закрыты, иначе моргает; говорит — рот открывается.
+      const F = PAWN.face;
+      const period = F.blink.every[0] + ((c.pid * 0.6180339) % 1) * (F.blink.every[1] - F.blink.every[0]);
+      look.blink = c.downed || c.asleep || c.melee.ko > now || (now + c.pid * 0.37) % period < F.blink.time;
+      look.talk = !look.blink && isTalking(c, now) && Math.floor(now / F.talk.period + c.pid) % 2 === 0;
       const reloading = c.reloadUntil > now;
-      // Тяжело ранен — лежит.
+      // Тяжело ранен — лежит; нокаут — лежит на боку, над головой звёздочки.
       if (c.downed) {
         this.downedBody(ctx, c, look, gx, gy, s, ps, now);
+        continue;
+      }
+      if (c.melee.ko > now) {
+        this.koBody(ctx, c, look, gx, gy, s, ps, now);
         continue;
       }
       if (c.isPlayer) {
@@ -101,35 +147,77 @@ export class EntityRenderer {
         ctx.ellipse(gx, gy + PAWN.shadow.y * ps, (PAWN.shadow.rx + 3) * ps, (PAWN.shadow.ry + 1.8) * ps, 0, 0, Math.PI * 2);
         ctx.stroke();
       }
-      drawPawnShadow(ctx, gx, gy, ps);
       // Шаг: фаза по пройденному пути (полупериод синуса — один шаг), корпус подпрыгивает на каждом
       // шаге; наклон в сторону движения по горизонтали, при ходьбе вверх/вниз — покачивание в такт.
       const walking = isWalking(c);
+      const an = animOf(c, now, walking, c.aiming || c.recoil > W.aimRecoil);
+      // Спит на кровати — лежит на ней по её оси (не на клетке рядом).
+      if (an.kind === 'sleep' && c.sleepAt) {
+        this.bedSleeper(ctx, c, look, (c.sleepAt.x - v.left) * s, (c.sleepAt.y - v.top) * s, c.sleepAt.w >= c.sleepAt.h, ps, now);
+        continue;
+      }
+      drawPawnShadow(ctx, gx, gy, ps);
+      drawDust(ctx, c, gx, gy, ps, Math.hypot(c.gaitVx, c.gaitVy), CHARACTER.runSpeed);
+      const lying = an.kind === 'sleep' || an.kind === 'ko';
+      const dir = lying ? 'S' : c.bodyDir;
       const speed = Math.hypot(c.gaitVx, c.gaitVy);
       const amt = walking ? Math.min(1, speed / CHARACTER.walkSpeed) : 0;
       const phase = (c.stride / W.stride) * Math.PI;
       const sn = Math.sin(phase);
-      const bob = Math.abs(sn) * W.bob * amt;
+      // Хромает — шаг неровный: подскок на одной ноге сильнее, корпус кренится; строевой шаг — чётче и выше.
+      const limping = walking && c.limpUntil > now;
+      const marching = walking && c.marching;
+      const bobMul = limping ? (sn > 0 ? PAWN.anim.limp.hard : PAWN.anim.limp.soft) : marching ? PAWN.anim.march.bob : walking && c.task === 'panic' ? PAWN.anim.panic.bob : 1;
+      const bob = Math.abs(sn) * W.bob * amt * bobMul + an.lift;
       const horiz = speed > 0 ? Math.abs(c.gaitVx) / speed : 0;
-      const lean = walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) : 0;
+      // Получил удар — дёрнулся от него (наклон и сдвиг), на миг вспыхнул.
+      const fl = flinchOf(c, now);
+      const lean = (walking ? Math.max(-W.leanMax, Math.min(W.leanMax, (c.gaitVx / CHARACTER.runSpeed) * W.lean)) + sn * W.sway * amt * (1 - horiz) + (limping ? sn * PAWN.anim.limp.lean : 0) + an.lean : an.lean) + fl.lean;
       // Поворот вокруг точки у ног: ступни на земле, корпус наклоняется.
       const footY = W.foot.y * ps;
       const cs = Math.cos(lean);
       const si = Math.sin(lean);
       // Присел — ниже ростом (сжат по вертикали к ступням).
-      const k = c.crouch ? CROUCH.squash : 1;
-      ctx.setTransform(cs, si, -si * k, cs * k, gx, gy + footY);
+      // В траншее — ещё ниже (по пояс за бруствером), ступни скрыты.
+      const k = (c.crouch ? CROUCH.squash : 1) * (c.trench ? TRENCH.squash : 1) * an.squash;
+      ctx.setTransform(cs, si, -si * k, cs * k, gx + an.dx * ps + fl.dx * s, gy + footY + (an.drop + an.dy) * ps + fl.dy * s);
       // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
       const x = 0;
       const y = -footY - bob * ps;
-      drawFeet(ctx, dir, look, ps, walking ? phase : null, amt);
-      // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу.
-      const hold = pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
-      // Смотрит от нас — оружие за спиной, иначе — в руках перед собой.
-      const hand = c.weapon ? handColor(look) : null;
-      if (dir === 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
+      if (an.feet && !c.trench) drawFeet(ctx, dir, look, ps, walking ? phase : null, amt, marching ? PAWN.anim.march.lift : 1);
+      // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу; в ударе и блоке — куда смотрит.
+      const swing = c.weapon ? meleeSwing(c, now) : null;
+      const hold = swing || c.melee.engaged || pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
+      // Смотрит от нас — оружие (и кулаки) за спиной, иначе — в руках перед собой. Лежащему — ничего.
+      const fists = fistsShown(c, now);
+      const hand = c.weapon || fists ? handColor(look) : null;
+      const armed = (!!c.weapon || fists) && !lying;
+      if (armed && dir === 'N') {
+        if (fists) drawFists(ctx, c, x, y, s, now, hand!);
+        else drawWeapon(ctx, c, x, y, s, reloading, hold, hand, swing);
+      }
       drawPawnCached(ctx, look, x, y, ps, dir);
-      if (dir !== 'N') drawWeapon(ctx, c, x, y, s, reloading, hold, hand);
+      // Вспышка от попадания (любой урон — hurtFlash, удар в ближнем бою — flinch): та же пешка ещё раз «на свет».
+      const flash = Math.max(fl.flash, hurtFlash(c, now));
+      if (flash > 0) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = (c.visible ? 1 : 0.4) * flash;
+        drawPawnCached(ctx, look, x, y, ps, dir);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = c.visible ? 1 : 0.4;
+      }
+      if (lying) {
+        if (c.asleep) {
+          drawBlanket(ctx, c, x, y, ps);
+          drawSleepZ(ctx, c, x, y, ps, now);
+        }
+      } else if (!drawHandProps(ctx, c, look, x, y, ps, dir, now) && armed && dir !== 'N') {
+        if (fists) drawFists(ctx, c, x, y, s, now, hand!);
+        else drawWeapon(ctx, c, x, y, s, reloading, hold, hand, swing);
+      }
+      if (!lying) drawGestureHands(ctx, c, look, x, y, ps, dir, now);
+      if (!lying) drawWorkHands(ctx, c, look, x, y, ps, dir, now);
+      if (!lying) drawActionHands(ctx, c, look, x, y, ps, dir, now, marching ? sn : 0);
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
         const bx = x + Math.cos(hold) * 6 * ps;
@@ -141,6 +229,29 @@ export class EntityRenderer {
         ctx.strokeRect(bx - 5 * ps, by - 4 * ps, 10 * ps, 8 * ps);
         ctx.fillStyle = RENDER.effects.boxTape;
         ctx.fillRect(bx - 0.8 * ps, by - 4 * ps, 1.6 * ps, 8 * ps);
+      }
+      // Докер толкает тележку с ящиками перед собой.
+      if (c.cart) {
+        const tx = x + Math.cos(hold) * 14 * ps;
+        const ty = y + 3 * ps + Math.sin(hold) * 8 * ps;
+        const G = SUPPLY_LOOK;
+        ctx.strokeStyle = PAWN.outline;
+        ctx.lineWidth = Math.max(1, 1.1 * ps);
+        ctx.fillStyle = G.wheel;
+        ctx.fillRect(tx - 9 * ps, ty + 4 * ps, 4 * ps, 3 * ps);
+        ctx.fillRect(tx + 5 * ps, ty + 4 * ps, 4 * ps, 3 * ps);
+        ctx.fillStyle = G.cart;
+        ctx.fillRect(tx - 10 * ps, ty - 2 * ps, 20 * ps, 7 * ps);
+        ctx.strokeRect(tx - 10 * ps, ty - 2 * ps, 20 * ps, 7 * ps);
+        for (let k = 0; k < c.load.length; k++) {
+          const cx = tx - 6 * ps + (k % 2) * 12 * ps - (k >= 2 ? 6 * ps : 0);
+          const cy = ty - 4 * ps - (k >= 2 ? 6 * ps : 0);
+          ctx.fillStyle = G.crate;
+          ctx.fillRect(cx - 4 * ps, cy - 3 * ps, 8 * ps, 6 * ps);
+          ctx.strokeRect(cx - 4 * ps, cy - 3 * ps, 8 * ps, 6 * ps);
+          ctx.fillStyle = G.goods[c.load[k].item]?.[0] ?? G.crateTape;
+          ctx.fillRect(cx - 1.5 * ps, cy - 1 * ps, 3 * ps, 2 * ps);
+        }
       }
       // Оглушён дубинкой — голубые искры вокруг головы.
       if (c.stunUntil > now) {
@@ -171,6 +282,57 @@ export class EntityRenderer {
     ctx.globalAlpha = 1;
   }
 
+  /** Нокаут: пешка на боку (ворочается), над головой кружат звёздочки. */
+  private koBody(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number): void {
+    const K = MELEE_LOOK.ko;
+    const side = lookSeed(c.id) % 2 ? 1 : -1;
+    const a = side * (Math.PI / 2) + Math.sin(now * 3 + c.id) * 0.06;
+    const cs = Math.cos(a);
+    const si = Math.sin(a);
+    ctx.setTransform(cs, si, -si, cs, gx, gy);
+    drawPawnCached(ctx, look, 0, -2 * ps, ps, 'S');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Голова — сбоку (пешка лежит на боку): там и звёздочки.
+    const hx = gx + side * (2 - PAWN.head.y) * ps;
+    const hy = gy - 4 * ps;
+    ctx.fillStyle = K.star;
+    ctx.strokeStyle = PAWN.outline;
+    ctx.lineWidth = Math.max(1, 0.8 * s);
+    for (let k = 0; k < K.stars; k++) {
+      const t = now * K.spin + (k * Math.PI * 2) / K.stars;
+      const sx = hx + Math.cos(t) * 8 * ps;
+      const sy = hy + Math.sin(t) * 3 * ps - 3 * ps;
+      const r = (1.8 + 0.5 * Math.sin(t * 2)) * ps;
+      ctx.beginPath();
+      for (let j = 0; j < 8; j++) {
+        const rr = j % 2 ? r * 0.42 : r;
+        const aa = (j * Math.PI) / 4 + t;
+        if (j) ctx.lineTo(sx + Math.cos(aa) * rr, sy + Math.sin(aa) * rr);
+        else ctx.moveTo(sx + Math.cos(aa) * rr, sy + Math.sin(aa) * rr);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  /**
+   * Спящий на кровати: пешка в центре кровати, лёжа вдоль неё (горизонтальная кровать — головой влево или вправо
+   * по id, вертикальная — головой вверх), под одеялом, дышит; «z» — у головы.
+   */
+  private bedSleeper(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, bx: number, by: number, horizontal: boolean, ps: number, now: number): void {
+    const S = PAWN.anim.sleep;
+    const a = horizontal ? (c.id % 2 ? Math.PI / 2 : -Math.PI / 2) : 0;
+    const br = 1 + S.breathe * 0.6 * Math.sin((now / S.period) * Math.PI * 2 + c.id * 2.399);
+    const cs = Math.cos(a) * br;
+    const si = Math.sin(a) * br;
+    ctx.setTransform(cs, si, -si, cs, bx, by);
+    drawPawnCached(ctx, look, 0, -2 * ps, ps, 'S');
+    drawBlanket(ctx, c, 0, -2 * ps, ps);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    drawSleepZ(ctx, c, bx + (horizontal ? (a > 0 ? 1 : -1) * 9 * ps : 0), by + 2 * ps, ps, now);
+  }
+
   /** Лежащий тяжелораненый: лужа крови, пешка на боку (слабо шевелится), кольцо — сколько осталось. */
   private downedBody(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number): void {
     const D = RENDER.entity.downed;
@@ -178,7 +340,7 @@ export class EntityRenderer {
     ctx.beginPath();
     ctx.ellipse(gx + 2 * s, gy + 4 * s, 15 * s, 8 * s, 0.3, 0, Math.PI * 2);
     ctx.fill();
-    const a = (lookSeed(c.id) % 2 ? Math.PI / 2 : -Math.PI / 2) + Math.sin(now * 2.5 + c.id) * D.wobble;
+    const a = (lookSeed(c.pid) % 2 ? Math.PI / 2 : -Math.PI / 2) + Math.sin(now * 2.5 + c.id) * D.wobble;
     const cs = Math.cos(a);
     const si = Math.sin(a);
     ctx.setTransform(cs, si, -si, cs, gx, gy);
@@ -224,8 +386,10 @@ export class EntityRenderer {
     const py = player ? player.y : v.top + v.height / s / 2;
     for (const c of list) {
       if (!c.alive || (!c.visible && !showAll)) continue;
-      const x = (lerp(c.prevX, c.x, alpha) - v.left) * s;
-      const cy = (lerp(c.prevY, c.y, alpha) - v.top) * s;
+      // Спящий лежит на кровати — подпись у кровати, а не у клетки рядом.
+      const bed = c.asleep ? c.sleepAt : null;
+      const x = ((bed ? bed.x : lerp(c.prevX, c.x, alpha)) - v.left) * s;
+      const cy = ((bed ? bed.y : lerp(c.prevY, c.y, alpha)) - v.top) * s;
       if (x < -200 || cy < -80 || x > v.width + 200 || cy > v.height + 80) continue;
       if (hoverX !== null && hoverY !== null) {
         const d = Math.hypot(hoverX - x, hoverY - cy);
@@ -236,13 +400,18 @@ export class EntityRenderer {
       }
       const speaking = !!c.speech && c.speech.until > now;
       let score = -Math.hypot(c.x - px, c.y - py);
+      // Простой прохожий (гражданин, рабочий ТС, поднадзорный) — подпись только рядом с игроком или под курсором.
+      if (c !== player && QUIET.has(apparentFaction(c)) && Math.hypot(c.x - px, c.y - py) > L.quietNear && !speaking && !c.downed) {
+        cand.push({ c, x, cy, score: -1e9, speaking, quiet: true });
+        continue;
+      }
       if (c === player) score += 1e6;
       if (c.downed) score += 5e3;
       if (speaking) score += 3e3;
       if (speaking && c.speech!.kind !== 'say') score += E.bubble.radioScore;
-      cand.push({ c, x, cy, score, speaking });
+      cand.push({ c, x, cy, score, speaking, quiet: false });
     }
-    for (const e of cand) if (e.c === hovered) e.score += 1e5;
+    for (const e of cand) if (e.c === hovered) e.score = Math.max(e.score, 0) + 1e5;
     cand.sort((a, b) => b.score - a.score);
     const placed = labelRects;
     placed.length = 0;
@@ -268,32 +437,33 @@ export class EntityRenderer {
       placed.push({ x0: x - lay.w / 2, y0, x1: x + lay.w / 2, y1: bottom });
       said.push({ c, x, y: bottom, lay });
     }
-    for (const { c, x, cy } of cand) {
+    for (const { c, x, cy, quiet } of cand) {
       const key = c === player || c === hovered || c.downed;
       ctx.globalAlpha = c.visible ? 1 : 0.5;
-      if (!key && zoom < L.nameZoom) continue;
+      if (!key && (quiet || zoom < L.nameZoom)) continue;
       // Как в RimWorld: имя под ногами, роль под именем.
       const ny = cy + PAWN.body.bottom * s * PAWN.scale + 12 * dpr;
       const name = displayName(c);
       const nw = textWidth(ctx, name, E.nameFont, dpr);
       const wantRole = key || zoom >= L.roleZoom;
-      const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
-      const role = !wantRole ? '' : c.downed ? `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : roleLabel(c);
+      const gang = !c.disguised && seesCrew(player, c) ? this.gangs?.of(c) ?? null : null;
+      const role = !wantRole ? '' : c.downed ? `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : roleLabel(c, player);
       const rw = role ? textWidth(ctx, role, E.roleFont, dpr) : 0;
-      const detail = c === hovered && c !== player ? labelDetail(c, this.families, gang) : '';
-      const dw = detail ? textWidth(ctx, detail, E.roleFont, dpr) : 0;
-      const lines = 1 + (role ? 1 : 0) + (detail ? 1 : 0);
+      const details = c === hovered && c !== player ? labelDetails(c, this.families, gang, this.relations, player, this.senses) : noDetails;
+      let dw = 0;
+      for (const d of details) dw = Math.max(dw, textWidth(ctx, d.text, E.roleFont, dpr));
+      const lines = 1 + (role ? 1 : 0) + details.length;
       const w = Math.max(nw, rw, dw);
       const y0 = ny - 10 * dpr;
       let showRole = !!role;
-      let showDetail = !!detail;
+      let showDetail = details.length > 0;
       if (!key && !free(x - w / 2, y0, x + w / 2, y0 + lines * 10 * dpr + 2 * dpr)) {
         // Тесно: только имя, а если и ему негде — ничего.
         if (!free(x - nw / 2, y0, x + nw / 2, ny + 2 * dpr)) continue;
         showRole = false;
         showDetail = false;
       }
-      const n = 1 + (showRole ? 1 : 0) + (showDetail ? 1 : 0);
+      const n = 1 + (showRole ? 1 : 0) + (showDetail ? details.length : 0);
       placed.push({ x0: x - (showRole || showDetail ? w : nw) / 2, y0, x1: x + (showRole || showDetail ? w : nw) / 2, y1: y0 + n * 10 * dpr + 2 * dpr });
       const r = rankOf(c.faction, c.rank);
       ctx.lineWidth = 3 * dpr;
@@ -312,10 +482,12 @@ export class EntityRenderer {
         ctx.fillText(role, x, ly);
       }
       if (showDetail) {
-        ly += 10 * dpr;
-        ctx.strokeText(detail, x, ly);
-        ctx.fillStyle = L.detailColor;
-        ctx.fillText(detail, x, ly);
+        for (const d of details) {
+          ly += 10 * dpr;
+          ctx.strokeText(d.text, x, ly);
+          ctx.fillStyle = d.color ?? L.detailColor;
+          ctx.fillText(d.text, x, ly);
+        }
       }
     }
     for (const b of said) {
@@ -438,17 +610,45 @@ function drawRadioIcon(ctx: CanvasRenderingContext2D, x: number, y: number, dpr:
 }
 
 const drawOrder: { c: Character; x: number; y: number }[] = [];
-const labelCand: { c: Character; x: number; cy: number; score: number; speaking: boolean }[] = [];
+const labelCand: { c: Character; x: number; cy: number; score: number; speaking: boolean; quiet: boolean }[] = [];
+/** Простые прохожие по виду (RENDER.entity.labels.quiet). */
+const QUIET = new Set<string>(RENDER.entity.labels.quiet);
 const labelRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
 const labelBubbles: { c: Character; x: number; y: number; lay: BubbleLayout }[] = [];
 
-/** Подробности под курсором: CID (у жителей), семья или банда. */
-function labelDetail(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>): string {
-  if (c.downed) return '';
-  const cid = c.faction === 'citizen' || c.faction === 'cwu' || c.disguised ? `#${c.cid}` : '';
+/** Строка подробностей под курсором и её цвет (null — обычный). */
+interface DetailLine {
+  text: string;
+  color: string | null;
+}
+const noDetails: DetailLine[] = [];
+
+/** Подробности под курсором: CID (у жителей), семья или банда; характер и настроение; отношение к игроку. */
+function labelDetails(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>, rel: Relations | null, viewer: Character | null, senses: Senses | null): DetailLine[] {
+  if (c.downed) return noDetails;
+  // Номер CID видят только власти (проверяют его); горожанину чужой номер ни к чему.
+  const cid = viewer && FACTIONS[viewer.faction].authority && (c.faction === 'citizen' || c.faction === 'cwu' || c.disguised) ? `#${c.cid}` : '';
   const fam = !c.disguised ? families?.of(c) ?? null : null;
   const extra = gang ? `«${gang.def.name}»` : fam ? familyTitle(fam.surname) : '';
-  return cid && extra ? `${cid} · ${extra}` : cid || extra;
+  const out: DetailLine[] = [];
+  const head = cid && extra ? `${cid} · ${extra}` : cid || extra;
+  if (head) out.push({ text: head, color: null });
+  // Страх (Senses): испуган или в панике — видно по поведению.
+  const fear = senses?.enabled ? senses.tier(c) : 0;
+  if (fear >= 2) out.push({ text: fear === 3 ? 'в панике' : 'напуган', color: fear === 3 ? '#ff8a78' : '#f0c070' });
+  if (rel?.enabled && !c.isPlayer) {
+    const i = rel.info(c, viewer);
+    // Характер словами и настроение (причина — самая сильная мысль).
+    const feel = i.because ? `${i.moodName} — ${i.because}` : i.moodName;
+    out.push({ text: i.tags ? `${i.tags} · ${feel}` : feel, color: i.moodColor });
+    // Как относится к вам: знакомый, приятель, недруг… и что помнит.
+    if (viewer && !viewer.disguised && (i.tier !== 'stranger' || i.kin)) {
+      const tier = i.kin ? RELATIONS.tiers.kin : RELATIONS.tiers[i.tier];
+      const color = i.tier === 'friend' || i.tier === 'close' ? '#9ad88c' : i.tier === 'rival' || i.tier === 'enemy' ? '#ff8a78' : null;
+      out.push({ text: `к вам: ${tier} ${i.opinion > 0 ? '+' : ''}${i.opinion}${i.memory ? ` · ${i.memory}` : ''}`, color });
+    }
+  }
+  return out;
 }
 
 const widthCache = new Map<string, number>();
@@ -489,7 +689,7 @@ export function isLoyalistUniform(c: Character): boolean {
  * приподнята; в профиль — одна впереди, другая позади, выносится вперёд по фазе шага. phase —
  * фаза шага (null — стоит), amt — доля шага от скорости.
  */
-export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnLookLite, ps: number, phase: number | null, amt: number): void {
+export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnLookLite, ps: number, phase: number | null, amt: number, liftMul = 1): void {
   const F = PAWN.walk.foot;
   const sn = phase === null ? 0 : Math.sin(phase);
   const cs = phase === null ? 1 : Math.cos(phase);
@@ -501,7 +701,7 @@ export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnL
   for (let i = 0; i < 2; i++) {
     // Ступня 0 опорная в первом шаге (уходит назад), 1 — переносится вперёд и приподнята.
     const k = i === 0 ? 1 : -1;
-    const lift = Math.max(0, -k * sn) * F.lift * amt;
+    const lift = Math.max(0, -k * sn) * F.lift * amt * liftMul;
     const fx = side ? (phase === null ? (i === 0 ? 1.2 : -1.2) : k * cs * F.swing * amt) * fwd : (i === 0 ? -F.dx : F.dx);
     ctx.beginPath();
     ctx.ellipse(fx * ps, -lift * ps, F.rx * ps, F.ry * ps, 0, 0, Math.PI * 2);
@@ -513,5 +713,6 @@ export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnL
 /** Цвет надетого в слоте (шлем, бронежилет) — для пешки; ничего — undefined. */
 function gearColor(c: Character, slot: 'head' | 'torso'): string | undefined {
   const id = c.gear[slot];
-  return id ? ITEMS[id].gear?.color : undefined;
+  // Часть формы рисуется своим рисунком (look.kit), не общим шлемом или плитником.
+  return id && !ITEMS[id].gear?.kit ? ITEMS[id].gear?.color : undefined;
 }

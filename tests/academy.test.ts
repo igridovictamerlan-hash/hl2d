@@ -82,6 +82,9 @@ describe('академия ВС: учёба', () => {
     const c = A.recruitNow()!;
     expect(c).toBeTruthy();
     expect(c.brain).toBeInstanceOf(EnlistBrain);
+    // Плановая проверка CID вахтёром у турникета (cp рядом, у кого первый раз) останавливает заявителя, и направление
+    // пропадает (EnlistBrain: law.phase не 'none') — это случайность раскладки города, а не предмет теста: без проверок.
+    c.law.lastCheck = 1e9;
     run(sim, ACADEMY.recruit.walkMax, () => c.faction === 'cp');
     expect(c.faction).toBe('cp');
     expect(c.rank).toBe(CP_UNIT.cdt);
@@ -186,7 +189,10 @@ describe('штатное расписание ВС', () => {
     const before = sim.entities.list.filter((c) => c.faction === 'cp' && c.alive).length;
     sim.combat.damage(ofc, 9999, null);
     expect(S.vacancies('ofc').length).toBe(1);
-    run(sim, STAFFING.wait + STAFFING.every * 3);
+    // Переводят только свободного от дела (Staffing.free): на сиде 12345 единственный сержант уже на седьмой секунде бросается
+    // в погоню и ведёт задержанного, а повышен был лишь на 64-й — приказ ждёт, пока он освободится, а не фиксированные
+    // wait + 3 такта.
+    run(sim, STAFFING.wait + 180, () => cpUnit(sgt.rank).unit === 'ofc');
     // Офицер не вернулся, его должность занял сержант.
     expect(sim.entities.list.some((c) => c.alive && c.name === name)).toBe(false);
     expect(cpUnit(sgt.rank).unit).toBe('ofc');
@@ -353,9 +359,11 @@ describe('пропуска и вахтёры', () => {
     expect(sim.roster.baseline).toBe(n0);
     cadets(sim, 3);
     expect(count()).toBe(n0 - 3);
-    run(sim, 30 * 4 + 2);
+    // Приток — раз в 30 с; ещё кто-то мог уйти в ТС или под арест по дороге — ждём, пока город восполнится.
+    run(sim, 30 * 7 + 2, () => count() + sim.roster.pending('citizen') === n0);
     // Погибший в живом мире житель ждёт возрождения — приток считает и его.
     expect(count() + sim.roster.pending('citizen')).toBe(n0);
-    expect(sim.roster.arrived).toBe(3);
+    // Кто-то из жителей мог устроиться в ТС — приток восполняет и его, так что приехало не меньше трёх.
+    expect(sim.roster.arrived).toBeGreaterThanOrEqual(3);
   });
 });

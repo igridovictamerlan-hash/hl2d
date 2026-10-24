@@ -1,3 +1,4 @@
+/** Описание системы — docs/generator.md. */
 import { Rng, hash2 } from '../../core/rng';
 import type { Rect } from '../../core/math';
 import { GENERATOR } from '../../config/generator';
@@ -8,16 +9,19 @@ import { GameMap, type Poi, type Zone, type ZoneKind } from '../GameMap';
 import { ensureConnectivity, buildAnchorWalk, labelComponents } from '../connectivity';
 import { buildingRatio, longestAlleyRun, type MapStats } from '../mapStats';
 import { GenGrid } from './GenGrid';
-import { planLayout, avenueOffsetAt, avenueRects, facadeReach } from './layout';
+import { planLayout, avenueOffsetAt, avenueRects, facadeReach, districtOfX, type Avenue } from './layout';
+import { buildBorderWall } from './border';
 import { avenueFrontages, arteryFrontages, buildFacades, constrainAvenueLanes, fillForecourt, placeAvenueDecor, rectFrontages } from './arbat';
 import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice } from './lattice';
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked, carveAccessRoad } from './stamps';
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, ACADEMY_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate, mirrorTemplate, checkpointSection, CHECKPOINT_OUTLANDS_W } from './templates';
+import { NEXUS_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, ACADEMY_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate } from './templates';
+import { CHECKPOINTS, checkpointRows, dugoutsOf, isOutlandsGround, pickCheckpointTypes, type SectionChar } from './checkpoints';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
 import { addWastes } from './wastes';
+import { addDam } from './dam';
 
 /**
  * Генератор переулочного города. Порядок шагов:
@@ -34,7 +38,7 @@ import { addWastes } from './wastes';
 const DEBUG_GEN = (globalThis as { __HL2D_DEBUG_GEN?: boolean }).__HL2D_DEBUG_GEN === true;
 
 export function generateCity(seed: number): GameMap {
-  return addSewers(addWastes(generateSurface(seed), seed), seed);
+  return addSewers(addDam(addWastes(generateSurface(seed), seed), seed), seed);
 }
 
 /** Город без канализации (несколько попыток, лучшая по требованиям). */
@@ -92,6 +96,13 @@ export function validateMap(map: GameMap): string[] {
   ];
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   if (!restrictedReachable(map)) out.push('ворота запретной зоны отрезаны');
+  // Каждому пограничному КПП — передовой блиндаж повстанцев с ящиком и местами отдыха.
+  for (const cp of map.poisOf('checkpoint_type')) {
+    const inside = (p: Poi) => p.x >= cp.x && p.y >= cp.y && p.x < cp.x + (cp.w ?? 0) && p.y < cp.y + (cp.h ?? 0);
+    if (!map.poisOf('dugout').some(inside)) out.push(`нет блиндажа у КПП (${cp.x},${cp.y})`);
+    if (!map.poisOf('dugout_cache').some(inside)) out.push(`нет ящика в блиндаже КПП (${cp.x},${cp.y})`);
+    if (map.poisOf('dugout_bunk').filter(inside).length < GENERATOR.validation.dugoutBunks) out.push(`мало мест отдыха в блиндаже КПП (${cp.x},${cp.y})`);
+  }
   return out;
 }
 
@@ -122,7 +133,7 @@ const ZONE_CHAR_POOL = '0123456789ijklmnopqrstuvwxyz!$%&*+-/;<=>?@^_~|';
 
 const shrink = (r: Rect, d: number): Rect => ({ x: r.x + d, y: r.y + d, w: r.w - 2 * d, h: r.h - 2 * d });
 
-function generateAttempt(seed: number, attempt: number): GameMap {
+export function generateAttempt(seed: number, attempt: number): GameMap {
   const t0 = performance.now();
   const G = GENERATOR;
   const W = WORLD.widthTiles;
@@ -132,13 +143,16 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const pois: Poi[] = [];
 
   // 1. План.
-  const layout = planLayout(rng.fork(1), W, H);
+  const layout = planLayout(rng.fork(1), W, H, pickCheckpointTypes(seed));
 
   // 2. Решётка и лабиринт.
   const lat = Lattice.build(rng.fork(2), layout.xs, layout.ys);
+  // Узлы линий проспектов — на асфальте (до конца проспекта: дальше на восток линия — обычная решётка).
+  const hAvs: [number, Avenue][] = [[layout.hLine, layout.hAvenue], [layout.hLine2, layout.hAvenue2]];
   for (const n of lat.nodes) {
-    if (n.j === layout.hLine) {
-      n.y = avenueOffsetAt(layout.hAvenue, n.x + 1) + 2;
+    for (const [line, av] of hAvs) {
+      if (n.j !== line || n.x > av.band.x + av.band.w - 1) continue;
+      n.y = avenueOffsetAt(av, n.x + 1) + 2;
       n.onAvenue = true;
     }
     if (layout.vAvenue && n.i === layout.vLine) {
@@ -152,17 +166,22 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     restrictedInner,
     voids: [layout.nexus, ...(layout.cwuHq ? [layout.cwuHq.rect] : []), ...layout.checkpoints.map((c) => c.rect)],
     industrial: layout.industrial,
+    // Граница Верхнего города: на её линии решётки узлов нет — переулки и улицы стену не пересекают.
+    voidCols: [layout.upperLine],
   });
   // Улицы-артерии от проспекта и места под общежития и особняки (до лабиринта: он их обходит).
   // Проспект — вместе с рядами домов по сторонам.
   const R = facadeReach();
   const hb = layout.hAvenue.band;
-  const streetBlocked = [layout.restricted, layout.industrial, layout.plaza, layout.nexus, ...(layout.cwuHq ? [layout.cwuHq.rect] : []),{ x: hb.x, y: hb.y - R, w: hb.w, h: hb.h + 2 * R }, ...layout.checkpoints.map((c) => c.rect)];
+  const hb2 = layout.hAvenue2.band;
+  const streetBlocked = [layout.restricted, layout.industrial, layout.plaza, layout.nexus, ...(layout.cwuHq ? [layout.cwuHq.rect] : []), { x: hb.x, y: hb.y - R, w: hb.w, h: hb.h + 2 * R }, { x: hb2.x, y: hb2.y - R, w: hb2.w, h: hb2.h + 2 * R }, ...layout.checkpoints.map((c) => c.rect)];
   if (layout.vAvenue) {
     const vb = layout.vAvenue.band;
     streetBlocked.push({ x: vb.x - R, y: vb.y, w: vb.w + 2 * R, h: vb.h });
   }
-  const streets = planStreets(lat, rng.fork(11), layout.hLine, { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H, layout.nexus);
+  // Здания не встают на стену Верхнего города.
+  streetBlocked.push({ x: layout.upperX - 2, y: 0, w: G.wealth.wall + 4, h: H });
+  const streets = planStreets(lat, rng.fork(11), [layout.hLine, layout.hLine2], { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H, layout.nexus, layout.upperX);
   const starts: number[] = [];
   lat.nodes.forEach((n, k) => n.onAvenue && starts.push(k));
   for (const a of streets.arteries) for (const n of a.nodes) if (!starts.includes(n)) starts.push(n);
@@ -186,15 +205,18 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   addLoops(lat, rng.fork(4));
   // Переулки от проспекта пересекают ряд домов прямо — излом за ним.
   constrainAvenueLanes(lat, layout.hAvenue, layout.hLine);
+  constrainAvenueLanes(lat, layout.hAvenue2, layout.hLine2);
   if (layout.vAvenue) constrainAvenueLanes(lat, layout.vAvenue, layout.vLine);
   finalizeEdges(lat, rng.fork(5));
 
   // 3. Вырезание.
   const carve = carveLattice(g, lat);
-  const avenues = [layout.hAvenue, ...(layout.vAvenue ? [layout.vAvenue] : [])];
+  const avenues = [layout.hAvenue, layout.hAvenue2, ...(layout.vAvenue ? [layout.vAvenue] : [])];
   for (const av of avenues) for (const r of avenueRects(av)) g.fillRect(r, T.STREET);
   const arteryRects = carveArteries(g, lat, streets);
   removeWallSpikes(g);
+  // Стена Верхнего города с постами на проспектах.
+  buildBorderWall(g, layout.upperX, [layout.hAvenue, layout.hAvenue2], pois);
 
   // 4. Зоны.
   const zones: Zone[] = [];
@@ -205,12 +227,18 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     zones.push({ id: zones.length, kind, name, char });
     return zones.length - 1;
   };
-  const names = rng.fork(7).shuffle([...QUARTER_NAMES]);
-  const quarterZones = layout.quarterSeeds.map((_, k) =>
-    addZone('residential', names[k % names.length], String.fromCharCode(97 + k)),
-  );
+  // Названия кварталов — по полосе достатка.
+  const nrng = rng.fork(7);
+  const names = { slum: nrng.shuffle([...QUARTER_NAMES.slum]), old: nrng.shuffle([...QUARTER_NAMES.old]), upper: nrng.shuffle([...QUARTER_NAMES.upper]) };
+  const used = { slum: 0, old: 0, upper: 0 };
+  const quarterZones = layout.quarterSeeds.map((_, k) => {
+    const d = layout.quarterDistricts[k];
+    const list = names[d];
+    return addZone('residential', list[used[d]++ % list.length], String.fromCharCode(97 + k));
+  });
   const zHAv = addZone('avenue', ZONE_NAMES.avenue[0], 'A');
   const zVAv = layout.vAvenue ? addZone('avenue', ZONE_NAMES.avenue[1], 'B') : zHAv;
+  const zHAv2 = addZone('avenue', ZONE_NAMES.avenue[2], null);
   const zPlaza = addZone('plaza', ZONE_NAMES.plaza, 'P');
   const zNexus = addZone('nexus', ZONE_NAMES.nexus, 'N');
   const zCells = addZone('cells', ZONE_NAMES.cells, 'K');
@@ -232,12 +260,14 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const zOut = addZone('outlands', ZONE_NAMES.outlands, 'O');
   const zShop = addZone('shop', ZONE_NAMES.shop, 'S');
 
+  // Квартал тайла — ближайшее семя своей полосы достатка (квартал не перетекает через стену).
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
+      const band = districtOfX(layout, x);
       let best = 0;
       let bestD = Infinity;
       layout.quarterSeeds.forEach((s, k) => {
-        const d = (s.x - x) ** 2 + (s.y - y) ** 2;
+        const d = (s.x - x) ** 2 + (s.y - y) ** 2 + (layout.quarterDistricts[k] === band ? 0 : 1e9);
         if (d < bestD) {
           bestD = d;
           best = k;
@@ -246,24 +276,30 @@ function generateAttempt(seed: number, attempt: number): GameMap {
       g.zones[y * W + x] = quarterZones[best];
     }
   }
+  // Полосы достатка — прямоугольники на всю высоту города.
+  const DS = G.wealth;
+  pois.push({ type: 'district', kind: 'slum', x: 0, y: 0, w: layout.oldX, h: H });
+  pois.push({ type: 'district', kind: 'old', x: layout.oldX, y: 0, w: layout.upperX + DS.wall - layout.oldX, h: H });
+  pois.push({ type: 'district', kind: 'upper', x: layout.upperX + DS.wall, y: 0, w: W - layout.upperX - DS.wall, h: H });
   g.setZoneRect(layout.industrial, zInd);
   g.setZoneRect(layout.restricted, zRes);
   const hRects = avenueRects(layout.hAvenue);
+  const hRects2 = avenueRects(layout.hAvenue2);
+  const inRects = (rs: Rect[], x: number, y: number) => rs.some((r) => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h);
   for (let i = 0; i < W * H; i++) {
     if (g.tiles[i] !== T.STREET) continue;
     const x = i % W;
     const y = (i - x) / W;
-    const inH = hRects.some((r) => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h);
-    g.zones[i] = inH ? zHAv : zVAv;
+    g.zones[i] = inRects(hRects, x, y) ? zHAv : inRects(hRects2, x, y) ? zHAv2 : zVAv;
   }
   // Улицы-артерии — свои зоны (вид avenue: асфальт, фонари, туда выходят жители).
   // Куда может выходить проезд к складу: проспект, площадь и улицы, что начинаются у проспекта.
-  const roadTargets = new Set<number>([zHAv, zVAv]);
+  const roadTargets = new Set<number>([zHAv, zHAv2, zVAv]);
   arteryRects.forEach((rects, k) => {
     const z = addZone('avenue', ZONE_NAMES.streets[k % ZONE_NAMES.streets.length], null);
     if (streets.arteries[k]?.rooted) roadTargets.add(z);
     for (const r of rects) {
-      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (g.get(x, y) === T.STREET && !hRects.some((h) => x >= h.x && y >= h.y && x < h.x + h.w && y < h.y + h.h)) g.zones[y * W + x] = z;
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (g.get(x, y) === T.STREET && !inRects(hRects, x, y) && !inRects(hRects2, x, y)) g.zones[y * W + x] = z;
     }
   });
 
@@ -412,14 +448,16 @@ function generateAttempt(seed: number, attempt: number): GameMap {
 
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);
 
-  // Пограничные КПП. Выход только один — в сторону города (к проспекту).
+  // Пограничные КПП. Выход только один — в сторону города (к проспекту). Тип КПП — свой шаблон и своя карта
+  // частей (checkpoints.ts); POI checkpoint_type запоминает тип для боевого ИИ и интерфейса.
   layout.checkpoints.forEach((cp, k) => {
-    const rows = cp.mirror ? mirrorTemplate(CHECKPOINT_TEMPLATE) : [...CHECKPOINT_TEMPLATE];
-    const cw = rows[0].length;
+    const def = CHECKPOINTS[cp.type];
+    const { rows, sections } = checkpointRows(def, cp.mirror);
+    const zoneKey = { o: 'outer', s: 'short', l: 'long', i: 'inner', g: 'gatehouse' } as const;
     // Пустошь перед КПП (и завалы на ней) — зона пустоши, остальное — части КПП.
-    const zoneOf = (ch: string, x: number, y: number) => {
-      const tx = cp.mirror ? cw - 1 - x : x;
-      return ch === 'o' || tx < CHECKPOINT_OUTLANDS_W ? zOut : zCheckpoints[k][checkpointSection(tx, y)];
+    const zoneOf = (_ch: string, x: number, y: number) => {
+      const part = sections[y][x] as SectionChar;
+      return part === '-' ? zOut : zCheckpoints[k][zoneKey[part]];
     };
     const res = stampTemplate(g, rows, cp.rect.x, cp.rect.y, zoneOf, pois);
     const cityDx = cp.mirror ? -1 : 1;
@@ -428,8 +466,11 @@ function generateAttempt(seed: number, attempt: number): GameMap {
       if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
     }
     let sx = 0, sy = 0, n = 0;
-    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[0].length; x++) if (rows[y][x] === 'o') { sx += x; sy += y; n++; }
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[0].length; x++) if (isOutlandsGround(rows[y][x])) { sx += x; sy += y; n++; }
     pois.push({ type: 'outlands_exit', x: cp.rect.x + Math.round(sx / n), y: cp.rect.y + Math.round(sy / n) });
+    // Передовой блиндаж повстанцев в полосе пустоши: внутренний пол и сторона входа (ящик и койки — POI из стампа).
+    for (const d of dugoutsOf(rows)) pois.push({ type: 'dugout', x: cp.rect.x + d.x, y: cp.rect.y + d.y, w: d.w, h: d.h, face: d.face });
+    pois.push({ type: 'checkpoint_type', x: cp.rect.x, y: cp.rect.y, w: cp.rect.w, h: cp.rect.h, kind: cp.type, face: cp.mirror ? 'E' : 'W' });
   });
 
   // Улицы старого города: ряды домов вдоль проспектов, площади и артерий; на главном проспекте и
@@ -437,6 +478,7 @@ function generateAttempt(seed: number, attempt: number): GameMap {
   const pc = pois.find((p) => p.type === 'plaza_center')!;
   const frontages = [
     ...avenueFrontages(layout.hAvenue, true),
+    ...avenueFrontages(layout.hAvenue2, false),
     ...rectFrontages(layout.plaza, 'plaza', true, layout.plazaSide === 'N' ? 'S' : 'N'),
     ...(layout.vAvenue ? avenueFrontages(layout.vAvenue, false) : []),
     ...arteryRects.flatMap((rects, k) => arteryFrontages(rects, streets.arteries[k].width)),
@@ -446,10 +488,13 @@ function generateAttempt(seed: number, attempt: number): GameMap {
     plazaCenter: pc,
     addZone: (kind, name) => (kind === 'shop' && name === ZONE_NAMES.shop ? zShop : addZone(kind, name, null)),
     pois,
+    upperX: layout.upperX + G.wealth.wall,
   });
   const decor = rng.fork(13);
-  const cps = layout.checkpoints.map((c) => c.rect);
-  const kiosks = placeAvenueDecor(g, decor, layout.hAvenue, pois, 0, Math.min(...cps.map((r) => r.x + r.w)), Math.max(...cps.map((r) => r.x)) - 1);
+  // От проходных западных КПП до восточного конца проспектов.
+  const cpEdge = Math.max(...layout.checkpoints.map((c) => c.rect.x + c.rect.w));
+  let kiosks = placeAvenueDecor(g, decor, layout.hAvenue, pois, 0, cpEdge);
+  kiosks += placeAvenueDecor(g, decor, layout.hAvenue2, pois, kiosks, cpEdge);
   if (layout.vAvenue) placeAvenueDecor(g, decor, layout.vAvenue, pois, kiosks);
   // Магазин ТС не встал в ряд домов — комната в застройке неподалёку от площади.
   if (!pois.some((p) => p.type === 'shop_counter')) stampShop(g, rng.fork(9), pc.x, pc.y, zShop, pois);

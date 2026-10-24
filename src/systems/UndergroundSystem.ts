@@ -1,3 +1,4 @@
+/** Описание системы — docs/underground.md. */
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
 import type { GameMap, HatchPair, Level } from '../world/GameMap';

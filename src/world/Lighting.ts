@@ -1,9 +1,11 @@
+/** Описание системы — docs/rendering.md. */
 import type { View } from '../core/Camera';
 import type { GameMap } from './GameMap';
 import type { Character } from '../entities/Character';
 import type { CombatSystem } from '../systems/CombatSystem';
 import type { Barrel, Lamp } from '../systems/StreetLife';
 import { LIGHTING, type Rgb } from '../config/lighting';
+import { MEMORIALS } from '../config/memorials';
 
 /**
  * Источник света в мире: где, радиус (px мира), цвет, яркость; night — горит только в темноте
@@ -64,7 +66,13 @@ export function clockText(f: number): string {
  * Постоянные источники карты: фонари улиц, бочки с огнём, комнаты и места по POI (LIGHTING.pois),
  * узлы Протектората, свет из люков в канализации. Собирается один раз при загрузке карты (без DOM).
  */
-export function staticLights(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[]): Light[] {
+export function staticLights(
+  map: GameMap,
+  lamps: readonly Lamp[],
+  barrels: readonly Barrel[],
+  nodes: readonly { x: number; y: number; broken: boolean }[],
+  dugouts: readonly { x: number; y: number; broken: boolean }[] = [],
+): Light[] {
   const out: Light[] = [];
   const ts = map.tileSize;
   let seed = 1;
@@ -77,6 +85,10 @@ export function staticLights(map: GameMap, lamps: readonly Lamp[], barrels: read
   }
   for (const n of nodes) {
     out.push({ x: n.x, y: n.y, r: L.node.radius, color: L.node.color, power: L.node.power, night: false, flicker: 0, bloom: false, seed: seed++, off: n });
+  }
+  // Блиндажи повстанцев: фонарь внутри, гаснет вместе с разрушением (объект живой — broken читается каждый кадр).
+  for (const g of dugouts) {
+    out.push({ x: g.x, y: g.y, r: L.dugout.radius, color: L.dugout.color, power: L.dugout.power, night: true, flicker: L.dugout.flicker, bloom: true, seed: seed++, off: g });
   }
   for (const p of map.pois) {
     const d = L.pois[p.type];
@@ -106,6 +118,8 @@ export class Lighting {
   /** Упрощённо (слабая машина): без свечения. */
   lite = false;
   private lights: Light[] = [];
+  /** Памятные места со свечами (Memorials.list — тот же массив): тёплое пятно света у каждого. */
+  memorials: readonly { id: number; x: number; y: number; candles: number }[] = [];
   private lm: HTMLCanvasElement | null = null;
   private g: CanvasRenderingContext2D | null = null;
   /** Буфер свечения (как карта света, мелкий): пятна складываются в нём, на экран — одним проходом. */
@@ -117,8 +131,8 @@ export class Lighting {
   private ambientStyle = '';
 
   /** Новая карта: собрать постоянные источники. */
-  setWorld(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[]): void {
-    this.lights = staticLights(map, lamps, barrels, nodes);
+  setWorld(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[], dugouts: readonly { x: number; y: number; broken: boolean }[] = []): void {
+    this.lights = staticLights(map, lamps, barrels, nodes, dugouts);
   }
 
   /** Свет суток сейчас (для HUD и отрисовки уюта). */
@@ -211,6 +225,13 @@ export class Lighting {
       const on = s.night ? lamps : 1;
       if (on <= L.lampsOn) continue;
       this.put(g, v, k, s.x, s.y, s.r, s.color, s.power * on * this.flick(s, time));
+    }
+    // Свечи на памятных местах: чем больше свечей, тем ярче; мерцают.
+    const G = MEMORIALS.glow;
+    for (const m of this.memorials) {
+      if (m.candles <= 0) continue;
+      const fl = 1 - G.flicker * 0.5 * (1 + Math.sin(time * 9 + m.id * 3.1) * Math.sin(time * 5.7 + m.id));
+      this.put(g, v, k, m.x, m.y, G.radius, G.color, Math.min(G.max, G.power + G.perCandle * (m.candles - 1)) * fl);
     }
     // Пламя, взрывы, горящие, вспышки выстрелов.
     for (const f of combat.fires) this.put(g, v, k, f.x, f.y, f.r * L.fire.radiusMul, L.fire.color, L.fire.power * (1 - L.fire.flicker * 0.5 * (1 + Math.sin(time * 13 + f.x))));

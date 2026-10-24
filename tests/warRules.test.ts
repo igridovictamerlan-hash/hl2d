@@ -11,7 +11,7 @@ import { RebelBrain } from '../src/ai/brains/RebelBrain';
 import { OtaBrain } from '../src/ai/brains/OtaBrain';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
-import { CP_UNIT, REBEL_UNIT, rebelUnitOf } from '../src/config/factions';
+import { CP_UNIT, REBEL_UNIT, cpUnit, rebelUnitOf } from '../src/config/factions';
 import { WAR } from '../src/config/war';
 import { ROSTER } from '../src/config/roster';
 import { T } from '../src/world/tiles';
@@ -60,14 +60,15 @@ describe('коды тревоги', () => {
     sim.war.command.paused = true;
     const admin = sim.entities.list.find((c) => c.faction === 'admin')!;
     const cit = sim.entities.list.find((c) => c.faction === 'citizen' && !c.isPlayer && c.role)!;
-    const name = cit.name;
+    // По номеру человека (pid): имена бывают одинаковыми (тёзка-бандит).
+    const pid = cit.pid;
     expect(sim.war.setCode('red', admin)).toBeNull();
     sim.combat.damage(cit, 9999, null);
     run(sim, ROSTER.respawn.citizen + 5);
-    expect(sim.entities.list.some((c) => c.alive && c.name === name)).toBe(false);
+    expect(sim.entities.list.some((c) => c.alive && c.pid === pid)).toBe(false);
     expect(sim.war.setCode('green', admin)).toBeNull();
     run(sim, 3);
-    expect(sim.entities.list.some((c) => c.alive && c.name === name)).toBe(true);
+    expect(sim.entities.list.some((c) => c.alive && c.pid === pid)).toBe(true);
   });
 
   test('Комендант погиб при красном коде — выборов нет до отбоя', () => {
@@ -247,6 +248,9 @@ describe('место преступления', () => {
     sim.combat.damage(victim, 9999, null);
     const corpse = sim.combat.corpses[sim.combat.corpses.length - 1];
     spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, spotNear(sim, at, 2, 4));
+    // Техник SU.02 и следователь SU.01 неподалёку (иначе — где их застанет случайность: дальше CRIME.scene.seek не шлют).
+    spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, at, 3, 6));
+    spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su1).group, rank: CP_UNIT.su1, kit: cpUnit(CP_UNIT.su1).kit }, spotNear(sim, at, 3, 6));
     run(sim, 1);
     const scene = sim.war.scenes.list[0];
     expect(scene).toBeTruthy();
@@ -290,6 +294,8 @@ describe('место преступления', () => {
     sim.war.command.paused = true;
     sim.war.reinforcements = false;
     sim.ctx.insurgency.paused = true;
+    // Проверяется оцепление и осмотр; прежняя механика «скан — сразу розыск» (уголовные дела — Suspects — выключены).
+    sim.ctx.suspects.enabled = false;
     const plaza = poiWorld(sim.ctx, 'plaza_center')!;
     const at = spotNear(sim, plaza, 0, 4);
     const victim = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: null, division: null, rank: 0, kit: 'citizen' }, at)!;
@@ -299,6 +305,9 @@ describe('место преступления', () => {
     // Рядом патрульный — заметит тело.
     spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, spotNear(sim, at, 2, 4));
     (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
+    // Техник SU.02 и следователь SU.01 неподалёку (иначе — где их застанет случайность: дальше CRIME.scene.seek не шлют).
+    spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, at, 3, 6));
+    spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su1).group, rank: CP_UNIT.su1, kit: cpUnit(CP_UNIT.su1).kit }, spotNear(sim, at, 3, 6));
     run(sim, 2);
     const scene = sim.war.scenes.list.find((x) => x.corpse === corpse)!;
     expect(scene).toBeTruthy();
@@ -339,7 +348,7 @@ describe('место преступления', () => {
     let wide: { x: number; y: number } | null = null;
     const ts = sim.map.tileSize;
     // Прямой переулок без боковых ответвлений в радиусе оцепления: берём первый, где оцепление — две линии.
-    const body0 = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] });
+    const body0 = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 });
     const straight = (p: { x: number; y: number }) => {
       const s = sim.war.scenes.open(body0(p), 'civil');
       const ok = !!s && s.lines.length === 2;
@@ -366,7 +375,7 @@ describe('место преступления', () => {
     }
     expect(alley).toBeTruthy();
     expect(wide).toBeTruthy();
-    const body = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] });
+    const body = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 });
     const a = sim.war.scenes.open(body(alley!), 'civil')!;
     // Прямой переулок: две линии поперёк, каждая — короткая лента, концы у стен.
     expect(a.lines.length).toBe(2);
@@ -397,10 +406,12 @@ describe('место преступления', () => {
     expect(medic).toBeTruthy();
     const plaza = poiWorld(sim.ctx, 'plaza_center')!;
     const body = (p: { x: number; y: number }) => {
-      const k = { x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      const k = { x: p.x, y: p.y, faction: 'citizen' as const, profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 };
       sim.combat.corpses.push(k);
       return k;
     };
+    // Техник SU.02 у площади (иначе — где его застанет случайность: дальше CRIME.scene.seek едет медик ТС).
+    spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, plaza, 3, 6));
     const s1 = sim.war.scenes.open(body(spotNear(sim, plaza, 0, 3)), 'civil')!;
     expect(s1.medic?.rank).toBe(CP_UNIT.su2);
     // Второе происшествие — далеко от первого (иначе одна зона): медик ТС сейчас не у площади.
@@ -429,7 +440,7 @@ describe('место преступления', () => {
     const plaza = poiWorld(sim.ctx, 'plaza_center')!;
     const at = spotNear(sim, plaza, 0, 3);
     const mk = (p: { x: number; y: number }): Corpse => {
-      const k: Corpse = { x: p.x, y: p.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      const k: Corpse = { x: p.x, y: p.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 };
       sim.combat.corpses.push(k);
       return k;
     };
@@ -467,7 +478,7 @@ describe('место преступления', () => {
     }
     expect(spots.length).toBe(S.maxOpen + 2);
     const body = (p: { x: number; y: number }): Corpse => {
-      const k: Corpse = { x: p.x, y: p.y, faction: 'cp', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] };
+      const k: Corpse = { x: p.x, y: p.y, faction: 'cp', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 };
       sim.combat.corpses.push(k);
       return k;
     };
@@ -490,7 +501,7 @@ describe('место преступления', () => {
     sim.war.reinforcements = false;
     (sim.war as unknown as { declareRed(where: string): void }).declareRed('тест');
     const plaza = poiWorld(sim.ctx, 'plaza_center')!;
-    expect(sim.war.scenes.open({ x: plaza.x, y: plaza.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [] }, 'civil')).toBeNull();
+    expect(sim.war.scenes.open({ x: plaza.x, y: plaza.y, faction: 'citizen', profession: null, killer: null, rank: 0, name: 'Тест', until: 1e9, loot: [], pid: -1, t: 0 }, 'civil')).toBeNull();
   });
 
   test('бандит обирает неоцеплённое тело ВС — забирает оружие', { timeout: 60_000 }, () => {
@@ -502,7 +513,7 @@ describe('место преступления', () => {
     const victim = spawnRole(sim.ctx, { kind: 'patrol', faction: 'cp', profession: null, division: null, rank: CP_UNIT.pcu3, kit: 'cp' }, at)!;
     sim.combat.damage(victim, 9999, null);
     // Несколько бандитов вокруг: каждый решает сам (с шансом CRIME.loot.chance), кто-то да обберёт.
-    const bandits = [0, 1, 2].map(() => spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 6, 10))!);
+    const bandits = [0, 1, 2, 3, 4].map(() => spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: 'bandit', division: null, rank: 0, kit: 'citizen' }, spotNear(sim, at, 4, 8))!);
     // Санитар из Управы (он у площади) не должен увезти тело раньше: проверяем бандитов.
     (sim.labor as unknown as { crematorAt: number }).crematorAt = Infinity;
     // Тело могут заметить ВС у площади — тогда лента; здесь проверяем неоцеплённое (ленту снимаем).

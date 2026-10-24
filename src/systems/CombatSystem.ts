@@ -1,3 +1,4 @@
+/** Описание системы — docs/combat.md. */
 import { ARSENAL } from '../config/arsenal';
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
@@ -8,19 +9,25 @@ import type { Rng } from '../core/rng';
 import type { LawSystem } from './LawSystem';
 import { castRayWith, lineOfSight } from '../world/visibility';
 import { T } from '../world/tiles';
+import { inTrench, parapetDist } from '../world/trench';
 import { COMBAT, GRENADE, FIRE, HITS, ROCKET, MINE, type HitZone } from '../config/combat';
-import { SUPPRESS, CROUCH, DOWNED } from '../config/tactics';
+import { SUPPRESS, CROUCH, DOWNED, TRENCH } from '../config/tactics';
 import { resolveCircleVsTiles } from '../world/collision';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, ITEMS, GEAR, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
 import { gearLoot } from './Gear';
-import { armorOf, roleArmor, rollZone, behind } from './wounds';
-import { FACTIONS, cpHas, type FactionId } from '../config/factions';
+import { CP_KITS, REBEL_KITS, type KitLook } from '../config/uniforms';
+import { plainclothesOf, type ClothesLook } from '../config/clothes';
+import { armorOf, roleArmor, rollZone } from './wounds';
+import { FACTIONS, cpHas, cpUnit, type FactionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import { muzzleWorld } from '../entities/weaponPose';
 import { BARKS } from '../config/barks';
-import { FISTS } from '../config/brawl';
 import { bark, barkSide } from './Barks';
+import { Melee } from './Melee';
+import type { MeleeStyle } from '../config/melee';
+import { MELEE } from '../config/melee';
+import { resetMelee } from '../entities/meleeState';
 
 const DEG = Math.PI / 180;
 
@@ -73,7 +80,8 @@ export interface Fx {
   seq: number;
   /** Когда случилось (игровое время боя). */
   t: number;
-  kind: 'muzzle' | 'hit' | 'wall' | 'blast' | 'stab' | 'smoke' | 'fire' | 'rocket' | 'bleed' | 'whiz';
+  /** Ближний бой (Melee): swing — взмах (попал или нет), stab — попал, block — закрылся, parry — парировал, ko — нокаут. */
+  kind: 'muzzle' | 'hit' | 'wall' | 'blast' | 'stab' | 'smoke' | 'fire' | 'rocket' | 'bleed' | 'whiz' | 'swing' | 'block' | 'parry' | 'ko';
   x: number;
   y: number;
   ang: number;
@@ -85,17 +93,10 @@ export interface Fx {
   /** Сила: урон попадания или радиус взрыва. */
   power: number;
   lethal: boolean;
-}
-
-/** Взмах дубинкой — сектор удара (для отрисовки). */
-export interface Swing {
-  x: number;
-  y: number;
-  ang: number;
-  half: number;
-  reach: number;
-  t: number;
-  hit: boolean;
+  /** Ближний бой: чем били, чем закрылся, тяжёлый ли удар серии. */
+  style?: MeleeStyle;
+  guard?: MeleeStyle;
+  heavy?: boolean;
 }
 
 export interface Corpse {
@@ -106,6 +107,8 @@ export interface Corpse {
   /** Кто убил (для сканирования OBS) и отсканировано ли уже. */
   killer: Character | null;
   scanned?: boolean;
+  /** Упал: когда и в какую сторону (анимация падения, только отрисовка). */
+  fell?: { at: number; ang: number };
   /** Сжигает санитар: до этого времени горит, потом исчезает; кто сжигает. */
   burning?: number;
   cremator?: Character | null;
@@ -117,6 +120,18 @@ export interface Corpse {
   stripped?: boolean;
   /** Медик на месте преступления накрыл тело белой простынёй (CrimeScenes.cover). */
   covered?: boolean;
+  /** Номер человека (Character.pid) и когда погиб (время боя): родня узнаёт своего, тело «свежее». */
+  pid: number;
+  t: number;
+  /** Нашли (житель закричал или ВС увидел) и кто нашёл (pid) — Senses. */
+  found?: boolean;
+  foundBy?: number;
+  /** Сколько зевак стоит у тела (Senses / CitizenBrain gawk). */
+  gawkers?: number;
+  /** Чем убит (вид оружия убийцы) — экспертиза (Suspects.forensic). */
+  weapon?: WeaponClass | null;
+  /** В какой гражданской одежде погиб (только отрисовка тела). */
+  dressed?: { clothes: ClothesLook | null; kit?: KitLook | null; clothesKey: string } | null;
 }
 
 /** Граната в полёте или на земле. */
@@ -224,7 +239,8 @@ export function isMedic(c: Character): boolean {
  */
 export class CombatSystem {
   readonly bullets: Bullet[] = [];
-  readonly swings: Swing[] = [];
+  /** Ближний бой: удары, серии, блок, нокаут (systems/Melee.ts). */
+  readonly melee: Melee;
   readonly corpses: Corpse[] = [];
   readonly shots: Shot[] = [];
   readonly grenades: Grenade[] = [];
@@ -263,7 +279,9 @@ export class CombatSystem {
     private readonly bus: EventBus,
     private readonly rng: Rng,
     private readonly law: LawSystem,
-  ) {}
+  ) {
+    this.melee = new Melee(this, entities, map, rng, bus);
+  }
 
   get now(): number {
     return this.time;
@@ -437,14 +455,14 @@ export class CombatSystem {
     return c.bandageUntil > this.time;
   }
 
-  /** Занят руками: перевязывается, ставит растяжку, поднимает раненого — или сам лежит. */
+  /** Занят руками: перевязывается, ставит растяжку, поднимает раненого — или сам лежит (ранен, нокаут). */
   busy(c: Character): boolean {
-    return c.bandageUntil > this.time || c.plantUntil > this.time || c.reviveUntil > this.time || c.downed;
+    return c.bandageUntil > this.time || c.plantUntil > this.time || c.reviveUntil > this.time || c.downed || c.melee.ko > this.time;
   }
 
   canFire(c: Character): boolean {
     if (!c.weapon || !c.alive || this.time < c.nextShot || this.busy(c)) return false;
-    if (WEAPONS[c.weapon].mode === 'melee') return true;
+    if (WEAPONS[c.weapon].mode === 'melee') return this.melee.ready(c);
     return !this.reloading(c) && c.mag > 0;
   }
 
@@ -466,19 +484,22 @@ export class CombatSystem {
   }
 
   /** Записать эффект (для отрисовки и звука). */
-  private emit(kind: Fx['kind'], x: number, y: number, ang: number, cls: WeaponClass | null, by: Character | null, target: Character | null = null, zone: Fx['zone'] = null, power = 0, lethal = false): void {
-    this.fx.push({ seq: ++this.fxSeq, t: this.time, kind, x, y, ang, cls, by, target, zone, power, lethal });
+  emit(kind: Fx['kind'], x: number, y: number, ang: number, cls: WeaponClass | null, by: Character | null, target: Character | null = null, zone: Fx['zone'] = null, power = 0, lethal = false): Fx {
+    const f: Fx = { seq: ++this.fxSeq, t: this.time, kind, x, y, ang, cls, by, target, zone, power, lethal };
+    this.fx.push(f);
     if (this.fx.length > FX_KEEP) this.fx.splice(0, this.fx.length - FX_KEEP);
+    return f;
   }
 
   /**
    * Выстрел (удар) в сторону точки. Возвращает, в кого попадёт пуля (для дроби — последняя
-   * попавшая); урон — когда пуля долетит. Ракета РПГ цель не предсказывает (null).
+   * попавшая); урон — когда пуля долетит. Ракета РПГ цель не предсказывает (null). Холодное оружие —
+   * удар серии (Melee): урон — после замаха, возвращает, кого удар достанет сейчас.
    */
   fire(c: Character, tx: number, ty: number): Character | null {
     const w = this.weaponOf(c);
     if (!w) return null;
-    if (w.mode === 'melee') return this.swing(c, w, tx, ty);
+    if (w.mode === 'melee') return this.melee.start(c, tx, ty);
     // Дробовик заряжается по патрону: выстрел прерывает перезарядку, если в магазине что-то есть.
     if (w.perRound && this.reloading(c) && c.mag > 0) c.reloadUntil = 0;
     if (!this.canFire(c)) {
@@ -590,12 +611,27 @@ export class CombatSystem {
         }
       }
     }
+    // Цель в траншее: пуля, входящая поперёк, ловит бруствер; огонь вдоль траншеи и сверху (вплотную) не держит.
+    let sheltered = false;
+    if (hit && !rocket && Math.hypot(hit.x - c.x, hit.y - c.y) > TRENCH.exposedWithin) {
+      const pt = parapetDist(this.map, hit.x, hit.y, -dx, -dy);
+      if (pt >= 0) {
+        sheltered = true;
+        const pierce = Math.min(1, w.penetration * TRENCH.pierceMul);
+        if (this.rng.chance((hit.crouch ? TRENCH.crouchStop : TRENCH.standStop) * (1 - pierce))) {
+          // Пуля встаёт на бруствере: расстояние до центра цели вдоль луча минус путь до бруствера.
+          hitT = Math.max(0, Math.min(hitT, (hit.x - ox) * dx + (hit.y - oy) * dy - pt));
+          hit = null;
+          stop = 'barrier';
+        }
+      }
+    }
     // Пуля вылетает из дульного среза (если ствол не упёрся в стену и цель не ближе ствола).
     const m = muzzleWorld(c, w.id);
     const md = (m.x - ox) * dx + (m.y - oy) * dy;
     const fromMuzzle = md > 0 && md < hitT && lineOfSight(this.map, c.x, c.y, m.x, m.y);
     const start = fromMuzzle ? md : 0;
-    const zone = hit ? rollZone(this.rng, c.aim, hit.crouch ? CROUCH.legMul : 1) : 'torso';
+    const zone = hit ? rollZone(this.rng, c.aim, sheltered ? TRENCH.legMul : hit.crouch ? CROUCH.legMul : 1) : 'torso';
     this.bullets.push({
       x: ox + dx * start, y: oy + dy * start, px: ox + dx * start, py: oy + dy * start, ox, oy, dx, dy,
       dist: start, end: hitT, speed: w.speed, w, shooter: c, target: hit, zone,
@@ -663,7 +699,7 @@ export class CombatSystem {
   }
 
   /** Кровотечение и последствия ранения в зону (урон — отдельно, через damage). */
-  private wound(target: Character, dmg: number, zone: HitZone | 'blast'): void {
+  wound(target: Character, dmg: number, zone: HitZone | 'blast'): void {
     if (!target.alive) return;
     const per = zone === 'blast' ? HITS.bleed.arm : HITS.bleed[zone];
     target.bleed = Math.min(HITS.bleedMax, target.bleed + dmg * per);
@@ -671,98 +707,23 @@ export class CombatSystem {
     if (zone === 'arm') target.armUntil = this.time + HITS.armTime;
   }
 
-  /**
-   * Удар: ближайший в секторе перед собой. Дубинка оглушает; нож режет (кровотечение), в спину —
-   * × backstab и мимо брони (два удара в спину валят патрульного).
-   */
   /** Ударили кулаком (задаёт Brawls: ответить, позвать братву). */
   onPunch: (target: Character, attacker: Character) => void = () => {};
+  /** Подняли тяжелораненого (не арест): кто и кого — Relations запоминает добро. */
+  onRevive: (helper: Character, target: Character) => void = () => {};
 
   /**
-   * Удар кулаком — пустыми руками, оружие в руках не нужно (FISTS): кулаком не убить — здоровье не ниже
-   * floor, дошёл до него — нокаут (оглушён knockout с). Возвращает, в кого попал.
+   * Удар кулаком — пустыми руками, оружие в руках не нужно (серия кулаков, Melee): кулаком не убить —
+   * здоровье не ниже FISTS.floor, дошёл до него — нокаут. Урон — после замаха; возвращает, кого удар
+   * достанет сейчас.
    */
   punch(c: Character, tx: number, ty: number): Character | null {
-    if (!c.alive || c.downed || this.time < c.nextShot || this.busy(c)) return null;
-    c.nextShot = this.time + 1 / FISTS.rate;
-    const ang = Math.atan2(ty - c.y, tx - c.x);
-    c.facing = ang;
-    const half = 45 * DEG;
-    let best: Character | null = null;
-    let bestD = Infinity;
-    for (const o of this.entities.near(c.x, c.y, c.radius + FISTS.range + 16, near)) {
-      if (o === c || !o.alive || o.downed) continue;
-      const gap = Math.hypot(o.x - c.x, o.y - c.y) - o.radius - c.radius;
-      if (gap > FISTS.range) continue;
-      if (gap > 4 && Math.abs(angleDiff(Math.atan2(o.y - c.y, o.x - c.x), ang)) > half) continue;
-      if (!lineOfSight(this.map, c.x, c.y, o.x, o.y)) continue;
-      if (gap < bestD) {
-        bestD = gap;
-        best = o;
-      }
-    }
-    this.swings.push({ x: c.x, y: c.y, ang, half, reach: c.radius + FISTS.range, t: COMBAT.swingTime, hit: !!best });
-    if (!best) return null;
-    this.stats.hit++;
-    best.stunUntil = Math.max(best.stunUntil, this.time + FISTS.stun);
-    best.aim = 0;
-    const dmg = Math.min(FISTS.damage * (1 - armorOf(best).torso * 0.5), Math.max(0, best.health - FISTS.floor));
-    this.emit('stab', best.x - Math.cos(ang) * best.radius, best.y - Math.sin(ang) * best.radius, ang, 'melee', c, best, 'torso', dmg, false);
-    if (dmg > 0) this.damage(best, dmg, c, 'torso');
-    else if (!best.disguised && !FACTIONS[c.faction].authority && FACTIONS[best.faction].authority) this.damage(best, 0, c, 'torso');
-    if (best.alive && best.health <= FISTS.floor + 0.01) best.stunUntil = Math.max(best.stunUntil, this.time + FISTS.knockout);
-    this.onPunch(best, c);
-    return best;
+    return this.melee.start(c, tx, ty, 'fists');
   }
 
-  /** Нокаутирован кулаками (оглушён и на пороге здоровья). */
+  /** Нокаутирован кулаками (лежит). */
   knockedOut(c: Character): boolean {
-    return c.health <= FISTS.floor + 0.01 && c.stunUntil > this.time;
-  }
-
-  private swing(c: Character, w: WeaponDef, tx: number, ty: number): Character | null {
-    if (!this.canFire(c)) return null;
-    c.nextShot = this.time + 1 / w.fireRate;
-    const ang = Math.atan2(ty - c.y, tx - c.x);
-    c.facing = ang;
-    const half = w.spreadHip * DEG;
-    let best: Character | null = null;
-    let bestD = Infinity;
-    for (const o of this.entities.near(c.x, c.y, c.radius + w.range + 16, near)) {
-      if (o === c || !o.alive) continue;
-      const gap = Math.hypot(o.x - c.x, o.y - c.y) - o.radius - c.radius;
-      if (gap > w.range) continue;
-      if (gap > 4 && Math.abs(angleDiff(Math.atan2(o.y - c.y, o.x - c.x), ang)) > half) continue;
-      if (!lineOfSight(this.map, c.x, c.y, o.x, o.y)) continue;
-      if (gap < bestD) {
-        bestD = gap;
-        best = o;
-      }
-    }
-    this.swings.push({ x: c.x, y: c.y, ang, half, reach: c.radius + w.range, t: COMBAT.swingTime, hit: !!best });
-    if (!best) return null;
-    best.stunUntil = Math.max(best.stunUntil, this.time + w.stun);
-    best.aim = 0;
-    this.hits++;
-    this.stats.hit++;
-    const hx = best.x - Math.cos(ang) * best.radius;
-    const hy = best.y - Math.sin(ang) * best.radius;
-    if (w.class === 'blade') {
-      const back = behind(best, c);
-      const armor = armorOf(best);
-      const dmg = back ? w.damage * (w.backstab ?? 1) : w.damage * (1 - armor.torso * (1 - w.pierce));
-      this.emit('stab', hx, hy, ang, w.class, c, best, 'torso', dmg, back);
-      if (back && c.isPlayer) this.bus.emit('log', { text: `Удар в спину: ${best.name}.`, kind: 'world' });
-      this.addDecal(hx + Math.cos(ang) * 6, hy + Math.sin(ang) * 6, 'blood', COMBAT.decals.bloodTime, this.rng.range(0, Math.PI), this.rng.range(0.7, 1.1));
-      this.wound(best, dmg, 'torso');
-      this.damage(best, dmg, c, 'torso');
-      return best;
-    }
-    const armor = armorOf(best);
-    const dmg = w.damage * (1 - armor.torso * 0.5);
-    this.emit('stab', hx, hy, ang, w.class, c, best, 'torso', dmg, false);
-    this.damage(best, dmg, c, 'torso');
-    return best;
+    return this.melee.knockedOut(c);
   }
 
   /**
@@ -782,13 +743,14 @@ export class CombatSystem {
     }
     target.health -= amount;
     target.lastHurt = this.time;
+    if (attacker && attacker !== target) target.hurtAng = Math.atan2(target.y - attacker.y, target.x - attacker.x);
     target.lastAttacker = attacker;
     if (zone) target.lastZone = zone;
     this.press(target, SUPPRESS.hit);
     // Под личиной ранивший остаётся неузнанным — выдаёт только убийство (kill).
     if (attacker && !attacker.disguised && !FACTIONS[attacker.faction].authority && FACTIONS[target.faction].authority && !attacker.hostile) {
       attacker.hostile = true;
-      attacker.law.wanted = true;
+      this.law.declare(attacker, 'attackCp');
       if (attacker.isPlayer) this.bus.emit('log', { text: 'Вы напали на Протекторат — ВС будет стрелять без предупреждения.', kind: 'law' });
     }
     if (target.health <= 0) {
@@ -892,6 +854,7 @@ export class CombatSystem {
     if (!h.inventory.remove(id, 1)) return;
     this.raise(t, t.maxHealth * (id === 'medkit' ? DOWNED.kitHp : DOWNED.reviveHp) * (medic ? DOWNED.medicHp : 1));
     this.revives++;
+    this.onRevive(h, t);
     if (t.isPlayer) this.bus.emit('log', { text: `${h.name} поднял вас на ноги.`, kind: 'system' });
     else if (h.isPlayer) this.bus.emit('log', { text: `Вы подняли ${t.name}.`, kind: 'system' });
   }
@@ -954,6 +917,8 @@ export class CombatSystem {
     if (!t.crouch || this.time - t.lastFired < CROUCH.revealAfterShot) return false;
     const d = Math.hypot(ox - t.x, oy - t.y);
     if (d < CROUCH.hideMinDist) return false;
+    // В траншее с бруствером в сторону смотрящего — тоже скрыт (вдоль траншеи — виден).
+    if (parapetDist(this.map, t.x, t.y, (ox - t.x) / d, (oy - t.y) / d) >= 0) return true;
     let block = false;
     castRayWith(this.map, t.x, t.y, (ox - t.x) / d, (oy - t.y) / d, CROUCH.coverReach, (x, y) => {
       if (this.map.tileAt(x, y) === T.BARRIER) block = true;
@@ -978,6 +943,7 @@ export class CombatSystem {
     c.limpUntil = c.armUntil = 0;
     c.burnUntil = 0;
     c.stunUntil = 0;
+    resetMelee(c.melee);
     c.speedMul = 1;
     c.recoil = c.kick = c.aim = 0;
     c.wantX = c.wantY = c.vx = c.vy = 0;
@@ -990,26 +956,39 @@ export class CombatSystem {
     this.kills++;
     const loot = c.inventory.takeAll();
     // Надетое — на теле; у бойца в форме (ВС, армия) с шансом — шлем и бронежилет его стороны.
+    // Тело остаётся в той одежде, в какой погиб (вещи — в луте).
+    const op = c.faction === 'cp' && !c.disguised && cpUnit(c.rank).plainclothes ? plainclothesOf(c.pid) : null;
+    const dressed = op ? { clothes: op.clothes, clothesKey: op.key } : c.kit || (c.faction === 'citizen' && !c.disguised) ? { clothes: c.clothes, kit: c.kit, clothesKey: c.clothesKey } : null;
     loot.push(...gearLoot(c));
     const drop = GEAR.drops[c.faction];
     if (drop && this.rng.chance(GEAR.dropChance)) {
-      const a = roleArmor(c);
-      if (a.head > 0) loot.push({ id: drop.head, qty: 1 });
-      if (a.torso > 0) loot.push({ id: drop.torso, qty: 1 });
+      // ВС — форма юнита по частям (у игрока она и так надета — уже в луте).
+      // Армия сопротивления — экипировка профессии по частям (REBEL_KITS).
+      const rebel = c.faction === 'rebel' && c.profession ? REBEL_KITS[c.profession] : undefined;
+      if (c.faction === 'cp') {
+        if (!c.kitUnit) for (const id of CP_KITS[cpUnit(c.rank).unit]) loot.push({ id, qty: 1 });
+      } else if (rebel) {
+        if (!c.kitUnit) for (const id of rebel) loot.push({ id, qty: 1 });
+      } else {
+        const a = roleArmor(c);
+        if (a.head > 0) loot.push({ id: drop.head, qty: 1 });
+        if (a.torso > 0) loot.push({ id: drop.torso, qty: 1 });
+      }
     }
     c.weapon = null;
     c.mag = 0;
     c.mags = {};
-    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot });
+    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot, pid: c.pid, t: this.time, dressed, weapon: killer?.weapon ? WEAPONS[killer.weapon].class : null, fell: { at: this.time, ang: c.lastAttacker ? Math.atan2(c.y - c.lastAttacker.y, c.x - c.lastAttacker.x) : c.facing + Math.PI } });
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
     if (c.law.phase !== 'none') this.law.release(c);
-    // Убийство выдаёт подпольщика под личиной: теперь его узнают, а за убитого из Протектората — враг и розыск.
+    // Убийство выдаёт подпольщика под личиной: маскировка спадает, он в розыске; за убитого из Протектората — ещё и враг.
     if (killer && killer !== c && killer.disguised) {
       this.reveal(killer, `убили ${c.name}`);
-      if (FACTIONS[c.faction].authority && !FACTIONS[killer.faction].authority) {
-        killer.hostile = true;
-        killer.law.wanted = true;
+      if (!FACTIONS[killer.faction].authority) {
+        const cop = FACTIONS[c.faction].authority;
+        this.law.declare(killer, cop ? 'attackCp' : 'murder');
+        if (cop) killer.hostile = true;
       }
     }
     // Реплики: убийца радуется, свои рядом замечают потерю.
@@ -1132,6 +1111,8 @@ export class CombatSystem {
     c.inventory.remove(k, 1);
     c.nextGrenade = this.time + G.cooldown;
     c.facing = ang;
+    c.throwAt = this.time;
+    c.throwAng = ang;
     const fuse = k === 'smoke_grenade' ? G.smoke.fuse : k === 'fire_grenade' ? G.fire.fuse : G.fuse;
     const g: Grenade = {
       kind: k, x: c.x, y: c.y, x0: c.x, y0: c.y, x1: c.x + dx * land, y1: c.y + dy * land,
@@ -1300,8 +1281,10 @@ export class CombatSystem {
       if (!o.alive) continue;
       const d = Math.max(0, Math.hypot(o.x - x, o.y - y) - o.radius * 0.5);
       if (d > reach) continue;
-      const cover = this.blastCover(x, y, o.x, o.y);
+      let cover = this.blastCover(x, y, o.x, o.y);
       if (cover <= 0) continue;
+      // В траншее, а взрыв снаружи (и не рядом) — бруствер гасит волну и осколки.
+      if (inTrench(this.map, o.x, o.y) && !inTrench(this.map, x, y) && Math.hypot(o.x - x, o.y - y) > TRENCH.blastInside) cover *= TRENCH.blastMul;
       const vest = armorOf(o).torso * HITS.blastVest;
       if (d <= R) {
         const k = 1 - (d / R) * (1 - G.edge);
@@ -1325,6 +1308,19 @@ export class CombatSystem {
       const d = Math.hypot(o.x - x, o.y - y);
       if (d < S) this.press(o, SUPPRESS.blast * (1 - d / S));
     }
+  }
+
+  /**
+   * Подрыв заряда без поражающего действия (блиндаж, постройка): вспышка, ударная волна, копоть и грохот на всю
+   * округу, но урона нет — внутри никого нет, а закладчик стоит у входа. mul — размер эффекта от осколочной гранаты.
+   */
+  demolition(x: number, y: number, by: Character, mul: number): void {
+    const G = GRENADE;
+    const R = G.radius * mul;
+    this.blasts.push({ x, y, t: COMBAT.blastTime, life: COMBAT.blastTime, r: R, kind: 'frag' });
+    this.addDecal(x, y, 'scorch', COMBAT.decals.scorchTime, this.rng.range(0, Math.PI), mul * 1.5);
+    this.shots.push({ x, y, t: this.time, shooter: by, weapon: 'blast', noise: G.noise });
+    this.emit('blast', x, y, this.rng.range(0, Math.PI * 2), null, by, null, 'blast', R);
   }
 
   /** Дымовая завеса: тайлы в радиусе (куда дым дотекает, не сквозь стены) непрозрачны. */
@@ -1396,7 +1392,7 @@ export class CombatSystem {
     this.updateBullets(dt);
     this.updateMines(dt);
     this.updateDrag();
-    for (let i = this.swings.length - 1; i >= 0; i--) if ((this.swings[i].t -= dt) <= 0) this.swings.splice(i, 1);
+    this.melee.update(dt);
     for (let i = this.corpses.length - 1; i >= 0; i--) if (this.corpses[i].until < this.time) this.corpses.splice(i, 1);
     while (this.shots.length > 0 && this.time - this.shots[0].t > 2) this.shots.shift();
     // Убитые NPC уходят из мира после тика (не посреди обхода списка мозгами).
@@ -1449,7 +1445,12 @@ export class CombatSystem {
       // Оглушение, перевязка, хромота — медленнее.
       const stunned = c.stunUntil > this.time;
       const dressing = this.busy(c);
-      c.speedMul = (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1) * (c.crouch ? CROUCH.speedMul : 1) * (c.dragging ? DOWNED.dragSpeed : 1);
+      const m = c.melee;
+      c.trench = inTrench(this.map, c.x, c.y);
+      // Нокаут — лежит; блок — шаг короче; стойка — лицом к противнику (походка).
+      if (m.block && !this.melee.guard(c, true)) m.block = false;
+      m.engaged = m.stance > this.time;
+      c.speedMul = m.ko > this.time ? 0 : (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1) * (c.crouch ? CROUCH.speedMul : 1) * (c.dragging ? DOWNED.dragSpeed : 1) * (m.block ? MELEE.block.speedMul : 1);
       // Прицеливание копится стоя (при ходьбе — медленнее), теряется на бегу, без ПКМ и при перезарядке.
       if (w && w.mode !== 'melee') {
         const running = c.moveSpeed > CHARACTER.walkSpeed * 1.2;

@@ -12,6 +12,7 @@ import { ITEMS } from '../src/config/items';
 import { LAW } from '../src/config/law';
 import { PRISON } from '../src/config/prison';
 import { ARSENAL } from '../src/config/arsenal';
+import { GANGS } from '../src/config/gangs';
 import { WEAPONS, AMMO_ITEM } from '../src/config/items';
 import type { RoleSpec } from '../src/systems/Roster';
 import { randomAnchorAround } from '../src/ai/destinations';
@@ -86,6 +87,8 @@ describe('тюрьма Протектората', () => {
     const ts = sim.map.tileSize;
     expect(Math.hypot(gate.x - (nx.x + 0.5) * ts, gate.y - (nx.y + 0.5) * ts)).toBeGreaterThan(40 * ts);
     // Охрана при обходе остаётся в тюрьме.
+    // (Банды не мешают: удар банды по патрулю рядом увёл бы охрану в бой — это уже не обход.)
+    sim.ctx.gangs!.paused = true;
     run(sim, 30);
     for (const j of jailers) expect(sim.prison.inside(j.x, j.y)).toBe(true);
   });
@@ -160,6 +163,47 @@ describe('тюрьма Протектората', () => {
     expect(p1.inventory.slots.some((s) => ITEMS[s.id].kind === 'weapon')).toBe(true);
     run(sim, 2);
     expect(['return', 'stash', 'base']).toContain((p1.brain as UndergroundBrain).mode);
+  });
+
+  test('налёт на тюрьму без своих в ней: подполье и спецагенты с бандами, бандиты по сигналу бьют и входят внутрь', { timeout: 180_000 }, () => {
+    const sim = makeSim(12345);
+    spawnPopulation(sim.ctx, 10);
+    sim.war.command.paused = true;
+    sim.insurgency.paused = true;
+    const cp = sim.entities.list.find((c) => c.faction === 'cp' && (c.brain as CpBrain).duty === 'squad')!;
+    // В тюрьме — бандит (не подпольщик): налёт ждёт PRISON.assault.every.
+    const b = sim.entities.list.find((c) => c.profession === 'bandit')!;
+    b.x = b.prevX = nearGate(sim).x;
+    b.y = b.prevY = nearGate(sim).y;
+    sim.law.arrest(cp, b, 'murder');
+    const cell = sim.law.freeCell(b.x, b.y, b)!;
+    expect(cell.prison).toBe(true);
+    sim.law.putInCell(b, cell);
+    run(sim, 0.5);
+    expect(sim.insurgency.prisonReady()).toBe(false);
+    run(sim, PRISON.assault.every[0]);
+    expect(sim.insurgency.prisonReady()).toBe(true);
+    clearGuards(sim);
+    // Готовность проверена выше; сама операция — явно (выбор дела в startOperation — с шансом PRISON.assault.chance).
+    const op = sim.insurgency.startOperation('prison')!;
+    expect(op?.kind).toBe('prison');
+    const g = op.group!;
+    expect(op.team.filter((c) => c.profession === 'spec_agent').length).toBeGreaterThanOrEqual(2);
+    expect(g.allies.length).toBeGreaterThanOrEqual(GANGS.ops.storm.size[0]);
+    // До сигнала бандиты не враги Протекторату.
+    expect(g.allies.every((a) => !a.hostile)).toBe(true);
+    const t = run(sim, 360, () => g.attack);
+    expect(g.attack).toBe(true);
+    run(sim, 1);
+    const fighting = g.allies.filter((a) => a.alive && a.hostile);
+    run(sim, 40);
+    const c = sim.prison.center!;
+    const inside = g.allies.filter((a) => a.alive && Math.hypot(a.x - c.x, a.y - c.y) < 200).length;
+    run(sim, 200, () => b.law.phase === 'none');
+    console.log(`налёт с бандами: сигнал через ${t.toFixed(0)} с, союзников ${g.allies.length}, в бою ${fighting.length}, у центра тюрьмы ${inside}, бандит ${b.law.phase}`);
+    expect(fighting.length).toBeGreaterThanOrEqual(2);
+    expect(inside).toBeGreaterThanOrEqual(1);
+    expect(b.law.phase).toBe('none');
   });
 
   test('армии на воле мало — волна выручает своих из тюрьмы, потом снова на Управу', { timeout: 180_000 }, () => {

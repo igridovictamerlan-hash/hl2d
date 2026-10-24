@@ -1,5 +1,7 @@
 import { WEAPON_SPRITES, WEAPON_POSE, type SpritePart } from '../config/weaponSprites';
+import { CLOTH_ITEMS, CLOTH_SLOTS, type ClothSlot } from '../config/clothes';
 import type { ItemId, WeaponId } from '../config/items';
+import { UNIFORM_PIECES, type UniformPiece } from '../config/uniforms';
 
 /**
  * Иконки интерфейса (инвентарь, колесо оружия, HUD): рисунки в духе Innawoods/RimWorld — плоские
@@ -282,6 +284,26 @@ I.backpack = (c) => {
   shp(c, '#2b2d31', () => c.roundRect(-8, -27, 16, 8, 3), 2.5);
   ln(c, [[0, 4], [0, 22]], 1.5, '#2e3320');
 };
+I.coat = (c) => {
+  shp(c, '#6b5a40', () => { c.moveTo(-10, -24); c.lineTo(10, -24); c.lineTo(24, -14); c.lineTo(24, 22); c.lineTo(14, 26); c.lineTo(10, 10); c.lineTo(-10, 10); c.lineTo(-14, 26); c.lineTo(-24, 22); c.lineTo(-24, -14); c.closePath(); });
+  fl(c, '#7d6b4f', () => { c.moveTo(-10, -24); c.lineTo(0, -10); c.lineTo(10, -24); c.closePath(); });
+  ln(c, [[0, -10], [0, 22]], 1.6, '#4a3d2a');
+  fl(c, '#e6dcc0', () => { c.arc(-3, -2, 1.6, 0, TAU); c.arc(-3, 9, 1.6, 0, TAU); });
+  ln(c, [[-22, 6], [22, 6]], 2.5, '#3c3121');
+};
+/** Рубаха в крови — значок состояния «в крови». */
+I.bloody_shirt = (c) => {
+  shp(c, '#5b6470', () => { c.moveTo(-12, -22); c.lineTo(-22, -14); c.lineTo(-16, -6); c.lineTo(-14, 22); c.lineTo(14, 22); c.lineTo(16, -6); c.lineTo(22, -14); c.lineTo(12, -22); c.quadraticCurveTo(0, -14, -12, -22); c.closePath(); });
+  shp(c, '#9b1c16', () => c.ellipse(4, 6, 8, 6, 0.3, 0, TAU), 2);
+  fl(c, '#d4362b', () => c.arc(-6, -2, 3, 0, TAU));
+};
+/** Лупа — значок состояния «ищут». */
+I.search = (c) => {
+  ln(c, [[8, 8], [22, 22]], 9, OUT);
+  ln(c, [[8, 8], [22, 22]], 5, '#6b5a48');
+  shp(c, '#cfe3ef', () => c.arc(-5, -5, 16, 0, TAU), 4.5);
+  fl(c, 'rgba(255,255,255,0.7)', () => c.arc(-11, -11, 4, 0, TAU));
+};
 I.jumpsuit = (c) => {
   shp(c, '#3f6a8c', () => { c.moveTo(-10, -24); c.lineTo(10, -24); c.lineTo(24, -14); c.lineTo(20, 4); c.lineTo(14, 0); c.lineTo(14, 26); c.lineTo(2, 26); c.lineTo(0, 6); c.lineTo(-2, 26); c.lineTo(-14, 26); c.lineTo(-14, 0); c.lineTo(-20, 4); c.lineTo(-24, -14); c.closePath(); });
   fl(c, '#335a78', () => { c.moveTo(-10, -24); c.lineTo(0, -14); c.lineTo(10, -24); c.closePath(); });
@@ -396,7 +418,99 @@ I.mag_straight = (c) => {
 };
 
 /** Какой рисунок у предмета инвентаря (стволы — моделью, см. drawGunIcon). */
+/**
+ * Одежда каталога (config/clothes.ts): силуэт по слоту и фасону, цветом вещи. Пустой слот одежды в инвентаре —
+ * тот же силуэт бледным (ghost_<слот>).
+ */
+const LONG_COATS = new Set(['ragcoat', 'trench', 'camel', 'fur']);
+const DRESSES = new Set(['dress', 'chintz', 'gown']);
+function clothIcon(c: C2, slot: ClothSlot, fashion: string, col: string): void {
+  const dark = shade(col, -0.3);
+  switch (slot) {
+    case 'hat':
+      if (fashion === 'fedora' || fashion === 'bowler' || fashion === 'tophat') {
+        shp(c, dark, () => c.ellipse(0, 10, 28, 7, 0, 0, TAU));
+        const top = fashion === 'tophat' ? -26 : -12;
+        shp(c, col, () => { c.moveTo(-14, 10); c.lineTo(-13, top); c.quadraticCurveTo(0, top - (fashion === 'bowler' ? 10 : 2), 13, top); c.lineTo(14, 10); c.closePath(); });
+        fl(c, dark, () => c.rect(-13, 2, 26, 5));
+      } else if (fashion === 'kerchief') {
+        shp(c, col, () => { c.moveTo(-24, 14); c.quadraticCurveTo(-22, -22, 0, -22); c.quadraticCurveTo(22, -22, 24, 14); c.lineTo(0, 24); c.closePath(); });
+        fl(c, 'rgba(255,255,255,0.55)', () => { for (const [x, y] of [[-10, -8], [6, -12], [12, 4], [-4, 6], [-14, 10]]) { c.moveTo(x + 2, y); c.arc(x, y, 2, 0, TAU); } });
+      } else if (fashion === 'flatcap' || fashion === 'beret' || fashion === 'pillbox') {
+        shp(c, col, () => c.ellipse(0, 0, 24, 12, -0.1, 0, TAU));
+        shp(c, dark, () => { c.moveTo(-6, 8); c.quadraticCurveTo(14, 18, 26, 6); c.quadraticCurveTo(14, 10, -6, 4); c.closePath(); });
+      } else {
+        // Вязаная шапка, ушанка: купол с отворотом.
+        shp(c, col, () => { c.moveTo(-20, 10); c.quadraticCurveTo(-20, -22, 0, -22); c.quadraticCurveTo(20, -22, 20, 10); c.closePath(); });
+        shp(c, dark, () => c.roundRect(-22, 4, 44, 12, 4));
+        if (fashion === 'ushanka') { shp(c, col, () => c.roundRect(-26, 8, 9, 18, 4)); shp(c, col, () => c.roundRect(17, 8, 9, 18, 4)); }
+        if (fashion === 'pompom') shp(c, '#ece6d6', () => c.arc(0, -24, 7, 0, TAU));
+      }
+      return;
+    case 'outer': {
+      const bottom = LONG_COATS.has(fashion) ? 28 : 16;
+      shp(c, col, () => { c.moveTo(-10, -24); c.lineTo(10, -24); c.lineTo(24, -14); c.lineTo(24, bottom - 4); c.lineTo(14, bottom); c.lineTo(10, 6); c.lineTo(-10, 6); c.lineTo(-14, bottom); c.lineTo(-24, bottom - 4); c.lineTo(-24, -14); c.closePath(); });
+      if (fashion === 'fur' || fashion === 'camel') shp(c, fashion === 'fur' ? shade(col, 0.15) : '#5a4434', () => { c.moveTo(-12, -26); c.lineTo(12, -26); c.lineTo(4, -8); c.lineTo(-4, -8); c.closePath(); }, 2);
+      else fl(c, shade(col, -0.15), () => { c.moveTo(-10, -24); c.lineTo(0, -10); c.lineTo(10, -24); c.closePath(); });
+      ln(c, [[0, -10], [0, bottom - 2]], 1.6, dark);
+      if (fashion === 'quilted') for (const x of [-16, -8, 8, 16]) ln(c, [[x, -12], [x, bottom - 4]], 1.2, dark);
+      return;
+    }
+    case 'top':
+      if (DRESSES.has(fashion)) {
+        shp(c, col, () => { c.moveTo(-10, -24); c.lineTo(10, -24); c.lineTo(14, -4); c.lineTo(24, 26); c.lineTo(-24, 26); c.lineTo(-14, -4); c.closePath(); });
+        ln(c, [[-14, -4], [14, -4]], 2.4, dark);
+      } else {
+        shp(c, col, () => { c.moveTo(-12, -22); c.lineTo(-22, -14); c.lineTo(-16, -6); c.lineTo(-14, 22); c.lineTo(14, 22); c.lineTo(16, -6); c.lineTo(22, -14); c.lineTo(12, -22); c.quadraticCurveTo(0, -14, -12, -22); c.closePath(); });
+        if (fashion === 'telnyashka') for (const y of [-10, -2, 6, 14]) ln(c, [[-15, y], [15, y]], 2.4, col === '#e2ddd0' ? dark : '#2f3c52');
+        if (fashion === 'argyle') fl(c, '#c9a86a', () => { c.moveTo(0, -6); c.lineTo(6, 2); c.lineTo(0, 10); c.lineTo(-6, 2); c.closePath(); });
+      }
+      return;
+    case 'neck':
+      if (fashion === 'pearls') {
+        for (let k = 0; k < 9; k++) {
+          const a = Math.PI * (k / 8);
+          shp(c, '#efeae0', () => c.arc(-Math.cos(a) * 18, -8 + Math.sin(a) * 18, 3.6, 0, TAU), 1.6);
+        }
+      } else if (fashion === 'tie' || fashion === 'bow') {
+        if (fashion === 'bow') {
+          shp(c, col, () => { c.moveTo(0, 0); c.lineTo(-20, -12); c.lineTo(-20, 12); c.closePath(); c.moveTo(0, 0); c.lineTo(20, -12); c.lineTo(20, 12); c.closePath(); });
+          shp(c, dark, () => c.arc(0, 0, 4, 0, TAU), 2);
+        } else shp(c, col, () => { c.moveTo(-5, -24); c.lineTo(5, -24); c.lineTo(8, 16); c.lineTo(0, 26); c.lineTo(-8, 16); c.closePath(); });
+      } else {
+        shp(c, col, () => c.roundRect(-22, -16, 44, 12, 6));
+        shp(c, col, () => c.roundRect(-16, -8, 11, 32, 3));
+        for (const y of [6, 14]) ln(c, [[-15, y], [-6, y]], 2, shade(col, 0.3));
+      }
+      return;
+    case 'feet':
+      for (const sx of [-1, 1]) shp(c, col, () => { c.moveTo(sx * 4, -18); c.lineTo(sx * 16, -18); c.lineTo(sx * 16, 6); c.lineTo(sx * (fashion === 'shoes' ? 26 : 24), 12); c.lineTo(sx * 4, 14); c.closePath(); });
+      if (fashion === 'shoes') fl(c, 'rgba(255,255,255,0.35)', () => { c.rect(-14, -2, 3, 8); c.rect(11, -2, 3, 8); });
+      return;
+  }
+}
+
+/** #rrggbb светлее (k > 0) или темнее. */
+function shade(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v: number) => Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k));
+  return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
+for (const it of CLOTH_ITEMS) I[it.id] = (c) => clothIcon(c, it.fashion.slot, it.fashion.id, it.color[2]);
+const GHOST: Record<ClothSlot, string> = { hat: 'beanie', outer: 'zip', top: 'tee', neck: 'scarf', feet: 'boots' };
+for (const slot of CLOTH_SLOTS) I[`ghost_${slot}`] = (c) => clothIcon(c, slot, GHOST[slot], '#8b8662');
+
+// Части формы: ткань — рисунком одежды своего цвета, остальное — иконками снаряжения.
+for (const [id, p] of Object.entries(UNIFORM_PIECES) as [string, UniformPiece][]) {
+  const cloth: Partial<Record<string, [ClothSlot, string]>> = { top: ['top', 'shirt'], outer: ['outer', 'trench'], hat: ['hat', p.kit.head === 'cadet' || p.kit.head === 'beret' ? 'beret' : 'flatcap'] };
+  const c0 = cloth[p.slot];
+  if (c0) I[id] = (c) => clothIcon(c, c0[0], c0[1], p.color);
+}
+const KIT_ICON: Record<string, string> = { head: 'helmet', face: 'gasmask', torso: 'vest', back: 'backpack' };
+
 const ITEM_ICON: Partial<Record<ItemId, string>> = {
+  ...(Object.fromEntries((Object.entries(UNIFORM_PIECES) as [string, UniformPiece][]).filter(([, p]) => KIT_ICON[p.slot]).map(([id, p]) => [id, p.kit.armor === 'recon' || p.kit.armor === 'marine' || p.kit.armor === 'plate' ? 'plate_vest' : p.kit.face === 'balaclava' ? 'mask' : KIT_ICON[p.slot]])) as Partial<Record<ItemId, string>>),
   ammo_ar2: 'cell_ar2',
   ammo_357: 'rounds',
   ammo_buckshot: 'buckshot',
@@ -413,10 +527,6 @@ const ITEM_ICON: Partial<Record<ItemId, string>> = {
 
 export function iconOf(id: ItemId): string {
   return ITEM_ICON[id] ?? id;
-}
-
-export function hasIcon(id: string): boolean {
-  return id in I;
 }
 
 /** Иконка id с центром (cx, cy); s — масштаб (1 = 64 px). */

@@ -1,3 +1,4 @@
+/** Описание системы — docs/underground.md. */
 import type { Brain } from '../Brain';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
@@ -14,6 +15,7 @@ import { complyWithCp } from '../comply';
 import { Gunner } from '../Gunner';
 import { HatchTravel } from '../HatchTravel';
 import { PrisonAssault } from '../PrisonAssault';
+import { HuntAmbush } from '../HuntAmbush';
 import { faceMovement, faceTowards } from '../facing';
 import { randomAnchorInZone } from '../destinations';
 import { COMBAT, GRENADE, MINE } from '../../config/combat';
@@ -22,7 +24,7 @@ import { INSURGENCY, PARTISANS } from '../../config/underground';
 import { FENCE } from '../../config/gangs';
 import type { ItemId } from '../../config/items';
 
-export type OpMode = 'base' | 'sabotage' | 'arm' | 'fence' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'stash' | 'return' | 'outing' | 'prison';
+export type OpMode = 'base' | 'sabotage' | 'arm' | 'fence' | 'jailbreak' | 'mine' | 'depot' | 'ambush' | 'cover' | 'stash' | 'return' | 'outing' | 'prison' | 'hunt';
 
 const coverNear: Character[] = [];
 
@@ -83,6 +85,8 @@ export class UndergroundBrain implements Brain {
   private fenceFrom: Dwelling | null = null;
   /** Штурм тюрьмы (режим prison). */
   private assault: PrisonAssault | null = null;
+  /** Охота на патруль ВС (режим hunt). */
+  private hunt: HuntAmbush | null = null;
 
   constructor(self: Character, ctx: AiContext) {
     this.gunner = new Gunner(ctx.rng);
@@ -192,6 +196,15 @@ export class UndergroundBrain implements Brain {
     this.travel.start(self, ctx, this.mover, spot);
   }
 
+  /** Охота на патруль ВС: к своему месту у патруля (дальше — HuntAmbush). */
+  startHunt(self: Character, ctx: AiContext, spot: Vec2): void {
+    this.mode = 'hunt';
+    this.hunt = new HuntAmbush(spot);
+    this.work = 0;
+    this.mover.speed = CHARACTER.walkSpeed * PARTISANS.briskWalk;
+    this.travel.start(self, ctx, this.mover, spot);
+  }
+
   /** Прикрытие или дозор в группе: встать у места дела и смотреть по сторонам. */
   startCover(self: Character, ctx: AiContext, _g: UndergroundGroup, spot: Vec2): void {
     this.mode = 'cover';
@@ -263,12 +276,14 @@ export class UndergroundBrain implements Brain {
   }
 
   update(self: Character, ctx: AiContext, dt: number): void {
+    if (this.mode === 'prison' && this.assault) PrisonAssault.resist(self, ctx, ctx.insurgency.groupOf(self), this.assault.spot);
+    if (this.mode === 'hunt') HuntAmbush.resist(self, ctx, ctx.insurgency.groupOf(self));
     if (self.disguised && complyWithCp(self, this.mover, dt)) return;
     // Скрытные дела (ствол бандиту, взлом, растяжка, саботаж, барыга) — огня не открывает, пока не ранят.
     const group = this.mode === 'base' ? null : ctx.insurgency.groupOf(self);
     if (this.mode === 'arm' || this.mode === 'jailbreak' || this.mode === 'mine' || this.mode === 'depot' || this.mode === 'cover' || this.mode === 'stash' || this.mode === 'sabotage' || this.mode === 'fence') this.gunner.holdFire = ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     // Засада: до сигнала — под личиной, огня не открывают (разве что ранили).
-    else if (this.mode === 'ambush' || this.mode === 'prison') this.gunner.holdFire = !group?.attack && ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
+    else if (this.mode === 'ambush' || this.mode === 'prison' || this.mode === 'hunt') this.gunner.holdFire = !group?.attack && ctx.combat.now - self.lastHurt >= INSURGENCY.returnFireFor;
     else if (this.mode !== 'outing' && this.mode !== 'return') this.gunner.holdFire = false;
     const fighting = this.gunner.update(self, ctx, dt);
     // Под личиной ствол в кармане, пока не стреляет (огонь запрещён — тоже, даже если цель на виду).
@@ -347,6 +362,13 @@ export class UndergroundBrain implements Brain {
         }
         break;
       }
+      case 'hunt': {
+        if (!this.hunt || !this.hunt.step(self, ctx, group, this.travel, this.mover, this.gunner, dt, fighting)) {
+          this.hunt = null;
+          this.goHome(self, ctx);
+        }
+        break;
+      }
       case 'jailbreak': {
         // Под личиной огня не открывает, пока не ранят.
         this.gunner.holdFire = now - self.lastHurt >= INSURGENCY.returnFireFor;
@@ -382,6 +404,8 @@ export class UndergroundBrain implements Brain {
             this.plantAndLeave(self, ctx);
           }
         } else if (st === 'failed') this.goHome(self, ctx);
+        // «Пришёл», но не у двери (оттолкнули, уступил дорогу) — снова к ней, иначе стоял бы у камер до конца.
+        else if (st === 'arrived' || st === 'idle') this.travel.start(self, ctx, this.mover, { x: cell.frontX, y: cell.frontY });
         break;
       }
       case 'mine': {

@@ -130,8 +130,11 @@ describe('оружие: конус разброса как в Foxhole', () => {
     const v = createCharacter(sim.entities, sim.ctx.rng, 'citizen', c.x + 30, c.y);
     sim.entities.rebuildHash();
     expect(sim.combat.fire(c, v.x, v.y)).toBe(v);
+    // Урон — после замаха.
+    expect(v.health).toBe(v.maxHealth);
+    sim.combat.update(0.2);
     expect(v.health).toBeLessThan(v.maxHealth);
-    sim.combat.update(0.1);
+    sim.combat.update(1 / 60);
     expect(v.speedMul).toBe(COMBAT.stunSpeedMul);
     sim.combat.update(WEAPONS.stunstick.stun);
     expect(v.speedMul).toBe(1);

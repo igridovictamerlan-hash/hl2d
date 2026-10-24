@@ -1,7 +1,9 @@
+/** Описание системы — docs/academy.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { STAFFING } from '../config/staffing';
+import { ZONE_NAMES } from '../config/names';
 import { cpUnit, CP_UNIT, type CpUnitId } from '../config/factions';
 import { KITS, ITEMS, type ItemId } from '../config/items';
 import { brainFor, type RoleSpec } from './Roster';
@@ -15,15 +17,20 @@ export interface StaffSlot {
   vacantSince: number;
 }
 
+/** «КПП «Север»» по номеру фронта (имя зоны без «Пограничный»). */
+function cpName(front: number | undefined): string {
+  return (ZONE_NAMES.checkpoints[front ?? 0] ?? ZONE_NAMES.checkpoints[0]).replace(/^Пограничный\s+/, '');
+}
+
 /** Описание должности для журнала: «пост у Управы», «ведущий группы 2»… */
 export function postName(spec: RoleSpec): string {
   switch (spec.kind) {
     case 'post': return spec.access === 'nexus' ? 'вахта Управы' : spec.access === 'academy' ? 'вахта академии' : 'пост в городе';
-    case 'gate': return `проходная КПП ${spec.front === 0 ? '«Запад»' : '«Восток»'}`;
-    case 'guard': return `пост на КПП ${spec.front === 0 ? '«Запад»' : '«Восток»'}`;
+    case 'gate': return `проходная ${cpName(spec.front)}`;
+    case 'guard': return `пост на ${cpName(spec.front)}`;
     case 'medic': return 'медпункт КПП';
     case 'squad': return spec.lead ? `ведущий группы ${(spec.squad ?? 0) + 1}` : `группа ${(spec.squad ?? 0) + 1}`;
-    case 'officer': return 'офицер PCU';
+    case 'officer': return 'офицер патрульной службы';
     case 'tech': return 'техник со сканером';
     case 'inspector': return 'инспекция';
     case 'bodyguard': return 'охрана';
@@ -152,7 +159,7 @@ export class Staffing {
   }
 
   /** Свободен для перевода: живой NPC ВС на дежурстве, не в деле. */
-  private free(c: Character): boolean {
+  free(c: Character): boolean {
     const b = c.brain;
     if (!(b instanceof CpBrain)) return false;
     if (b.target || b.scene || b.formation || b.ward || b.rally || b.raidPost || b.gunner.target) return false;
@@ -193,8 +200,16 @@ export class Staffing {
     return true;
   }
 
-  /** Перевести юнит на должность s (повышение): звание, здоровье, снаряжение, служба. */
-  assign(c: Character, s: StaffSlot, acting: boolean): void {
+  /** Важность должности (для выбора вакансии: уровень командования, потом вид роли). */
+  rankOf(s: StaffSlot): number {
+    return this.priority(s);
+  }
+
+  /**
+   * Перевести юнит на должность s (повышение, понижение, перевод): звание, здоровье, снаряжение, служба. by — чей
+   * приказ (игрок-командир, меню организации).
+   */
+  assign(c: Character, s: StaffSlot, acting: boolean, by: Character | null = null): void {
     const old = this.slotOf(c);
     if (old) {
       old.holder = null;
@@ -209,8 +224,10 @@ export class Staffing {
     const after = cpUnit(c.rank);
     this.stats.promotions++;
     if (acting) this.stats.acting++;
-    const what = before.unit === after.unit ? `назначен: ${postName(s.spec)}` : `повышен до ${after.short}${acting ? ' (временно исполняющий)' : ''} — ${postName(s.spec)}`;
-    this.ctx.law.log(`Приказ по силовому блоку: ${before.short} ${c.name} ${what}.`, 'radio');
+    const verb = before.unit === after.unit ? null : after.command > before.command ? 'повышен до' : after.command < before.command ? 'понижен до' : 'переведён в';
+    const what = !verb ? `назначен: ${postName(s.spec)}` : `${verb} ${after.short}${acting ? ' (временно исполняющий)' : ''} — ${postName(s.spec)}`;
+    const order = by ? ` (приказ ${cpUnit(by.rank).short} ${by.name})` : '';
+    this.ctx.law.log(`Приказ по силовому блоку: ${before.short} ${c.name} ${what}${order}.`, 'radio');
     if (c.isPlayer) {
       this.stats.playerPromotions++;
       this.ctx.bus.emit('promoted', { rank: c.rank, post: postName(s.spec) });
@@ -240,9 +257,6 @@ export function applyPost(ctx: AiContext, c: Character, spec: RoleSpec): void {
   c.squadLead = null;
   c.brain = brainFor(ctx, c, c.role);
 }
-
-/** Номер юнита RCT (для академии и тестов). */
-export const RCT_RANK = CP_UNIT.rct;
 
 /** Строка HUD игрока-ВС: баллы службы и до какого юнита хватает. */
 export function serviceHint(c: Character, S: Staffing): string {

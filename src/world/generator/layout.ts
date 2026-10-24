@@ -1,7 +1,9 @@
 import type { Rng } from '../../core/rng';
 import { clamp, rectsOverlap, type Rect, type Vec2 } from '../../core/math';
-import { GENERATOR } from '../../config/generator';
-import { NEXUS_TEMPLATE, CHECKPOINT_TEMPLATE, CHECKPOINT_AXIS_ROW, CWU_HQ_TEMPLATE } from './templates';
+import { GENERATOR, type CheckpointType } from '../../config/generator';
+import { NEXUS_TEMPLATE, CWU_HQ_TEMPLATE } from './templates';
+import { CHECKPOINTS } from './checkpoints';
+import type { District } from '../GameMap';
 
 /**
  * Макро-план города: магистрали, линии решётки, прямоугольники районов и штампов.
@@ -42,7 +44,11 @@ export interface CityLayout {
   /** Индексы линий решётки, по которым идут магистрали (-1 — нет). */
   hLine: number;
   vLine: number;
+  /** Главный горизонтальный проспект (с площадью и Управой). */
   hAvenue: Avenue;
+  /** Второй горизонтальный проспект (от другого западного КПП) и его линия решётки. */
+  hAvenue2: Avenue;
+  hLine2: number;
   vAvenue: Avenue | null;
   restricted: Rect;
   restrictedGates: GateSpec[];
@@ -53,9 +59,27 @@ export interface CityLayout {
   nexusRot: 0 | 180;
   /** Штаб ТС: фасадом (face — куда вход) на главный проспект, вдали от Управы, площади и КПП. */
   cwuHq: { rect: Rect; face: 'N' | 'S' } | null;
-  /** Пограничные КПП на концах главного проспекта; mirror — город с запада (восточный конец). */
-  checkpoints: { rect: Rect; mirror: boolean }[];
+  /**
+   * Пограничные КПП у западной стены: [0] — «Север» на оси северного проспекта, [1] — «Юг» на оси южного;
+   * mirror — город с запада (сейчас не бывает, задел); type — вид КПП.
+   */
+  checkpoints: { rect: Rect; mirror: boolean; type: CheckpointType }[];
   quarterSeeds: Vec2[];
+  /** Полоса достатка каждого квартала (по семени): slum / old / upper. */
+  quarterDistricts: District[];
+  /**
+   * Граница Верхнего города: стена (GENERATOR.wealth.wall тайлов) с x = upperX, её линия решётки upperLine
+   * пуста (переулки не пересекают). Западная граница Старого города — oldX.
+   */
+  upperX: number;
+  upperLine: number;
+  oldX: number;
+}
+
+
+/** Полоса достатка по x (координаты города). */
+export function districtOfX(layout: Pick<CityLayout, 'upperX' | 'oldX'>, x: number): District {
+  return x >= layout.upperX ? 'upper' : x >= layout.oldX ? 'old' : 'slum';
 }
 
 /** Участок магистрали, на который приходится координата pos вдоль неё (за концами — крайний). */
@@ -77,15 +101,18 @@ export function avenueRects(av: Avenue): Rect[] {
   );
 }
 
-/** Линии решётки с шагом [smin, smax]; fixed — обязательная линия магистрали с отступами до соседей. */
+/**
+ * Линии решётки с шагом [smin, smax]; fixed — обязательные линии магистралей (по возрастанию) с отступами до
+ * соседей; fixedIndex — индексы этих линий в результате (в том же порядке).
+ */
 export function genLines(
   rng: Rng,
   lo: number,
   hi: number,
   smin: number,
   smax: number,
-  fixed?: { pos: number; before: number; after: number },
-): { lines: number[]; fixedIndex: number } {
+  fixed: readonly { pos: number; before: number; after: number }[] = [],
+): { lines: number[]; fixedIndex: number[] } {
   const lines = [lo];
   const fill = (start: number, end: number) => {
     let y = start;
@@ -102,19 +129,17 @@ export function genLines(
       lines.push(y);
     }
   };
-  let fixedIndex = -1;
-  if (fixed) {
-    fill(lo, fixed.pos - fixed.before);
-    fixedIndex = lines.length;
-    lines.push(fixed.pos);
-    const next = fixed.pos + fixed.after;
-    if (next <= hi) {
-      lines.push(next);
-      fill(next, hi);
-    }
-  } else {
-    fill(lo, hi);
+  const fixedIndex: number[] = [];
+  let from = lo;
+  for (const f of fixed) {
+    fill(from, f.pos - f.before);
+    fixedIndex.push(lines.length);
+    lines.push(f.pos);
+    from = f.pos + f.after;
+    if (from > hi) return { lines, fixedIndex };
+    lines.push(from);
   }
+  fill(from, hi);
   return { lines, fixedIndex };
 }
 
@@ -215,80 +240,85 @@ function avenueSpacing(width: number): { before: number; after: number } {
 }
 
 const CORNERS = ['NW', 'NE', 'SW', 'SE'] as const;
+/** Запретная зона и промзона — в восточных углах: запад занят пограничными КПП. */
+const EAST_CORNERS = ['NE', 'SE'] as const;
 type Corner = (typeof CORNERS)[number];
 
-function cornerRect(c: Corner, size: number, W: number, H: number, border: number): Rect {
-  const x = c.endsWith('W') ? border : W - border - size;
-  const y = c.startsWith('N') ? border : H - border - size;
-  return { x, y, w: size, h: size };
-}
 
-export function planLayout(rng: Rng, W: number, H: number): CityLayout {
+export function planLayout(rng: Rng, W: number, H: number, cpTypes: readonly [CheckpointType, CheckpointType]): CityLayout {
   const G = GENERATOR;
   const border = G.border;
   const L = G.lattice;
 
-  // Углы: запретная зона и промзона — в разных углах.
-  const corners = rng.shuffle([...CORNERS]);
+  // Магистрали: северный и южный проспекты от западных КПП до восточной стены, вертикальная — через оба у площади.
+  const A = G.avenue;
+  const nWidth = rng.int(A.width[0], A.width[1]);
+  const sWidth = rng.int(A.width[0], A.width[1]);
+  const nCenter = rng.int(Math.round(H * A.north[0]), Math.round(H * A.north[1]));
+  const sCenter = rng.int(Math.round(H * A.south[0]), Math.round(H * A.south[1]));
+  const vWidth = rng.int(A.width[0], A.width[1]);
+  const vCenter = rng.int(Math.round(W * A.vertical[0]), Math.round(W * A.vertical[1]));
+  const mainNorth = rng.chance(0.5);
+
+  // Углы: запретная зона и промзона — в восточных углах (запад — фронт, там оба КПП). Угол не залезает на
+  // ряд домов вдоль проспекта: высота — сколько остаётся до полосы проспекта, ширина — чтобы площадь была как
+  // у квадрата size × size (но не шире maxStretch × size).
+  const corners = rng.shuffle([...EAST_CORNERS]);
   const restrictedCorner = corners[0];
   const industrialCorner = corners[1];
-
-  // Магистрали.
-  const hWidth = rng.int(G.avenue.width[0], G.avenue.width[1]);
-  const hCenter = rng.int(Math.round(H * 0.42), Math.round(H * 0.58));
-  const hasV = rng.chance(G.avenue.secondChance);
-  const vWidth = rng.int(G.avenue.width[0], G.avenue.width[1]);
-  const vCenter = rng.int(Math.round(W * 0.38), Math.round(W * 0.62));
+  const band = (center: number, width: number) => ({
+    top: center - Math.floor(width / 2) - avenueReach() - facadeReach() - A.eastClear,
+    bottom: center + width - Math.floor(width / 2) + avenueReach() + facadeReach() + A.eastClear,
+  });
+  const cornerFit = (c: Corner, size: number): Rect => {
+    const room = c.startsWith('N') ? band(nCenter, nWidth).top - border : H - border - band(sCenter, sWidth).bottom;
+    const h = Math.max(1, Math.min(size, room));
+    const w = Math.min(Math.round((size * size) / h), Math.round(size * G.cornerStretch));
+    return { x: W - border - w, y: c.startsWith('N') ? border : H - border - h, w, h };
+  };
+  const rSize = rng.int(G.restricted.size[0], G.restricted.size[1]);
+  const restricted = cornerFit(restrictedCorner, rSize);
+  const iSize = rng.int(G.industrial.size[0], G.industrial.size[1]);
+  const industrial = cornerFit(industrialCorner, iSize);
+  const nEnd = W - border - 1;
+  const sEnd = W - border - 1;
 
   const lo = border + L.margin;
   const hiX = W - border - L.margin - G.alley.mainWidth - L.jitter;
   const hiY = H - border - L.margin - G.alley.mainWidth - L.jitter;
-  const ySp = avenueSpacing(hWidth);
-  const ys = genLines(rng, lo, hiY, L.spacingMin, L.spacingMax, { pos: hCenter, ...ySp });
-  const vSp = avenueSpacing(vWidth);
-  const xs = hasV
-    ? genLines(rng, lo, hiX, L.spacingMin, L.spacingMax, { pos: vCenter, ...vSp })
-    : genLines(rng, lo, hiX, L.spacingMin, L.spacingMax);
+  const ys = genLines(rng, lo, hiY, L.spacingMin, L.spacingMax, [
+    { pos: nCenter, ...avenueSpacing(nWidth) },
+    { pos: sCenter, ...avenueSpacing(sWidth) },
+  ]);
 
-  // Площадь примыкает к горизонтальной магистрали на длинном прямом участке.
+  // Площадь примыкает к главному проспекту на длинном прямом участке у вертикальной магистрали.
   const plazaSize = rng.int(G.plaza.size[0], G.plaza.size[1]);
   const vHalf = Math.floor(vWidth / 2) + avenueReach() + facadeReach();
-  let longCenter: number;
-  if (hasV) {
-    const off = vHalf + Math.ceil(plazaSize / 2) + 5;
-    longCenter = vCenter + (rng.chance(0.5) ? off : -off);
-  } else {
-    longCenter = Math.round(W / 2) + rng.int(-10, 10);
-  }
-  const hSegs = planAvenueSegs(rng, border, W - border - 1, hCenter, hWidth, {
-    center: longCenter,
-    length: G.avenue.plazaSegment,
-  });
-  const hAvenue = makeAvenue(true, hWidth, hCenter, hSegs);
-  const vAvenue = hasV
-    ? makeAvenue(false, vWidth, vCenter, planAvenueSegs(rng, border, H - border - 1, vCenter, vWidth))
-    : null;
+  const off = vHalf + Math.ceil(plazaSize / 2) + 5;
+  // Площадь — восточнее поперечного проспекта (Управа — западнее): центр между ними, дальше на восток — стена
+  // Верхнего города.
+  const longCenter = vCenter + off;
+  const [mCenter, mWidth, mEnd, oCenter, oWidth, oEnd] = mainNorth
+    ? [nCenter, nWidth, nEnd, sCenter, sWidth, sEnd]
+    : [sCenter, sWidth, sEnd, nCenter, nWidth, nEnd];
+  const hSegs = planAvenueSegs(rng, border, mEnd, mCenter, mWidth, { center: longCenter, length: A.plazaSegment });
+  const hAvenue = makeAvenue(true, mWidth, mCenter, hSegs);
+  const hAvenue2 = makeAvenue(true, oWidth, oCenter, planAvenueSegs(rng, border, oEnd, oCenter, oWidth));
+  const vAvenue = makeAvenue(false, vWidth, vCenter, planAvenueSegs(rng, border, H - border - 1, vCenter, vWidth));
 
-  // Запретная зона и промзона.
-  const rSize = rng.int(G.restricted.size[0], G.restricted.size[1]);
-  const restricted = cornerRect(restrictedCorner, rSize, W, H, border);
-  const iSize = rng.int(G.industrial.size[0], G.industrial.size[1]);
-  const industrial = cornerRect(industrialCorner, iSize, W, H, border);
-
-  // Ворота запретной зоны — на сторонах, обращённых к городу.
-  const facing: Side[] = [
-    restrictedCorner.startsWith('N') ? 'S' : 'N',
-    restrictedCorner.endsWith('W') ? 'E' : 'W',
-  ];
+  // Ворота запретной зоны — на западной стороне (к кварталам): северная или южная смотрит в тыл ряда домов
+  // вдоль проспекта. Две — в разных половинах стороны.
   const gateCount = rng.int(G.restricted.gates[0], G.restricted.gates[1]);
-  const restrictedGates: GateSpec[] = rng
-    .shuffle([...facing])
-    .slice(0, gateCount)
-    .map((side) => ({
-      side,
-      pos: rng.int(8, rSize - 8 - G.restricted.gateWidth) + (side === 'N' || side === 'S' ? restricted.x : restricted.y),
-      width: G.restricted.gateWidth,
-    }));
+  const gw = G.restricted.gateWidth;
+  const restrictedGates: GateSpec[] = [];
+  for (let k = 0; k < gateCount; k++) {
+    const half = Math.floor(restricted.h / gateCount);
+    const lo = restricted.y + k * half + 6;
+    const hi = restricted.y + (k + 1) * half - 6 - gw;
+    if (hi < lo) continue;
+    restrictedGates.push({ side: 'W', pos: rng.int(lo, hi), width: gw });
+  }
+  if (!restrictedGates.length) restrictedGates.push({ side: 'W', pos: restricted.y + ((restricted.h - gw) >> 1), width: gw });
 
   // Площадь.
   const longSeg = hSegs.find((s) => s.from <= longCenter && s.to >= longCenter)!;
@@ -297,28 +327,31 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   const py = plazaSide === 'N' ? longSeg.offset - plazaSize : longSeg.offset + longSeg.width;
   const plaza: Rect = { x: px, y: py, w: plazaSize, h: plazaSize };
 
-  // Пограничные КПП: коридор КПП продолжает главный проспект у западной и восточной стены.
-  const cw = CHECKPOINT_TEMPLATE[0].length;
-  const ch = CHECKPOINT_TEMPLATE.length;
-  const checkpoints = [false, true].map((mirror) => {
-    const x = mirror ? W - border - cw : border;
-    const apronX = mirror ? x : x + cw - 1;
-    const seg = avenueSegAt(hAvenue, apronX);
+  // Пограничные КПП у западной стены: [0] «Север» — на оси северного проспекта, [1] «Юг» — южного.
+  // Коридор КПП продолжает свой проспект.
+  const checkpoints = [true, false].map((north, k) => {
+    const type = cpTypes[k];
+    const def = CHECKPOINTS[type];
+    const av = north === mainNorth ? hAvenue : hAvenue2;
+    const x = border;
+    const seg = avenueSegAt(av, x + def.w - 1);
     const mid = seg.offset + Math.floor(seg.width / 2);
     // Ось КПП (ворота, шорт) совпадает с серединой проспекта.
-    return { rect: { x, y: mid - CHECKPOINT_AXIS_ROW, w: cw, h: ch }, mirror };
+    return { rect: { x, y: mid - def.axisRow, w: def.w, h: def.h }, mirror: false, type };
   });
   for (const c of checkpoints) {
-    if (rectsOverlap(c.rect, restricted, 3) || rectsOverlap(c.rect, plaza, 3)) {
+    if (rectsOverlap(c.rect, restricted, 3) || rectsOverlap(c.rect, industrial, 3) || rectsOverlap(c.rect, plaza, 3)) {
       throw new Error('layout: КПП пересекается с районом');
     }
   }
+  if (rectsOverlap(checkpoints[0].rect, checkpoints[1].rect, 6)) throw new Error('layout: КПП пересекаются');
 
   // Управа: рядом с площадью или напротив неё, воротами к магистрали.
   const nw = NEXUS_TEMPLATE[0].length;
   const nh = NEXUS_TEMPLATE.length;
-  const blocked: Rect[] = [restricted, plaza, ...checkpoints.map((c) => c.rect)];
-  if (vAvenue) blocked.push(vAvenue.band);
+  const R2 = avenueReach() + facadeReach();
+  const h2 = hAvenue2.band;
+  const blocked: Rect[] = [restricted, industrial, plaza, ...checkpoints.map((c) => c.rect), vAvenue.band, { x: h2.x, y: h2.y - R2, w: h2.w, h: h2.h + 2 * R2 }];
   const candidates: { rect: Rect; rot: 0 | 180 }[] = [];
   const nexusOnSide = (side: 'N' | 'S', x: number) => {
     let top = Infinity;
@@ -333,6 +366,10 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   };
   const gapToPlaza = 3;
   const sideOrder = rng.chance(0.5) ? [-1, 1] : [1, -1];
+  // Сперва — западнее поперечного проспекта, за рядом его домов (центр — между Управой и площадью).
+  const vReach = Math.ceil(vWidth / 2) + avenueReach() + gapToPlaza + 1;
+  nexusOnSide(plazaSide, vCenter - vReach - nw);
+  nexusOnSide(plazaSide === 'N' ? 'S' : 'N', vCenter - vReach - nw);
   for (const dir of sideOrder) {
     nexusOnSide(plazaSide, dir < 0 ? plaza.x - gapToPlaza - nw : plaza.x + plaza.w + gapToPlaza);
   }
@@ -344,24 +381,42 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
   const inMap = (r: Rect) => r.x >= border + 2 && r.y >= border + 2 && r.x + r.w <= W - border - 2 && r.y + r.h <= H - border - 2;
   const pick = candidates.find((c) => inMap(c.rect) && !blocked.some((b) => rectsOverlap(c.rect, b, 3)));
   if (!pick) throw new Error('layout: нет места для Управы');
-  if (!inMap(plaza) || rectsOverlap(plaza, restricted, 4) || (vAvenue && rectsOverlap(plaza, vAvenue.band, 1))) {
+  if (!inMap(plaza) || rectsOverlap(plaza, restricted, 4) || rectsOverlap(plaza, industrial, 4) || rectsOverlap(plaza, vAvenue.band, 1)) {
     throw new Error('layout: площадь не помещается');
   }
+
+  // Граница Верхнего города: стена восточнее площади и Управы (и восточнее ряда домов поперечного проспекта),
+  // западнее запретной зоны и промзоны. Её линия решётки пуста — соседние линии в side тайлах.
+  const DS = G.wealth;
+  const vSpace = avenueSpacing(vWidth);
+  const eastOf = (r: Rect) => r.x + r.w + DS.gap;
+  const upperX = Math.max(Math.round(W * DS.minX), eastOf(plaza), eastOf(pick.rect), vCenter + vSpace.after + DS.side);
+  if (upperX > W * DS.maxX || upperX + DS.wall + DS.gap > Math.min(restricted.x, industrial.x)) throw new Error('layout: граница Верхнего города не помещается');
+  // Соседняя линия с запада: если до линий поперечного проспекта ближе нормы — она и есть соседняя.
+  const vEnd = vCenter + vSpace.after;
+  const before = upperX - DS.side - vEnd < L.spacingMin ? upperX - vEnd : DS.side;
+  const xs = genLines(rng, lo, hiX, L.spacingMin, L.spacingMax, [
+    { pos: vCenter, ...vSpace },
+    { pos: upperX, before, after: DS.side + DS.wall },
+  ]);
+  const oldX = Math.min(vCenter - DS.oldWest, plaza.x - DS.gap, pick.rect.x - DS.gap);
 
   // Штаб ТС — фасадом на главный проспект, вдали от Управы, площади и КПП (там бой).
   const H_ = GENERATOR.cwuHq;
   const hw = CWU_HQ_TEMPLATE[0].length;
   const hh = CWU_HQ_TEMPLATE.length;
-  const hqBlocked: Rect[] = [...blocked, pick.rect, industrial];
-  if (vAvenue) {
+  const hqBlocked: Rect[] = [...blocked, pick.rect, { x: upperX - DS.side, y: 0, w: DS.wall + 2 * DS.side, h: H }];
+  {
     const R = avenueReach() + facadeReach();
     hqBlocked.push({ x: vAvenue.band.x - R, y: vAvenue.band.y, w: vAvenue.band.w + 2 * R, h: vAvenue.band.h });
   }
-  const cpEdges = checkpoints.map((c) => (c.mirror ? c.rect.x : c.rect.x + c.rect.w));
+  // От западных КПП (там бой) — на восток до конца главного проспекта.
+  const cpEdge = Math.max(...checkpoints.map((c) => c.rect.x + c.rect.w));
   const gap = (a: Rect, b: Rect) => Math.hypot(Math.max(b.x - a.x - a.w, a.x - b.x - b.w, 0), Math.max(b.y - a.y - a.h, a.y - b.y - b.h, 0));
   let cwuHq: { rect: Rect; face: 'N' | 'S' } | null = null;
   let hqScore = -Infinity;
-  for (let x = Math.min(...cpEdges) + H_.cpClear; x + hw <= Math.max(...cpEdges) - H_.cpClear; x += 2) {
+  const hEnd = hAvenue.band.x + hAvenue.band.w - 1;
+  for (let x = cpEdge + H_.cpClear; x + hw <= hEnd; x += 2) {
     for (const side of ['N', 'S'] as const) {
       let top = Infinity;
       let bottom = -Infinity;
@@ -373,8 +428,9 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
       const rect = { x, y: side === 'N' ? top - hh : bottom, w: hw, h: hh };
       if (!inMap(rect) || hqBlocked.some((b) => rectsOverlap(rect, b, 3))) continue;
       // Расстояния — между краями (Управа велик: по центрам штаб вставал бы вплотную к нему).
-      const dCp = Math.min(...cpEdges.map((e) => Math.max(e - rect.x - rect.w, rect.x - e, 0)));
-      const score = Math.min(gap(rect, pick.rect), gap(rect, plaza), dCp * H_.cpWeight) + rng.next();
+      const dCp = Math.max(rect.x - cpEdge, 0);
+      // В Верхнем городе (за стеной) — лучше: штаб ТС у склада и порта, на виду у начальства.
+      const score = Math.min(gap(rect, pick.rect), gap(rect, plaza), dCp * H_.cpWeight) + (rect.x >= upperX + DS.wall ? H_.upperBonus : 0) + rng.next();
       if (score > hqScore) {
         hqScore = score;
         cwuHq = { rect, face: side === 'N' ? 'S' : 'N' };
@@ -382,23 +438,36 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
     }
   }
 
-  // Семена жилых кварталов (для названий районов).
+  // Семена жилых кварталов (для названий районов) — в каждой полосе достатка свои: квартал не перетекает через
+  // границу полос.
   const quarterSeeds: Vec2[] = [];
-  for (let tries = 0; quarterSeeds.length < G.residential.quarters && tries < 500; tries++) {
-    const p = { x: rng.int(border + 10, W - border - 10), y: rng.int(border + 10, H - border - 10) };
-    const r = { x: p.x, y: p.y, w: 1, h: 1 };
-    if (rectsOverlap(r, restricted, 4) || rectsOverlap(r, industrial, 4)) continue;
-    if (quarterSeeds.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 45)) continue;
-    quarterSeeds.push(p);
+  const quarterDistricts: District[] = [];
+  const bands: [District, number, number][] = [['slum', border + 10, oldX - 4], ['old', oldX + 4, upperX - 4], ['upper', upperX + DS.wall + 4, W - border - 10]];
+  for (const [d, x0, x1] of bands) {
+    const want = DS.quarters[d];
+    const mine: Vec2[] = [];
+    for (let tries = 0; mine.length < want && tries < 500; tries++) {
+      const p = { x: rng.int(x0, Math.max(x0, x1)), y: rng.int(border + 10, H - border - 10) };
+      const r = { x: p.x, y: p.y, w: 1, h: 1 };
+      if (rectsOverlap(r, restricted, 4) || rectsOverlap(r, industrial, 4)) continue;
+      if (mine.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 45 - tries / 20)) continue;
+      mine.push(p);
+    }
+    if (!mine.length) mine.push({ x: Math.round((x0 + x1) / 2), y: Math.round(H / 2) });
+    for (const p of mine) {
+      quarterSeeds.push(p);
+      quarterDistricts.push(d);
+    }
   }
-  if (quarterSeeds.length === 0) quarterSeeds.push({ x: W / 2, y: H / 2 });
 
   return {
     xs: xs.lines,
     ys: ys.lines,
-    hLine: ys.fixedIndex,
-    vLine: hasV ? xs.fixedIndex : -1,
+    hLine: ys.fixedIndex[mainNorth ? 0 : 1],
+    vLine: xs.fixedIndex[0],
     hAvenue,
+    hAvenue2,
+    hLine2: ys.fixedIndex[mainNorth ? 1 : 0],
     vAvenue,
     restricted,
     restrictedGates,
@@ -410,5 +479,9 @@ export function planLayout(rng: Rng, W: number, H: number): CityLayout {
     cwuHq,
     checkpoints,
     quarterSeeds,
+    quarterDistricts,
+    upperX,
+    upperLine: xs.fixedIndex[1],
+    oldX,
   };
 }

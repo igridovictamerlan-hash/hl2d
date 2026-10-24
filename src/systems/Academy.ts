@@ -1,3 +1,4 @@
+/** Описание системы — docs/academy.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
@@ -776,7 +777,7 @@ export class AcademySystem {
       applyPost(ctx, c, spec);
       S?.toReserve(c);
     }
-    ctx.law.log(`Присяга в Академии ВС: курсант ${civil} — теперь RCT.PCU ${c.name}${slot ? '' : ' (в резерве академии)'}.`, 'world');
+    ctx.law.log(`Присяга в Академии ВС: курсант ${civil} — теперь рекрут ${c.name}${slot ? '' : ' (в резерве академии)'}.`, 'world');
     ctx.talk?.event('graduate', c.x, c.y, { who: civil, kinOf: c, cp: true });
     if (c.isPlayer) ctx.bus.emit('graduated', { who: c, rank: c.rank, name: c.name });
   }

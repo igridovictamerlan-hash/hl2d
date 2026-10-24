@@ -1,3 +1,4 @@
+/** Описание системы — docs/underground.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
 import type { Vec2 } from '../core/math';
@@ -63,6 +64,11 @@ export class CrimeScenes {
   readonly list: CrimeScene[] = [];
   readonly stats = { opened: 0, investigated: 0, examined: 0, civil: 0, cwuMedics: 0, merged: 0 };
   private time = 0;
+
+  /** Часы мест преступлений (от них since, investigatedAt, examinedAt). */
+  get now(): number {
+    return this.time;
+  }
   /** Где недавно стреляли (combat.shots живут 2 с — здесь дольше, CRIME.scene.calm). */
   private readonly hot: { x: number; y: number; t: number }[] = [];
   private shotT = -1;
@@ -137,7 +143,7 @@ export class CrimeScenes {
     if (kind === 'civil') this.stats.civil++;
     this.dispatch(s);
     const zone = this.ctx.map.zoneAtWorld(s.x, s.y)?.name ?? 'город';
-    const who = kind === 'cp' ? 'следователь SU, медик и офицер' : 'следователь SU и медик';
+    const who = kind === 'cp' ? 'следователь, медик и офицер' : 'следователь и медик';
     this.ctx.law.log(`Надзор: ${kind === 'cp' ? 'место преступления' : 'найдено тело гражданина'} — ${zone}. Проход перекрыт; на осмотр — ${who}.`, 'radio');
     return s;
   }

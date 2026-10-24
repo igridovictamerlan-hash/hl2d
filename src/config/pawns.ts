@@ -27,6 +27,28 @@ export const PAWN = {
   hairStyles: { bald: 0.08, short: 0.3, messy: 0.25, long: 0.2, bun: 0.17 },
   eye: { dx: 2.8, y: -9.6, rx: 1, ry: 1.25, color: '#161616', lid: 0.55 },
   mouth: { y: -5.3, w: 1.6 },
+  /**
+   * Лицо подробнее (только рисунок): брови цвета волос (наклон и толщина — по внешности), блик в глазу, румянец и
+   * тень скул, тень носа, рот по характеру лица (`moods`: ровно, улыбка, прямо, хмуро), у части — щетина
+   * (`stubble` — доля коротко стриженых и лысых), морщинки у глаз (`wrinkles`), веснушки (`freckles`).
+   * Мимика (`EntityRenderer`): моргание раз в `blink.every` с на `blink.time` с; говорит — рот открывается с периодом
+   * `talk.period` с; спит, нокаут, тяжело ранен — глаза закрыты. Каждое выражение — свой спрайт в кэше (`PawnLook.blink/talk`).
+   */
+  face: {
+    brow: { y: -12.1, len: 2.1, w: 0.6, tilt: 0.45, calm: 0.3, dark: 0.55 },
+    shine: { r: 0.36, dx: 0.32, dy: -0.45, color: 'rgba(255,255,255,0.85)' },
+    blush: { x: 4.3, y: -6.9, rx: 1.5, ry: 0.85, color: 'rgba(214,96,86,0.22)' },
+    cheek: { color: 'rgba(0,0,0,0.13)', w: 0.7 },
+    nose: { color: 'rgba(0,0,0,0.16)' },
+    lips: '#7a3a34',
+    open: '#4a1e1c',
+    moods: [0.4, 0.25, 0.2, 0.15],
+    stubble: { share: 0.4, color: 'rgba(40,30,24,0.2)', from: -7.4 },
+    wrinkles: 0.14,
+    freckles: { share: 0.1, color: 'rgba(150,84,52,0.5)' },
+    blink: { every: [2.4, 6] as const, time: 0.13 },
+    talk: { period: 0.17 },
+  },
   corpseAlpha: 0.85,
   /**
    * Кэш спрайтов (PawnCache): поля холста вокруг центра пешки (px мира — с запасом на головные
@@ -54,6 +76,57 @@ export const PAWN = {
     smooth: 10,
     hysteresis: 0.3,
     aimRecoil: 0.5,
+  },
+  /**
+   * Бытовые анимации (entities/poses.ts, EntityRenderer) — только отрисовка. Всё считается по часам
+   * (`now`) и id пешки (фаза сдвинута, чтобы толпа не дышала в такт): тело — тот же спрайт, меняются
+   * наклон, сжатие, смещение и руки-кружки с предметами поверх.
+   * idle — стоит без дела: вес с ноги на ногу (lean, рад) и дыхание (breathe — доля высоты);
+   * sleep — лежит под одеялом: сжатие, дыхание, «z» (every — как часто, rise — подъём px мира);
+   * sit — сидит: опускается на drop px, ступни спрятаны, лёгкое покачивание;
+   * hand — рука-кружок (r px, rest — где висит в покое), eat — ложка ко рту за period с, cards — карта
+   * переворачивается, smoke — раз в period с рука с сигаретой идёт ко рту (raise — доля цикла на подъём,
+   * hold — затяжка, exhale — выдох: длительность в долях цикла), talk — жесты говорящего (rate — частота).
+   */
+  anim: {
+    idle: { lean: 0.03, period: 3.4, breathe: 0.014, breathePeriod: 3.1, bob: 0.35 },
+    sleep: {
+      squash: 0.84, drop: 1.5, breathe: 0.03, period: 3.8, blanketTop: -2.2, blanketBottom: 15.2, blanketHalf: 8.9,
+      blankets: ['#7a8fa8', '#a86a5a', '#6f8f6a', '#a89460', '#8a6fa0'], blanketShade: 'rgba(0,0,0,0.16)',
+      z: { every: 2.4, rise: 15, size: 3, color: 'rgba(235,238,245,0.9)' },
+    },
+    sit: { drop: 3.4, squash: 0.9, sway: 0.025, period: 4.6 },
+    hand: { r: 2.1, restX: 7.4, restY: 5.5, mouthY: -4.6, spoon: '#b9bcc2', card: '#f1eee4', cigarette: '#ece8dc', ember: '#ff8a3a' },
+    eat: { period: 1.9, bite: 0.55, hold: 0.14 },
+    cards: { period: 2.6, lift: 0.4 },
+    smoke: { period: 6.5, raise: 0.1, hold: 0.14, exhale: 0.2, start: 0.55 },
+    talk: { rate: 6.5, amp: 2.6, raise: 1.5, bob: 0.5 },
+    /**
+     * Бой (entities/poses.ts): удар — замах назад (windup — доля времени), бросок вперёд, корпус подаётся
+     * на lunge px и наклоняется на lean; кулак выходит на reach px от rest; дубинка размахивается на sweep рад,
+     * нож — коротко (sweep). Бросок гранаты: рука назад на back px, отпускает на release доле времени, вперёд на fwd.
+     * Попадание: пешку отбрасывает на push px от удара и клонит на lean за time с. Хромота — шаг неровный (hard/soft —
+     * подскок на больной и здоровой ноге). Строевой шаг: ступни выше (lift), руки качаются на swing.
+     * Падение убитого: time с, скольжение slide px по удару, отскок bounce.
+     */
+    strike: { time: 0.3, windup: 0.3, lunge: 2.4, lean: 0.14, reach: 9, rest: 3.4, side: 4.6, club: 1.5, blade: 0.45 },
+    throw: { time: 0.42, release: 0.5, back: 5.5, fwd: 8, lean: 0.17 },
+    hurt: { time: 0.22, push: 2.6, lean: 0.15 },
+    limp: { lean: 0.075, hard: 1.9, soft: 0.45 },
+    march: { lift: 2.1, swing: 3.4, bob: 1.8 },
+    /** Нокаут: ниже ростом (squash, drop). Перезарядка: вторая рука к поясу и обратно с магазином (mag). Работа: рука с инструментом бьёт в такт (rate), письмо — мелко. Присев над делом — squash, drop. Вспышка попадания — alpha. */
+    ko: { squash: 0.8, drop: 2 },
+    reload: { belt: [-5.5, 8.5], mag: '#3a3d42', toBelt: 0.3, back: 0.6 },
+    work: { rate: 5, amp: 2.6, tool: '#9aa0a8', write: 0.9 },
+    busy: { squash: 0.82, drop: 1.6, rate: 4.5 },
+    flash: 0.4,
+    /** Кивок слушателя: два кивка за time с на dip px. Руки вверх по приказу ВС (hands), документы в руке при проверке. Паника: руки машут (rate, amp), бег быстрее и скорченнее (bob). Честь: рука к виску. Пыль на бегу: с какой скорости (from — долей быстрого шага), сколько клубов, цвет. */
+    nod: { time: 0.7, dip: 1.4 },
+    order: { x: 7.6, y: -2.5, wobble: 0.5, card: '#f1eee4' },
+    panic: { rate: 14, amp: 2.4, y: -6, bob: 1.5 },
+    salute: { x: 4.4, y: -13.6 },
+    dust: { from: 0.8, puffs: 3, size: 2.6, back: 11, color: '190,176,150', alpha: 0.34 },
+    fall: { time: 0.38, slide: 6, bounce: 0.07, pivot: 12 },
   },
   /**
    * Одежда по фракциям. base — цвет одежды под бронёй (по умолчанию — цвет ранга),
@@ -138,6 +211,8 @@ export const PAWN = {
     pack: '#3a4048',
     tank: '#b9bcb6',
     boot: '#1b1e22',
+    /** Полоса на части формы у того, кто не служит в ВС (каска на горожанине): без цвета звания. */
+    trim: '#8a8f96',
   },
   /**
    * Военное снаряжение сопротивления (style: 'tactical', entities/pawnTactical.ts): пятна камуфляжа

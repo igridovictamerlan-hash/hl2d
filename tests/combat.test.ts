@@ -116,10 +116,13 @@ describe('попадания: зоны, броня, кровотечение', (
     sim.combat.equip(bandit, 'knife');
     sim.entities.rebuildHash();
     sim.combat.update(WEAPONS.knife.draw + 0.01);
+    // Удар — после замаха: fire говорит, кого достанет, урон — через update.
     expect(sim.combat.fire(bandit, cp.x, cp.y)).toBe(cp);
+    sim.combat.update(0.2);
     expect(cp.alive).toBe(true);
     sim.combat.update(1);
     sim.combat.fire(bandit, cp.x, cp.y);
+    sim.combat.update(0.2);
     expect(cp.fit).toBe(false);
     // Лицом к лицу два удара не убивают.
     const cp2 = patrolman(sim, p.x, p.y + 60);
@@ -131,6 +134,7 @@ describe('попадания: зоны, броня, кровотечение', (
     for (let k = 0; k < 2; k++) {
       sim.combat.update(1);
       sim.combat.fire(bandit, cp2.x, cp2.y);
+      sim.combat.update(0.2);
     }
     expect(cp2.alive).toBe(true);
   });

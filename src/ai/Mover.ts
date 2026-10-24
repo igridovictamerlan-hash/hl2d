@@ -1,4 +1,6 @@
+/** Описание системы — docs/ai.md. */
 import { linked } from '../entities/physics';
+import { LOD } from '../config/population';
 import type { Character } from '../entities/Character';
 import type { AiContext } from './AiContext';
 import type { PathRequest } from './PathService';
@@ -28,6 +30,10 @@ export class Mover {
   avoidZones: ReadonlySet<number> | undefined;
   /** Множитель стоимости зон avoidZones (undefined — AI.avoidZoneCost). */
   avoidCost: number | undefined;
+  /** Доп. цена входа в якорь для A* (например, открытые места под огнём — WAR.line.route); undefined — нет. */
+  extraCost: ((anchor: number) => number) | undefined;
+  /** Обходить людные места (карта толпы ctx.crowd, если включена) — жители города. */
+  crowdAware = false;
   /** Целевой якорь, -1 — нет цели. */
   goal = -1;
   path: Vec2[] = [];
@@ -38,6 +44,10 @@ export class Mover {
   yieldFrom: Character | null = null;
 
   private req: PathRequest | null = null;
+  /** Шаг напрямую (drive) на этот тик. */
+  private driving = false;
+  private driveX = 0;
+  private driveY = 0;
   private repaths = 0;
   private avgSpeed = 0;
   private blockedTime = 0;
@@ -66,6 +76,19 @@ export class Mover {
     if (this.goal >= 0 && this.status === 'moving') this.requestPath(self, ctx);
   }
 
+  /**
+   * Шаг напрямую на этот тик, без пути (ближний бой: подшаг, отход, обход противника по кругу).
+   * Сбрасывает цель; следующий тик без drive — стоит.
+   */
+  drive(vx: number, vy: number): void {
+    this.stop();
+    this.yieldFrom = null;
+    this.blocker = null;
+    this.driveX = vx;
+    this.driveY = vy;
+    this.driving = true;
+  }
+
   stop(): void {
     this.req?.cancel();
     this.req = null;
@@ -90,7 +113,10 @@ export class Mover {
 
   private requestPath(self: Character, ctx: AiContext): void {
     this.req?.cancel();
-    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, blocked: ctx.access?.blockerFor(self) });
+    // Вдали от игрока (упрощённая симуляция) — «жадный» поиск: дешевле, путь чуть длиннее (его не видно).
+    const weight = self.lodFar ? LOD.paths.weight : undefined;
+    const crowdCost = this.crowdAware && ctx.crowd?.enabled ? ctx.crowd.cost : undefined;
+    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, extraCost: this.extraCost, crowdCost, blocked: ctx.access?.blockerFor(self), weight });
     this.status = 'pending';
     this.path = [];
     this.wp = 0;
@@ -122,8 +148,10 @@ export class Mover {
         this.follow(self, ctx, dt);
         break;
       default:
-        self.wantX = self.wantY = 0;
+        self.wantX = this.driving ? this.driveX : 0;
+        self.wantY = this.driving ? this.driveY : 0;
     }
+    this.driving = false;
   }
 
   /** Затор: давно топчемся на пятачке, не дойдя до цели, — бросаем её (true — сдались на этом тике). */

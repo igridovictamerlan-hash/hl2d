@@ -2,13 +2,16 @@ import type { RoleSpec } from '../systems/Roster';
 import type { FactionId, DivisionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import type { ItemId, WeaponId, GrenadeId, GearId, GearSlot } from '../config/items';
+import type { ClothesLook } from '../config/clothes';
+import type { KitLook } from '../config/uniforms';
 import { ECONOMY } from '../config/economy';
 import { Inventory } from './Inventory';
 import { CHARACTER } from '../config/entities';
 import type { Brain } from '../ai/Brain';
-import type { Violation } from '../config/law';
+import type { Violation, WantedCharge } from '../config/law';
 import type { CadetRecord } from '../config/academy';
 import type { AccessSite } from '../config/access';
+import { newMeleeState, type MeleeState } from './meleeState';
 
 /**
  * Этапы разбирательства с законом:
@@ -26,6 +29,10 @@ export interface LawState {
   hasCid: boolean;
   /** В розыске. */
   wanted: boolean;
+  /** Статья розыска (LawSystem.declare; нет — «неподчинение»). */
+  wantedFor?: WantedCharge;
+  /** Пришёл с повинной (срок × LAW.wanted.surrender.jailMul). */
+  surrendered?: boolean;
   phase: LawPhase;
   /** Кто разбирается (сотрудник ВС или игрок-ВС). */
   handler: Character | null;
@@ -57,6 +64,8 @@ export interface Cover {
   rank: number;
   profession: ProfessionId | null;
   name: string | null;
+  /** Маскировка из настоящих вещей (форма ВС надета по частям): снял нужные части — маскировка спала. */
+  worn?: boolean;
 }
 
 export interface CharacterInit {
@@ -75,6 +84,11 @@ export interface CharacterInit {
  */
 export class Character {
   readonly id: number;
+  /**
+   * Номер человека (systems/Relations.ts): устойчивый — возрождённый житель получает прежний (RoleSpec.pid),
+   * по нему помнят знакомства, мнение и характер. У нового персонажа — его id.
+   */
+  pid: number;
   faction: FactionId;
   /** Ранг во фракции (у ВС и повстанцев от него зависит цвет). */
   rank = 0;
@@ -93,6 +107,12 @@ export class Character {
   carrying = false;
   /** Миска супа из общей столовой (съест за столом). */
   soupBowl = false;
+  /**
+   * Груз в руках (коробка курьера) или на тележке докера: товар и количество. Пусто — ничего. cart — везёт
+   * тележку (докер порта): рисуется тележка с ящиками, а не коробка в руках.
+   */
+  load: { item: ItemId; qty: number }[] = [];
+  cart = false;
   /** Свой дом (Housing.dwellings), -1 — нет. */
   home = -1;
   /** Патроны из порченого ящика склада (диверсия партизан): осечки до чистого пополнения. */
@@ -144,6 +164,8 @@ export class Character {
   squadLead: Character | null = null;
   /** Курит (уличная жизнь) — огонёк и дымок у пешки. */
   smoking = false;
+  /** Сидит на месте (только отрисовка, entities/poses.ts): скамейка, стол с картами, столовая — и что делает. */
+  seated: '' | 'sit' | 'cards' | 'eat' = '';
   /** Пишет в блокноте (медик на месте преступления) до этого времени закона — сидит, блокнот в руках. */
   notepadUntil = 0;
 
@@ -155,10 +177,22 @@ export class Character {
   hunger: number = ECONOMY.hunger.max;
   /** Спит (в кровати): сытость тает медленнее (ECONOMY.hunger.sleepMul). */
   asleep = false;
+  /** Кровать, на которой спит (центр и размер, px): пешка рисуется лёжа на ней (только отрисовка); null — у койки без кровати. */
+  sleepAt: { x: number; y: number; w: number; h: number } | null = null;
   /** Оружие в руках (предмет из инвентаря) или null. */
   weapon: WeaponId | null = null;
-  /** Надетое снаряжение (шлем, бронежилет, рюкзак) — не в ячейках инвентаря (systems/Gear). */
+  /** Надетое снаряжение (шлем, бронежилет, рюкзак) и одежда — не в ячейках инвентаря (systems/Gear). */
   gear: Partial<Record<GearSlot, GearId>> = {};
+  /** Комплект гражданской одежды из надетого (Gear.refreshClothes) или null — одежда фракции; ключ — для кэша спрайтов. */
+  clothes: ClothesLook | null = null;
+  clothesKey = '';
+  /** Форма из надетых частей (Gear.kitOf; config/uniforms.ts) или null. NPC ВС носят форму юнита без предметов. */
+  kit: KitLook | null = null;
+  /**
+   * Чья форма выдана игроку по частям (Gear.issueKit): юнит ВС или `r:<профессия>` у армии сопротивления; сменился —
+   * выдаётся новая. Пока выдана — броня только надетого.
+   */
+  kitUnit: string | null = null;
   /** Патронов в магазине оружия в руках. */
   mag = 0;
   /** Патроны, оставшиеся в магазинах убранных стволов. */
@@ -194,6 +228,8 @@ export class Character {
   suppressAt = -1e9;
   /** Присел (C у игрока; NPC — сам, когда в бою стоит на месте). */
   crouch = false;
+  /** Стоит в траншее (тайл под центром — T.TRENCH): ставит CombatSystem.update раз в тик, рисует EntityRenderer. */
+  trench = false;
   /** Когда последний раз стрелял (присевшего за блоком снова видно). */
   lastFired = -1e9;
   /** NPC ведёт бой до этого времени (Gunner): стоит — садится. */
@@ -213,10 +249,28 @@ export class Character {
   lastZone: 'head' | 'torso' | 'arm' | 'leg' | 'blast' | null = null;
   /** Оглушён (дубинкой) до этого времени. */
   stunUntil = 0;
+  /** Ближний бой: удар и серия, блок, сбит, нокаут (systems/Melee.ts). */
+  readonly melee: MeleeState = newMeleeState();
+  /** Только для отрисовки (entities/poses.ts): когда и куда бил (кулак, дубинка, нож), когда бросал гранату, откуда пришёл удар. */
+  strikeAt = -1e9;
+  strikeAng = 0;
+  strikeKind: '' | 'fist' | 'club' | 'blade' = '';
+  throwAt = -1e9;
+  throwAng = 0;
+  hurtAng = 0;
+  /** Чем занят руками на работе (только отрисовка): инструмент, письмо, нагнулся над чем-то. */
+  task: '' | 'tool' | 'write' | 'crouch' | 'panic' | 'hands' = '';
+  /** Кивает собеседнику с этого времени; отдаёт честь офицеру до этого времени (только отрисовка). */
+  nodAt = -1e9;
+  saluteUntil = 0;
+  /** Строевой шаг (курсанты на плацу) — только отрисовка. */
+  marching = false;
   /** Множитель желаемой скорости (оглушение). Ставит CombatSystem, применяет физика. */
   speedMul = 1;
   /** Сколько секунд ещё проходит сквозь других NPC (разбор затора, Mover); игрока не проходит. */
   ghost = 0;
+  /** Вдали от игрока и не занят — упрощённая симуляция (LOD: мозг реже, физика проще). Ставит updateNpcs. */
+  lodFar = false;
   /** Когда последний раз ранили и кто. */
   lastHurt = -1e9;
   lastAttacker: Character | null = null;
@@ -228,6 +282,20 @@ export class Character {
   role: RoleSpec | null = null;
   /** До какого времени в панике (бег от стрельбы — не нарушение). */
   panicUntil = 0;
+  /**
+   * Страх (systems/Senses.ts): сколько было на момент fearAt (время закона), спадает сам; откуда угроза (fearX/Y),
+   * кто напугал и через сколько пересказов дошло (fearHop: 0 — видел сам, 1 — услышал крик…).
+   */
+  fear = 0;
+  fearAt = -1e9;
+  fearX = 0;
+  fearY = 0;
+  fearHop = 0;
+  fearBy: Character | null = null;
+  /** Одежда в крови (ударил ножом вплотную) — до этого времени (время закона); заметно свидетелям и ВС. */
+  bloodyUntil = 0;
+  /** Когда последний раз ранил или убил человека оружием (время боя): «только что был с ножом». */
+  lastViolent = -1e9;
   /**
    * Служба ВС (systems/Staffing.ts): заслуги (баллы за задержания, штрафы, бой…) и с какого времени
    * служит (с игры) — по ним повышают на свободную должность.
@@ -275,6 +343,7 @@ export class Character {
 
   constructor(init: CharacterInit) {
     this.id = init.id;
+    this.pid = init.id;
     this.faction = init.faction;
     this.name = init.name;
     this.cid = init.cid;

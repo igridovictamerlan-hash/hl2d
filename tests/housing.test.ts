@@ -5,7 +5,7 @@ import { spawnPopulation, needsHome } from '../src/systems/Population';
 import { respawnPoint } from '../src/systems/Roster';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { UndergroundBrain } from '../src/ai/brains/UndergroundBrain';
-import { ARBAT } from '../src/config/arbat';
+import { goodsOf } from '../src/systems/StreetShops';
 import { ZONE_NAMES } from '../src/config/names';
 import { createCharacter } from '../src/entities/factory';
 
@@ -43,7 +43,13 @@ describe('свой дом у каждого', () => {
     // Дома на Арбате (главный проспект, площадь) — заселяются первыми.
     const arbat = H.dwellings.filter((d) => d.kind === 'arbat');
     expect(arbat.length).toBeGreaterThanOrEqual(10);
-    expect(arbat.filter((d) => d.households > 0).length / arbat.length).toBeGreaterThan(0.8);
+    // Город большой — домов на Арбате больше, чем желающих, но заселён он плотнее кварталов.
+    const share = (k: string) => {
+      const list = H.dwellings.filter((d) => d.kind === k);
+      return list.filter((d) => d.households > 0).length / Math.max(1, list.length);
+    };
+    expect(share('arbat')).toBeGreaterThan(0.5);
+    expect(share('arbat')).toBeGreaterThan(share('house') * 2);
     // Каждому своё (семья — одна комната на всех; банда живёт в своей общаге — бойцов больше, чем комнат).
     const byHome = new Map<number, Set<string>>();
     for (const c of people) {
@@ -105,7 +111,7 @@ describe('лавки проспекта: продавцы и товар из ш�
       }
     }
     openShare /= samples;
-    console.log(`лавки: ${JSON.stringify(S.stats)}, открыто в среднем ${Math.round(openShare * 100)}%, запасы ${S.shops.map((s) => `${s.sub}:${s.goods}`).join(' ')}, суп ${S.soup}`);
+    console.log(`лавки: ${JSON.stringify(S.stats)}, открыто в среднем ${Math.round(openShare * 100)}%, запасы ${S.shops.map((s) => `${s.sub}:${goodsOf(s)}`).join(' ')}, суп ${S.soup}`);
     expect(openShare).toBeGreaterThan(0.5);
     expect(S.stats.purchases).toBeGreaterThan(3);
     expect(S.stats.delivered).toBeGreaterThan(0);
@@ -123,18 +129,21 @@ describe('лавки проспекта: продавцы и товар из ш�
     expect(S.refusal(s)).toBe(null);
     const c = createCharacter(sim.entities, sim.ctx.rng, 'citizen', s.front.x, s.front.y);
     c.money = 100;
-    const before = s.goods;
-    expect(S.buy(c, s, s.stock[0])).toBe(null);
-    expect(s.goods).toBe(before - 1);
-    s.goods = 0;
+    const id = s.stock[0];
+    const before = s.shelf.get(id)!;
+    expect(S.buy(c, s, id)).toBe(null);
+    expect(s.shelf.get(id)).toBe(before - 1);
+    for (const k of s.stock) s.shelf.set(k, 0);
     expect(S.refusal(s)).toBe('empty');
-    expect(S.buy(c, s, s.stock[0])).toContain('кончился');
+    expect(S.buy(c, s, id)).toContain('пусты');
     // Коробка из штаба пополняет полки.
     const courier = createCharacter(sim.entities, sim.ctx.rng, 'cwu', s.front.x, s.front.y);
     courier.profession = 'courier';
     courier.carrying = true;
+    courier.load = [{ item: id, qty: 3 }];
     expect(S.deliver(courier, { shop: s })).toBe(true);
-    expect(s.goods).toBe(ARBAT.supply.perBox);
+    expect(s.shelf.get(id)).toBe(3);
+    expect(goodsOf(s)).toBe(3);
   });
 });
 

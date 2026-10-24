@@ -1,3 +1,4 @@
+/** Описание системы — docs/roster.md. */
 import type { AiContext } from '../ai/AiContext';
 import type { Brain } from '../ai/Brain';
 import type { Character } from '../entities/Character';
@@ -9,6 +10,8 @@ import { AI } from '../config/ai';
 import { WAR } from '../config/war';
 import { createCharacter } from '../entities/factory';
 import { equipKit, poiWorld } from './Population';
+import { dressIn } from './Gear';
+import { ITEMS, type GearId } from '../config/items';
 import { CitizenBrain } from '../ai/brains/CitizenBrain';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { OtaBrain } from '../ai/brains/OtaBrain';
@@ -58,6 +61,10 @@ export interface RoleSpec {
   home?: number;
   /** Банда (Gangs). */
   gang?: number;
+  /** Номер человека (Character.pid): возрождённый — тот же, по нему помнят знакомства и характер. */
+  pid?: number;
+  /** Одежда (вещи каталога в слотах одежды): возрождается в ней же (Wardrobe, Gear.dressIn). */
+  outfit?: GearId[];
   /** Часовой / RCT проходной / медик КПП: фронт, пост и взгляд, место медика. */
   front?: number;
   post?: Vec2;
@@ -68,6 +75,8 @@ export interface RoleSpec {
   lead?: boolean;
   /** Вахтёр режимного объекта (Access): какой объект охраняет. */
   access?: AccessSite;
+  /** Пост блок-поста на стене Верхнего города: проверяет документы и досматривает вещи у себя на КПП. */
+  border?: boolean;
 }
 
 /** Здоровье роли: ВС — по юниту, сопротивление — по юниту из профессии, остальные — ROSTER.hp. */
@@ -162,6 +171,7 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   c.facing = spec.facing ?? ctx.rng.range(0, Math.PI * 2);
   c.hunger = ctx.rng.range(40, 100);
   equipKit(c, spec.kit, ctx);
+  for (const id of spec.outfit ?? []) if (ITEMS[id]?.gear) dressIn(c, id);
   // Жители оружие на виду не носят (бандит достаёт ствол только для грабежа).
   if (spec.kind === 'citizen' || spec.kind === 'cwu' || spec.kind === 'vort' || spec.kind === 'trader' || spec.kind === 'gang') ctx.combat.equip(c, null);
   // ВС — здоровье по юниту (RCT.PCU 75 … CMD.EPU 200), остальные — по профессии.
@@ -170,7 +180,10 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   if (spec.faction === 'cp') c.division = cpUnit(spec.rank).group;
   // Грузчики и оружейник склада Протектората — с допуском: документы всегда в порядке.
   if (spec.profession === 'loader' || spec.profession === 'armorer') c.law.hasCid = true;
-  c.role = { ...spec, name: c.name };
+  // Тот же человек после возрождения: номер прежний (знакомства, мнение, характер), воспоминания о смерти забыты.
+  if (spec.pid !== undefined) c.pid = spec.pid;
+  c.role = { ...spec, name: c.name, pid: c.pid };
+  ctx.relations?.register(c, spec.pid !== undefined);
   c.brain = brainFor(ctx, c, spec);
   // Силовой блок — в штатное расписание (должность; погиб — вакансия, её займёт младший по званию).
   if (spec.faction === 'cp') ctx.staffing?.adopt(c);
@@ -276,6 +289,7 @@ export function newcomer(ctx: AiContext): Character | null {
   c.loyalty = loyalty;
   const d = ctx.housing?.house(c, null);
   if (d && c.role) c.role.home = c.home;
+  ctx.wardrobe?.dress(c);
   return c;
 }
 

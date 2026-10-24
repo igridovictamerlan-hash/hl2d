@@ -170,8 +170,12 @@ describe('Управа: общая камера, лоялисты, проспе�
     // Воры и бандиты на скамейки не садятся — обывателей побольше.
     spawnPopulation(ctx, 50);
     sim.war.command.paused = true;
+    // Тихий город: перестрелка банд или бунт подполья загоняют жителей в укрытия (Senses) — скамейки пустеют.
+    ctx.gangs.paused = true;
+    sim.insurgency.paused = true;
     let seated = 0;
-    run(sim, 240, () => {
+    // На большой карте до скамейки бывает далеко — времени с запасом.
+    run(sim, 480, () => {
       seated = Math.max(seated, sim.entities.list.filter((c) => c.brain instanceof CitizenBrain && c.brain.fsm.current === 'bench' && c.brain.stayUntil > 0).length);
       return street.stats.benchTalks > 0 && seated >= 3;
     });
@@ -253,17 +257,20 @@ describe('улицы, общежития, особняки, семьи', () => {
     expect(again.name).toBe(c.name);
   });
 
-  test('уличная движуха: карты в общежитии, перекуры, доски объявлений, родня навещает друг друга', { timeout: 120_000 }, () => {
+  test('уличная движуха: карты в общежитии, перекуры, доски объявлений, родня навещает друг друга', { timeout: 240_000 }, () => {
     const sim = makeSim(12345);
-    spawnPopulation(sim.ctx, 50);
+    // Жителей побольше: визит к родне — редкое занятие (ветка «к родне» и свободный родственник рядом совпадают нечасто).
+    spawnPopulation(sim.ctx, 80);
     sim.war.command.paused = true;
     const st = sim.ctx.street;
     expect(st.tables.length).toBeGreaterThan(0);
     expect(st.boards.length).toBeGreaterThan(3);
+    // Визит к родне — редкое занятие: ждём до 8 минут, пока не наберётся всё.
     let smoking = 0;
-    run(sim, 240, () => {
+    run(sim, 480, () => {
       smoking = Math.max(smoking, sim.entities.list.filter((c) => c.smoking).length);
-      return false;
+      const S = st.stats;
+      return S.cards > 0 && S.smokes > 0 && S.notices > 0 && S.family > 0 && smoking > 0;
     });
     console.log(`движуха: ${JSON.stringify(st.stats)}, курили одновременно ${smoking}`);
     expect(st.stats.cards).toBeGreaterThan(0);

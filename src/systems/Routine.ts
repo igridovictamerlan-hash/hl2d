@@ -1,3 +1,4 @@
+/** Описание системы — docs/city-life.md. */
 import { ROUTINE, type DayPhase } from '../config/routine';
 import { LIGHTING } from '../config/lighting';
 import { dayFraction } from '../world/Lighting';

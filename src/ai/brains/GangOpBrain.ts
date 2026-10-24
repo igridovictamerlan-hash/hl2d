@@ -11,6 +11,9 @@ import { GANGS } from '../../config/gangs';
 import { canSeeCircle } from '../../world/visibility';
 import { LAW } from '../../config/law';
 import { followColumn, watchSector } from '../Tactics';
+import { PRISON } from '../../config/prison';
+import { PARTISANS } from '../../config/underground';
+import { randomAnchorAround } from '../destinations';
 
 /**
  * Боец банды на деле (GangSystem.startOp) — мозг на время дела, потом прежний (finish):
@@ -18,7 +21,11 @@ import { followColumn, watchSector } from '../Tactics';
  *  raid — в чужой район, бродить там (стычка начнётся сама — GangSystem.scanFeuds);
  *  hit — к патрульному ВС у района, ближе engage — ствол в руки (враг Протектората, розыск), огонь;
  *  convoy — наперерез колонне склада, ближе engage и на виду — огонь; брошенные ящики — в общак;
- *  buy — к барыге, купить ствол в общак.
+ *  buy — к барыге, купить ствол в общак;
+ *  defend — стычка на своём районе (война банд): бегом к месту, бой берёт на себя Gunner; стычка кончилась — домой;
+ *  storm — дело с подпольем (group): штурм тюрьмы — к месту сбора, огня не открывают; сигнал группы
+ *    (group.attack) — стволы, огонь по охране, внутрь тюрьмы; охота на патруль ВС — держатся у ведущего
+ *    подполья, по сигналу — огонь по патрулю; бой дольше PRISON.assault.fight / PARTISANS.hunt.fight — домой.
  * Стреляет по врагам (Gunner): бойцам чужой банды в стычке и, раз напал, — по ВС. По городу — вместе
  * (GANGS.pairs): остальные идут колонной за ведущим (первый живой из команды), ведущий ждёт отставших;
  * ведущий остался один — дело бросает.
@@ -62,6 +69,8 @@ export class GangOpBrain implements Brain {
     let bestD: number = GANGS.ops.hit.seek;
     for (const o of ctx.entities.list) {
       if (!o.alive || o.faction !== 'cp' || !o.fit || ctx.map.levelAt(o.x, o.y) !== 'city') continue;
+      // У своей общаги не нападают (GANGS.ops.hit.homeClear): бой пришёл бы домой.
+      if (Math.hypot(o.x - this.op.gang.hq.x, o.y - this.op.gang.hq.y) < GANGS.ops.hit.homeClear) continue;
       const k = ctx.map.zoneAtWorld(o.x, o.y)?.kind;
       if (k === 'nexus' || k === 'cells' || k === 'checkpoint' || k === 'outlands' || k === 'wasteland' || k === 'arsenal' || k === 'prison' || k === 'academy') continue;
       const d = Math.hypot(o.x - self.x, o.y - self.y);
@@ -91,6 +100,8 @@ export class GangOpBrain implements Brain {
    * никого (true — стоит). Ведущий один — дело брошено.
    */
   private together(self: Character, ctx: AiContext, dt: number): boolean {
+    // На подмогу у себя на районе бегут каждый сам (по одному на районе можно).
+    if (this.op.kind === 'defend') return false;
     const crew = this.crew();
     const lead = crew[0];
     if (!lead) return false;
@@ -131,11 +142,17 @@ export class GangOpBrain implements Brain {
     const op = this.op;
     const now = ctx.combat.now;
     if (self.law.phase !== 'none') return;
-    if (self.health < self.maxHealth * COMBAT.woundedFraction) {
+    // Ранен — домой; на штурме тюрьмы после сигнала держатся, как подполье, до тяжёлого (PRISON.assault.woundedLeave).
+    const leave = op.kind === 'storm' && op.group?.attack && op.group.task === 'prison' ? PRISON.assault.woundedLeave : COMBAT.woundedFraction;
+    if (self.health < self.maxHealth * leave) {
       this.finish(self, ctx);
       return;
     }
     this.repath -= dt;
+    // На штурм идут под видом прохожих: до сигнала подполья не стреляют (если не ранили).
+    if (op.kind === 'storm') this.gunner.holdFire = !op.group?.attack && now - self.lastHurt > 5;
+    // Сигнал подполья — стволы сразу у всех (не ждать, пока ведущий, собирающий отставших, дойдёт до дела).
+    if (op.kind === 'storm' && op.group?.attack && !self.hostile) this.attack(self, ctx, 'storm');
     const fighting = this.gunner.update(self, ctx, dt);
     if (fighting && this.gunner.target) {
       this.mover.stop();
@@ -202,6 +219,73 @@ export class GangOpBrain implements Brain {
           }
           break;
         }
+        case 'defend': {
+          const to = op.target;
+          if (!to || !op.rival || !ctx.gangs.feuding(op.gang.id, op.rival.id)) {
+            this.over();
+            return;
+          }
+          this.mover.speed = CHARACTER.runSpeed * 0.85;
+          const st = this.mover.status;
+          if (this.repath <= 0 || st === 'idle' || st === 'failed' || st === 'arrived') {
+            this.repath = ctx.rng.range(2, 4);
+            const a = randomAnchorAround(to, ctx, 0, 5, new Set());
+            if (a >= 0) this.mover.goTo(self, ctx, a);
+            else this.goTo(self, ctx, to);
+          }
+          break;
+        }
+        case 'storm': {
+          const g = op.group;
+          const to = op.target;
+          if (!g || !to || (g.alarm && !g.attack)) {
+            this.over();
+            return;
+          }
+          const hunt = g.task === 'hunt';
+          if (!g.attack) {
+            // Охота — держатся у ведущего подполья (он выслеживает патруль); штурм — у места сбора.
+            const lead = g.lead;
+            const at = hunt && lead.alive && ctx.map.levelAt(lead.x, lead.y) === 'city' ? lead : to;
+            if (hunt && !lead.alive) {
+              this.over();
+              return;
+            }
+            const st = this.mover.status;
+            if (Math.hypot(at.x - self.x, at.y - self.y) > 90 && (this.repath <= 0 || st === 'idle' || st === 'failed')) {
+              this.repath = 2;
+              const a = randomAnchorAround(at, ctx, 1, 4, new Set());
+              if (a >= 0) this.mover.goTo(self, ctx, a);
+              else this.goTo(self, ctx, at);
+            } else if (st === 'arrived') this.mover.stop();
+            break;
+          }
+          if (now - g.firedAt > (hunt ? PARTISANS.hunt.fight : PRISON.assault.fight)) {
+            this.over();
+            return;
+          }
+          if (hunt) {
+            // По патрулю: к нему (или к ближайшему ВС у места боя); бой берёт на себя Gunner.
+            const prey = ctx.insurgency.huntTarget(g, self);
+            const st = this.mover.status;
+            if (prey && (this.repath <= 0 || st === 'idle' || st === 'failed' || st === 'arrived')) {
+              this.repath = 1.5;
+              this.goTo(self, ctx, prey);
+            }
+            break;
+          }
+          // Внутрь: точки вокруг центра тюрьмы (бой берёт на себя Gunner — стоят и стреляют).
+          const c = ctx.prison.center ?? to;
+          const st = this.mover.status;
+          if (this.repath <= 0 || st === 'idle' || st === 'failed' || st === 'arrived') {
+            this.repath = ctx.rng.range(3, 6);
+            const R = GANGS.ops.storm.ring;
+            const a = randomAnchorAround(c, ctx, R[0], R[1], new Set());
+            if (a >= 0) this.mover.goTo(self, ctx, a);
+            else this.goTo(self, ctx, c);
+          }
+          break;
+        }
         case 'convoy': {
           const v = op.convoy;
           const live = !!v && ctx.arsenal.convoys.includes(v);
@@ -236,13 +320,15 @@ export class GangOpBrain implements Brain {
   }
 
   /** Напасть на Протекторат: вся команда достаёт стволы — враги Протектората, в розыске. */
-  private attack(self: Character, ctx: AiContext, what: 'hit' | 'convoy'): void {
+  private attack(self: Character, ctx: AiContext, what: 'hit' | 'convoy' | 'storm'): void {
     for (const c of this.op.team) {
       if (!c.alive || c.hostile) continue;
       c.hostile = true;
-      c.law.wanted = true;
+      ctx.law.declare(c, 'attackCp');
     }
-    self.say(ctx.rng.pick(what === 'hit' ? GANGS.lines.hit : GANGS.lines.convoy), ctx.law.now, 2);
+    self.say(ctx.rng.pick(GANGS.lines[what === 'storm' && this.op.group?.task === 'hunt' ? 'hit' : what]), ctx.law.now, 2);
+    // Штурм тюрьмы: тревогу уже подняло подполье (InsurgencySystem.prisonAttack).
+    if (what === 'storm') return;
     ctx.law.log(`${this.op.gang.def.name}: нападение на ${what === 'hit' ? 'патруль ВС' : 'конвой склада'}!`, 'radio');
     ctx.war.raiseAlarm(self.x, self.y, what === 'hit' ? 'банда напала на патруль' : 'банда напала на конвой ВС', false, { kind: what === 'hit' ? 'gang' : 'convoy', suspect: self });
   }

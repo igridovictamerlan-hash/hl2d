@@ -1,11 +1,12 @@
 import type { ItemId } from './items';
+import { atelierStock } from './clothes';
 
 /**
  * Главный проспект — улица старого города: лавки, кафе, общая столовая, ларьки. Здесь — каталог
  * (названия зон для баннера, вывески на фасадах). Геометрия — GENERATOR.avenue/facades.
  */
 
-export type ShopId = 'cwu' | 'tobacco' | 'pharmacy' | 'hardware' | 'bakery' | 'tailor';
+export type ShopId = 'cwu' | 'tobacco' | 'pharmacy' | 'hardware' | 'bakery' | 'tailor' | 'tailor_up';
 export type CafeId = 'cafe' | 'coffee';
 export type KioskId = 'press' | 'water' | 'smokes' | 'flowers';
 
@@ -25,7 +26,14 @@ export const ARBAT = {
     { id: 'pharmacy', name: 'Аптека', sign: 'АПТЕКА' },
     { id: 'bakery', name: 'Булочная', sign: 'ХЛЕБ' },
     { id: 'hardware', name: 'Хозтовары', sign: 'ХОЗТОВАРЫ' },
-    { id: 'tailor', name: 'Ателье', sign: 'АТЕЛЬЕ' },
+    { id: 'tailor', name: 'Ателье «Старый город»', sign: 'АТЕЛЬЕ' },
+  ] as readonly ShopDef<ShopId>[],
+  /**
+   * Лавки Верхнего города (за стеной Протектората): ставятся на главном проспекте за стеной (иначе — на любой улице
+   * Верхнего города), ближе к блок-посту.
+   */
+  upperShops: [
+    { id: 'tailor_up', name: 'Салон одежды «Верхний город»', sign: 'САЛОН' },
   ] as readonly ShopDef<ShopId>[],
   cafes: [
     { id: 'cafe', name: 'Кафе «Старый город»', sign: 'КАФЕ' },
@@ -39,22 +47,23 @@ export const ARBAT = {
     { id: 'flowers', name: 'Цветы', sign: 'ЦВЕТЫ' },
   ] as readonly ShopDef<KioskId>[],
   /**
-   * Что продают (цены — ITEMS[id].price, лоялистам скидка). Пусто — лавка «для вида»: ателье,
-   * газеты, цветы — зайти, поглазеть, перекинуться словом.
+   * Что продают (цены — ITEMS[id].price, лоялистам скидка): всё — с барж, через склад штаба ТС.
    */
   stock: {
-    cwu: ['bread', 'water', 'canned', 'bandage', 'medkit', 'cigarettes', 'toolkit'],
-    tobacco: ['cigarettes', 'water'],
-    pharmacy: ['bandage', 'medkit'],
+    cwu: ['bread', 'water', 'canned', 'bandage', 'medkit', 'cigarettes', 'soap', 'toolkit'],
+    tobacco: ['cigarettes', 'newspaper', 'water'],
+    pharmacy: ['bandage', 'medkit', 'soap'],
     bakery: ['bread', 'water'],
-    hardware: ['toolkit'],
-    tailor: [],
+    hardware: ['toolkit', 'soap'],
+    // Ателье — одежда из каталога (config/clothes.ts: фасоны своего достатка, первые цвета); плащ и кепка — в центре.
+    tailor: ['coat', 'cap', ...atelierStock('tailor')],
+    tailor_up: atelierStock('tailor_up'),
     cafe: ['water', 'bread'],
     coffee: ['water', 'bread'],
-    press: [],
+    press: ['newspaper'],
     water: ['water'],
     smokes: ['cigarettes'],
-    flowers: [],
+    flowers: ['flowers'],
   } as Record<string, readonly ItemId[]>,
   /**
    * Горожане ходят по лавкам: вес занятия weight (среди уличных; только если лавка не дальше seek px), при
@@ -69,12 +78,13 @@ export const ARBAT = {
    */
   meal: { hungerBelow: 64, chance: 0.7, soupChance: 0.3, seek: 1000, eat: [9, 15] as const, lineEvery: [4, 8] as const, loyalty: 1 },
   /**
-   * Товар — из штаба ТС (StreetShops): у лавки, кафе, ларька и столовой запас goods единиц (до cap;
-   * столовая — canteenCap порций супа), покупка — единица. Курьер берёт коробку со склада цеха и несёт
-   * туда, где запаса меньше доли low (сперва — где меньше всего); в коробке perBox единиц, курьеру —
-   * pay. start — запас при старте (доля cap). Будка раздачи важнее: курьер сперва несёт туда.
+   * Товар — с барж через склад штаба ТС (StreetShops, systems/Port): у лавки, кафе и ларька — полка на каждый
+   * товар из stock (до perItem штук — больше, если стеллаж длинный: perTile штук на тайл, не больше perItemMax; у ларька —
+   * kioskPerItem), покупка — штука; видно на стеллаже у задней стены. Курьер берёт со склада коробку до perBox штук — того, чего на полках меньше всего (если на складе
+   * есть), и несёт туда, где товара меньше доли low; столовой — продукты (из штуки — soup.perProvision порций
+   * супа, котёл до canteenCap). Курьеру — pay. start — запас полок при старте (доля). Будка раздачи важнее.
    */
-  supply: { cap: 12, canteenCap: 24, perBox: 6, start: 0.6, low: 0.5, pay: 5 },
+  supply: { perItem: 6, perItemMax: 12, perTile: 6, kioskPerItem: 8, canteenCap: 24, perBox: 10, start: 0.6, low: 0.5, pay: 5 },
   /**
    * Продавец (профессия vendor) за прилавком своей лавки или кафе, повар столовой — у котла: смена
    * shift с, потом перерыв (дом, столовая, прогулка). Лавка открыта, пока продавец ближе reach px к
@@ -82,7 +92,7 @@ export const ARBAT = {
    */
   staff: { shift: [140, 240] as const, reach: 24, lineEvery: [12, 25] as const },
   /** Суп в столовой: голодному без пайка наливает повар — сытость food, лояльным + loyalty. */
-  soup: { food: 40, loyalty: 1 },
+  soup: { food: 40, loyalty: 1, perProvision: 4 },
   lines: {
     closed: ['Закрыто… Где продавец?', 'Опять никого за прилавком.', 'Перерыв у них, что ли.'],
     empty: ['Ничего нет? Совсем?', 'Пустые полки…', 'Когда привезут?', 'Штаб ТС опять не довёз.'],

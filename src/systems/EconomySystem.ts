@@ -1,3 +1,4 @@
+/** Описание системы — docs/economy.md. */
 import { CWU_HQ } from '../config/cwuHq';
 import { cpUnit } from '../config/factions';
 import type { Character } from '../entities/Character';
@@ -113,8 +114,9 @@ export class EconomySystem {
       if (this.repairs.some((r) => Math.hypot(r.x - wx, r.y - wy) < 14 * ts)) continue;
       this.repairs.push({ index: this.repairs.length, kind: 'fuse', x: wx, y: wy, broken: false, worker: null, progress: 0 });
     }
-    // Узлы Протектората: у стены на проспекте или площади, разнесённые по городу.
+    // Узлы Протектората: у стены на проспекте или площади, разнесённые по городу (не в полосах КПП на стене).
     const N = ECONOMY.nodes;
+    const gates = map.poisOf('border_gate');
     let nodes = 0;
     for (let tries = 0; tries < 6000 && nodes < N.count; tries++) {
       const x = this.rng.int(3, map.width - 4);
@@ -123,6 +125,7 @@ export class EconomySystem {
       if (t !== T.STREET && t !== T.PLAZA) continue;
       const kind = map.zoneAtTile(x, y)?.kind;
       if (kind !== 'avenue' && kind !== 'plaza') continue;
+      if (gates.some((g) => x > g.x - N.gateClear && x < g.x + g.w! + N.gateClear && y >= g.y - 1 && y <= g.y + g.h!)) continue;
       const wall = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => map.isOpaque(x + dx, y + dy));
       if (!wall) continue;
       const wx = (x + 0.5) * ts;
@@ -290,14 +293,15 @@ export class EconomySystem {
 
   /** Купить в магазине. */
   /** Цена в магазине ТС для персонажа (лоялистам — скидка). */
-  shopPrice(c: Character, id: ItemId): number | undefined {
+  shopPrice(c: Character, id: ItemId, mul = 1): number | undefined {
     const base = ITEMS[id].price;
     if (base === undefined) return undefined;
-    return Math.max(1, Math.round(base * (1 - (hasLoyalty(c) ? loyaltyTier(c).discount : 0))));
+    return Math.max(1, Math.round(base * (1 - (hasLoyalty(c) ? loyaltyTier(c).discount : 0)) * mul));
   }
 
-  buy(c: Character, id: ItemId): string | null {
-    const price = this.shopPrice(c, id);
+  /** mul — цена у этого продавца (своим — скидка, недругам — надбавка: Relations.priceMul). */
+  buy(c: Character, id: ItemId, mul = 1): string | null {
+    const price = this.shopPrice(c, id, mul);
     if (price === undefined) return 'Этого в магазине нет.';
     if (c.money < price) return `Не хватает токенов: нужно ${price}.`;
     if (c.inventory.add(id, 1) === 0) return 'Инвентарь полон.';

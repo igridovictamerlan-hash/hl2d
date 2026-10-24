@@ -1,4 +1,7 @@
 /** Законы Верхнеречье и работа ВС. Время — секунды, расстояния — px, деньги — токены. */
+/** Статья розыска (LAW.wanted.charges). */
+export type WantedCharge = 'flight' | 'informed' | 'fraud' | 'theft' | 'riot' | 'assault' | 'escape' | 'sabotage' | 'fugitive' | 'murder' | 'attackCp' | 'rebel';
+
 export const LAW = {
   /**
    * Оружие в городе: стрелявший ближе firedWithin с назад (бандит, стычка банд) — уже не нарушитель, а
@@ -25,6 +28,12 @@ export const LAW = {
   alarmCheckMul: 2.5,
   /** На пограничном КПП проверяют почти всех. */
   checkpointCheckChance: 0.5,
+  /**
+   * Блок-пост на стене Верхнего города (POI border_check): часовые (RCT, дежурные SU.03) проверяют на его площади каждого
+   * с шансом check за осмотр, одного — не чаще recheck с; при проверке — досмотр вещей: свёрток подполья находят всегда,
+   * стволы, патроны и гранаты из рюкзака изымают (нарушение 'weapon'), у подпольщика под личиной — с шансом findHidden.
+   */
+  border: { check: 0.5, recheck: 120, findHidden: 0.3, lines: { found: 'Досмотр на КПП: изъято оружие.', parcel: 'Досмотр на КПП: свёрток нашли.' } },
   /** Не проверять одного и того же чаще. */
   recheckCooldown: 90,
   /** Отсидевшего (выпущен из КПЗ с документами) не проверяют ещё столько секунд — иначе снова задерживали. */
@@ -38,13 +47,55 @@ export const LAW = {
   /** Сколько даётся игроку, чтобы остановиться. */
   complyGrace: 0.8,
 
-  fines: { running: 5, restricted: 15, insult: 12, fight: 15 },
+  /** Штрафы. zone_curfew — комендантский час в квартале (район, а не весь город): штраф и «по домам», не арест. */
+  fines: { running: 5, restricted: 15, insult: 12, fight: 15, zone_curfew: 15 },
+  /**
+   * Комендантский час в квартале: пойманного повторно в течение zoneCurfewRepeat с после штрафа за него же не штрафуют,
+   * а задерживают (штраф «по домам» не подействовал).
+   */
+  zoneCurfewRepeat: 300,
   /** За что арест (иначе штраф). */
-  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot', 'contraband', 'forgery'] as readonly string[],
+  arrestFor: ['restricted', 'no_cid', 'wanted', 'resisting', 'rebel', 'weapon', 'curfew', 'theft', 'riot', 'contraband', 'forgery', 'murder', 'assault'] as readonly string[],
   /** Дознаватели JURY: проверка быстрее, штраф больше. */
   juryCheckMul: 0.5,
   juryFineMul: 2,
 
+  /**
+   * Розыск по статьям (LawSystem.declare): у каждой — степень level (1 — мелкое, 2 — тяжкое, 3 — особо тяжкое; беглый —
+   * мелкое, но бессрочно),
+   * срок ориентировки term с с последнего «засвета» (объявили, опознали; пока враг Протектората — hostile — или в
+   * руках ВС, срок не идёт; Infinity — бессрочно), срок заключения jail с (1-я степень — КПЗ, выше — тюрьма; повстанцам
+   * в тюрьме — бессрочно, игроку — не больше playerJail). Новая статья тяжелее прежней — заменяет её. ВС узнаёт
+   * разыскиваемого в лицо ближе face[level − 1] px (на виду; в личине — нет) и задерживает.
+   */
+  wanted: {
+    charges: {
+      flight: { level: 1, name: 'неподчинение ВС', term: 240, jail: 40 },
+      informed: { level: 1, name: 'по доносу', term: 240, jail: 40 },
+      fraud: { level: 1, name: 'подделка документов', term: 300, jail: 60 },
+      theft: { level: 1, name: 'кража', term: 300, jail: 60 },
+      riot: { level: 1, name: 'беспорядки', term: 300, jail: 60 },
+      assault: { level: 2, name: 'вооружённое нападение', term: 480, jail: 240 },
+      escape: { level: 2, name: 'побег из-под стражи', term: 600, jail: 300 },
+      sabotage: { level: 2, name: 'диверсия', term: 600, jail: 300 },
+      fugitive: { level: 1, name: 'беглый, без документов', term: Infinity, jail: 60 },
+      murder: { level: 3, name: 'убийство', term: 900, jail: 600 },
+      attackCp: { level: 3, name: 'нападение на Протекторат', term: 900, jail: 600 },
+      rebel: { level: 3, name: 'участие в сопротивлении', term: 900, jail: 600 },
+    } satisfies Record<WantedCharge, { level: 1 | 2 | 3; name: string; term: number; jail: number }>,
+    face: [100, 150, 210] as const,
+    playerJail: 300,
+    /**
+     * Явка с повинной (игрок, E у стойки дежурного Управы): 1-я степень — штраф fine и розыск снят; выше — арест
+     * (ВС не дальше reach px от стойки), срок × jailMul.
+     */
+    surrender: { fine: 20, jailMul: 0.5, reach: 520 },
+    /**
+     * Горожане узнают разыскиваемого (не ниже level, без личины) ближе r px на виду: лояльный (от loyalty, не друг ему) с
+     * шансом chance зовёт ВС, если тот виден (Senses.callCp, не чаще SENSES.armed.call.every на человека); раз в every с.
+     */
+    inform: { level: 2, r: 200, loyalty: 10, chance: 0.5, every: 3 },
+  },
   chaseLoseTime: 6,
   catchDistance: 30,
   cpWalkSpeed: 78,
@@ -106,7 +157,14 @@ export type Violation =
   | 'riot'
   | 'contraband'
   | 'fight'
-  | 'forgery';
+  | 'forgery'
+  /** Убийство и нападение с оружием — по делу (Suspects): арест, в тюрьму Протектората. */
+  | 'murder'
+  | 'assault'
+  /** Причина проверки (не нарушение): опознание по ориентировке. Не наказуемо — отпускают, если дело не доказано. */
+  | 'suspect'
+  /** Комендантский час в квартале (Escalation): штраф и «по домам», не арест. */
+  | 'zone_curfew';
 
 export const VIOLATION_NAMES: Record<Violation, string> = {
   running: 'бег',
@@ -124,4 +182,8 @@ export const VIOLATION_NAMES: Record<Violation, string> = {
   contraband: 'контрабанда',
   fight: 'драка на улице',
   forgery: 'поддельный пропуск',
+  murder: 'убийство',
+  assault: 'нападение с оружием',
+  suspect: 'проверка по ориентировке',
+  zone_curfew: 'комендантский час в квартале',
 };

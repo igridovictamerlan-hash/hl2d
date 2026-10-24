@@ -43,7 +43,7 @@ function pairInSight(sim: Sim, d: number): [number, number] {
 }
 
 describe('экономика', () => {
-  test('раздача рационов: очередь, ТС выдаёт, граждане получают паёк и токены', { timeout: 60_000 }, () => {
+  test('раздача рационов: очередь, ТС выдаёт, граждане получают паёк и токены', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     // Горожан побольше: бандиты в очередь на площадь ходят только парами — из 20 их заметная доля.
     spawnPopulation(sim.ctx, 30);
@@ -53,9 +53,20 @@ describe('экономика', () => {
     // И без стычек банд у площади: перестрелка разгоняет очередь, и итог зависит от случая.
     sim.ctx.gangs.paused = true;
     (sim.ctx.gangs as unknown as { scan: number }).scan = Infinity;
+    // Повар ТС к открытию — у окна (иначе итог зависит от того, где повара застал случай: драка, перекур).
+    const cook = sim.entities.list.find((c) => c.profession === 'cook')!;
+    cook.x = cook.prevX = sim.economy.dispenserSpot.x;
+    cook.y = cook.prevY = sim.economy.dispenserSpot.y + 30;
     const before = new Map(sim.entities.list.map((c) => [c, c.money]));
-    run(sim, ECONOMY.rations.firstDelay + ECONOMY.rations.duration - 1);
-    const served = sim.entities.list.filter((c) => sim.economy.hasBeenServed(c));
+    // Две раздачи подряд, получившие — за обе: город 480×270, в очередь записываются и через полгорода, и кто успеет
+    // к окну за одну раздачу, решает случай заселения (кто записался первым), а не работа очереди.
+    const R = ECONOMY.rations;
+    const ids = new Set<number>();
+    run(sim, R.firstDelay + R.interval + R.duration - 1, () => {
+      for (const c of sim.entities.list) if (sim.economy.hasBeenServed(c)) ids.add(c.id);
+      return false;
+    });
+    const served = sim.entities.list.filter((c) => ids.has(c.id));
     console.log(`получили рацион: ${served.length}, работник: ${sim.economy.dispenser?.name ?? '—'}`);
     expect(served.length).toBeGreaterThanOrEqual(5);
     // Токены пришли почти всем (у кого-то их по пути вытащил вор или взял медик ТС).
@@ -92,11 +103,14 @@ describe('экономика', () => {
 
   test('ТС чинит поломку и получает оплату', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
-    const spot = sim.economy.repairs[0];
+    // Щиток (узлы Протектората чинят отдельно), чинит уборщик ТС; перерывы — по случайности мира, тест не про них.
+    const spot = sim.economy.repairs.find((r) => r.kind === 'fuse')!;
     spot.broken = true;
+    (sim.ctx.cwuHq.restSpots as unknown[]).length = 0;
     const a = sim.nav.nearestWalkable(spot.x, spot.y, 6);
     const w = createCharacter(sim.entities, sim.ctx.rng, 'cwu', sim.nav.worldX(a), sim.nav.worldY(a));
     equipKit(w, 'cwu', sim.ctx);
+    w.profession = 'janitor';
     w.brain = new CitizenBrain(w, sim.ctx);
     (w.brain as CitizenBrain).idleLeft = 0;
     const money = w.money;

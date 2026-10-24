@@ -1,3 +1,4 @@
+/** Описание системы — docs/combat.md. */
 import type { Character } from '../entities/Character';
 import type { AiContext } from './AiContext';
 import type { Rng } from '../core/rng';
@@ -65,6 +66,13 @@ export class Gunner {
     const d = Math.hypot(x - self.x, y - self.y);
     if (d <= VISION.npcCloseAwareness) return true;
     return Math.abs(angleDiff(Math.atan2(y - self.y, x - self.x), self.facing)) <= (VISION.npcFovDeg * DEG) / 2;
+  }
+
+  /** Есть чем воевать: огнестрел с патронами или холодное (нож, дубинка). */
+  private armed(self: Character, ctx: AiContext): boolean {
+    if (ctx.combat.maxRange(self) > 0) return true;
+    for (const id of ctx.combat.weaponsOf(self)) if (WEAPONS[id].mode === 'melee') return true;
+    return false;
   }
 
   acquire(self: Character, ctx: AiContext): Character | null {
@@ -264,9 +272,22 @@ export class Gunner {
     const w = combat.weaponOf(self);
     if (!w || w.mode === 'melee') {
       self.aiming = false;
+      // Стрелять нечем: цель держится, только пока рядом и на виду (нож вплотную). Раньше отпущенный из КПЗ бандит
+      // без ствола «вёл» ВС через полгорода — стоял присев у ворот Управы и ничего не решал.
+      if (!this.holdFire && !this.armed(self, ctx)) {
+        this.target = null;
+        return false;
+      }
+      if (!this.holdFire && (d > COMBAT.ai.meleeHold || !canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius))) {
+        this.lostFor += dt;
+        if (this.lostFor > this.memory) this.target = null;
+        return this.target !== null;
+      }
+      this.lostFor = 0;
       return true;
     }
-    if (d > w.range * 1.1 || !canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius)) {
+    // Цель пропала из виду, ушла из дальности или присела за блоком/бруствером и не стреляет — потеряна (как при поиске цели).
+    if (d > w.range * 1.1 || !canSeeCircle(ctx.map, self.x, self.y, t.x, t.y, t.radius) || combat.concealed(t, self.x, self.y)) {
       this.lostFor += dt;
       self.aiming = false;
       if (this.lostFor > this.memory) this.target = null;

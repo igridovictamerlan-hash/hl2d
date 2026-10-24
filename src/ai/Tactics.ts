@@ -1,3 +1,4 @@
+/** Описание системы — docs/combat.md. */
 import type { Character } from '../entities/Character';
 import type { AiContext } from './AiContext';
 import type { Mover } from './Mover';
@@ -5,6 +6,7 @@ import type { Gunner } from './Gunner';
 import type { Vec2 } from '../core/math';
 import { castRay, castRayWith, lineOfSight } from '../world/visibility';
 import { T } from '../world/tiles';
+import { trenchCover } from '../world/trench';
 import { TACTICS, SUPPRESS, CROUCH, DOWNED } from '../config/tactics';
 import { CHARACTER } from '../config/entities';
 import { FACTIONS } from '../config/factions';
@@ -46,10 +48,14 @@ function crowded(self: Character, ctx: AiContext, x: number, y: number): boolean
   return false;
 }
 
-/** Бетонный блок между точкой и угрозой не дальше CROUCH.coverReach от точки. */
+/**
+ * Низкое укрытие между точкой и угрозой: бетонный блок не дальше CROUCH.coverReach от точки или
+ * траншея с бруствером в сторону угрозы (`trenchCover`: угроза дальше TRENCH.exposedWithin, не вдоль траншеи).
+ */
 export function blockToward(ctx: AiContext, x: number, y: number, tx: number, ty: number): boolean {
   const d = Math.hypot(tx - x, ty - y);
   if (d < 1) return false;
+  if (trenchCover(ctx.map, x, y, tx, ty)) return true;
   let block = false;
   castRayWith(ctx.map, x, y, (tx - x) / d, (ty - y) / d, Math.min(d, CROUCH.coverReach), (bx, by) => {
     if (ctx.map.tileAt(bx, by) === T.BARRIER) block = true;

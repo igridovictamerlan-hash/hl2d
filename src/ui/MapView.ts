@@ -8,6 +8,8 @@ import type { GangSystem } from '../systems/Gangs';
 import type { Fence } from '../systems/Fence';
 import type { InsurgencySystem } from '../systems/InsurgencySystem';
 import { MINIMAP } from '../config/minimap';
+import { RENDER } from '../config/render';
+import { rockRelief } from '../world/relief';
 import { FACTIONS } from '../config/factions';
 
 export interface MapViewHost {
@@ -101,6 +103,7 @@ export class MapView {
       [MINIMAP.waypoint.color, 'ваша метка'],
       [C.scene, 'место происшествия (оцепление)'],
       [C.base, 'лагерь / схрон'],
+      [C.dugout, 'блиндаж сопротивления (у КПП)'],
       [C.market, 'барыга (чёрный рынок)'],
       [GANGS.defs[0].color, 'районы и общаги банд'],
     ]
@@ -245,6 +248,9 @@ export class MapView {
     this.sewerFull = null;
     this.sewerImg = null;
     const levels: Level[] = map.underground ? ['city', 'sewer'] : ['city'];
+    // Горы — уступами, как на карте: выше светлее, на гребне снег.
+    const relief = rockRelief(map.tiles, map.width, map.height, map.seed | 0);
+    const RR = RENDER.tiles.ridge;
     for (const level of levels) {
       const r = this.levelRect(level);
       const cv = document.createElement('canvas');
@@ -255,7 +261,18 @@ export class MapView {
       const full = new Uint8ClampedArray(r.w * r.h * 4);
       for (let y = 0; y < r.h; y++) {
         for (let x = 0; x < r.w; x++) {
-          const [cr, cg, cb] = MINIMAP.tiles[map.tiles[(r.y + y) * map.width + r.x + x]] ?? [255, 0, 255];
+          const ti = (r.y + y) * map.width + r.x + x;
+          let [cr, cg, cb] = MINIMAP.tiles[map.tiles[ti]] ?? [255, 0, 255];
+          const lv = relief[ti];
+          if (lv !== 255) {
+            if (lv >= RR.snowLevel) [cr, cg, cb] = MINIMAP.snow;
+            else {
+              const k = lv * MINIMAP.ridgeLight;
+              cr += k;
+              cg += k;
+              cb += k * 1.1;
+            }
+          }
           const i = (y * r.w + x) * 4;
           full[i] = cr;
           full[i + 1] = cg;
@@ -557,6 +574,8 @@ export class MapView {
       for (const h of map.hatches) if (player.profession === 'partisan' || player.profession === 'spec_agent' || this.hatches.has(h.id)) dot(h.city.x, h.city.y, 2, C.hatch, true);
       // Лагерь сопротивления в пустоши — своим.
       if (player.faction === 'rebel') for (const p of poi('rebel_camp')) dot(p.x, p.y, 4, C.base);
+      // Передовые блиндажи у КПП — повстанцам; разрушенный — серым кольцом, стройка не закончена.
+      if (player.faction === 'rebel') for (const d of war.dugouts.list) dot(d.x, d.y, 2.6, d.broken ? C.dugoutRuined : C.dugout, d.broken);
       for (const f of war.fronts) {
         const color = f.capture || f.held > 0 ? C.capture : war.active(f) ? C.fight : C.front;
         dot(f.innerGate.x, f.innerGate.y, 3.5, color);

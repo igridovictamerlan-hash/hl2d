@@ -29,6 +29,11 @@ const stripTile = (x: number, y: number, d: Dir, s: number, o: number) => ({
  * Длина тоннеля сквозь стену: шаги 0..L-1 — незаблокированная стена с глухими боками,
  * шаг L — целиком проходим. -1, если так не получается.
  */
+/** Во сколько раз город больше площади, на которую заданы количества деталей (GENERATOR.areaBase), — не меньше 1. */
+export function areaMul(w: number, h: number): number {
+  return Math.max(1, (w * h) / GENERATOR.areaBase);
+}
+
 function tunnelLength(g: GenGrid, x: number, y: number, d: Dir, w: number, maxLen: number): number {
   for (let s = 0; s <= maxLen; s++) {
     let all = true;
@@ -200,7 +205,9 @@ export function addFeatures(
 
   // 2. Дворы-колодцы: замкнутый двор внутри квартала, вход через арку или подъезд.
   const cc = C.courtyards;
-  for (let tries = 0; tries < 1500 && stats.courtyards < cc.count; tries++) {
+  // Дворов, арок и тупиков — по площади города (числа конфига — на areaBase).
+  const k = areaMul(g.w, g.h);
+  for (let tries = 0; tries < 1500 * k && stats.courtyards < Math.round(cc.count * k); tries++) {
     const cw = rng.int(cc.size[0], cc.size[1]);
     const ch = rng.int(cc.size[0], cc.size[1]);
     const x = rng.int(g.border + cc.margin, g.w - g.border - cc.margin - cw);
@@ -241,7 +248,7 @@ export function addFeatures(
   // 3. Сквозные подъезды и арки между переулками — срезки, где обход длинный.
   const pc = C.passages;
   let made = 0;
-  for (let tries = 0; tries < 3000 && made < pc.count; tries++) {
+  for (let tries = 0; tries < 3000 * k && made < Math.round(pc.count * k); tries++) {
     const e = randomAlleyEdge(g, rng, (px, py) => opts.isResidential(px, py) || opts.isIndustrial(px, py));
     if (!e) continue;
     const back2 = stripTile(e.x, e.y, e.d, -1, 1);
@@ -256,7 +263,7 @@ export function addFeatures(
 
   // 4. Тупиковые отростки.
   const de = C.deadEnds;
-  for (let tries = 0; tries < 2000 && stats.stubs < de.count; tries++) {
+  for (let tries = 0; tries < 2000 * k && stats.stubs < Math.round(de.count * k); tries++) {
     const e = randomAlleyEdge(g, rng, (px, py) => opts.isResidential(px, py) || opts.isIndustrial(px, py));
     if (!e) continue;
     const back2 = stripTile(e.x, e.y, e.d, -1, 1);

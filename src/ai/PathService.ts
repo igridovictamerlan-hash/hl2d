@@ -32,6 +32,8 @@ export class PathRequest {
 export class PathService {
   private readonly astar: AStar;
   private queue: PathRequest[] = [];
+  /** Поисков за тик (Game поднимает по числу NPC — config/population.ts, LOD.paths). */
+  budget: number = AI.pathBudgetPerTick;
 
   constructor(
     private readonly map: GameMap,
@@ -50,7 +52,7 @@ export class PathService {
     return req;
   }
 
-  process(budget = AI.pathBudgetPerTick): void {
+  process(budget = this.budget): void {
     let done = 0;
     while (this.queue.length > 0 && done < budget) {
       const req = this.queue.shift()!;
@@ -79,7 +81,14 @@ export class PathService {
     }
     const pts: Vec2[] = [{ x: req.fromX, y: req.fromY }];
     for (const a of anchors) pts.push({ x: nav.worldX(a), y: nav.worldY(a) });
-    req.points = smoothPath(this.map, pts, CHARACTER.radius);
+    // Путь с ценой местности (укрытия) спрямляется только внутри одного класса: открытое место не срезает ход сообщения.
+    const extra = req.opts.extraCost;
+    let classes: number[] | undefined;
+    if (extra) {
+      classes = [extra(anchors[0]) > 0 ? 1 : 0];
+      for (const a of anchors) classes.push(extra(a) > 0 ? 1 : 0);
+    }
+    req.points = smoothPath(this.map, pts, CHARACTER.radius, 2, classes);
     req.status = 'done';
   }
 }

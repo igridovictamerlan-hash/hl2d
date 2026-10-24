@@ -3,6 +3,7 @@ import { rectsOverlap, type Rect } from '../../core/math';
 import { GENERATOR } from '../../config/generator';
 import { T } from '../tiles';
 import type { GenGrid } from './GenGrid';
+import { areaMul } from './features';
 import type { Lattice, LEdge } from './lattice';
 import { ACADEMY_TEMPLATE, ARSENAL_TEMPLATE, DORM_TEMPLATE, PRISON_TEMPLATE, VILLA_TEMPLATE } from './templates';
 
@@ -39,7 +40,7 @@ export interface StreetPlan {
  * разметки регионов, до лабиринта: рёбра артерий сразу вырезаются (carved), места зданий
  * становятся пустотами — лабиринт их обходит, а переулки подходят к ним снаружи.
  */
-export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect: Rect; side: 'N' | 'S' }, blocked: readonly Rect[], mapW: number, mapH: number, nexus: Rect | null = null): StreetPlan {
+export function planStreets(lat: Lattice, rng: Rng, hLines: readonly number[], plaza: { rect: Rect; side: 'N' | 'S' }, blocked: readonly Rect[], mapW: number, mapH: number, nexus: Rect | null = null, upperX: number | null = null): StreetPlan {
   const S = GENERATOR.streets;
   const arteries: Artery[] = [];
   const inArtery = new Uint8Array(lat.edges.length);
@@ -66,10 +67,16 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
     return out;
   };
   const w3 = GENERATOR.alley.mainWidth;
+  // Главный проспект — первый в hLines (у него площадь; «сторона без стволов» — от него).
+  const hLine = hLines[0];
   for (let i = 0; i < lat.cols; i++) {
-    for (const dir of [-1, 1] as const) {
-      const spine = walk(i, hLine, dir, rng.int(S.branchRow[0], S.branchRow[1]));
-      if (spine.length >= S.minSpine) cands.push({ i, dir, spine, rooted: true });
+    for (const line of hLines) {
+      // Ствол — только от узла на асфальте проспекта (за его концом линия — обычная решётка).
+      if (!lat.node(i, line).onAvenue) continue;
+      for (const dir of [-1, 1] as const) {
+        const spine = walk(i, line, dir, rng.int(S.branchRow[0], S.branchRow[1]));
+        if (spine.length >= S.minSpine) cands.push({ i, dir, spine, rooted: true });
+      }
     }
     // У площади: от её дальнего края — вглубь квартала.
     const dir: -1 | 1 = plaza.side === 'N' ? -1 : 1;
@@ -194,22 +201,32 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
       return fits(rect) ? { rect, face } : null;
     }
   };
-  const place = (tpl: readonly string[], n: number, gap: number, tries: number): Placement[] => {
+  // Полосы достатка: общежития — западнее стены Верхнего города (Слобода и Старый город), особняки — за ней.
+  const DS = GENERATOR.wealth;
+  const west = (r: Rect) => upperX === null || r.x + r.w <= upperX - 2;
+  const east = (r: Rect) => upperX === null || r.x >= upperX + DS.wall + 2;
+  const place = (tpl: readonly string[], n: number, gap: number, tries: number, where: (r: Rect) => boolean): Placement[] => {
     const out: Placement[] = [];
-    for (let t = 0; t < tries && out.length < n && streetEdges.length; t++) {
-      const p = candidate(tpl, gap, streetEdges);
-      if (!p) continue;
-      taken.push(p.rect);
-      out.push(p);
+    // Сперва — в своей полосе; не набралось нужного минимума (проверка карты) — где придётся.
+    for (const strict of [true, false]) {
+      for (let t = 0; t < tries && out.length < n && streetEdges.length; t++) {
+        const p = candidate(tpl, gap, streetEdges);
+        if (!p || (strict && !where(p.rect))) continue;
+        taken.push(p.rect);
+        out.push(p);
+      }
+      if (out.length >= 2) break;
     }
     return out;
   };
-  const avenueNodes = lat.nodes.filter((n) => n.onAvenue && n.j === hLine);
+  const avenueNodes = lat.nodes.filter((n) => n.onAvenue && hLines.includes(n.j));
   const toAvenue = (r: Rect) => Math.min(...avenueNodes.map((n) => Math.hypot(n.x - (r.x + r.w / 2), n.y - (r.y + r.h / 2))));
   const D = GENERATOR.dorms;
   const V = GENERATOR.villas;
-  const dorms = place(DORM_TEMPLATE, rng.int(D.count[0], D.count[1]), D.gap, D.tries);
-  const villas = place(VILLA_TEMPLATE, rng.int(V.count[0], V.count[1]), V.gap, V.tries);
+  // Общежитий и особняков — по площади города (числа конфига — на GENERATOR.areaBase).
+  const k = areaMul(mapW, mapH);
+  const dorms = place(DORM_TEMPLATE, Math.round(rng.int(D.count[0], D.count[1]) * k), D.gap, Math.round(D.tries * k), west);
+  const villas = place(VILLA_TEMPLATE, Math.round(rng.int(V.count[0], V.count[1]) * k), V.gap, Math.round(V.tries * k), east);
 
   // Склад Протектората — последним и на своём генераторе (fork не сдвигает общий — штаб, общежития и
   // особняки остаются где были). Здание с крыльцом велико для места «вдоль улицы», поэтому — любое
@@ -221,19 +238,48 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   const rootedRects = arteries.filter((a) => a.rooted).flatMap((a) => a.edges.map((id) => lat.edgeBounds(lat.edges[id], a.width)));
   const aw = ARSENAL_TEMPLATE[0].length;
   const ah = ARSENAL_TEMPLATE.length;
+  // Проспектов два: «к проспекту» — к ближайшему по вертикали узлу проспекта у этого места.
+  const avYAt = (x: number, y: number) => {
+    let best = mapH / 2;
+    let bestD = Infinity;
+    for (const n of avenueNodes) {
+      const d = Math.abs(n.y - y) + Math.abs(n.x - x) * 0.25;
+      if (d < bestD) {
+        bestD = d;
+        best = n.y;
+      }
+    }
+    return best;
+  };
   const avY = avenueNodes.length ? avenueNodes[0].y : mapH / 2;
+  const roadTo = (fx: number, fy: number) => {
+    let road = Infinity;
+    for (const r of rootedRects) road = Math.min(road, Math.hypot(Math.max(r.x - fx, 0, fx - r.x - r.w), Math.max(r.y - fy, 0, fy - r.y - r.h)));
+    return road;
+  };
   let arsenal: Placement | null = null;
   let arsenalScore = -Infinity;
   for (let t = 0; t < AR.tries && rootedRects.length && avenueNodes.length; t++) {
-    const rect: Rect = { x: arng.int(margin, mapW - margin - aw), y: arng.int(margin, mapH - margin - ah), w: aw, h: ah };
+    // Склад стоит крыльцом к проспекту (вход сверху/снизу) или, где так не помещается, боком (вход сбоку).
+    const upright = arng.chance(0.5);
+    const w = upright ? aw : ah;
+    const h = upright ? ah : aw;
+    const rect: Rect = { x: arng.int(margin, mapW - margin - w), y: arng.int(margin, mapH - margin - h), w, h };
     if (!fits(rect)) continue;
-    const face: Placement['face'] = rect.y + ah / 2 < avY ? 'S' : 'N';
-    const fx = rect.x + aw / 2;
-    const fy = face === 'S' ? rect.y + ah : rect.y;
-    let road = Infinity;
-    for (const r of rootedRects) road = Math.min(road, Math.hypot(Math.max(r.x - fx, 0, fx - r.x - r.w), Math.max(r.y - fy, 0, fy - r.y - r.h)));
+    let face: Placement['face'];
+    let road: number;
+    if (upright) {
+      face = rect.y + h / 2 < avYAt(rect.x + w / 2, rect.y + h / 2) ? 'S' : 'N';
+      road = roadTo(rect.x + w / 2, face === 'S' ? rect.y + h : rect.y);
+    } else {
+      const east = roadTo(rect.x + w, rect.y + h / 2);
+      const west = roadTo(rect.x, rect.y + h / 2);
+      face = east <= west ? 'E' : 'W';
+      road = Math.min(east, west);
+    }
     if (road > AR.road.reach) continue;
-    const score = toAvenue(rect) - road * AR.road.penalty;
+    // Склад — в Верхнем городе (ближе к ГЭС и порту), если там нашлось место.
+    const score = toAvenue(rect) - road * AR.road.penalty + (east(rect) ? AR.upperBonus : 0);
     if (score > arsenalScore) {
       arsenal = { rect, face };
       arsenalScore = score;
@@ -252,11 +298,6 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
   const ac = arsenal ? centre(arsenal.rect) : null;
   let prison: Placement | null = null;
   let prisonScore = -Infinity;
-  const roadTo = (fx: number, fy: number) => {
-    let road = Infinity;
-    for (const r of rootedRects) road = Math.min(road, Math.hypot(Math.max(r.x - fx, 0, fx - r.x - r.w), Math.max(r.y - fy, 0, fy - r.y - r.h)));
-    return road;
-  };
   // Строгий проход, потом (места не нашлось) — с ослабленными условиями (relax).
   for (const relax of [1, PR.relax]) {
     for (let t = 0; t < PR.tries && rootedRects.length && avenueNodes.length; t++) {
@@ -271,7 +312,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
       let face: Placement['face'];
       let road: number;
       if (upright) {
-        face = rect.y + h / 2 < avY ? 'S' : 'N';
+        face = rect.y + h / 2 < avYAt(rect.x + w / 2, rect.y + h / 2) ? 'S' : 'N';
         road = roadTo(rect.x + w / 2, face === 'S' ? rect.y + h : rect.y);
       } else {
         const east = roadTo(rect.x + w, rect.y + h / 2);
@@ -280,7 +321,8 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
         road = Math.min(east, west);
       }
       if (road > PR.road.reach * relax) continue;
-      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - PR.nexusIdeal) - road * PR.road.penalty;
+      // Тюрьма — западнее стены (ближе к фронту, откуда ведут пленных), если там нашлось место.
+      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - PR.nexusIdeal) - road * PR.road.penalty - (west(rect) ? 0 : PR.upperPenalty);
       if (score > prisonScore) {
         prison = { rect, face };
         prisonScore = score;
@@ -311,7 +353,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
       let face: Placement['face'];
       let road: number;
       if (upright) {
-        face = rect.y + h / 2 < avY ? 'S' : 'N';
+        face = rect.y + h / 2 < avYAt(rect.x + w / 2, rect.y + h / 2) ? 'S' : 'N';
         road = roadTo(rect.x + w / 2, face === 'S' ? rect.y + h : rect.y);
       } else {
         const east = roadTo(rect.x + w, rect.y + h / 2);
@@ -320,7 +362,7 @@ export function planStreets(lat: Lattice, rng: Rng, hLine: number, plaza: { rect
         road = Math.min(east, west);
       }
       if (road > AC.road.reach * relax) continue;
-      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - AC.nexusIdeal) - road * AC.road.penalty;
+      const score = -Math.abs(Math.hypot(nx.x - c.x, nx.y - c.y) - AC.nexusIdeal) - road * AC.road.penalty - (west(rect) ? 0 : AC.upperPenalty);
       if (score > academyScore) {
         academy = { rect, face };
         academyScore = score;

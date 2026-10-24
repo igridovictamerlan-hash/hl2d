@@ -13,7 +13,7 @@
 export type IncidentKind =
   | 'shots' | 'gunfire' | 'armed' | 'attack' | 'contact' | 'unitDown' | 'officerDown' | 'body'
   | 'sabotage' | 'escape' | 'riot' | 'gang' | 'convoy' | 'prison' | 'depot' | 'scanner' | 'tip'
-  | 'fugitive' | 'brawl' | 'generic';
+  | 'fugitive' | 'brawl' | 'generic' | 'murder' | 'stabbing' | 'serial' | 'screams' | 'district';
 
 export interface IncidentDef {
   /** Код вызова (по рации). */
@@ -62,7 +62,7 @@ export const RADIO = {
    * с); открытых не больше maxOpen. Юнитов ищут не дальше seek px; вызов держится callTime с; прибыл — ближе
    * arrive px; на месте calm с без боя — «чисто»; не закрыли за maxTime с — отбой по таймеру.
    */
-  incident: { merge: 520, updateEvery: 25, maxOpen: 5, seek: 3200, callTime: 120, arrive: 230, calm: 22, maxTime: 150 },
+  incident: { merge: 520, updateEvery: 25, maxOpen: 5, seek: 4200, callTime: 120, arrive: 230, calm: 22, maxTime: 150 },
   /** Подмога в перестрелке: сколько юнитов дослать, не чаще every с на происшествие, не больше times раз. */
   escalate: { units: 2, every: 25, times: 2 },
   /** Юнит в бою в городе без вызова — сам докладывает «контакт» (не чаще every с на юнит). */
@@ -290,6 +290,58 @@ export const RADIO = {
       report: ['Надзор, {unit}: драка {where}, разнимаю.', '{unit}: мордобой {where}. Разберусь.', '{unit}: двое сцепились {where}.'],
       dispatch: ['Принято, {unit}. Зачинщиков — штрафовать.', 'Понял. Разнимите и выпишите штраф.'],
     },
+    murder: {
+      code: 'код 5-А', units: 3, urgent: true, prio: 3, rumor: 'murder',
+      report: [
+        'Надзор, {unit}: гражданин сообщает — убийство {where}. {suspect}, ушёл {dir}.',
+        '{unit} — Надзору: убийство {where}! {suspect}. Направление — {dir}.',
+        'Надзор, {unit}. Свидетель: убит {victim}, {where}. {suspect}, {dir}.',
+      ],
+      dispatch: [
+        'Всем юнитам: {code}, убийство {where}. Приметы: {suspect}. Ушёл {dir}. {units} — бегом, прочесать квартал.',
+        'Надзор — {units}: убийство {where}. {suspect}, {dir}. Задержать, при сопротивлении — огонь.',
+        '{code} {where}! {units}, перекрыть дворы. Ориентировка: {suspect}.',
+      ],
+      onScene: ['{unit} на месте. Тело вижу. Свидетели есть — опрашиваю.', '{unit}: {where}, прочёсываю дворы.'],
+    },
+    stabbing: {
+      code: 'код 9-Г', units: 2, urgent: true, prio: 2, rumor: 'stabbing',
+      report: [
+        'Надзор, {unit}: нападение с оружием {where}. {suspect}, ушёл {dir}.',
+        '{unit}: гражданин ранен {where}. Нападавший — {suspect}.',
+      ],
+      dispatch: [
+        'Надзор — {units}: нападение {where}. {suspect}, {dir}. Найти.',
+        '{code}: ранен гражданин {where}. {units}, выдвигайтесь. Приметы: {suspect}.',
+      ],
+    },
+    serial: {
+      code: 'код 5-С', units: 4, urgent: true, prio: 3, rumor: 'serial',
+      report: [
+        'Надзор, {unit}: снова убийство {where}! Почерк тот же. {suspect}, {dir}.',
+        '{unit} — Надзору: ещё тело {where}. {suspect}. Это серия.',
+      ],
+      dispatch: [
+        'Всем юнитам: {code}! Серия убийств. Новое — {where}. {suspect}, {dir}. {units} — бегом, работать парами.',
+        'Надзор — всем: убийца ходит по городу. {where}, {suspect}. {units} — перекрыть квартал. Вооружённых — огонь без предупреждения.',
+      ],
+      onScene: ['{unit} на месте. Ещё один… Прочёсываю.'],
+    },
+    screams: {
+      code: 'код 2-К', units: 1, urgent: false, prio: 1, rumor: 'screams',
+      report: ['Надзор, {unit}: крики {where}. Проверяю.', '{unit}: кто-то зовёт на помощь {where}.'],
+      dispatch: ['Принято, {unit}. Проверьте и доложите.', 'Понял. {units} — посмотрите, что там {where}.'],
+    },
+    district: {
+      code: 'код 11', units: 2, urgent: false, prio: 2, rumor: 'district',
+      report: [],
+      dispatch: [
+        'Надзор — {units}: {what} — {where}. Прочесать дворы, проверять всех.',
+        'Надзор: {where} — {what}. {units}, выдвигайтесь, документы у всех.',
+        '{code}: {what} {where}. {units} — на маршрут через квартал.',
+      ],
+      onScene: ['{unit}: на маршруте {where}. Проверяю прохожих.', '{unit} в квартале. Тихо пока.'],
+    },
     generic: {
       code: 'код 10', units: 2, urgent: false, prio: 2, rumor: 'generic',
       report: ['Надзор, {unit}: {what} {where}.'],
@@ -420,8 +472,8 @@ export const RADIO = {
     /** Сводки Надзора всем (по обстановке). */
     infoWanted: ['Надзор — всем юнитам: в розыске {n}. Проверяйте CID внимательнее.', 'Надзор: ориентировок в розыске — {n}. Смотрите в лица.'],
     infoNight: ['Надзор: ночь. Патрулям — парами, от фонарей не уходить.', 'Надзор — всем: ночная смена. Банды активнее, будьте внимательны.'],
-    infoRations: ['Надзор: на площади раздача. Следить за порядком в очереди.', 'Надзор: раздача открыта — PCU у площади, без толкучки.'],
-    infoFront: ['Надзор: у {front} перестрелка. PCU — к КПП не соваться, держать город.', 'Надзор: {front} под давлением. Город — в усиленном режиме.'],
+    infoRations: ['Надзор: на площади раздача. Следить за порядком в очереди.', 'Надзор: раздача открыта — патрули у площади, без толкучки.'],
+    infoFront: ['Надзор: у {front} перестрелка. Патрули — к КПП не соваться, держать город.', 'Надзор: {front} под давлением. Город — в усиленном режиме.'],
     infoVacancy: ['Надзор: в штате вакансий — {n}. Выпускники академии — на посты.', 'Надзор: людей не хватает, {n} мест пустует. Держитесь парами.'],
     infoIncidents: ['Надзор: вызовов за смену — {n}. Не расслабляться.', 'Надзор — всем: смена тяжёлая, вызовов уже {n}.'],
     infoQuiet: ['Надзор — всем юнитам: проверка связи.', 'Надзор: обстановка в городе спокойная. Продолжайте патрулирование.'],

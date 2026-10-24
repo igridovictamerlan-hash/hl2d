@@ -1,3 +1,4 @@
+/** Описание системы — docs/rendering.md. */
 import { WEAPON_POSE } from '../config/weaponSprites';
 import type { FactionId } from '../config/factions';
 import { PAWN } from '../config/pawns';
@@ -6,6 +7,9 @@ import { accBack, accBody, accTop, accessoriesOf, flakBody, flakHelmet, gasMaskH
 import type { ProfessionId } from '../config/professions';
 import { bodyPath, fillStroke, headPath, roundRect, stroke, tint } from './pawnShapes';
 import { balaclava, gasMaskS10, michHelmet, tacticalBody, tacticalFace } from './pawnTactical';
+import { clothedBody, clothesHead, clothesNeck, faceMask, hidesHair, hood } from './pawnClothes';
+import { REBEL_KITS, kitFrom, rebelKitIds, unitKit, type KitLook } from '../config/uniforms';
+import type { ClothesLook } from '../config/clothes';
 
 export { tint };
 
@@ -25,6 +29,17 @@ export interface PawnLook {
   /** Надетые шлем и бронежилет (systems/Gear): цвет; поверх гражданской одежды. */
   helmet?: string;
   vest?: string;
+  /** Гражданская одежда по достатку (config/clothes.ts) — вместо одежды фракции; ключ — для кэша спрайтов. */
+  clothes?: ClothesLook | null;
+  /**
+   * Форма по частям (config/uniforms.ts): шлем, противогаз, рубаха, броня, шинель, ранец. undefined — у ВС форма юнита
+   * целиком (по рангу), у остальных — нет; null — без формы.
+   */
+  kit?: KitLook | null;
+  clothesKey?: string;
+  /** Мимика на этот кадр: глаза закрыты (моргнул, спит), рот открыт (говорит). */
+  blink?: boolean;
+  talk?: boolean;
 }
 
 type Outfit = Record<string, string | boolean | number>;
@@ -44,15 +59,17 @@ function outfitOf(look: PawnLook): Outfit {
 const GLOVED_REBELS = new Set(['rebel_soldier', 'veteran', 'rebel_medic', 'pyro', 'demolitionist', 'rebel_leader', 'hydra_rct', 'hydra_sergeant', 'hydra_sniper', 'commando']);
 
 /** Цвет рук на оружии: перчатки у силовиков, OTA и армии, иначе кожа (как у головы). */
-export function handColor(look: Pick<PawnLook, 'faction' | 'profession' | 'seed' | 'kin'>): string {
+export function handColor(look: Pick<PawnLook, 'faction' | 'profession' | 'seed' | 'kin' | 'clothes' | 'kit'>): string {
+  if (look.kit && look.faction === 'cp') return WEAPON_POSE.gloves;
+  if (look.clothes) return pick(PAWN.skins, look.kin ?? look.seed, 3);
   if (look.faction === 'cp' || look.faction === 'ota') return WEAPON_POSE.gloves;
   if (look.faction === 'rebel' && look.profession && GLOVED_REBELS.has(look.profession)) return WEAPON_POSE.gloveRebel;
   return pick(PAWN.skins, look.kin ?? look.seed, 3);
 }
 
 /** Цвет обуви (ступни при ходьбе) по фракции — без сборки одежды: зовётся каждый кадр. */
-export function bootColor(look: Pick<PawnLook, 'faction'>): string {
-  return PAWN.boots[look.faction] ?? PAWN.gear.boot;
+export function bootColor(look: Pick<PawnLook, 'faction' | 'clothes'>): string {
+  return look.clothes?.boots ?? PAWN.boots[look.faction] ?? PAWN.gear.boot;
 }
 
 type HairStyle = keyof typeof PAWN.hairStyles;
@@ -107,15 +124,28 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   if (look.helmet && (head === 'cap' || head === 'chef' || head === 'hood' || head === 'bandana' || head === 'beret')) head = 'hair';
   if (head === 'bandana' && !vest) head = 'hair';
   const hairy = head === 'hair' || head === 'bandana' || head === 'cap' || head === 'chef' || head === 'beret';
-  const style: HairStyle = hairy ? hairStyleOf(look.seed) : 'bald';
+  // В гражданском (горожанин, опер в штатском) — своя причёска, а не голова под шлемом формы.
+  const style: HairStyle = hairy || look.clothes ? hairStyleOf(look.seed) : 'bald';
   // Родня похожа: кожа и цвет волос — от зерна семьи.
   const skin = pick(PAWN.skins, look.kin ?? look.seed, 3);
   const hair = pick(PAWN.hairs, look.kin ?? look.seed, 11);
   const H = PAWN.head;
   const hx = d === 'E' ? H.sideShift : 0;
+  faceOf.seed = look.kin !== undefined ? (look.seed ^ (look.kin * 7)) : look.seed;
+  faceOf.hair = hair;
+  faceOf.style = style;
+  faceOf.blink = !!look.blink;
+  faceOf.talk = !!look.talk;
 
-  // Силовой блок и OTA: броня по эскизам RimWorld, аксессуары за спиной, на туловище и поверх головы.
-  if (O.style === 'marine' || O.style === 'flak' || O.style === 'recon') {
+  // Форма по частям (ВС и всякий, кто надел её части): слоями поверх одежды.
+  const K = kitLookOf(look, O);
+  if (K) {
+    kitPawn(ctx, d, look, K, base, skin, hair, style, hx);
+    ctx.restore();
+    return;
+  }
+  // OTA и глава восстания: силовая броня по эскизам RimWorld, аксессуары за спиной, на туловище и поверх головы.
+  if (!look.clothes && (O.style === 'marine' || O.style === 'flak' || O.style === 'recon')) {
     const trim = O.trim === 'rank' ? look.color : (O.trim as string);
     const acc = accessoriesOf(O, look.seed);
     accBack(ctx, d, O, acc);
@@ -154,7 +184,7 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
     return;
   }
   // Армия сопротивления и HYDRA: военная экипировка (pawnTactical).
-  if (O.style === 'tactical') {
+  if (!look.clothes && O.style === 'tactical') {
     const trim = (O.armband as string | undefined) ?? PAWN.tactical.lambda;
     const acc = accessoriesOf(O, look.seed);
     accBack(ctx, d, O, acc);
@@ -190,6 +220,44 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   }
   if (O.style === 'cremator') {
     cremator(ctx, d, O);
+    ctx.restore();
+    return;
+  }
+
+  // Комплект одежды по достатку: свой рисунок туловища и головного убора (pawnClothes).
+  const C = look.clothes;
+  if (C) {
+    const hairOn = !hidesHair(C);
+    if (hairOn && d !== 'N') backHair(ctx, d, style, hair, hx);
+    if (hairOn && style === 'bun' && !C.hat) bun(ctx, hair, hx);
+    clothedBody(ctx, d, C, skin, look.band);
+    // Надетый бронежилет — поверх одежды (пластины внутри контура туловища и наплечники).
+    if (look.vest) {
+      ctx.save();
+      bodyPath(ctx, d);
+      ctx.clip();
+      clothes(ctx, d, O, C.topColor, look.vest, true);
+      ctx.restore();
+      bodyPath(ctx, d);
+      stroke(ctx, PAWN.outlineWidth);
+      shoulderPads(ctx, d, look.vest);
+    }
+    headPath(ctx, d, hx);
+    ctx.fillStyle = skin;
+    ctx.fill();
+    ctx.save();
+    headPath(ctx, d, hx);
+    ctx.clip();
+    ctx.fillStyle = PAWN.shade;
+    ctx.fillRect(d === 'E' ? hx - 20 - 2 : 3, -40, 20, 60);
+    ctx.restore();
+    headPath(ctx, d, hx);
+    stroke(ctx, PAWN.outlineWidth);
+    if (d !== 'N') face(ctx, d, hx);
+    if (hairOn) frontHair(ctx, d, style, hair, hx);
+    // Шлем — вместо головного убора.
+    clothesHead(ctx, d, C, hx, !look.helmet);
+    if (look.helmet) michHelmet(ctx, d, { helmet: look.helmet }, hx, look.seed);
     ctx.restore();
     return;
   }
@@ -241,6 +309,146 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   if (look.helmet) michHelmet(ctx, d, { helmet: look.helmet }, hx, look.seed);
   if (O.convict) convict(ctx, d, O);
   ctx.restore();
+}
+
+/** Балаклава у части ветеранов и медиков — по внешности (тот же жребий, что прежде у экипировки). */
+function maskRoll(seed: number): number {
+  return ((Math.imul(seed ^ 0x5bd1e995, 2654435761) >>> 0) % 1000) / 1000;
+}
+
+const rebelKits = new Map<string, KitLook | null>();
+/**
+ * Форма стороны по умолчанию (без предметов): ВС — форма юнита по рангу, армия сопротивления и «Грозы» — экипировка
+ * профессии (REBEL_KITS; балаклава — по внешности); у остальных — нет.
+ */
+export function defaultKit(faction: FactionId, rank: number, profession: ProfessionId | null | undefined, seed: number): KitLook | null {
+  if (faction === 'cp') return unitKit(cpUnit(rank).unit);
+  if (faction !== 'rebel' || !profession || !REBEL_KITS[profession]) return null;
+  const ids = rebelKitIds(profession, maskRoll(seed), PAWN.tactical.maskChance);
+  const key = ids.join('|');
+  if (!rebelKits.has(key)) rebelKits.set(key, kitFrom(ids));
+  return rebelKits.get(key)!;
+}
+
+/**
+ * Форма пешки: явная (look.kit) или форма стороны по умолчанию (defaultKit). У Легиона и санитара — своя экипировка;
+ * опер в штатском (гражданское, без look.kit) — без формы.
+ */
+function kitLookOf(look: PawnLook, O: Outfit): KitLook | null {
+  if (look.faction === 'ota' || O.style === 'cremator') return null;
+  if (look.kit !== undefined) return look.kit;
+  if (look.faction === 'cp' && look.clothes) return null;
+  return defaultKit(look.faction, look.rank, look.profession, look.seed);
+}
+
+/**
+ * Пешка в форме по частям (config/uniforms.ts), слоями: волосы сзади → за спиной (накидка, полы шинели, ранец,
+ * антенна) → гражданское из ателье, полевая форма или форменная рубаха → броня (бронежилет ВС, броня спецотряда,
+ * силовая, плитник, разгрузка) → шея из ателье → шинель, нашивки и навесное → голова: силовой шлем или шлем
+ * спецотряда с балаклавой, иначе противогаз, S10, балаклава или лицо (очки), сверху убор (каска, шлем MICH, фуражка,
+ * пилотка, кепи, берет; без них — шляпа из ателье) → поверх головы сзади. Нашивки и навесное — у того, кто выглядит
+ * стражником (PAWN.cpUnits.acc по юниту) или бойцом сопротивления (PAWN.professionOutfits: молния, повязка
+ * «Грозы», патронташ, рация, подсумки, сумка медика).
+ */
+function kitPawn(ctx: Ctx, d: PawnDir, look: PawnLook, K: KitLook, fallback: string, skin: string, hair: string, style: HairStyle, hx: number): void {
+  const C = look.clothes ?? null;
+  const civil = !!C && !C.bare;
+  const cp = look.faction === 'cp';
+  const prof = look.faction === 'rebel' && look.profession ? PAWN.professionOutfits[look.profession] : undefined;
+  const army = !!prof && (prof.style === 'tactical' || prof.style === 'marine') ? prof : undefined;
+  const trim = K.trim ?? (cp ? look.color : army ? ((army.armband as string | undefined) ?? PAWN.tactical.lambda) : PAWN.gear.trim);
+  const acc = cp ? accessoriesOf(PAWN.cpUnits[cpUnit(look.rank).unit], look.seed) : army ? accessoriesOf(army, look.seed) : new Set<string>();
+  // Шинель, накидка и ранец — вещи, а не навесное юнита.
+  for (const a of ['coat', 'cape', 'pack']) acc.delete(a);
+  if (K.coat === 'greatcoat') acc.add('coat');
+  if (K.coat === 'cape') acc.add('cape');
+  if (K.pack && K.armor !== 'marine') acc.add('pack');
+  const shirt = K.shirt ?? (cp ? (PAWN.outfits.cp.base as string) : fallback);
+  const O: Outfit = {
+    style: K.armor === 'marine' ? 'marine' : 'kit',
+    base: shirt,
+    armor: K.armorColor ?? PAWN.gear.reconArmor,
+    flak: K.armorColor ?? PAWN.gear.flak,
+    vest: K.armor === 'flak',
+    belt: K.belt ?? (PAWN.outfits.cp.belt as string),
+    coat: K.coatColor ?? '#1f2328',
+    cape: K.coatColor ?? '#6e1414',
+    helmet: K.headColor ?? PAWN.gear.helmet,
+    visor: K.visor ?? PAWN.gear.reconVisor,
+    shine: K.shine ?? PAWN.gear.shine,
+    eye: K.eye ?? PAWN.gear.reconGlow,
+    eyes: K.eyes ?? 1,
+  };
+  if (K.packColor) O.packColor = K.packColor;
+  // Лицо и причёска: шлем на всю голову, маска, кепи и фуражка (коротко стрижен), шлем MICH и каска (под ними не видно).
+  const fullHelmet = K.head === 'recon' || K.head === 'marine';
+  const masked = K.face === 'gas' || K.face === 's10' || K.face === 'balaclava';
+  const hairStyle: HairStyle = K.head === 'flak' || K.head === 'mich' ? 'bald' : K.head === 'peaked' || K.head === 'cadet' || K.head === 'fieldcap' || K.head === 'beret' ? 'short' : style;
+  const hairOn = !fullHelmet && !masked && !(C && hidesHair(C));
+  if (hairOn && !K.head && d !== 'N') backHair(ctx, d, hairStyle, hair, hx);
+  if (hairOn && !K.head && hairStyle === 'bun' && !C?.hat) bun(ctx, hair, hx);
+  accBack(ctx, d, O, acc);
+  // Низ: гражданское, полевая форма или рубаха (у формы ВС без своей одежды — одним проходом с бронёй, как прежде).
+  const own = !civil && !K.fatigues;
+  const tactical = K.armor === 'plate' || K.armor === 'chest';
+  if (civil) clothedBody(ctx, d, C!, skin, look.band);
+  else if (K.fatigues) tacticalBody(ctx, d, { base: K.fatigues, camo: K.camo ?? '', belt: K.belt ?? PAWN.tactical.belt, lambda: army?.lambda ?? false }, look.seed);
+  else if (!K.armor || tactical) flakBody(ctx, d, { ...O, vest: false }, trim, acc);
+  const over: Outfit = own ? O : { ...O, base: '' };
+  if (!own) delete over.base;
+  if (K.armor === 'marine') marineBody(ctx, d, over, trim, acc.has('bigPads'));
+  else if (K.armor === 'recon') reconBody(ctx, d, over, trim, acc);
+  else if (K.armor === 'flak') flakBody(ctx, d, own ? O : { ...over, vest: true }, trim, acc);
+  else if (tactical) tacticalBody(ctx, d, { rig: K.armor!, rigColor: K.armorColor ?? '#4a5234' }, look.seed);
+  // Бронежилет не из формы (снаряжение) — пластины поверх.
+  if (!K.armor && look.vest) {
+    ctx.save();
+    bodyPath(ctx, d);
+    ctx.clip();
+    clothes(ctx, d, O, shirt, look.vest, true);
+    ctx.restore();
+    bodyPath(ctx, d);
+    stroke(ctx, PAWN.outlineWidth);
+    shoulderPads(ctx, d, look.vest);
+  }
+  if (C?.bare) clothesNeck(ctx, d, C);
+  accBody(ctx, d, O, trim, acc);
+  if (army) professionBody(ctx, d, { bandolier: army.bandolier ?? false, nade: army.nade ?? false, armband: army.armband ?? false });
+  if (K.head === 'marine') marineHelmet(ctx, d, O, trim, hx);
+  else if (K.head === 'recon') reconHelmet(ctx, d, { armor: O.helmet }, trim, hx);
+  else {
+    if (K.face === 'gas') gasMaskHead(ctx, d, hx);
+    else if (K.face === 's10') gasMaskS10(ctx, d, { mask: K.maskColor ?? '#17181a', lens: K.lens ?? '#2c3a46', filter: K.filter ?? '#232629', filterRing: K.filterRing ?? '#4d86b8' }, hx);
+    else if (K.face === 'balaclava') {
+      balaclava(ctx, d, skin, K.maskColor ?? '#3a3a30', hx);
+      if (d !== 'N') face(ctx, d, hx);
+    } else {
+      headPath(ctx, d, hx);
+      ctx.fillStyle = skin;
+      ctx.fill();
+      ctx.save();
+      headPath(ctx, d, hx);
+      ctx.clip();
+      ctx.fillStyle = PAWN.shade;
+      ctx.fillRect(d === 'E' ? hx - 20 - 2 : 3, -40, 20, 60);
+      ctx.restore();
+      headPath(ctx, d, hx);
+      stroke(ctx, PAWN.outlineWidth);
+      if (d !== 'N') face(ctx, d, hx);
+      if (hairOn) frontHair(ctx, d, hairStyle, hair, hx);
+    }
+    if (K.face === 'goggles' && d !== 'N') goggles(ctx, d, K.goggles ?? '#ff8a3a', hx);
+    // Из ателье: убор (если формы на голове нет), платок на лице и очки (не поверх маски).
+    if (C && !masked) clothesHead(ctx, d, C, hx, !K.head);
+    else if (C && !K.head) clothesHead(ctx, d, { ...C, neck: undefined, glasses: false }, hx, true);
+    if (K.head === 'flak') flakHelmet(ctx, d, trim, hx);
+    else if (K.head === 'peaked') peakedCap(ctx, d, trim, hx);
+    else if (K.head === 'cadet' || K.head === 'fieldcap') cap(ctx, d, O.helmet as string, hx);
+    else if (K.head === 'beret') beret(ctx, d, O.helmet as string, hx);
+    else if (K.head === 'mich') michHelmet(ctx, d, { helmet: O.helmet, helmetCamo: !!K.headCamo, camo: K.headCamo ?? '', hgoggles: K.hgoggles ?? false, nvg: !!K.nvg }, hx, look.seed);
+    else if (look.helmet) michHelmet(ctx, d, { helmet: look.helmet }, hx, look.seed);
+  }
+  accTop(ctx, d, acc);
 }
 
 /** Поднадзорный: номер на робе (спереди и на спине) и ошейник-маячок с огоньком. */
@@ -441,30 +649,155 @@ function shoulderPads(ctx: Ctx, d: PawnDir, armor: string): void {
 
 
 /** Глаза с тяжёлыми веками и рот (как у пешек RimWorld). */
+/** Лицо текущей пешки (ставит drawPawn): внешность и мимика — чтобы не тянуть их через все ветки одежды. */
+const faceOf = { seed: 0, hair: '#000', style: 'short' as HairStyle, blink: false, talk: false };
+
+/** Доля 0..1 из зерна внешности (свой сдвиг на каждую черту). */
+function trait(seed: number, shift: number): number {
+  return (((seed >>> shift) ^ (seed * 2654435761)) >>> 0) % 1000 / 1000;
+}
+
+/** Затемнить цвет #rrggbb на долю k. */
+function darken(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1, 7), 16);
+  const f = (v: number) => Math.round(v * (1 - k));
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
 function face(ctx: Ctx, d: PawnDir, hx: number): void {
   const E = PAWN.eye;
-  const eyes = d === 'E' ? [hx + PAWN.head.r - 2.4] : [-E.dx, E.dx];
-  for (const ex of eyes) {
-    ctx.beginPath();
-    ctx.ellipse(ex, E.y, E.rx, E.ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = E.color;
-    ctx.fill();
-    // Веко — прикрывает верх глаза.
-    ctx.beginPath();
-    ctx.moveTo(ex - E.rx - 0.5, E.y - E.ry * E.lid);
-    ctx.lineTo(ex + E.rx + 0.5, E.y - E.ry * E.lid);
-    stroke(ctx, 0.8);
+  const F = PAWN.face;
+  const H = PAWN.head;
+  const seed = faceOf.seed;
+  const side = d === 'E';
+  const eyes = side ? [hx + H.r - 2.4] : [-E.dx, E.dx];
+  // Щетина — по нижней части лица (коротко стриженые и лысые).
+  const shortHair = faceOf.style === 'short' || faceOf.style === 'bald' || faceOf.style === 'messy';
+  if (shortHair && trait(seed, 3) < F.stubble.share) {
+    ctx.save();
+    headPath(ctx, d, hx);
+    ctx.clip();
+    ctx.fillStyle = F.stubble.color;
+    ctx.fillRect(side ? hx - 1 : -H.r, F.stubble.from, H.r * 2 + 2, H.r + 4);
+    ctx.restore();
   }
-  const M = PAWN.mouth;
+  // Румянец и тень скул.
+  const cheeks = side ? [hx + F.blush.x - 1.6] : [-F.blush.x, F.blush.x];
+  for (const cx of cheeks) {
+    ctx.beginPath();
+    ctx.ellipse(cx, F.blush.y, F.blush.rx, F.blush.ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = F.blush.color;
+    ctx.fill();
+  }
+  ctx.strokeStyle = F.cheek.color;
+  ctx.lineWidth = F.cheek.w;
   ctx.beginPath();
-  if (d === 'E') {
-    ctx.moveTo(hx + PAWN.head.r - 2.6, M.y);
-    ctx.lineTo(hx + PAWN.head.r - 0.9, M.y - 0.2);
+  if (side) {
+    ctx.moveTo(hx + 1.2, -8.2);
+    ctx.quadraticCurveTo(hx + 2.4, -6.4, hx + 4.2, -5.6);
   } else {
-    ctx.moveTo(-M.w / 2, M.y);
-    ctx.quadraticCurveTo(0, M.y + 0.35, M.w / 2, M.y);
+    ctx.moveTo(-5.9, -8.4);
+    ctx.quadraticCurveTo(-5.3, -6.6, -4.1, -5.7);
+    ctx.moveTo(5.9, -8.4);
+    ctx.quadraticCurveTo(5.3, -6.6, 4.1, -5.7);
+  }
+  ctx.stroke();
+  // Веснушки.
+  if (trait(seed, 9) < F.freckles.share) {
+    ctx.fillStyle = F.freckles.color;
+    for (const [fx, fy] of side ? [[hx + 3.2, -7.6], [hx + 4.1, -7.1], [hx + 3.6, -6.6]] : [[-3.8, -7.7], [-2.9, -7.2], [-4.4, -7], [3.8, -7.7], [2.9, -7.2], [4.4, -7]]) {
+      ctx.fillRect(fx - 0.25, fy - 0.25, 0.5, 0.5);
+    }
+  }
+  // Тень носа (спереди; в профиль нос — в контуре головы).
+  if (!side) {
+    ctx.beginPath();
+    ctx.moveTo(0.3, -8.4);
+    ctx.quadraticCurveTo(1, -7.1, 0.1, -6.7);
+    ctx.strokeStyle = F.nose.color;
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  }
+  // Глаза: открыты — зрачок, веко, блик; закрыты — дуга.
+  for (const ex of eyes) {
+    if (faceOf.blink) {
+      ctx.beginPath();
+      ctx.moveTo(ex - E.rx - 0.3, E.y);
+      ctx.quadraticCurveTo(ex, E.y + 0.7, ex + E.rx + 0.3, E.y);
+      stroke(ctx, 0.75);
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(ex, E.y, E.rx, E.ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = E.color;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(ex - E.rx - 0.5, E.y - E.ry * E.lid);
+      ctx.lineTo(ex + E.rx + 0.5, E.y - E.ry * E.lid);
+      stroke(ctx, 0.8);
+      ctx.beginPath();
+      ctx.arc(ex + F.shine.dx, E.y + F.shine.dy, F.shine.r, 0, Math.PI * 2);
+      ctx.fillStyle = F.shine.color;
+      ctx.fill();
+    }
+    // Морщинки у внешнего угла глаза.
+    if (trait(seed, 13) < F.wrinkles) {
+      const out = side || ex > 0 ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(ex + out * (E.rx + 0.6), E.y - 0.3);
+      ctx.lineTo(ex + out * (E.rx + 1.4), E.y - 0.6);
+      ctx.moveTo(ex + out * (E.rx + 0.6), E.y + 0.3);
+      ctx.lineTo(ex + out * (E.rx + 1.4), E.y + 0.6);
+      ctx.strokeStyle = F.cheek.color;
+      ctx.lineWidth = 0.45;
+      ctx.stroke();
+    }
+    // Брови цвета волос: наклон и толщина — по внешности (лысому — светлее).
+    const B = F.brow;
+    const tilt = (trait(seed, 5) - B.calm) * 2 * B.tilt;
+    const inner = side ? -1 : ex > 0 ? -1 : 1;
+    ctx.beginPath();
+    ctx.moveTo(ex - inner * B.len / 2, B.y + 0.15);
+    ctx.lineTo(ex + inner * B.len / 2, B.y - tilt);
+    ctx.strokeStyle = darken(faceOf.hair, faceOf.style === 'bald' ? 0.1 : B.dark);
+    ctx.lineWidth = B.w + trait(seed, 7) * 0.3;
+    ctx.stroke();
+  }
+  // Рот: говорит — открыт, иначе по складу лица (ровно, улыбка, прямо, хмуро).
+  const M = PAWN.mouth;
+  if (faceOf.talk) {
+    ctx.beginPath();
+    if (side) ctx.ellipse(hx + H.r - 1.6, M.y + 0.1, 0.7, 0.6, 0, 0, Math.PI * 2);
+    else ctx.ellipse(0, M.y + 0.15, M.w * 0.45, 0.65, 0, 0, Math.PI * 2);
+    ctx.fillStyle = F.open;
+    ctx.fill();
+    stroke(ctx, 0.5);
+    return;
+  }
+  let r = trait(seed, 11);
+  let mood = 0;
+  while (mood < F.moods.length - 1 && r >= F.moods[mood]) r -= F.moods[mood++];
+  ctx.beginPath();
+  if (side) {
+    const lift = mood === 1 ? -0.5 : mood === 3 ? 0.4 : 0;
+    ctx.moveTo(hx + H.r - 2.6, M.y);
+    ctx.lineTo(hx + H.r - 0.9, M.y - 0.2 + lift);
+  } else {
+    const bend = mood === 0 ? 0.35 : mood === 1 ? 0.8 : mood === 2 ? 0 : -0.55;
+    ctx.moveTo(-M.w / 2 - (mood === 1 ? 0.2 : 0), M.y);
+    ctx.quadraticCurveTo(0, M.y + bend, M.w / 2 + (mood === 1 ? 0.2 : 0), M.y);
   }
   stroke(ctx, 0.7);
+  // Нижняя губа — лёгкий штрих.
+  if (!side) {
+    ctx.beginPath();
+    ctx.moveTo(-0.45, M.y + 0.9);
+    ctx.lineTo(0.45, M.y + 0.9);
+    ctx.strokeStyle = F.lips;
+    ctx.globalAlpha *= 0.45;
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.globalAlpha /= 0.45;
+  }
 }
 
 /** Длинные волосы за головой (на плечи). */
@@ -679,10 +1012,12 @@ function marineBody(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: stri
     ctx.lineTo(-5.4, top + 6);
     stroke(ctx, 0.6, tint(armor, -0.45));
   }
-  // Комбинезон (силуэт туловища).
+  // Комбинезон (силуэт туловища); без O.base — броня поверх уже нарисованной одежды.
   bodyPath(ctx, d);
-  ctx.fillStyle = O.base as string;
-  ctx.fill();
+  if (O.base) {
+    ctx.fillStyle = O.base as string;
+    ctx.fill();
+  }
   ctx.save();
   ctx.clip();
   // Кираса.
@@ -1108,27 +1443,6 @@ function beret(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
   }
 }
 
-/** Платок на нижней половине лица (бандит). */
-function faceMask(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
-  const H = PAWN.head;
-  const cy = H.y;
-  ctx.beginPath();
-  if (d === 'E') {
-    ctx.moveTo(hx - 2, cy + 0.6);
-    ctx.lineTo(hx + H.r + 1.2, cy + 0.6);
-    ctx.lineTo(hx + H.r - 0.6, cy + 5.6);
-    ctx.lineTo(hx - 1, cy + H.r);
-  } else {
-    ctx.moveTo(-H.r + 0.4, cy + 0.4);
-    ctx.lineTo(H.r - 0.4, cy + 0.4);
-    ctx.lineTo(H.r * 0.5, cy + H.r + 0.4);
-    ctx.lineTo(0, cy + H.r + 2.2);
-    ctx.lineTo(-H.r * 0.5, cy + H.r + 0.4);
-  }
-  ctx.closePath();
-  fillStroke(ctx, color, PAWN.outlineWidth * 0.8);
-}
-
 /** Поварской колпак. */
 function chefHat(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
   const H = PAWN.head;
@@ -1147,37 +1461,6 @@ function chefHat(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
   ctx.moveTo(cx - 5.3, cy - 6.4);
   ctx.lineTo(cx + 5.3, cy - 6.4);
   stroke(ctx, 0.7, tint(color, -0.25));
-}
-
-/** Капюшон вора: накрывает голову и плечи, лицо в тени. */
-function hood(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
-  const H = PAWN.head;
-  const cy = H.y;
-  const r = H.r + 1.6;
-  ctx.save();
-  ctx.beginPath();
-  if (d === 'N') {
-    ctx.arc(0, cy, r, 0, Math.PI * 2);
-  } else if (d === 'E') {
-    ctx.moveTo(hx + r - 3, cy - r + 1);
-    ctx.bezierCurveTo(hx + 1, cy - r - 2.2, hx - r - 1.5, cy - r, hx - r - 1, cy + 3);
-    ctx.lineTo(hx - r + 1, cy + r + 0.5);
-    ctx.lineTo(hx + 1, cy + r - 1);
-    ctx.bezierCurveTo(hx - 2, cy + 2, hx + 0.5, cy - 4, hx + r - 3, cy - r + 1);
-  } else {
-    // Спереди: край капюшона обрамляет лицо.
-    ctx.moveTo(-r, cy + r - 1);
-    ctx.bezierCurveTo(-r - 0.6, cy - r - 2.4, r + 0.6, cy - r - 2.4, r, cy + r - 1);
-    ctx.lineTo(r - 2.6, cy + r - 2);
-    ctx.bezierCurveTo(r - 2.2, cy - 3, -r + 2.2, cy - 3, -r + 2.6, cy + r - 2);
-  }
-  ctx.closePath();
-  fillStroke(ctx, color, PAWN.outlineWidth);
-  if (d === 'S') {
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.fillRect(-r + 2.6, cy - 3.6, (r - 2.6) * 2, 2.6);
-  }
-  ctx.restore();
 }
 
 /** Защитные очки пиротехника. */

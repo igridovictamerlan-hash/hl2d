@@ -3,11 +3,13 @@ import { PRISON } from '../src/config/prison';
 import { ACADEMY } from '../src/config/academy';
 import { ARSENAL } from '../src/config/arsenal';
 import { AI } from '../src/config/ai';
+import { LAW } from '../src/config/law';
 import { describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
 import { createCharacter } from '../src/entities/factory';
 import { CpBrain } from '../src/ai/brains/CpBrain';
 import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
+import { belongsInPrison, chargeOf, wantedLevel } from '../src/systems/LawSystem';
 import { spawnPopulation } from '../src/systems/Population';
 import { lineOfSight } from '../src/world/visibility';
 import { T } from '../src/world/tiles';
@@ -109,6 +111,126 @@ describe('ВС: проверка, арест, КПЗ', () => {
     expect(t.law.wanted).toBe(false);
   });
 
+  test('розыск по статьям: тяжесть, опознание в лицо по степени, срок ориентировки, беглый — бессрочно', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    const { entities, ctx, law, nav } = sim;
+    const C = LAW.wanted.charges;
+    const [a, b] = pairInSight(sim, 80);
+    const cp = createCharacter(entities, ctx.rng, 'cp', nav.worldX(a), nav.worldY(a));
+    cp.brain = new CpBrain(cp, ctx);
+    // ВС смотрит на него: опознание — в угле обзора.
+    cp.facing = Math.atan2(nav.worldY(b) - cp.y, nav.worldX(b) - cp.x);
+    const t = createCharacter(entities, ctx.rng, 'citizen', nav.worldX(b), nav.worldY(b));
+    t.brain = new CitizenBrain(t, ctx);
+    t.law.wanted = false;
+    law.declare(t, 'flight');
+    expect(wantedLevel(t)).toBe(1);
+    // 80 px — ближе, чем узнают по мелкой статье (face[0]).
+    expect(law.observe(cp, t)).toBe('wanted');
+    // В личине (подпольщик) — не узнаёт.
+    t.disguised = true;
+    expect(law.observe(cp, t)).toBeNull();
+    t.disguised = false;
+    // Статья тяжелее — заменяет прежнюю; легче — нет.
+    law.declare(t, 'murder');
+    expect(chargeOf(t)).toBe('murder');
+    law.declare(t, 'theft');
+    expect(chargeOf(t)).toBe('murder');
+    // По особо тяжкой узнают дальше, чем по мелкой.
+    const mid = (LAW.wanted.face[0] + LAW.wanted.face[2]) / 2;
+    const m = createCharacter(entities, ctx.rng, 'citizen', cp.x + Math.cos(cp.facing) * mid, cp.y + Math.sin(cp.facing) * mid);
+    m.law.wanted = false;
+    law.declare(m, 'theft');
+    const see = (o: Character) => (law as unknown as { canSee(a: Character, b: Character): boolean }).canSee(cp, o);
+    if (see(m)) {
+      expect(law.observe(cp, m)).not.toBe('wanted');
+      law.declare(m, 'murder');
+      expect(law.observe(cp, m)).toBe('wanted');
+    }
+    // Срок: мелкое снимают через term, особо тяжкое при враге Протектората (hostile) не истекает; беглый — бессрочно.
+    entities.remove(cp);
+    const small = createCharacter(entities, ctx.rng, 'citizen', t.x, t.y);
+    small.law.wanted = false;
+    law.declare(small, 'flight');
+    const fug = createCharacter(entities, ctx.rng, 'citizen', t.x, t.y);
+    fug.law.wanted = false;
+    law.declare(fug, 'fugitive');
+    t.hostile = true;
+    run(sim, C.flight.term + 2);
+    expect(small.law.wanted).toBe(false);
+    expect(t.law.wanted).toBe(true);
+    expect(fug.law.wanted).toBe(true);
+    expect(law.wantedLeft(fug)).toBe(Infinity);
+    t.hostile = false;
+    expect(law.wantedLeft(t)).toBeGreaterThan(C.murder.term - 5);
+  });
+
+  test('срок заключения по статье: мелкое — КПЗ, тяжкое — тюрьма на срок (не навсегда), повинная — вдвое меньше', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    const { entities, ctx, law } = sim;
+    const C = LAW.wanted.charges;
+    const term = (c: Character, prison: boolean) => (law as unknown as { jailTerm(c: Character, p: boolean): number }).jailTerm(c, prison);
+    const c = createCharacter(entities, ctx.rng, 'citizen', 0, 0);
+    c.law.wanted = false;
+    law.declare(c, 'theft');
+    expect(belongsInPrison(c)).toBe(false);
+    expect(term(c, false)).toBe(C.theft.jail);
+    law.declare(c, 'assault');
+    expect(belongsInPrison(c)).toBe(true);
+    expect(term(c, true)).toBe(C.assault.jail);
+    c.law.surrendered = true;
+    expect(term(c, true)).toBe(C.assault.jail * LAW.wanted.surrender.jailMul);
+    // Повстанца-NPC держат бессрочно (вызволяют штурмом).
+    const r = createCharacter(entities, ctx.rng, 'rebel', 0, 0);
+    expect(term(r, true)).toBe(Infinity);
+    // Отпущенный по сроку из тюрьмы — снова чист.
+    law.pardon(c);
+    expect(c.law.wanted).toBe(false);
+    expect(c.law.wantedFor).toBeUndefined();
+  });
+
+  test('прохожий узнаёт разыскиваемого по тяжкой статье и зовёт ВС; по мелкой — нет', { timeout: 60_000 }, () => {
+    const sim = makeSim(12345);
+    const { entities, ctx, law, nav } = sim;
+    sim.war.command.paused = true;
+    sim.insurgency.paused = true;
+    const [a, b] = pairInSight(sim, 90);
+    // Разыскиваемый стоит, лояльный прохожий смотрит на него, ВС рядом с прохожим — спиной к разыскиваемому.
+    const t = createCharacter(entities, ctx.rng, 'citizen', nav.worldX(a), nav.worldY(a));
+    t.brain = null;
+    t.law.wanted = false;
+    law.declare(t, 'theft');
+    const w = createCharacter(entities, ctx.rng, 'citizen', nav.worldX(b), nav.worldY(b));
+    w.brain = new CitizenBrain(w, ctx);
+    w.loyalty = 60;
+    w.law.wanted = false;
+    w.facing = Math.atan2(t.y - w.y, t.x - w.x);
+    const cpAt = nav.nearestWalkable(w.x + (w.x - t.x) * 0.6, w.y + (w.y - t.y) * 0.6, 3);
+    const cp = createCharacter(entities, ctx.rng, 'cp', nav.worldX(cpAt), nav.worldY(cpAt));
+    cp.brain = new CpBrain(cp, ctx);
+    cp.law.wanted = false;
+    cp.facing = Math.atan2(cp.y - t.y, cp.x - t.x);
+    // Прохожий и ВС стоят на своих местах (у прохожего свои дела — увёл бы его), пока не позвали.
+    const wp = { x: w.x, y: w.y };
+    const cpp = { x: cp.x, y: cp.y, f: cp.facing };
+    const keep = () => {
+      if (sim.ctx.senses.stats.informed > 0) return false;
+      w.x = w.prevX = wp.x;
+      w.y = w.prevY = wp.y;
+      w.facing = Math.atan2(t.y - w.y, t.x - w.x);
+      cp.x = cp.prevX = cpp.x;
+      cp.y = cp.prevY = cpp.y;
+      cp.facing = cpp.f;
+      return false;
+    };
+    run(sim, 6, keep);
+    expect(sim.ctx.senses.stats.informed).toBe(0);
+    law.declare(t, 'murder');
+    run(sim, 20, () => keep() || sim.ctx.senses.stats.informed > 0);
+    expect(sim.ctx.senses.stats.informed).toBeGreaterThanOrEqual(1);
+    expect(t.law.phase === 'ordered' || t.law.phase === 'checking' || t.law.phase === 'cuffed' || (cp.brain as CpBrain).target === t).toBe(true);
+  });
+
   test('беглец: ВС гонится и либо задерживает, либо объявляет в розыск', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     const { entities, ctx, law, nav } = sim;
@@ -161,14 +283,17 @@ describe('живой город со всеми фракциями', () => {
     const prison = sim.ctx.prison.present ? PRISON.guards + 1 : 0;
     // Академия ВС — вахтёры RCT и инструкторы.
     const academy = sim.academy.present ? ACADEMY.vakhta + ACADEMY.instructors : 0;
-    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison + academy);
+    // Блок-посты стены Верхнего города (RCT и дежурные SU.03) и ворота ГЭС — по человеку на место.
+    const border = sim.map.poisOf('border_post').length + sim.map.poisOf('border_duty').length + sim.map.poisOf('ges_post').length;
+    expect(count('cp')).toBe(city + 2 * (5 + 2 + 1) + depot + prison + academy + border);
     const divisions = new Set(sim.entities.list.filter((c) => c.faction === 'cp').map((c) => c.division));
     for (const d of ['pcu', 'su', 'cmd']) expect(divisions.has(d as never)).toBe(true);
     // Армия в лагере + HYDRA + подпольщики и спецагент в схроне.
     const army = [...ROSTER.army, ...ROSTER.hydra].reduce((n, [, k]) => n + k, 0);
     expect(count('rebel')).toBe(AI.population.rebels + ROSTER.partisans + ROSTER.agents + army);
     expect(count('admin')).toBe(1);
-    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, заведение) дольше 60 с, конвой — дольше 80 с.
+    // «Застрял»: одна и та же фаза процедуры (приказ, проверка, заведение) дольше 60 с, конвой — дольше 100 с (большая карта:
+    // от Верхнего города до тюрьмы с приёмкой).
     const stuckSince = new Map<Character, [number, string]>();
     let worstStuck = 0;
     for (let t = 0; t < 180 * 60; t++) {
@@ -180,7 +305,7 @@ describe('живой город со всеми фракциями', () => {
           const s = stuckSince.get(c);
           if (!s || s[1] !== ph) stuckSince.set(c, [t, ph]);
           // Конвой через весь город к КПЗ идёт дольше остальных фаз — ему запас побольше.
-          else worstStuck = Math.max(worstStuck, ((t - s[0]) / 60) * (ph === 'cuffed' ? 0.75 : 1));
+          else worstStuck = Math.max(worstStuck, ((t - s[0]) / 60) * (ph === 'cuffed' ? 0.6 : 1));
         } else stuckSince.delete(c);
       }
     }

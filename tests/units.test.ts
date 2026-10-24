@@ -32,6 +32,8 @@ describe('спецподразделения ВС и огонь', () => {
   test('OBS осматривает тело и объявляет убийцу в розыск', { timeout: 60_000 }, () => {
     const sim = makeSim(12345);
     calm(sim);
+    // Здесь проверяется прежняя механика скана (сразу розыск); уголовные дела (Suspects) — отдельно.
+    sim.ctx.suspects.enabled = false;
     const at = spot(sim, 0);
     const victim = createCharacter(sim.entities, sim.ctx.rng, 'citizen', at.x, at.y);
     const k = spot(sim, 200);

@@ -62,7 +62,8 @@ export const ECONOMY = {
   },
   cwuPay: { rationServed: 2, repair: 12, sale: 1, node: 20 },
   /** Узлы Протектората (терминалы на проспектах и площади) — цели саботажа, чинит ТС. */
-  nodes: { count: 11, spacing: 15 },
+  /** gateClear — не ближе стольких тайлов к стене на КПП Верхнего города (там будки и полосы). */
+  nodes: { count: 11, spacing: 15, gateClear: 8 },
   repairs: {
     spots: 12,
     /** Раз в сколько секунд что-то ломается. */
@@ -114,6 +115,9 @@ export const ECONOMY = {
       { id: 'vest', qty: 1, price: 70 },
       { id: 'plate_vest', qty: 1, price: 110 },
       { id: 'backpack', qty: 1, price: 40 },
+      // Одежда без брони — меняет приметы (ориентировки).
+      { id: 'coat', qty: 1, price: 25 },
+      { id: 'cap', qty: 1, price: 10 },
     ] as { id: ItemId; qty: number; price: number }[],
     sell: {
       ration: 12, canned: 8, cigarettes: 3, medkit: 14, bandage: 4, toolkit: 8,

@@ -128,7 +128,7 @@ export class ChatSystem {
         }
       }
       if (best) {
-        const reply = ctx.rng.pick(LINES.citizenGreet);
+        const reply = ctx.relations?.enabled ? ctx.relations.greetReply(best, p) : ctx.rng.pick(LINES.citizenGreet);
         best.say(reply, now + 0.6, 3);
         this.log(`${best.name}: ${reply}`, 'chat');
       }
@@ -174,7 +174,7 @@ export class ChatSystem {
     const zone = ctx.map.zoneAtWorld(suspect.x, suspect.y)?.name ?? 'город';
     adjustLoyalty(p, LOYALTY.points.report, 'донос', ctx.bus);
     this.log(`Надзор: принят донос гражданина #${p.cid} — ${zone}. Патрули направлены.`, 'radio');
-    suspect.law.wanted = true;
+    ctx.law.declare(suspect, 'informed');
     if (suspect.faction === 'rebel' || suspect.weapon) ctx.war.raiseAlarm(suspect.x, suspect.y, 'донос о вооружённом', false, { kind: 'tip', suspect });
     else {
       // Ближайший свободный патрульный идёт разбираться.

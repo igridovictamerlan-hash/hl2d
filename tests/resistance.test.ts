@@ -12,6 +12,7 @@ import { CitizenBrain } from '../src/ai/brains/CitizenBrain';
 import { REBEL_RANKS, REBEL_UNIT, rebelUnitOf } from '../src/config/factions';
 import { ROSTER } from '../src/config/roster';
 import { PARTISANS } from '../src/config/underground';
+import { LAW } from '../src/config/law';
 import type { Character } from '../src/entities/Character';
 
 type Sim = ReturnType<typeof makeSim>;
@@ -299,15 +300,24 @@ describe('подполье: взлом и растяжки', () => {
     expect(caught.law.phase).toBe('jailed');
     // Сидит, пока не вызволят: срок не кончится, пока подпольщик идёт через полгорода.
     caught.law.jailUntil = Infinity;
-    // Без налётов банд: стрельба в городе поднимает тревогу, проверки чаще — тест про взлом, а не про это.
+    // Без налётов банд и миссий спецагентов (бунт, покушение): тревога в городе — проверки чаще, тест про взлом, а не про это.
     sim.ctx.gangs.paused = true;
+    sim.insurgency.paused = true;
     expect(sim.insurgency.occupiedCell()).toBe(cell);
-    // Тест про взлом, а не про вахту: «липу» у подпольщика могут раскрыть у ворот Управы — даём настоящий пропуск.
+    // Тест про взлом, а не про вахту: «липу» у подпольщика могут раскрыть у ворот Управы — даём настоящий пропуск;
+    // поддельную CID по дороге не раскрывают и на блок-посту стены спрятанный ствол не находят (иначе исход решает
+    // случайная проверка, а не взлом).
     free.passes.push('nexus');
+    const reveal = PARTISANS.checkReveal;
+    (PARTISANS as { checkReveal: number }).checkReveal = 0;
+    const hidden = LAW.border.findHidden;
+    (LAW.border as { findHidden: number }).findHidden = 0;
     const op = sim.insurgency.startOperation('jailbreak');
     expect(op?.kind).toBe('jailbreak');
     expect(op?.team[0]).toBe(free);
     const t = run(sim, 200, () => sim.insurgency.stats.jailbreaks > 0 && sim.combat.mineStats.planted > 0);
+    (PARTISANS as { checkReveal: number }).checkReveal = reveal;
+    (LAW.border as { findHidden: number }).findHidden = hidden;
     console.log(`взлом за ${t.toFixed(0)} с; растяжек: ${sim.combat.mineStats.planted}`);
     expect(sim.insurgency.stats.jailbreaks).toBeGreaterThan(0);
     expect(caught.law.phase === 'jailed').toBe(false);
@@ -331,6 +341,41 @@ describe('подполье: взлом и растяжки', () => {
 });
 
 describe('подполье группами', () => {
+  test('охота на патруль ВС: партизаны, спецагенты и бандиты собираются, по сигналу бьют патруль', { timeout: 240_000 }, () => {
+    const sim = makeSim(12345);
+    sim.war.command.paused = true;
+    spawnPopulation(sim.ctx, 10);
+    sim.insurgency.paused = true;
+    // Патрули расходятся по городу; цель — ведущий патруля ближе всех к общаге банды (с подпольем пойдут бандиты).
+    run(sim, 90);
+    const hqDist = (o: Character) => Math.min(...sim.ctx.gangs.gangs.map((g) => Math.hypot(g.hq.x - o.x, g.hq.y - o.y)));
+    const leads = sim.entities.list.filter((o) => o.alive && o.brain instanceof CpBrain && o.brain.duty === 'squad' && o.brain.lead && sim.map.levelAt(o.x, o.y) === 'city');
+    const prey = leads.sort((a, b) => hqDist(a) - hqDist(b))[0];
+    expect(prey).toBeTruthy();
+    const op = sim.insurgency.startHunt(prey)!;
+    expect(op?.kind).toBe('hunt');
+    const g = op.group!;
+    expect(g.prey).toBe(prey);
+    expect(op.team[0].profession).toBe('partisan');
+    expect(op.team.some((c) => c.profession === 'spec_agent')).toBe(true);
+    let cpDown = 0;
+    sim.ctx.combat.deathListeners.push((d, k) => {
+      if (d.faction === 'cp' && k && (k.faction === 'rebel' || k.gang >= 0)) cpDown++;
+    });
+    const t = run(sim, 260, () => g.attack);
+    expect(g.attack).toBe(true);
+    // До сигнала — под личиной; по сигналу личины долой, все — враги Протектората.
+    run(sim, 1);
+    const inGroup = g.members.filter((c) => c.alive && c.law.phase === 'none');
+    expect(inGroup.length).toBeGreaterThanOrEqual(2);
+    expect(inGroup.every((c) => !c.disguised && c.hostile)).toBe(true);
+    run(sim, PARTISANS.hunt.fight);
+    const hurt = sim.entities.list.filter((o) => o.faction === 'cp' && o.alive && o.health < o.maxHealth).length;
+    console.log(`охота: сигнал через ${t.toFixed(0)} с, группа ${op.team.length}, бандитов ${g.allies.length} (в бою ${g.allies.filter((a) => a.hostile).length}), убито ВС ${cpDown}, ранено ${hurt}`);
+    expect(cpDown + hurt).toBeGreaterThanOrEqual(1);
+    expect(sim.insurgency.stats.hunts).toBe(1);
+  });
+
   test('саботаж вдвоём: первый ломает узел, второй — дозорный; заметил ВС — группа уходит', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
     sim.war.command.paused = true;
