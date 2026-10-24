@@ -38,6 +38,7 @@ import { FACTIONS } from '../config/factions';
 import type { Transmission } from '../systems/Radio';
 import { ArenaBar } from './ArenaBar';
 import { chargeDef, wantedLevel } from '../systems/LawSystem';
+import { OrgPanel, type OrgSource } from './OrgPanel';
 
 
 export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
@@ -67,6 +68,8 @@ export interface UIHost extends DevPanelHost, MapViewHost, GameMenuHost {
   readonly law: LawSystem;
   /** Знакомые игрока (панель K). */
   contacts(): readonly PersonInfo[];
+  /** Меню организации ВС (панель J). */
+  readonly org: OrgSource;
   chooseRole(faction: FactionId, rank: number, division: DivisionId | null, profession: ProfessionId | null, name?: string | null): void;
   /** Имя персонажа для меню роли: текущее (не ВС) и новое случайное. */
   currentName(): string;
@@ -106,6 +109,7 @@ export class UI {
   readonly code: CodePanel;
   readonly inventory: InventoryPanel;
   readonly contacts: ContactsPanel;
+  readonly org: OrgPanel;
   readonly shop: ShopPanel;
   readonly alert: AlertBar;
   readonly death: DeathScreen;
@@ -131,6 +135,7 @@ export class UI {
     this.code = new CodePanel(root, () => host.war, (c) => host.setAlertCode(c));
     this.inventory = new InventoryPanel(root, host);
     this.contacts = new ContactsPanel(root, () => host.contacts());
+    this.org = new OrgPanel(root, host.org);
     this.capture = new CaptureBar(root);
     this.arenaBar = new ArenaBar(root);
     this.mapView = new MapView(root);
@@ -205,6 +210,7 @@ export class UI {
     this.audio.radio(player, this.host.radioFeed, FACTIONS[player.faction].authority && !player.cadet);
     this.placeLog();
     this.contacts.update(dt);
+    this.org.update(dt);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;

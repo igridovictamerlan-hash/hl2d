@@ -1,6 +1,6 @@
 import { Character } from './Character';
 import type { EntityManager } from './EntityManager';
-import type { FactionId } from '../config/factions';
+import { FACTIONS, type FactionId } from '../config/factions';
 import { FIRST_NAMES, LAST_NAMES, FEMALE_FIRST, genderedLastName } from '../config/names';
 import type { Rng } from '../core/rng';
 import { CHARACTER } from '../config/entities';
@@ -61,9 +61,11 @@ export function createCharacter(
   c.profession = DEFAULT_PROFESSION[faction] ?? null;
   c.money = CHARACTER.roleMoney[faction] ?? CHARACTER.startMoney;
   if (!isPlayer) {
-    // Часть жителей без действующей CID или в розыске; повстанцы — всегда в розыске.
+    // Часть жителей без действующей CID или в розыске; повстанцы — всегда в розыске (участие в сопротивлении).
+    // Сотрудники Протектората — никогда (жребий бросается всё равно: случайность мира не сдвигается).
     c.law.hasCid = !rng.chance(LAW.npc.noCidChance);
-    c.law.wanted = faction === 'rebel' || rng.chance(LAW.npc.wantedChance);
+    c.law.wanted = (faction === 'rebel' || rng.chance(LAW.npc.wantedChance)) && !FACTIONS[faction].authority;
+    if (faction === 'rebel') c.law.wantedFor = 'rebel';
     const L = faction === 'cwu' ? LOYALTY.start.cwu : LOYALTY.start.citizen;
     c.loyalty = Math.round(rng.range(L[0], L[1]));
   }

@@ -64,6 +64,11 @@ export class CrimeScenes {
   readonly list: CrimeScene[] = [];
   readonly stats = { opened: 0, investigated: 0, examined: 0, civil: 0, cwuMedics: 0, merged: 0 };
   private time = 0;
+
+  /** Часы мест преступлений (от них since, investigatedAt, examinedAt). */
+  get now(): number {
+    return this.time;
+  }
   /** Где недавно стреляли (combat.shots живут 2 с — здесь дольше, CRIME.scene.calm). */
   private readonly hot: { x: number; y: number; t: number }[] = [];
   private shotT = -1;

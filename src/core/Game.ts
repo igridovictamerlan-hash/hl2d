@@ -110,6 +110,9 @@ import { DebugOverlay } from '../ui/DebugOverlay';
 import { Lighting, clockText, dayFraction } from '../world/Lighting';
 import { Ambience } from '../world/Ambience';
 import { COZY } from '../config/lighting';
+import { orgCrimes, orgOrder, orgStaff, orgSummary, orgWanted } from '../systems/CpOrg';
+import { ORG } from '../config/org';
+import type { OrgSource } from '../ui/OrgPanel';
 
 export interface GameOptions {
   /** Граждан ровно столько (?npcs=); null — по уровню населения из настроек (config/population.ts). */
@@ -253,7 +256,7 @@ export class Game {
         this.input.releaseAll();
         this.ui.chat.open('');
       },
-      busy: () => this.ui.menu.isOpen || this.ui.roles.isOpen || this.ui.inventory.isOpen || this.ui.contacts.isOpen || this.ui.mapView.bigOpen || this.ui.shop.isOpen || this.ui.chat.isOpen,
+      busy: () => this.ui.menu.isOpen || this.ui.roles.isOpen || this.ui.inventory.isOpen || this.ui.contacts.isOpen || this.ui.org.isOpen || this.ui.mapView.bigOpen || this.ui.shop.isOpen || this.ui.chat.isOpen,
       playing: () => !this.ui.menu.isOpen && !this.ui.roles.isOpen,
     });
     this.loop = new GameLoop(
@@ -709,6 +712,7 @@ export class Game {
     if (ui.code.isOpen) return ui.code.close();
     if (ui.inventory.isOpen) return ui.inventory.toggle();
     if (ui.contacts.isOpen) return ui.contacts.toggle();
+    if (ui.org.isOpen) return ui.org.toggle();
     this.input.releaseAll();
     ui.menu.open('pause');
   }
@@ -961,6 +965,28 @@ export class Game {
   focusGame(): void {
     this.canvas.focus();
   }
+
+  /**
+   * Меню организации ВС (панель J, systems/CpOrg.ts): сводка, преступления, ориентировки, штат; приказы о составе —
+   * с ORG.manageFrom, не чаще ORG.cooldown с.
+   */
+  readonly org: OrgSource = {
+    summary: () => orgSummary(this.ai),
+    crimes: () => orgCrimes(this.ai),
+    wanted: () => orgWanted(this.ai),
+    staff: () => orgStaff(this.ai, this.player),
+    manager: () => this.player.faction === 'cp' && cpUnit(this.player.rank).command >= ORG.manageFrom,
+    order: (id, kind) => {
+      const t = this.ai.entities.list.find((c) => c.id === id && c.alive);
+      if (!t) return 'Юнит не найден.';
+      if (this.ai.law.now < this.orderReady) return 'Приказы — по одному: подождите секунду.';
+      this.orderReady = this.ai.law.now + ORG.cooldown;
+      const msg = orgOrder(this.ai, this.player, t, kind);
+      this.bus.emit('log', { text: msg, kind: 'law' });
+      return msg;
+    },
+  };
+  private orderReady = 0;
 
   /** Знакомые игрока (панель K): кто его знает и как относится. */
   contacts(): PersonInfo[] {
@@ -1271,6 +1297,13 @@ export class Game {
     if (this.input.wasPressed('help')) this.ui.help.toggle();
     if (this.input.wasPressed('bigMap')) this.ui.mapView.toggleBig();
     if (this.input.wasPressed('contacts') && !this.ui.chat.isOpen && !this.ui.roles.isOpen) this.ui.contacts.toggle();
+    if (this.input.wasPressed('org') && !this.ui.chat.isOpen && !this.ui.roles.isOpen) {
+      // Меню организации — только у ВС (курсанту — ещё рано).
+      if (this.player.faction === 'cp' && !this.player.cadet) this.ui.org.toggle();
+      else this.bus.emit('log', { text: 'Меню организации (J) — для сотрудников Внутренней стражи.', kind: 'system' });
+    }
+    // Сменил сторону — меню организации закрыть.
+    if (this.ui.org.isOpen && this.player.faction !== 'cp') this.ui.org.toggle(false);
     if (this.input.wasPressed('zoom')) {
       const k = this.camera.cycleZoom();
       this.bus.emit('log', { text: `Масштаб камеры: ×${k}`, kind: 'world' });

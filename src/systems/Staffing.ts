@@ -159,7 +159,7 @@ export class Staffing {
   }
 
   /** Свободен для перевода: живой NPC ВС на дежурстве, не в деле. */
-  private free(c: Character): boolean {
+  free(c: Character): boolean {
     const b = c.brain;
     if (!(b instanceof CpBrain)) return false;
     if (b.target || b.scene || b.formation || b.ward || b.rally || b.raidPost || b.gunner.target) return false;
@@ -200,8 +200,16 @@ export class Staffing {
     return true;
   }
 
-  /** Перевести юнит на должность s (повышение): звание, здоровье, снаряжение, служба. */
-  assign(c: Character, s: StaffSlot, acting: boolean): void {
+  /** Важность должности (для выбора вакансии: уровень командования, потом вид роли). */
+  rankOf(s: StaffSlot): number {
+    return this.priority(s);
+  }
+
+  /**
+   * Перевести юнит на должность s (повышение, понижение, перевод): звание, здоровье, снаряжение, служба. by — чей
+   * приказ (игрок-командир, меню организации).
+   */
+  assign(c: Character, s: StaffSlot, acting: boolean, by: Character | null = null): void {
     const old = this.slotOf(c);
     if (old) {
       old.holder = null;
@@ -216,8 +224,10 @@ export class Staffing {
     const after = cpUnit(c.rank);
     this.stats.promotions++;
     if (acting) this.stats.acting++;
-    const what = before.unit === after.unit ? `назначен: ${postName(s.spec)}` : `повышен до ${after.short}${acting ? ' (временно исполняющий)' : ''} — ${postName(s.spec)}`;
-    this.ctx.law.log(`Приказ по силовому блоку: ${before.short} ${c.name} ${what}.`, 'radio');
+    const verb = before.unit === after.unit ? null : after.command > before.command ? 'повышен до' : after.command < before.command ? 'понижен до' : 'переведён в';
+    const what = !verb ? `назначен: ${postName(s.spec)}` : `${verb} ${after.short}${acting ? ' (временно исполняющий)' : ''} — ${postName(s.spec)}`;
+    const order = by ? ` (приказ ${cpUnit(by.rank).short} ${by.name})` : '';
+    this.ctx.law.log(`Приказ по силовому блоку: ${before.short} ${c.name} ${what}${order}.`, 'radio');
     if (c.isPlayer) {
       this.stats.playerPromotions++;
       this.ctx.bus.emit('promoted', { rank: c.rank, post: postName(s.spec) });

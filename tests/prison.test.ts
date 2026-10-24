@@ -184,7 +184,8 @@ describe('тюрьма Протектората', () => {
     run(sim, PRISON.assault.every[0]);
     expect(sim.insurgency.prisonReady()).toBe(true);
     clearGuards(sim);
-    const op = sim.insurgency.startOperation()!;
+    // Готовность проверена выше; сама операция — явно (выбор дела в startOperation — с шансом PRISON.assault.chance).
+    const op = sim.insurgency.startOperation('prison')!;
     expect(op?.kind).toBe('prison');
     const g = op.group!;
     expect(op.team.filter((c) => c.profession === 'spec_agent').length).toBeGreaterThanOrEqual(2);
