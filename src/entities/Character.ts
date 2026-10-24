@@ -1,8 +1,9 @@
 import type { RoleSpec } from '../systems/Roster';
-import type { FactionId, DivisionId } from '../config/factions';
+import type { FactionId, DivisionId, CpUnitId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import type { ItemId, WeaponId, GrenadeId, GearId, GearSlot } from '../config/items';
 import type { ClothesLook } from '../config/clothes';
+import type { KitLook } from '../config/uniforms';
 import { ECONOMY } from '../config/economy';
 import { Inventory } from './Inventory';
 import { CHARACTER } from '../config/entities';
@@ -183,6 +184,10 @@ export class Character {
   /** Комплект гражданской одежды из надетого (Gear.refreshClothes) или null — одежда фракции; ключ — для кэша спрайтов. */
   clothes: ClothesLook | null = null;
   clothesKey = '';
+  /** Форма из надетых частей (Gear.kitOf; config/uniforms.ts) или null. NPC ВС носят форму юнита без предметов. */
+  kit: KitLook | null = null;
+  /** Юнит, чья форма выдана игроку (issueUniform); сменился юнит — выдаётся новая. */
+  kitUnit: CpUnitId | null = null;
   /** Патронов в магазине оружия в руках. */
   mag = 0;
   /** Патроны, оставшиеся в магазинах убранных стволов. */

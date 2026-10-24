@@ -20,6 +20,7 @@ import { isWalking } from './gait';
 import { animOf, isTalking, drawActionHands, drawBlanket, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash } from './poses';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached } from './PawnCache';
+import { clothesOf } from '../systems/Gear';
 import { PAWN } from '../config/pawns';
 import { apparentFaction, displayName } from './cover';
 import { CROUCH, DOWNED, TRENCH } from '../config/tactics';
@@ -88,9 +89,13 @@ export class EntityRenderer {
     // Гражданская одежда — только у того, кто выглядит горожанином; лоялиста в ней узнают по фиолетовой повязке.
     // Опер в штатском (SU.01) — гражданское по внешности, без брони на рисунке.
     const op = faction === 'cp' && !c.disguised && cpUnit(rank).plainclothes ? plainclothesOf(c.pid) : null;
-    const dressed = op ? op.clothes : c.clothes && faction === 'citizen' ? c.clothes : null;
+    // Форма по частям: в маскировке — форма личины; стражник с выданной формой — что надето; NPC стражи — форма юнита
+    // (undefined: по рангу); горожанин — части формы, если надел (каска с тела).
+    const kit = op ? null : c.disguised ? undefined : faction === 'cp' ? (c.kitUnit ? c.kit : undefined) : faction === 'citizen' ? c.kit : null;
+    const worn = !c.disguised && (faction === 'cp' || faction === 'citizen') && (c.kit || c.kitUnit);
+    const dressed = op ? op.clothes : worn ? c.clothes ?? clothesOf(c.gear, true) ?? null : c.clothes && faction === 'citizen' ? c.clothes : null;
     const band = gang?.def.color ?? (dressed && loyalist ? LOYALTY.uniform.color : fam?.color);
-    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, clothesKey: op ? op.key : dressed ? c.clothesKey : undefined };
+    return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, kit, clothesKey: op ? op.key : dressed || worn ? c.clothesKey : undefined };
   }
 
   drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
@@ -704,5 +709,6 @@ export function drawFeet(ctx: CanvasRenderingContext2D, dir: string, look: PawnL
 /** Цвет надетого в слоте (шлем, бронежилет) — для пешки; ничего — undefined. */
 function gearColor(c: Character, slot: 'head' | 'torso'): string | undefined {
   const id = c.gear[slot];
-  return id ? ITEMS[id].gear?.color : undefined;
+  // Часть формы рисуется своим рисунком (look.kit), не общим шлемом или плитником.
+  return id && !ITEMS[id].gear?.kit ? ITEMS[id].gear?.color : undefined;
 }

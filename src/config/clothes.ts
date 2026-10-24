@@ -22,6 +22,8 @@ export type NeckId = 'scarf' | 'tie' | 'bow' | 'pearls' | 'shawl' | 'mask';
 
 export interface ClothesLook {
   tier: ClothTier;
+  /** Ни низа, ни верха — только убор, шея, обувь (поверх формы: рубаху даёт форма). */
+  bare?: boolean;
   top: TopId;
   topColor: string;
   pattern?: PatternId;

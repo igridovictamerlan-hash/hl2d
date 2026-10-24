@@ -7,7 +7,7 @@ import type { ItemId, WeaponId, GearId, GearSlot } from '../config/items';
 import { capacityOf, refreshClothes } from './Gear';
 import { ITEMS, WEAPONS } from '../config/items';
 import type { CadetRecord } from '../config/academy';
-import { FACTIONS } from '../config/factions';
+import { FACTIONS, cpUnit } from '../config/factions';
 import type { SocialSave } from './Relations';
 
 /**
@@ -117,6 +117,8 @@ export function applyToPlayer(p: Character, d: SaveData): void {
     const slot = id in ITEMS ? ITEMS[id].gear?.slot : undefined;
     if (slot && !p.gear[slot]) p.gear[slot] = id;
   }
+  // Форма ВС из сохранения — как была (что снял, то снято): заново не выдаётся.
+  if (p.faction === 'cp') p.kitUnit = cpUnit(p.rank).unit;
   refreshClothes(p);
   p.inventory.capacity = capacityOf(p);
   for (const s of d.inventory) p.inventory.add(s.id as ItemId, s.qty);

@@ -843,6 +843,12 @@ function furCollar(ctx: Ctx, d: PawnDir, color: string): void {
   }
 }
 
+/** Только шея (шарф, галстук…) — поверх формы, когда низа и верха из ателье нет (комплект `bare`). */
+export function clothesNeck(ctx: Ctx, d: PawnDir, C: ClothesLook): void {
+  if (d !== 'N') neckwear(ctx, d, C);
+  else neckBack(ctx, C);
+}
+
 /** Шарф, галстук, бабочка, жемчуг, шаль — спереди и в профиле (до головы). */
 function neckwear(ctx: Ctx, d: PawnDir, C: ClothesLook): void {
   const col = C.neckColor ?? '#7a4a3a';

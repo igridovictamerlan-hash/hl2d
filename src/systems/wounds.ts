@@ -10,7 +10,8 @@ import { cpUnit } from '../config/factions';
  * брони не получает: форма, а не бронежилет. Надетые шлем и бронежилет (systems/Gear) — если крепче.
  */
 export function armorOf(c: Character): ArmorProfile {
-  const base = roleArmor(c);
+  // Игроку ВС форма выдана по частям (issueUniform): броня — только надетого, снял каску — голова открыта.
+  const base = c.kitUnit ? ARMOR.none : roleArmor(c);
   // Надетый шлем или бронежилет (systems/Gear) — если крепче формы.
   const g = wornArmor(c);
   if (g.head <= base.head && g.torso <= base.torso) return base;

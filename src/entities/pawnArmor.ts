@@ -75,20 +75,28 @@ function belt(ctx: Ctx, d: PawnDir, color: string, pouches: boolean): void {
 
 // ————— PCU: каска, бронежилет, противогаз —————
 
-/** Форма PCU и стёганый бронежилет (у рекрута жилета нет — рубашка с карманами). */
+/**
+ * Форма PCU и стёганый бронежилет (у рекрута жилета нет — рубашка с карманами). Без O.base — только жилет поверх
+ * уже нарисованной одежды (форма по частям: бронежилет ВС на гражданском).
+ */
 export function flakBody(ctx: Ctx, d: PawnDir, O: Outfit, trim: string, acc: Set<string>): void {
   const top = PAWN.body.top;
   const side = d === 'E';
-  const base = O.base as string;
+  const base = O.base as string | undefined;
   const vest = O.vest !== false;
   const flak = typeof O.flak === 'string' ? O.flak : G.flak;
+  if (!base && !vest) return;
   bodyPath(ctx, d);
-  ctx.fillStyle = base;
-  ctx.fill();
+  if (base) {
+    ctx.fillStyle = base;
+    ctx.fill();
+  }
   ctx.save();
   ctx.clip();
-  ctx.fillStyle = PAWN.shade;
-  ctx.fillRect(side ? -1 : 2.5, -20, 20, 40);
+  if (base) {
+    ctx.fillStyle = PAWN.shade;
+    ctx.fillRect(side ? -1 : 2.5, -20, 20, 40);
+  }
   if (vest) {
     ctx.beginPath();
     if (d === 'S') {
@@ -143,7 +151,7 @@ export function flakBody(ctx: Ctx, d: PawnDir, O: Outfit, trim: string, acc: Set
     else if (d === 'N') ctx.rect(-4.5, top + 2.2, 9, 1.4);
     else ctx.rect(1.2, top + 4.4, 2.6, 1.3);
     fillStroke(ctx, trim, 0.5);
-  } else {
+  } else if (base) {
     // Рекрут — форменная рубашка: карманы и планка.
     ctx.beginPath();
     if (d === 'S') {
@@ -168,7 +176,7 @@ export function flakBody(ctx: Ctx, d: PawnDir, O: Outfit, trim: string, acc: Set
     ctx.ellipse(side ? 1 : 0, top + 0.9, side ? 3.4 : 4.8, 1.9, 0, 0, Math.PI * 2);
     fillStroke(ctx, tint(flak, -0.12), PAWN.outlineWidth * 0.8);
   }
-  for (const px of shoulders(d, 0.2)) pad(ctx, px, top + 2.2, 3, 2.8, vest ? flak : tint(base, 0.12), null);
+  for (const px of shoulders(d, 0.2)) pad(ctx, px, top + 2.2, 3, 2.8, vest ? flak : tint(base!, 0.12), null);
 }
 
 /** Голова в противогазе PCU: резиновая маска, две круглые линзы с бликом, фильтр; сзади — ремни. */
@@ -328,12 +336,17 @@ export function reconBody(ctx: Ctx, d: PawnDir, O: Outfit, trim: string, acc: Se
   const hi = tint(armor, 0.3);
   const lo = tint(armor, -0.25);
   bodyPath(ctx, d);
-  ctx.fillStyle = O.base as string;
-  ctx.fill();
+  // Без O.base — броня поверх уже нарисованной одежды.
+  if (O.base) {
+    ctx.fillStyle = O.base as string;
+    ctx.fill();
+  }
   ctx.save();
   ctx.clip();
-  ctx.fillStyle = PAWN.shade;
-  ctx.fillRect(side ? -1 : 2.5, -20, 20, 40);
+  if (O.base) {
+    ctx.fillStyle = PAWN.shade;
+    ctx.fillRect(side ? -1 : 2.5, -20, 20, 40);
+  }
   ctx.beginPath();
   if (d === 'S') {
     ctx.moveTo(-6.4, top + 0.8);

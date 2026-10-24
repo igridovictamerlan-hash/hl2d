@@ -3,22 +3,33 @@ import type { Stack } from '../entities/Inventory';
 import { ITEMS, type GearId, type GearSlot, type ItemId } from '../config/items';
 import { ECONOMY } from '../config/economy';
 import { CLOTHES, CLOTH_SLOTS, type ClothSlot, type ClothesLook, type ClothTier } from '../config/clothes';
+import { CP_KITS, UNIFORM_PIECES, kitFrom, type KitLook } from '../config/uniforms';
+import type { CpUnitId } from '../config/factions';
 
 const TIERS: readonly ClothTier[] = ['poor', 'middle', 'rich'];
 /** Порядок сборки комплекта: низ, верх, шея, убор, обувь (поношенность — от верха поверх низа). */
 const ORDER: readonly ClothSlot[] = ['top', 'outer', 'neck', 'hat', 'feet'];
 
+/** Надета ли в слоте гражданская вещь (не часть формы). */
+function civil(id: GearId | undefined): id is GearId {
+  return !!id && !!ITEMS[id].gear?.cloth;
+}
+
 /**
- * Комплект пешки из надетой одежды (низ и/или верх; без них — undefined: одежда фракции). Достаток комплекта — по
- * низу, иначе по верху. Поношенность складывается (заплаты, дыры, пятна — что больше).
+ * Комплект пешки из надетой одежды (низ и/или верх; без них — undefined: одежда фракции или форма). Достаток комплекта
+ * — по низу, иначе по верху. Поношенность складывается (заплаты, дыры, пятна — что больше). Части формы (KitLook) сюда
+ * не входят. bare — и без низа и верха, если надето что-то ещё (убор, шея, обувь поверх формы): комплект с `bare`.
  */
-export function clothesOf(gear: Character['gear']): ClothesLook | undefined {
-  if (!gear.top && !gear.outer) return undefined;
-  const base = (gear.top ?? gear.outer)!;
-  const look: ClothesLook = { tier: ITEMS[base].gear?.tier ?? 'middle', top: 'tee', topColor: CLOTHES.defaultTop };
+export function clothesOf(gear: Character['gear'], bare = false): ClothesLook | undefined {
+  const top = civil(gear.top) ? gear.top : undefined;
+  const out = civil(gear.outer) ? gear.outer : undefined;
+  if (!top && !out && (!bare || !CLOTH_SLOTS.some((s) => civil(gear[s])))) return undefined;
+  const base = top ?? out;
+  const look: ClothesLook = { tier: base ? ITEMS[base].gear?.tier ?? 'middle' : 'middle', top: 'tee', topColor: CLOTHES.defaultTop };
+  if (!base) look.bare = true;
   for (const slot of ORDER) {
     const id = gear[slot];
-    const piece = id ? ITEMS[id].gear?.cloth : undefined;
+    const piece = civil(id) ? ITEMS[id].gear?.cloth : undefined;
     if (!piece) continue;
     const { patches, holes, stains, ...rest } = piece;
     Object.assign(look, rest);
@@ -29,10 +40,50 @@ export function clothesOf(gear: Character['gear']): ClothesLook | undefined {
   return look;
 }
 
-/** Пересобрать комплект пешки после смены одежды (Character.clothes и ключ кэша спрайтов). */
+/** Порядок сборки формы: рубаха, броня, шинель, убор, шлем (поверх убора), лицо, спина. */
+const KIT_ORDER = ['top', 'torso', 'outer', 'hat', 'head', 'face', 'back'] as const;
+
+/** Комплект формы из надетых частей (config/uniforms.ts) или null. */
+export function kitOf(gear: Character['gear']): KitLook | null {
+  const ids: GearId[] = [];
+  for (const s of KIT_ORDER) {
+    const id = gear[s];
+    if (id && ITEMS[id].gear?.kit) ids.push(id);
+  }
+  return ids.length ? kitFrom(ids) : null;
+}
+
+/** Часть формы? */
+export function isUniform(id: GearId): boolean {
+  return id in UNIFORM_PIECES;
+}
+
+/** Пересобрать комплект пешки после смены одежды (Character.clothes, форма и ключ кэша спрайтов — по всем слотам). */
 export function refreshClothes(c: Character): void {
   c.clothes = clothesOf(c.gear) ?? null;
-  c.clothesKey = c.clothes ? CLOTH_SLOTS.map((s) => c.gear[s] ?? '').join('|') : '';
+  c.kit = kitOf(c.gear);
+  const key = Object.keys(c.gear).sort().map((s) => c.gear[s as GearSlot]).join('|');
+  c.clothesKey = c.clothes || c.kit ? key : '';
+}
+
+/**
+ * Выдать форму юнита (игроку ВС при назначении и повышении): прежние части формы сняты (в никуда), части нового
+ * юнита — в свои слоты; гражданская вещь, занимавшая слот, уходит в инвентарь (нет места — пропадает).
+ */
+export function issueUniform(c: Character, unit: CpUnitId): void {
+  for (const s of Object.keys(c.gear) as GearSlot[]) {
+    const id = c.gear[s];
+    if (id && isUniform(id)) delete c.gear[s];
+  }
+  for (const id of CP_KITS[unit]) {
+    const slot = ITEMS[id].gear!.slot;
+    const prev = c.gear[slot];
+    c.gear[slot] = id;
+    if (prev) c.inventory.add(prev, 1);
+  }
+  c.kitUnit = unit;
+  c.inventory.capacity = capacityOf(c);
+  refreshClothes(c);
 }
 
 /** Надеть вещь без инвентаря (заселение, покупка NPC): прежняя в этом слоте выброшена. */

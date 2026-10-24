@@ -19,14 +19,16 @@ import { HOODS } from '../config/crowd';
 import { LABOR } from '../config/labor';
 import { CWU_HQ } from '../config/cwuHq';
 import { spawnRole, type RoleKind, type RoleSpec } from './Roster';
-import { refreshClothes } from './Gear';
+import { isUniform, refreshClothes } from './Gear';
 import { CLOTH_SLOTS } from '../config/clothes';
 
 /** Выдать набор предметов роли; первое оружие из набора — в руки, магазин заряжен. */
 export function equipKit(c: Character, kit: string, ctx: Pick<AiContext, 'combat'>): void {
   // Снаряжение (броня, рюкзак) снимается, одежда остаётся на человеке (видна, пока он выглядит горожанином).
   const kept: Character['gear'] = {};
-  for (const s of CLOTH_SLOTS) if (c.gear[s]) kept[s] = c.gear[s];
+  for (const s of CLOTH_SLOTS) if (c.gear[s] && !isUniform(c.gear[s]!)) kept[s] = c.gear[s];
+  // Форма прежней роли сдана (новую выдаёт issueUniform).
+  c.kitUnit = null;
   c.gear = kept;
   refreshClothes(c);
   c.inventory.capacity = ECONOMY.inventorySlots;

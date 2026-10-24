@@ -170,21 +170,17 @@ export class InventoryPanel {
     text(ctx, this.touch ? '' : 'Tab — закрыть', W - 56, 22, 11, C.textDim, 'right', 700);
 
     // --- снаряжение: надетое (шлем, бронежилет, рюкзак — снимается) и форма роли (не снять) ---
-    const role = roleArmor(p);
+    // Форма ВС выдана по частям (Gear.issueUniform) — в слотах настоящие вещи, «формы роли» нет.
+    const issued = !!p.kitUnit;
+    const role = issued ? { head: 0, torso: 0 } : roleArmor(p);
     const army = p.faction === 'rebel' && !!p.profession && ARMY.has(p.profession);
-    const worn = {
+    const worn = issued ? { head: null, face: null, torso: null, back: null } : {
       head: role.head > 0 ? 'helmet' : p.faction === 'cwu' ? 'cap' : null,
       face: (p.faction === 'cp' && p.division === 'pcu') || p.faction === 'ota' ? 'gasmask' : null,
       torso: role.torso > 0 ? 'vest' : null,
       back: army || p.faction === 'ota' ? 'backpack' : null,
     };
     const pct = (v: number) => `${Math.round(v * 100)}%`;
-    /** Слот формы роли (лицо, рация, фонарь, одежда): только показывает. */
-    const roleSlot = (x: number, y: number, w: number, h: number, label: string, id: string | null, ghost: string, name: string) => {
-      this.slot(ctx, x, y, w, h, label, id ? null : ghost);
-      if (id) drawIcon(ctx, id, x + w / 2, y + h / 2 + 2, 0.85);
-      this.hits.push({ x, y, w, h, title: id ? name : `${label.toLowerCase()}: пусто`, desc: id ? 'Часть формы вашей роли.' : 'Выдаётся по роли.', act: '' });
-    };
     /** Рабочий слот: надетое — снять; нет — форма роли или пусто (надеть из рюкзака). */
     const gearSlot = (x: number, y: number, label: string, slot: GearSlot, uniform: string | null, uniformArmor: number, ghost: string, h: number = S) => {
       const on = p.gear[slot];
@@ -223,7 +219,7 @@ export class InventoryPanel {
     const dollW = 2 * S + G + 120;
     const rx = dollX + dollW + G;
     // Верхний ряд справа: лицо (форма роли), броня — поверх одежды: шлем и бронежилет.
-    roleSlot(L + 2 * (S + G), T, S, S - 4, 'ЛИЦО', worn.face, 'gasmask', 'Противогаз');
+    gearSlot(L + 2 * (S + G), T, 'ЛИЦО', 'face', worn.face, 0, 'gasmask', S - 4);
     const y0 = T + S + 2;
     gearSlot(rx - S - G, T, 'ШЛЕМ', 'head', worn.head, role.head, 'helmet', S - 4);
     gearSlot(rx, T, 'БРОНЯ', 'torso', worn.torso, role.torso, 'vest', S - 4);

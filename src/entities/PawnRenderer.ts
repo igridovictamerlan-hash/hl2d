@@ -7,7 +7,8 @@ import { accBack, accBody, accTop, accessoriesOf, flakBody, flakHelmet, gasMaskH
 import type { ProfessionId } from '../config/professions';
 import { bodyPath, fillStroke, headPath, roundRect, stroke, tint } from './pawnShapes';
 import { balaclava, gasMaskS10, michHelmet, tacticalBody, tacticalFace } from './pawnTactical';
-import { clothedBody, clothesHead, faceMask, hidesHair, hood } from './pawnClothes';
+import { clothedBody, clothesHead, clothesNeck, faceMask, hidesHair, hood } from './pawnClothes';
+import { unitKit, type KitLook } from '../config/uniforms';
 import type { ClothesLook } from '../config/clothes';
 
 export { tint };
@@ -30,6 +31,11 @@ export interface PawnLook {
   vest?: string;
   /** Гражданская одежда по достатку (config/clothes.ts) — вместо одежды фракции; ключ — для кэша спрайтов. */
   clothes?: ClothesLook | null;
+  /**
+   * Форма по частям (config/uniforms.ts): шлем, противогаз, рубаха, броня, шинель, ранец. undefined — у ВС форма юнита
+   * целиком (по рангу), у остальных — нет; null — без формы.
+   */
+  kit?: KitLook | null;
   clothesKey?: string;
   /** Мимика на этот кадр: глаза закрыты (моргнул, спит), рот открыт (говорит). */
   blink?: boolean;
@@ -53,7 +59,8 @@ function outfitOf(look: PawnLook): Outfit {
 const GLOVED_REBELS = new Set(['rebel_soldier', 'veteran', 'rebel_medic', 'pyro', 'demolitionist', 'rebel_leader', 'hydra_rct', 'hydra_sergeant', 'hydra_sniper', 'commando']);
 
 /** Цвет рук на оружии: перчатки у силовиков, OTA и армии, иначе кожа (как у головы). */
-export function handColor(look: Pick<PawnLook, 'faction' | 'profession' | 'seed' | 'kin' | 'clothes'>): string {
+export function handColor(look: Pick<PawnLook, 'faction' | 'profession' | 'seed' | 'kin' | 'clothes' | 'kit'>): string {
+  if (look.kit && look.faction === 'cp') return WEAPON_POSE.gloves;
   if (look.clothes) return pick(PAWN.skins, look.kin ?? look.seed, 3);
   if (look.faction === 'cp' || look.faction === 'ota') return WEAPON_POSE.gloves;
   if (look.faction === 'rebel' && look.profession && GLOVED_REBELS.has(look.profession)) return WEAPON_POSE.gloveRebel;
@@ -130,7 +137,14 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   faceOf.blink = !!look.blink;
   faceOf.talk = !!look.talk;
 
-  // Силовой блок и OTA: броня по эскизам RimWorld, аксессуары за спиной, на туловище и поверх головы.
+  // Форма по частям (ВС и всякий, кто надел её части): слоями поверх одежды.
+  const K = kitLookOf(look, O);
+  if (K) {
+    kitPawn(ctx, d, look, K, base, skin, hair, style, hx);
+    ctx.restore();
+    return;
+  }
+  // OTA и глава восстания: силовая броня по эскизам RimWorld, аксессуары за спиной, на туловище и поверх головы.
   if (!look.clothes && (O.style === 'marine' || O.style === 'flak' || O.style === 'recon')) {
     const trim = O.trim === 'rank' ? look.color : (O.trim as string);
     const acc = accessoriesOf(O, look.seed);
@@ -295,6 +309,106 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   if (look.helmet) michHelmet(ctx, d, { helmet: look.helmet }, hx, look.seed);
   if (O.convict) convict(ctx, d, O);
   ctx.restore();
+}
+
+/**
+ * Форма пешки: явная (look.kit) или у ВС — форма юнита по рангу. Части формы рисуются только у тех, кто выглядит
+ * горожанином или стражником; у армии сопротивления, Легиона, санитара — своя экипировка.
+ */
+function kitLookOf(look: PawnLook, O: Outfit): KitLook | null {
+  if (look.faction !== 'cp' && look.faction !== 'citizen') return null;
+  if (O.style === 'tactical' || O.style === 'cremator') return null;
+  if (look.kit !== undefined) return look.kit;
+  return look.faction === 'cp' && !look.clothes ? unitKit(cpUnit(look.rank).unit) : null;
+}
+
+/**
+ * Пешка в форме по частям (config/uniforms.ts), слоями: волосы сзади → за спиной (накидка, полы шинели, ранец,
+ * антенна) → гражданское из ателье или форменная рубаха → броня (бронежилет ВС, броня спецотряда, силовая) →
+ * шея из ателье → шинель, нашивки и навесное по юниту → голова: силовой шлем или шлем спецотряда с балаклавой, иначе
+ * противогаз или лицо, сверху убор (каска, фуражка, пилотка; без них — шляпа из ателье) → поверх головы сзади.
+ * Нашивки и навесное (рация, фонарь, шевроны, погоны…) — у того, кто выглядит стражником (PAWN.cpUnits.acc).
+ */
+function kitPawn(ctx: Ctx, d: PawnDir, look: PawnLook, K: KitLook, fallback: string, skin: string, hair: string, style: HairStyle, hx: number): void {
+  const C = look.clothes ?? null;
+  const civil = !!C && !C.bare;
+  const cp = look.faction === 'cp';
+  const trim = K.trim ?? (cp ? look.color : PAWN.gear.trim);
+  const acc = cp ? accessoriesOf(PAWN.cpUnits[cpUnit(look.rank).unit], look.seed) : new Set<string>();
+  // Шинель, накидка и ранец — вещи, а не навесное юнита.
+  for (const a of ['coat', 'cape', 'pack']) acc.delete(a);
+  if (K.coat === 'greatcoat') acc.add('coat');
+  if (K.coat === 'cape') acc.add('cape');
+  if (K.pack && K.armor !== 'marine') acc.add('pack');
+  const shirt = K.shirt ?? (cp ? (PAWN.outfits.cp.base as string) : fallback);
+  const O: Outfit = {
+    style: K.armor === 'marine' ? 'marine' : 'kit',
+    base: civil ? '' : shirt,
+    armor: K.armorColor ?? PAWN.gear.reconArmor,
+    flak: K.armorColor ?? PAWN.gear.flak,
+    vest: K.armor === 'flak',
+    belt: K.belt ?? (PAWN.outfits.cp.belt as string),
+    coat: K.coatColor ?? '#1f2328',
+    cape: K.coatColor ?? '#6e1414',
+    helmet: K.headColor ?? PAWN.gear.helmet,
+    visor: K.visor ?? PAWN.gear.reconVisor,
+    shine: K.shine ?? PAWN.gear.shine,
+    eye: K.eye ?? PAWN.gear.reconGlow,
+    eyes: K.eyes ?? 1,
+  };
+  if (civil) delete O.base;
+  // Голова открыта: нет шлема и маски, причёску не прячет убор из ателье.
+  const covered = K.head === 'flak' || K.head === 'recon' || K.head === 'marine' || K.face === 'gas';
+  const hairStyle: HairStyle = K.head === 'peaked' || K.head === 'cadet' ? 'short' : style;
+  const hairOn = !covered && !(C && hidesHair(C));
+  if (hairOn && !K.head && d !== 'N') backHair(ctx, d, hairStyle, hair, hx);
+  if (hairOn && !K.head && hairStyle === 'bun' && !C?.hat) bun(ctx, hair, hx);
+  accBack(ctx, d, O, acc);
+  if (civil) clothedBody(ctx, d, C!, skin, look.band);
+  if (K.armor === 'marine') marineBody(ctx, d, O, trim, acc.has('bigPads'));
+  else if (K.armor === 'recon') reconBody(ctx, d, O, trim, acc);
+  else if (K.armor === 'flak' || !civil) flakBody(ctx, d, O, trim, acc);
+  // Бронежилет или плитник не из формы (снаряжение) — пластины поверх.
+  if (!K.armor && look.vest) {
+    ctx.save();
+    bodyPath(ctx, d);
+    ctx.clip();
+    clothes(ctx, d, O, shirt, look.vest, true);
+    ctx.restore();
+    bodyPath(ctx, d);
+    stroke(ctx, PAWN.outlineWidth);
+    shoulderPads(ctx, d, look.vest);
+  }
+  if (C?.bare) clothesNeck(ctx, d, C);
+  accBody(ctx, d, O, trim, acc);
+  if (K.head === 'marine') marineHelmet(ctx, d, O, trim, hx);
+  else if (K.head === 'recon') reconHelmet(ctx, d, { armor: O.helmet }, trim, hx);
+  else {
+    if (K.face === 'gas') gasMaskHead(ctx, d, hx);
+    else {
+      headPath(ctx, d, hx);
+      ctx.fillStyle = skin;
+      ctx.fill();
+      ctx.save();
+      headPath(ctx, d, hx);
+      ctx.clip();
+      ctx.fillStyle = PAWN.shade;
+      ctx.fillRect(d === 'E' ? hx - 20 - 2 : 3, -40, 20, 60);
+      ctx.restore();
+      headPath(ctx, d, hx);
+      stroke(ctx, PAWN.outlineWidth);
+      if (d !== 'N') face(ctx, d, hx);
+      if (hairOn) frontHair(ctx, d, hairStyle, hair, hx);
+    }
+    // Из ателье: убор (если формы на голове нет), платок на лице и очки (не поверх противогаза).
+    if (C && !K.face) clothesHead(ctx, d, C, hx, !K.head);
+    else if (C && !K.head) clothesHead(ctx, d, { ...C, neck: undefined, glasses: false }, hx, true);
+    if (K.head === 'flak') flakHelmet(ctx, d, trim, hx);
+    else if (K.head === 'peaked') peakedCap(ctx, d, trim, hx);
+    else if (K.head === 'cadet') cap(ctx, d, O.helmet as string, hx);
+    else if (look.helmet) michHelmet(ctx, d, { helmet: look.helmet }, hx, look.seed);
+  }
+  accTop(ctx, d, acc);
 }
 
 /** Поднадзорный: номер на робе (спереди и на спине) и ошейник-маячок с огоньком. */
@@ -858,10 +972,12 @@ function marineBody(ctx: Ctx, d: PawnDir, O: Record<string, unknown>, trim: stri
     ctx.lineTo(-5.4, top + 6);
     stroke(ctx, 0.6, tint(armor, -0.45));
   }
-  // Комбинезон (силуэт туловища).
+  // Комбинезон (силуэт туловища); без O.base — броня поверх уже нарисованной одежды.
   bodyPath(ctx, d);
-  ctx.fillStyle = O.base as string;
-  ctx.fill();
+  if (O.base) {
+    ctx.fillStyle = O.base as string;
+    ctx.fill();
+  }
   ctx.save();
   ctx.clip();
   // Кираса.

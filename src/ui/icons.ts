@@ -1,6 +1,7 @@
 import { WEAPON_SPRITES, WEAPON_POSE, type SpritePart } from '../config/weaponSprites';
 import { CLOTH_ITEMS, CLOTH_SLOTS, type ClothSlot } from '../config/clothes';
 import type { ItemId, WeaponId } from '../config/items';
+import { UNIFORM_PIECES, type UniformPiece } from '../config/uniforms';
 
 /**
  * Иконки интерфейса (инвентарь, колесо оружия, HUD): рисунки в духе Innawoods/RimWorld — плоские
@@ -500,7 +501,16 @@ for (const it of CLOTH_ITEMS) I[it.id] = (c) => clothIcon(c, it.fashion.slot, it
 const GHOST: Record<ClothSlot, string> = { hat: 'beanie', outer: 'zip', top: 'tee', neck: 'scarf', feet: 'boots' };
 for (const slot of CLOTH_SLOTS) I[`ghost_${slot}`] = (c) => clothIcon(c, slot, GHOST[slot], '#8b8662');
 
+// Части формы: ткань — рисунком одежды своего цвета, остальное — иконками снаряжения.
+for (const [id, p] of Object.entries(UNIFORM_PIECES) as [string, UniformPiece][]) {
+  const cloth: Partial<Record<string, [ClothSlot, string]>> = { top: ['top', 'shirt'], outer: ['outer', 'trench'], hat: ['hat', p.kit.head === 'cadet' ? 'beret' : 'flatcap'] };
+  const c0 = cloth[p.slot];
+  if (c0) I[id] = (c) => clothIcon(c, c0[0], c0[1], p.color);
+}
+const KIT_ICON: Record<string, string> = { head: 'helmet', face: 'gasmask', torso: 'vest', back: 'backpack' };
+
 const ITEM_ICON: Partial<Record<ItemId, string>> = {
+  ...(Object.fromEntries((Object.entries(UNIFORM_PIECES) as [string, UniformPiece][]).filter(([, p]) => KIT_ICON[p.slot]).map(([id, p]) => [id, p.kit.armor === 'recon' || p.kit.armor === 'marine' ? 'plate_vest' : KIT_ICON[p.slot]])) as Partial<Record<ItemId, string>>),
   ammo_ar2: 'cell_ar2',
   ammo_357: 'rounds',
   ammo_buckshot: 'buckshot',

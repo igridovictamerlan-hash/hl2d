@@ -16,6 +16,7 @@ import { resolveCircleVsTiles } from '../world/collision';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, ITEMS, GEAR, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
 import { gearLoot } from './Gear';
+import { CP_KITS, type KitLook } from '../config/uniforms';
 import { plainclothesOf, type ClothesLook } from '../config/clothes';
 import { armorOf, roleArmor, rollZone } from './wounds';
 import { FACTIONS, cpHas, cpUnit, type FactionId } from '../config/factions';
@@ -130,7 +131,7 @@ export interface Corpse {
   /** Чем убит (вид оружия убийцы) — экспертиза (Suspects.forensic). */
   weapon?: WeaponClass | null;
   /** В какой гражданской одежде погиб (только отрисовка тела). */
-  dressed?: { clothes: ClothesLook | null; clothesKey: string } | null;
+  dressed?: { clothes: ClothesLook | null; kit?: KitLook | null; clothesKey: string } | null;
 }
 
 /** Граната в полёте или на земле. */
@@ -957,13 +958,18 @@ export class CombatSystem {
     // Надетое — на теле; у бойца в форме (ВС, армия) с шансом — шлем и бронежилет его стороны.
     // Тело остаётся в той одежде, в какой погиб (вещи — в луте).
     const op = c.faction === 'cp' && !c.disguised && cpUnit(c.rank).plainclothes ? plainclothesOf(c.pid) : null;
-    const dressed = op ? { clothes: op.clothes, clothesKey: op.key } : c.faction === 'citizen' && !c.disguised ? { clothes: c.clothes, clothesKey: c.clothesKey } : null;
+    const dressed = op ? { clothes: op.clothes, clothesKey: op.key } : c.kit || (c.faction === 'citizen' && !c.disguised) ? { clothes: c.clothes, kit: c.kit, clothesKey: c.clothesKey } : null;
     loot.push(...gearLoot(c));
     const drop = GEAR.drops[c.faction];
     if (drop && this.rng.chance(GEAR.dropChance)) {
-      const a = roleArmor(c);
-      if (a.head > 0) loot.push({ id: drop.head, qty: 1 });
-      if (a.torso > 0) loot.push({ id: drop.torso, qty: 1 });
+      // ВС — форма юнита по частям (у игрока она и так надета — уже в луте).
+      if (c.faction === 'cp') {
+        if (!c.kitUnit) for (const id of CP_KITS[cpUnit(c.rank).unit]) loot.push({ id, qty: 1 });
+      } else {
+        const a = roleArmor(c);
+        if (a.head > 0) loot.push({ id: drop.head, qty: 1 });
+        if (a.torso > 0) loot.push({ id: drop.torso, qty: 1 });
+      }
     }
     c.weapon = null;
     c.mag = 0;

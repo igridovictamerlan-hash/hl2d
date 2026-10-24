@@ -102,7 +102,7 @@ import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION, type ProfessionId } from '../config/professions';
 import { ITEMS, type ItemId, type WeaponId, type GrenadeId, type GearId, type GearSlot } from '../config/items';
-import { wear, takeOff } from '../systems/Gear';
+import { wear, takeOff, issueUniform } from '../systems/Gear';
 import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
 import type { CheckChoice } from '../ui/CheckPanel';
@@ -630,6 +630,7 @@ export class Game {
     const profKit = p.profession ? PROFESSIONS[p.profession].kit : undefined;
     const kit = faction === 'cp' ? cpKit(p.rank) : profKit ?? faction;
     equipKit(p, kit, this.ai);
+    if (faction === 'cp') issueUniform(p, cpUnit(p.rank).unit);
     // Жителям оружие на виду ни к чему; повстанец начинает в убежище — с оружием в руках (Q/H — убрать).
     if (faction !== 'cp' && faction !== 'rebel') this.combat.equip(p, null);
     // Партизан выходит в маскировке, без оружия в руках.
@@ -1192,6 +1193,15 @@ export class Game {
     this.canvas.focus();
   }
 
+  /** Игроку ВС — форма его юнита по частям (config/uniforms.ts): при назначении, повышении, присяге. */
+  private syncUniform(): void {
+    const p = this.player;
+    const unit = p.faction === 'cp' && !p.disguised ? cpUnit(p.rank).unit : null;
+    if (unit === p.kitUnit) return;
+    if (unit) issueUniform(p, unit);
+    else p.kitUnit = null;
+  }
+
   private update(dt: number): void {
     if (this.restartPending) {
       this.restartPending = false;
@@ -1211,6 +1221,7 @@ export class Game {
       this.input.endTick();
       return;
     }
+    this.syncUniform();
     this.saveTimer -= dt;
     if (this.saveTimer <= 0) {
       this.saveTimer = SAVE.interval;
