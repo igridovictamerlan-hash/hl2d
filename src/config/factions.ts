@@ -68,20 +68,20 @@ export interface CpUnitDef extends RankDef {
  *  тир, класс; экзамен — и RCT.PCU) и инструктор PCU.INS (ведёт занятия).
  */
 const CP_RANKS: readonly CpUnitDef[] = [
-  { id: 'rct', unit: 'rct', name: 'Рекрут (RCT.PCU)', short: 'RCT.PCU', color: '#a9dcff', outline: '#4f86ad', group: 'pcu', hp: 75, kit: 'cp', command: 0, skills: [], desc: 'Стоит на посту у входов в КПП и Управу, в людных местах; дубинка и пистолет.' },
-  { id: 'pcu3', unit: 'pcu3', name: 'Юнит PCU.03', short: 'PCU.03', color: '#84c5fb', outline: '#3d73a2', group: 'pcu', hp: 90, kit: 'cp', command: 1, skills: [], desc: 'Патрульный: проверки CID, штрафы, аресты. Пистолет.' },
-  { id: 'pcu2', unit: 'pcu2', name: 'Юнит PCU.02', short: 'PCU.02', color: '#62acf3', outline: '#2f6396', group: 'pcu', hp: 100, kit: 'cp', command: 2, skills: [], desc: 'Ведёт патрульную группу, указания младшим. Пистолет.' },
-  { id: 'pcu1', unit: 'pcu1', name: 'Сержант (PCU.01)', short: 'PCU.01', color: '#4290e6', outline: '#23548c', group: 'pcu', hp: 110, kit: 'cp_sgt', command: 3, skills: [], desc: 'Сержант: ведёт группу, указания всем ниже. MP7 и пистолет.' },
-  { id: 'ofc', unit: 'ofc', name: 'Офицер (PCU.OFC)', short: 'PCU.OFC', color: '#2e73d2', outline: '#19437d', group: 'pcu', hp: 150, kit: 'cp_sgt', command: 4, skills: [], desc: 'Построения на плацу Управы, надзор за всей городской полицией. Терминал кодов.' },
-  { id: 'su3', unit: 'su3', name: 'Спецназ (SU.03)', short: 'SU.03', color: '#5fc4b0', outline: '#27685c', group: 'su', hp: 120, kit: 'cp_su', command: 2, skills: ['barrier'], desc: 'Держит КПП вместе с Легионом. MP7 и пистолет, G — бетонный блок.' },
-  { id: 'su2', unit: 'su2', name: 'Медик-техник (SU.02)', short: 'SU.02', color: '#48b4d0', outline: '#1f5f70', group: 'su', hp: 125, kit: 'cp_su_medic', command: 2, skills: ['medic', 'drone'], desc: 'Лечит своих на КПП (G), запускает сканер (G в городе). MP7 и пистолет.' },
-  { id: 'su1', unit: 'su1', name: 'Опер в штатском (SU.01)', short: 'SU.01', color: '#a08ae0', outline: '#4d3f7d', group: 'su', hp: 115, kit: 'cp', command: 3, skills: ['investigate'], desc: 'Оперуполномоченный в штатском: ходит с патрулями, осматривает тела (E) и находит убийц. Проверка CID быстрее.', plainclothes: true },
-  { id: 'guard', unit: 'guard', name: 'Охрана (SU.GUARD)', short: 'SU.GUARD', color: '#3f9c86', outline: '#1d4d42', group: 'su', hp: 140, kit: 'cp_guard', command: 2, skills: [], desc: 'Охраняет инспекторов, Коменданта, EPU и лоялистов — по очереди. MP7.' },
-  { id: 'insp', unit: 'insp', name: 'Инспектор (SU.INSP)', short: 'SU.INSP', color: '#2f7fa0', outline: '#143c4d', group: 'su', hp: 140, kit: 'cp_guard', command: 5, skills: ['investigate'], desc: 'Надзор за SU и работой ТС, указания офицерам. Всегда с охраной.' },
-  { id: 'epu', unit: 'epu', name: 'Глава силового блока (CMD.EPU)', short: 'CMD.EPU', color: '#d9b24a', outline: '#6e5516', group: 'cmd', hp: 200, kit: 'cp_guard', command: 6, skills: [], desc: 'Командует всеми. Сидит с Комендантом, из Управы — только с охраной.' },
-  { id: 'qm', unit: 'qm', name: 'Кладовщик (SU.QM)', short: 'SU.QM', color: '#7fae7a', outline: '#3a5a36', group: 'su', hp: 110, kit: 'cp_qm', command: 1, skills: [], desc: 'Ведёт склад Протектората на окраине: опись, выдача боекомплекта ВС у окна (E). Пистолет.' },
-  { id: 'cdt', unit: 'cdt', name: 'Курсант академии', short: 'Курсант', color: '#cfe6f7', outline: '#6d8ea8', group: 'pcu', hp: 70, kit: 'cadet', command: 0, skills: [], desc: 'Учится в Академии ВС: построения, строевая, тир, занятия в классе. Сдал экзамен — RCT.PCU.' },
-  { id: 'instr', unit: 'instr', name: 'Инструктор академии (PCU.INS)', short: 'PCU.INS', color: '#3b7fc0', outline: '#1d4670', group: 'pcu', hp: 130, kit: 'cp_instr', command: 3, skills: [], desc: 'Ведёт курсантов: построения на плацу, строевая, стрельбы в тире, занятия, экзамен.' },
+  { id: 'rct', unit: 'rct', name: 'Рекрут', short: 'Рекрут', color: '#a9dcff', outline: '#4f86ad', group: 'pcu', hp: 75, kit: 'cp', command: 0, skills: [], desc: 'Стоит на посту у входов в КПП и Управу, в людных местах; дубинка и пистолет.' },
+  { id: 'pcu3', unit: 'pcu3', name: 'Патрульный', short: 'Патрульный', color: '#84c5fb', outline: '#3d73a2', group: 'pcu', hp: 90, kit: 'cp', command: 1, skills: [], desc: 'Патрульный: проверки CID, штрафы, аресты. Пистолет.' },
+  { id: 'pcu2', unit: 'pcu2', name: 'Старший патрульный', short: 'Ст. патрульный', color: '#62acf3', outline: '#2f6396', group: 'pcu', hp: 100, kit: 'cp', command: 2, skills: [], desc: 'Ведёт патрульную группу, указания младшим. Пистолет.' },
+  { id: 'pcu1', unit: 'pcu1', name: 'Сержант', short: 'Сержант', color: '#4290e6', outline: '#23548c', group: 'pcu', hp: 110, kit: 'cp_sgt', command: 3, skills: [], desc: 'Сержант: ведёт группу, указания всем ниже. MP7 и пистолет.' },
+  { id: 'ofc', unit: 'ofc', name: 'Офицер', short: 'Офицер', color: '#2e73d2', outline: '#19437d', group: 'pcu', hp: 150, kit: 'cp_sgt', command: 4, skills: [], desc: 'Построения на плацу Управы, надзор за всей городской полицией. Терминал кодов.' },
+  { id: 'su3', unit: 'su3', name: 'Спецназовец', short: 'Спецназ', color: '#5fc4b0', outline: '#27685c', group: 'su', hp: 120, kit: 'cp_su', command: 2, skills: ['barrier'], desc: 'Держит КПП вместе с Легионом. MP7 и пистолет, G — бетонный блок.' },
+  { id: 'su2', unit: 'su2', name: 'Медик-техник', short: 'Медик', color: '#48b4d0', outline: '#1f5f70', group: 'su', hp: 125, kit: 'cp_su_medic', command: 2, skills: ['medic', 'drone'], desc: 'Лечит своих на КПП (G), запускает сканер (G в городе). MP7 и пистолет.' },
+  { id: 'su1', unit: 'su1', name: 'Следователь', short: 'Следователь', color: '#a08ae0', outline: '#4d3f7d', group: 'su', hp: 115, kit: 'cp', command: 3, skills: ['investigate'], desc: 'В штатском: ходит с патрулями, осматривает тела (E) и находит убийц. Проверка CID быстрее.', plainclothes: true },
+  { id: 'guard', unit: 'guard', name: 'Охранник', short: 'Охранник', color: '#3f9c86', outline: '#1d4d42', group: 'su', hp: 140, kit: 'cp_guard', command: 2, skills: [], desc: 'Охраняет инспекторов, Коменданта, начальника стражи и лоялистов — по очереди. MP7.' },
+  { id: 'insp', unit: 'insp', name: 'Инспектор', short: 'Инспектор', color: '#2f7fa0', outline: '#143c4d', group: 'su', hp: 140, kit: 'cp_guard', command: 5, skills: ['investigate'], desc: 'Надзор за спецотрядом и работой ТС, указания офицерам. Всегда с охраной.' },
+  { id: 'epu', unit: 'epu', name: 'Начальник стражи', short: 'Начальник', color: '#d9b24a', outline: '#6e5516', group: 'cmd', hp: 200, kit: 'cp_guard', command: 6, skills: [], desc: 'Командует всеми. Сидит с Комендантом, из Управы — только с охраной.' },
+  { id: 'qm', unit: 'qm', name: 'Кладовщик', short: 'Кладовщик', color: '#7fae7a', outline: '#3a5a36', group: 'su', hp: 110, kit: 'cp_qm', command: 1, skills: [], desc: 'Ведёт склад Протектората на окраине: опись, выдача боекомплекта ВС у окна (E). Пистолет.' },
+  { id: 'cdt', unit: 'cdt', name: 'Курсант академии', short: 'Курсант', color: '#cfe6f7', outline: '#6d8ea8', group: 'pcu', hp: 70, kit: 'cadet', command: 0, skills: [], desc: 'Учится в Академии ВС: построения, строевая, тир, занятия в классе. Сдал экзамен — рекрут.' },
+  { id: 'instr', unit: 'instr', name: 'Инструктор академии', short: 'Инструктор', color: '#3b7fc0', outline: '#1d4670', group: 'pcu', hp: 130, kit: 'cp_instr', command: 3, skills: [], desc: 'Ведёт курсантов: построения на плацу, строевая, стрельбы в тире, занятия, экзамен.' },
 ];
 
 /** Номер юнита (Character.rank) по id. */
@@ -137,7 +137,7 @@ export const REBEL_RANKS: readonly RebelUnitDef[] = [
   { id: 'demo', unit: 'demo', profession: 'demolitionist', name: 'Подрывник', short: 'Подрывник', hp: 130, elite: false, ...YELLOW, desc: 'Много гранат.' },
   { id: 'pyro', unit: 'pyro', profession: 'pyro', name: 'Пиротехник', short: 'Пиро', hp: 130, elite: false, ...YELLOW, desc: 'Огонь: поджигающие гранаты и болты.' },
   { id: 'leader', unit: 'leader', profession: 'rebel_leader', name: 'Глава восстания', short: 'Глава', hp: 250, elite: true, ...RED, desc: 'Патрик: броня как у Легиона, красный берет.' },
-  { id: 'hydra_rct', unit: 'hydra_rct', profession: 'hydra_rct', name: 'RCT «Грозы»', short: 'RCT «Грозы»', hp: 150, elite: true, ...RED, desc: 'MP7, пистолет, гранат больше, чем у бойцов.' },
+  { id: 'hydra_rct', unit: 'hydra_rct', profession: 'hydra_rct', name: 'Боец «Грозы»', short: 'Боец «Грозы»', hp: 150, elite: true, ...RED, desc: 'MP7, пистолет, гранат больше, чем у бойцов.' },
   { id: 'hydra_sergeant', unit: 'hydra_sergeant', profession: 'hydra_sergeant', name: 'Сержант «Грозы»', short: 'Сержант «Грозы»', hp: 170, elite: true, ...RED, desc: 'Импульсная винтовка и пистолеты.' },
   { id: 'hydra_sniper', unit: 'hydra_sniper', profession: 'hydra_sniper', name: 'Снайпер «Грозы»', short: 'Снайпер «Грозы»', hp: 110, elite: true, ...RED, desc: 'Пока с пистолетом: винтовка — после обновления боевой системы.' },
   { id: 'commando', unit: 'commando', profession: 'commando', name: 'Коммандос «Грозы»', short: 'Коммандос', hp: 200, elite: true, ...RED, desc: 'Один на сервер: при Патрике, ответ Легиону.' },
@@ -176,7 +176,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     id: 'cp', role: 'ВС', plural: 'Внутренняя стража',
     color: CP_RANKS[0].color, outline: CP_RANKS[0].outline, label: '#9cc9f5', yieldPriority: 4,
     authority: true, selectable: true,
-    description: 'Силовой блок: городская полиция PCU, спецотряд SU, командование CMD.',
+    description: 'Силовой блок: патрульная служба, спецотряд, командование.',
     ranks: CP_RANKS,
   },
   ota: {
@@ -208,9 +208,9 @@ export interface DivisionDef {
 }
 
 export const CP_DIVISIONS: Record<DivisionId, DivisionDef> = {
-  pcu: { id: 'pcu', short: 'PCU', name: 'Городская полиция (PCU)', color: '#9cc9f5', desc: 'Посты, патрули, проверки CID, аресты. На бойню у КПП почти не ходит.' },
-  su: { id: 'su', short: 'SU', name: 'Спецотряд (SU)', color: '#8fd6c0', desc: 'Спецназ и медики на КПП, следователи, охрана, инспекторы.' },
-  cmd: { id: 'cmd', short: 'CMD', name: 'Командование (CMD)', color: '#e0c070', desc: 'Глава силового блока города.' },
+  pcu: { id: 'pcu', short: 'Патруль', name: 'Патрульная служба', color: '#9cc9f5', desc: 'Посты, патрули, проверки CID, аресты. На бойню у КПП почти не ходит.' },
+  su: { id: 'su', short: 'Спецотряд', name: 'Спецотряд', color: '#8fd6c0', desc: 'Спецназ и медики на КПП, следователи, охрана, инспекторы.' },
+  cmd: { id: 'cmd', short: 'Командование', name: 'Командование', color: '#e0c070', desc: 'Глава силового блока города.' },
 };
 
 /** Группа юнита ВС по рангу. */

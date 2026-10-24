@@ -144,7 +144,7 @@ export class OrgPanel {
     const mgr = this.src.manager();
     const hint = mgr
       ? '<div class="org-hint">Вы командир: ▲ — повысить на свободную должность выше, ▼ — понизить (на свободную младшую или поменять с лучшим из младших). Только тех, кто ниже вас.</div>'
-      : `<div class="org-hint">Приказы о составе отдают с офицера PCU.OFC и выше. Ваше повышение — по баллам службы.</div>`;
+      : `<div class="org-hint">Приказы о составе отдают с офицера и выше. Ваше повышение — по баллам службы.</div>`;
     const rows = list
       .map((m) => {
         const hp = Math.round(m.health * 100);

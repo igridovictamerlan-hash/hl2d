@@ -20,8 +20,8 @@ export const POPULATION = {
     { id: 'max', label: 'максимум', scale: 5.2 },
     { id: 'extreme', label: 'предел', scale: 7 },
   ],
-  /** Уровень по умолчанию: компьютер — много; телефон и планшет (сенсорный экран без мыши) — обычно. */
-  defaultLevel: { desktop: 'crowd', touch: 'normal' },
+  /** Уровень по умолчанию — «обычно» (новичку не каша из людей; больше — в меню): и на компьютере, и на телефоне. */
+  defaultLevel: { desktop: 'normal', touch: 'normal' },
   storageKey: 'hl2d-population',
   /** Предел числа граждан (`?npcs=` — в обход уровня, но не больше). */
   maxCitizens: 1200,

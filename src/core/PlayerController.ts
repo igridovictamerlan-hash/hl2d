@@ -435,7 +435,7 @@ export class PlayerController {
     }
     // Терминал кодов тревоги в кабинете Коменданта.
     if (d(poiWorld(ctx, 'code_terminal')) < WAR.terminal.reach) {
-      if (!ctx.war.canSetCode(p)) return this.say('Терминал Администрации: доступ только Коменданту и старшим офицерам ВС (с OFC).');
+      if (!ctx.war.canSetCode(p)) return this.say('Терминал Администрации: доступ только Коменданту и офицерам ВС и старше.');
       return this.hooks.openCodePanel();
     }
     // Поручение: у дома получателя — сдать посылку; у доски объявлений — взять новое.

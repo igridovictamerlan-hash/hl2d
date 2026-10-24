@@ -1131,7 +1131,7 @@ export class WarSystem {
     this.ctx.bus.emit('announce', { text: 'Код красный · комендантский час' });
     for (const c of this.ctx.entities.list) if (c.faction === 'admin') c.say('Внимание! Код красный. Комендантский час!', this.ctx.law.now, 5);
     // OTA по городу не ходит — держит ГЭС и КПП; прочёсывают город PCU и SU.
-    if (this.ota.some((o) => o.alive)) this.ctx.law.log('Надзор: Легион держит Управу. PCU и SU — прочёсывание кварталов.', 'radio');
+    if (this.ota.some((o) => o.alive)) this.ctx.law.log('Надзор: Легион держит Управу. Патрули и спецотряд — прочёсывание кварталов.', 'radio');
   }
 
   /**

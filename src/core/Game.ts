@@ -302,7 +302,7 @@ export class Game {
       if (who !== this.player) return;
       this.role = { faction: 'cp', rank: CP_UNIT.cdt, division: 'pcu', profession: null };
       this.bus.emit('announce', { text: 'Вы зачислены курсантом Академии ВС' });
-      this.bus.emit('log', { text: 'Академия: ходите на занятия по распорядку (строка вверху подскажет, где и что). Набрали баллы — экзамен, сдали — присяга и служба RCT.', kind: 'system' });
+      this.bus.emit('log', { text: 'Академия: ходите на занятия по распорядку (строка вверху подскажет, где и что). Набрали баллы — экзамен, сдали — присяга и служба рекрутом.', kind: 'system' });
       this.save();
     });
     this.bus.on('graduated', ({ who, rank, name }) => {

@@ -105,7 +105,7 @@ export class SecuritySystem {
     });
     (officer.brain as CpBrain).joinFormation({ x: yard.x, y: top - F.front, facing: Math.PI / 2 });
     officer.say(ctx.rng.pick(SECURITY.lines.formationCall), ctx.law.now, 3);
-    ctx.law.log(`${officer.name}: построение юнитов PCU на плацу Управы.`, 'radio');
+    ctx.law.log(`${officer.name}: построение патрульных на плацу Управы.`, 'radio');
     this.formation = { officer, members: free, since: this.time, standUntil: 0, nextLine: 0 };
     this.stats.formations++;
     return true;

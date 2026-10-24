@@ -57,6 +57,10 @@
 - **Силовой блок** (`config/factions.ts` — `CP_RANKS`/`cpUnit`/`CP_UNIT`/`cpHas`, `config/security.ts`,
   `systems/Security.ts`, `ROSTER.cp`). У ВС `Character.rank` — номер юнита (HP, набор, уровень
   командования `command`, умения `skills`), `division` — группа (`pcu`/`su`/`cmd`, `cpGroup`).
+  Коды ниже (PCU.03, SU.01…) — только для документации и кода: игрок видит должности по-русски (`name`/`short`):
+  RCT — рекрут, PCU.03 — патрульный, PCU.02 — ст. патрульный, PCU.01 — сержант, OFC — офицер, PCU.INS — инструктор,
+  SU.03 — спецназ, SU.02 — медик, SU.01 — следователь, SU.GUARD — охранник, SU.INSP — инспектор, SU.QM — кладовщик,
+  CMD.EPU — начальник стражи.
   **PCU** (городская полиция; на бойню у КПП не ходит — КПП в `patrolAvoid`): RCT.PCU 75 HP (дубинка,
   пистолет) — посты у проходных КПП, у ворот Управы и в людных местах (`duty: 'post'`, вмешивается
   в нарушения не дальше `SECURITY.postReach`); PCU.03 90 HP — патруль; PCU.02 100 HP и сержант PCU.01

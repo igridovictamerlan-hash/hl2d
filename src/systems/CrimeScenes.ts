@@ -143,7 +143,7 @@ export class CrimeScenes {
     if (kind === 'civil') this.stats.civil++;
     this.dispatch(s);
     const zone = this.ctx.map.zoneAtWorld(s.x, s.y)?.name ?? 'город';
-    const who = kind === 'cp' ? 'следователь SU, медик и офицер' : 'следователь SU и медик';
+    const who = kind === 'cp' ? 'следователь, медик и офицер' : 'следователь и медик';
     this.ctx.law.log(`Надзор: ${kind === 'cp' ? 'место преступления' : 'найдено тело гражданина'} — ${zone}. Проход перекрыт; на осмотр — ${who}.`, 'radio');
     return s;
   }

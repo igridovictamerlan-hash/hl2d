@@ -97,7 +97,7 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
   },
   cwu_head: {
     id: 'cwu_head', faction: 'cwu', name: 'Глава ТС', kit: 'cwu_head', selectable: false,
-    desc: 'Руководит штабом ТС: принимает граждан на работу, отчитывается перед инспектором SU.',
+    desc: 'Руководит штабом ТС: принимает граждан на работу, отчитывается перед инспектором.',
     perks: ['Сидит в кабинете штаба, выходит к стойке найма', 'Зарплата выше, чем у рабочих'],
   },
   cwu_medic: {
@@ -201,7 +201,7 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
     perks: ['Импульсная винтовка и два пистолета', 'Противогаз и бронежилет'],
   },
   hydra_rct: {
-    id: 'hydra_rct', faction: 'rebel', name: 'RCT «Грозы»', kit: 'hydra_rct', selectable: true,
+    id: 'hydra_rct', faction: 'rebel', name: 'Боец «Грозы»', kit: 'hydra_rct', selectable: true,
     desc: 'Рекрут спецотряда «Гроза»: 150 HP.',
     perks: ['MP7 и пистолет', 'Гранат больше, чем у простых бойцов'],
   },

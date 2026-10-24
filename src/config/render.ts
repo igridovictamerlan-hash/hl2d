@@ -207,8 +207,16 @@ export const RENDER = {
      * экрана), сокращается до имени или не рисуется; реплик на экране не больше maxBubbles. Масштаб
      * камеры меньше roleZoom — роли только у важных (игрок, под курсором, тяжелораненый), меньше
      * nameZoom — и имена. Под курсором (ближе hoverRadius px мира) — строка подробностей цвета detailColor.
+     * Простые прохожие (по виду — стороны quiet) подписаны, только если ближе quietNear px мира к игроку, под курсором,
+     * говорят или ранены: на улице не каша из имён. Тайные профессии (secret) видны только своим — бойцы банд
+     * бандитам, остальным такой — «Гражданин» (EntityRenderer.seesCrew).
      */
-    labels: { pad: 2, maxBubbles: 7, roleZoom: 1.05, nameZoom: 0.75, hoverRadius: 16, detailColor: 'rgba(225,220,205,0.8)' },
+    labels: {
+      pad: 2, maxBubbles: 7, roleZoom: 1.05, nameZoom: 0.75, hoverRadius: 16, detailColor: 'rgba(225,220,205,0.8)',
+      quietNear: 96,
+      quiet: ['citizen', 'cwu', 'vort'] as readonly string[],
+      secret: ['bandit', 'gang_boss', 'thief', 'fugitive'] as readonly string[],
+    },
     /**
      * Тяжелораненый: лужа крови под ним, кольцо — сколько осталось (радиус ring px мира), подпись
      * роли — «тяжело ранен · N с»; присевший ниже ростом (CROUCH.squash).

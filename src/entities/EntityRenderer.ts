@@ -28,11 +28,21 @@ import { drawFists, fistsShown, flinchOf, meleeSwing } from './meleePose';
 import { MELEE_LOOK } from '../config/melee';
 
 /**
- * Подпись роли над пешкой — коротко: юнит у ВС («PCU.03»), юнит у армии («Ветеран»), профессия или
- * сторона у остальных («Бандит», «ТС», «Гражданин»); задержанный — «задержан», сидящий — «в КПЗ».
- * Номер CID, семья и банда — только в подробной подписи под курсором (labelDetail).
+ * Видит ли viewer «тайную» профессию c (RENDER.entity.labels.secret: бандит, вор, беглец): себя — да; бойцов банд —
+ * только тот, кто сам в банде. Остальным такой — просто «Гражданин», без цвета и названия банды.
  */
-export function roleLabel(c: Character): string {
+export function seesCrew(viewer: Character | null, c: Character): boolean {
+  if (viewer === c || !c.profession || !SECRET.has(c.profession)) return true;
+  return !!viewer && viewer.gang >= 0 && c.gang >= 0;
+}
+const SECRET = new Set<string>(RENDER.entity.labels.secret);
+
+/**
+ * Подпись роли над пешкой — коротко и по-русски: должность у ВС («Патрульный», «Следователь»), юнит у армии
+ * («Ветеран»), профессия или сторона у остальных («ТС», «Гражданин»); тайная профессия — только своим (seesCrew);
+ * задержанный — «задержан», сидящий — «в КПЗ». Номер CID, семья и банда — в подробной подписи под курсором.
+ */
+export function roleLabel(c: Character, viewer: Character | null = null): string {
   let s: string;
   // Партизан в маскировке подписан по личине: гражданин, рабочий ТС, сотрудник ВС.
   if (c.disguised) {
@@ -44,7 +54,7 @@ export function roleLabel(c: Character): string {
     const r = rankOf(c.faction, c.rank);
     const prof = c.profession ? PROFESSIONS[c.profession] : null;
     // Сопротивление: юнит и есть роль; ВС — юнит («ВС» уже в позывном); остальные — профессия или сторона.
-    s = c.faction === 'rebel' && r ? r.name : c.faction === 'cp' && r ? r.short : prof && prof.id !== DEFAULT_PROFESSION[c.faction] ? prof.name : FACTIONS[c.faction].role;
+    s = c.faction === 'rebel' && r ? r.name : c.faction === 'cp' && r ? r.short : prof && prof.id !== DEFAULT_PROFESSION[c.faction] && seesCrew(viewer, c) ? prof.name : FACTIONS[c.faction].role;
   }
   const phase = c.law.phase;
   if (phase === 'cuffed' || phase === 'entering') return 'задержан';
@@ -381,13 +391,18 @@ export class EntityRenderer {
       }
       const speaking = !!c.speech && c.speech.until > now;
       let score = -Math.hypot(c.x - px, c.y - py);
+      // Простой прохожий (гражданин, рабочий ТС, поднадзорный) — подпись только рядом с игроком или под курсором.
+      if (c !== player && QUIET.has(apparentFaction(c)) && Math.hypot(c.x - px, c.y - py) > L.quietNear && !speaking && !c.downed) {
+        cand.push({ c, x, cy, score: -1e9, speaking, quiet: true });
+        continue;
+      }
       if (c === player) score += 1e6;
       if (c.downed) score += 5e3;
       if (speaking) score += 3e3;
       if (speaking && c.speech!.kind !== 'say') score += E.bubble.radioScore;
-      cand.push({ c, x, cy, score, speaking });
+      cand.push({ c, x, cy, score, speaking, quiet: false });
     }
-    for (const e of cand) if (e.c === hovered) e.score += 1e5;
+    for (const e of cand) if (e.c === hovered) e.score = Math.max(e.score, 0) + 1e5;
     cand.sort((a, b) => b.score - a.score);
     const placed = labelRects;
     placed.length = 0;
@@ -413,17 +428,17 @@ export class EntityRenderer {
       placed.push({ x0: x - lay.w / 2, y0, x1: x + lay.w / 2, y1: bottom });
       said.push({ c, x, y: bottom, lay });
     }
-    for (const { c, x, cy } of cand) {
+    for (const { c, x, cy, quiet } of cand) {
       const key = c === player || c === hovered || c.downed;
       ctx.globalAlpha = c.visible ? 1 : 0.5;
-      if (!key && zoom < L.nameZoom) continue;
+      if (!key && (quiet || zoom < L.nameZoom)) continue;
       // Как в RimWorld: имя под ногами, роль под именем.
       const ny = cy + PAWN.body.bottom * s * PAWN.scale + 12 * dpr;
       const name = displayName(c);
       const nw = textWidth(ctx, name, E.nameFont, dpr);
       const wantRole = key || zoom >= L.roleZoom;
-      const gang = !c.disguised ? this.gangs?.of(c) ?? null : null;
-      const role = !wantRole ? '' : c.downed ? `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : roleLabel(c);
+      const gang = !c.disguised && seesCrew(player, c) ? this.gangs?.of(c) ?? null : null;
+      const role = !wantRole ? '' : c.downed ? `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : roleLabel(c, player);
       const rw = role ? textWidth(ctx, role, E.roleFont, dpr) : 0;
       const details = c === hovered && c !== player ? labelDetails(c, this.families, gang, this.relations, player, this.senses) : noDetails;
       let dw = 0;
@@ -586,7 +601,9 @@ function drawRadioIcon(ctx: CanvasRenderingContext2D, x: number, y: number, dpr:
 }
 
 const drawOrder: { c: Character; x: number; y: number }[] = [];
-const labelCand: { c: Character; x: number; cy: number; score: number; speaking: boolean }[] = [];
+const labelCand: { c: Character; x: number; cy: number; score: number; speaking: boolean; quiet: boolean }[] = [];
+/** Простые прохожие по виду (RENDER.entity.labels.quiet). */
+const QUIET = new Set<string>(RENDER.entity.labels.quiet);
 const labelRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
 const labelBubbles: { c: Character; x: number; y: number; lay: BubbleLayout }[] = [];
 
@@ -600,7 +617,8 @@ const noDetails: DetailLine[] = [];
 /** Подробности под курсором: CID (у жителей), семья или банда; характер и настроение; отношение к игроку. */
 function labelDetails(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>, rel: Relations | null, viewer: Character | null, senses: Senses | null): DetailLine[] {
   if (c.downed) return noDetails;
-  const cid = c.faction === 'citizen' || c.faction === 'cwu' || c.disguised ? `#${c.cid}` : '';
+  // Номер CID видят только власти (проверяют его); горожанину чужой номер ни к чему.
+  const cid = viewer && FACTIONS[viewer.faction].authority && (c.faction === 'citizen' || c.faction === 'cwu' || c.disguised) ? `#${c.cid}` : '';
   const fam = !c.disguised ? families?.of(c) ?? null : null;
   const extra = gang ? `«${gang.def.name}»` : fam ? familyTitle(fam.surname) : '';
   const out: DetailLine[] = [];

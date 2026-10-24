@@ -30,7 +30,7 @@ export function postName(spec: RoleSpec): string {
     case 'guard': return `пост на ${cpName(spec.front)}`;
     case 'medic': return 'медпункт КПП';
     case 'squad': return spec.lead ? `ведущий группы ${(spec.squad ?? 0) + 1}` : `группа ${(spec.squad ?? 0) + 1}`;
-    case 'officer': return 'офицер PCU';
+    case 'officer': return 'офицер патрульной службы';
     case 'tech': return 'техник со сканером';
     case 'inspector': return 'инспекция';
     case 'bodyguard': return 'охрана';

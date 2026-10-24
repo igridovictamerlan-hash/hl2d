@@ -76,7 +76,7 @@ describe('меню организации ВС', () => {
     expect(msg).toContain('повышен');
     expect(cpUnit(p3.rank).unit).toBe('pcu2');
     expect(S.slotOf(p3)).toBe(post);
-    expect(sim.log.some((l) => l.includes('повышен до PCU.02') && l.includes(`приказ ${cpUnit(ofc.rank).short} ${ofc.name}`))).toBe(true);
+    expect(sim.log.some((l) => l.includes('повышен до Ст. патрульный') && l.includes(`приказ ${cpUnit(ofc.rank).short} ${ofc.name}`))).toBe(true);
     // До своего уровня (офицер) — не повышает, даже если вакансия есть.
     if (ofc2) {
       sim.combat.kill(ofc2, null);
@@ -116,7 +116,7 @@ describe('меню организации ВС', () => {
     expect(cpUnit(p2.rank).unit).toBe('pcu3');
     expect(cpUnit(swap.rank).unit).toBe('pcu2');
     expect(S.slotOf(swap)).toBe(own);
-    expect(sim.log.some((l) => l.includes('понижен до PCU.03'))).toBe(true);
+    expect(sim.log.some((l) => l.includes('понижен до Патрульный'))).toBe(true);
     // RCT ниже некуда.
     const rct = units(sim, 'rct').find((c) => S.free(c));
     if (rct) expect(orgOrder(ctx, ofc, rct, 'demote')).toContain('некуда');
