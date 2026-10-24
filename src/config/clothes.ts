@@ -15,10 +15,10 @@ export type PatternId = 'plain' | 'stripes' | 'plaid' | 'knit' | 'argyle';
  * френч, смокинг.
  */
 export type OuterId = 'quilted' | 'ragcoat' | 'sack' | 'cardigan' | 'zip' | 'blazer' | 'trench' | 'peacoat' | 'suit' | 'camel' | 'fur' | 'french' | 'tux';
-/** Головной убор: ушанка, вязаная шапка, платок, восьмиклинка, берет, федора, котелок, шляпка-таблетка, цилиндр. */
-export type HatId = 'ushanka' | 'beanie' | 'kerchief' | 'flatcap' | 'beret' | 'fedora' | 'bowler' | 'pillbox' | 'tophat';
-/** На шее: шарф, галстук, бабочка, жемчуг, шаль на плечах. */
-export type NeckId = 'scarf' | 'tie' | 'bow' | 'pearls' | 'shawl';
+/** Головной убор: ушанка, вязаная шапка, платок, восьмиклинка, берет, федора, котелок, шляпка-таблетка, цилиндр, капюшон. */
+export type HatId = 'ushanka' | 'beanie' | 'kerchief' | 'flatcap' | 'beret' | 'fedora' | 'bowler' | 'pillbox' | 'tophat' | 'hood';
+/** На шее: шарф, галстук, бабочка, жемчуг, шаль на плечах, платок, натянутый на лицо (mask — рисуется поверх лица). */
+export type NeckId = 'scarf' | 'tie' | 'bow' | 'pearls' | 'shawl' | 'mask';
 
 export interface ClothesLook {
   tier: ClothTier;
@@ -223,6 +223,11 @@ export const CLOTHES = {
       colors: [['indigo', 'индиго', '#3e4f66'], ['vishnya', 'вишня', '#6e3038'], ['olive', 'олива', '#5b6b4a'], ['gorch', 'горчица', '#9a7a3a']] },
     { id: 'gown', slot: 'top', name: 'Вечернее платье', worn: 'вечернем платье', tier: 'rich', price: 95, who: 'f', piece: { top: 'dress', brooch: '#d9b24a' }, paint: ['topColor', 'skirt'],
       colors: [['bordo', 'бордо', '#6e1f2a'], ['slyva', 'слива', '#3a2a48'], ['izumr', 'изумруд', '#1f4a3a'], ['sazha', 'сажа', '#18181c']] },
+    // ——— Блатное (crook: горожанам Гардероб не выдаёт, NPC-горожане не покупают; продаётся в ателье) ———
+    { id: 'hood', slot: 'hat', name: 'Капюшон', worn: 'капюшоне', tier: 'poor', price: 6, crook: true, piece: { hat: 'hood' }, paint: ['hatColor'],
+      colors: [['grafit', 'графит', '#2e3137'], ['sazha', 'сажа', '#1f2024'], ['moh', 'мох', '#3e4436'], ['bur', 'бурый', '#4a3c30']] },
+    { id: 'facemask', slot: 'neck', name: 'Платок на лицо', worn: 'платке на лице', tier: 'poor', price: 3, crook: true, piece: { neck: 'mask' }, paint: ['neckColor'],
+      colors: [['chern', 'чёрный', '#1d1d1f'], ['kras', 'красный', '#7a2222'], ['sin', 'синий', '#2a3550'], ['pesok', 'песок', '#8a7a5a'], ['zel', 'зелёный', '#2f4a32']] },
     // ——— На шее ———
     { id: 'scarf', slot: 'neck', name: 'Шарф', worn: 'шарфе', tier: 'poor', price: 5, piece: { neck: 'scarf' }, paint: ['neckColor'],
       colors: [['kirpich', 'кирпич', '#7a4a3a'], ['moh', 'мох', '#5b6b4a'], ['pepel', 'пепел', '#6e6a62'], ['indigo', 'индиго', '#3a4a6a']] },
@@ -265,9 +270,16 @@ export const CLOTHES = {
    * шансом outer (зимнего нет — у бедных чаще), убор — hat, шарф/галстук — neck; лоялисты на ступень богаче с шансом
    * loyalUp. В ателье NPC покупает вещь своего достатка или дешевле, если после покупки останется reserve токенов, и
    * сразу надевает (старая выброшена). Лоялиста узнают по фиолетовой повязке (LOYALTY.uniform.color). Одеты горожане
-   * профессий professions (без профессии — тоже); у воров, бандитов, отбросов и беглецов — своя одежда.
+   * профессий professions (без профессии — тоже); у отбросов и беглецов — своя одежда.
+   * Бандиты, авторитеты и воры (crooks) — тоже в одежде каталога, каждый по-своему: достаток — из tiers наугад (не по
+   * дому: общага у банды одна), с шансом hood — капюшон вместо убора, mask — платок на лице; повязка банды на рукаве.
    */
-  npc: { professions: ['citizen'] as readonly string[], outer: { poor: 0.75, middle: 0.6, rich: 0.85 }, hat: { poor: 0.7, middle: 0.45, rich: 0.6 }, neck: { poor: 0.25, middle: 0.4, rich: 0.6 }, loyalUp: 0.5, reserve: 15 },
+  npc: { professions: ['citizen', 'bandit', 'gang_boss', 'thief'] as readonly string[],
+    crooks: {
+      bandit: { tiers: ['poor', 'poor', 'middle'], hood: 0.25, mask: 0.4 },
+      gang_boss: { tiers: ['middle', 'rich', 'rich'], hood: 0, mask: 0 },
+      thief: { tiers: ['poor', 'middle'], hood: 0.6, mask: 0.15 },
+    } as Record<string, { tiers: readonly ClothTier[]; hood: number; mask: number }>, outer: { poor: 0.75, middle: 0.6, rich: 0.85 }, hat: { poor: 0.7, middle: 0.45, rich: 0.6 }, neck: { poor: 0.25, middle: 0.4, rich: 0.6 }, loyalUp: 0.5, reserve: 15 },
 };
 
 /** Слот одежды (Gear): головной убор, верх, низ, шея, обувь. */
@@ -283,6 +295,8 @@ export interface ClothFashion {
   tier: ClothTier;
   price: number;
   who?: 'f' | 'm';
+  /** Блатная вещь (капюшон, платок на лицо): горожанам не выдаётся. */
+  crook?: boolean;
   piece: Partial<ClothesLook>;
   paint: readonly (keyof ClothesLook)[];
   colors: readonly (readonly [string, string, string])[];

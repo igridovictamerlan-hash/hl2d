@@ -129,7 +129,7 @@ describe('одежда: вещи, слоты, ателье, горожане', (
       const d = sim.ctx.housing.of(c);
       const at = d?.spots[0] ?? c;
       const band = d?.kind === 'villa' ? 'upper' : sim.map.districtAtWorld(at.x, at.y);
-      if (band) by[band].push(tierRank(c.clothes.tier));
+      if (band && !CLOTHES.npc.crooks[c.profession ?? '']) by[band].push(tierRank(c.clothes.tier));
     }
     expect(total).toBeGreaterThan(40);
     expect(dressed).toBe(total);
@@ -137,6 +137,26 @@ describe('одежда: вещи, слоты, ателье, горожане', (
     expect(by.slum.length).toBeGreaterThan(3);
     expect(by.upper.length).toBeGreaterThan(3);
     expect(mean(by.slum)).toBeLessThan(mean(by.upper));
+  });
+
+  it('бандиты и воры одеты по-разному, у части капюшон и платок на лице; горожанам блатное не выдаётся', () => {
+    const crooks = sim.entities.list.filter((c) => c.alive && (c.profession === 'bandit' || c.profession === 'thief'));
+    expect(crooks.length).toBeGreaterThan(5);
+    for (const c of crooks) expect(c.clothes).toBeTruthy();
+    // Не однотипно: разных комплектов почти столько же, сколько людей.
+    expect(new Set(crooks.map((c) => c.clothesKey)).size).toBeGreaterThan(crooks.length * 0.8);
+    expect(crooks.some((c) => c.clothes?.hat === 'hood')).toBe(true);
+    expect(crooks.some((c) => c.clothes?.neck === 'mask')).toBe(true);
+    const plain = sim.entities.list.filter((c) => c.alive && c.profession === 'citizen' && c.clothes);
+    for (const c of plain) {
+      expect(c.clothes?.hat).not.toBe('hood');
+      expect(c.clothes?.neck).not.toBe('mask');
+    }
+    // Капюшон и платок рисуются со всех сторон.
+    for (const dir of DIRS) {
+      const { ctx } = fakeCtx();
+      drawPawn(ctx, { faction: 'citizen', rank: 0, color: '#888', seed: 7, clothes: { tier: 'poor', top: 'tee', topColor: '#555', hat: 'hood', hatColor: '#2e3137', neck: 'mask', neckColor: '#1d1d1f' } }, 0, 0, 1, dir);
+    }
   });
 
   it('NPC покупает вещь с полки ателье и надевает; богатую вещь не по карману достатку — не берёт', () => {

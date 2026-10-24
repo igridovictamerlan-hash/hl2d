@@ -399,7 +399,7 @@ export class StreetShops {
     const id = rng.pick(list);
     // Одежда: только своего достатка или дешевле и чтобы осталось на еду (CLOTHES.npc.reserve); купил — надел.
     const g = ITEMS[id].gear;
-    if (g?.cloth && (!wearsClothes(c) || tierRank(g.tier) > tierRank(c.clothes?.tier) || (eco.shopPrice(c, id) ?? Infinity) > c.money - CLOTHES.npc.reserve)) return null;
+    if (g?.cloth && (!wearsClothes(c) || ((g.cloth.hat === 'hood' || g.cloth.neck === 'mask') && !CLOTHES.npc.crooks[c.profession ?? '']) || tierRank(g.tier) > tierRank(c.clothes?.tier) || (eco.shopPrice(c, id) ?? Infinity) > c.money - CLOTHES.npc.reserve)) return null;
     if (this.buy(c, s, id) !== null) return null;
     if (g?.cloth && c.inventory.remove(id, 1)) {
       dressIn(c, id as GearId);

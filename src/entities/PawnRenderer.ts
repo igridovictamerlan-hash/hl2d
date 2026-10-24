@@ -7,7 +7,7 @@ import { accBack, accBody, accTop, accessoriesOf, flakBody, flakHelmet, gasMaskH
 import type { ProfessionId } from '../config/professions';
 import { bodyPath, fillStroke, headPath, roundRect, stroke, tint } from './pawnShapes';
 import { balaclava, gasMaskS10, michHelmet, tacticalBody, tacticalFace } from './pawnTactical';
-import { clothedBody, clothesHead, hidesHair } from './pawnClothes';
+import { clothedBody, clothesHead, faceMask, hidesHair, hood } from './pawnClothes';
 import type { ClothesLook } from '../config/clothes';
 
 export { tint };
@@ -1287,27 +1287,6 @@ function beret(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
   }
 }
 
-/** Платок на нижней половине лица (бандит). */
-function faceMask(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
-  const H = PAWN.head;
-  const cy = H.y;
-  ctx.beginPath();
-  if (d === 'E') {
-    ctx.moveTo(hx - 2, cy + 0.6);
-    ctx.lineTo(hx + H.r + 1.2, cy + 0.6);
-    ctx.lineTo(hx + H.r - 0.6, cy + 5.6);
-    ctx.lineTo(hx - 1, cy + H.r);
-  } else {
-    ctx.moveTo(-H.r + 0.4, cy + 0.4);
-    ctx.lineTo(H.r - 0.4, cy + 0.4);
-    ctx.lineTo(H.r * 0.5, cy + H.r + 0.4);
-    ctx.lineTo(0, cy + H.r + 2.2);
-    ctx.lineTo(-H.r * 0.5, cy + H.r + 0.4);
-  }
-  ctx.closePath();
-  fillStroke(ctx, color, PAWN.outlineWidth * 0.8);
-}
-
 /** Поварской колпак. */
 function chefHat(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
   const H = PAWN.head;
@@ -1326,37 +1305,6 @@ function chefHat(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
   ctx.moveTo(cx - 5.3, cy - 6.4);
   ctx.lineTo(cx + 5.3, cy - 6.4);
   stroke(ctx, 0.7, tint(color, -0.25));
-}
-
-/** Капюшон вора: накрывает голову и плечи, лицо в тени. */
-function hood(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
-  const H = PAWN.head;
-  const cy = H.y;
-  const r = H.r + 1.6;
-  ctx.save();
-  ctx.beginPath();
-  if (d === 'N') {
-    ctx.arc(0, cy, r, 0, Math.PI * 2);
-  } else if (d === 'E') {
-    ctx.moveTo(hx + r - 3, cy - r + 1);
-    ctx.bezierCurveTo(hx + 1, cy - r - 2.2, hx - r - 1.5, cy - r, hx - r - 1, cy + 3);
-    ctx.lineTo(hx - r + 1, cy + r + 0.5);
-    ctx.lineTo(hx + 1, cy + r - 1);
-    ctx.bezierCurveTo(hx - 2, cy + 2, hx + 0.5, cy - 4, hx + r - 3, cy - r + 1);
-  } else {
-    // Спереди: край капюшона обрамляет лицо.
-    ctx.moveTo(-r, cy + r - 1);
-    ctx.bezierCurveTo(-r - 0.6, cy - r - 2.4, r + 0.6, cy - r - 2.4, r, cy + r - 1);
-    ctx.lineTo(r - 2.6, cy + r - 2);
-    ctx.bezierCurveTo(r - 2.2, cy - 3, -r + 2.2, cy - 3, -r + 2.6, cy + r - 2);
-  }
-  ctx.closePath();
-  fillStroke(ctx, color, PAWN.outlineWidth);
-  if (d === 'S') {
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.fillRect(-r + 2.6, cy - 3.6, (r - 2.6) * 2, 2.6);
-  }
-  ctx.restore();
 }
 
 /** Защитные очки пиротехника. */

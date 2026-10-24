@@ -1016,14 +1016,70 @@ export function clothesHead(ctx: Ctx, d: PawnDir, C: ClothesLook, hx: number, ha
     case 'bowler': brimmed(ctx, d, col, C.hatTrim ?? tint(col, 0.2), hx, 'bowler'); break;
     case 'tophat': brimmed(ctx, d, col, C.hatTrim ?? tint(col, 0.2), hx, 'tophat'); break;
     case 'pillbox': pillbox(ctx, d, col, C.hatTrim ?? '#e8e2d4', hx); break;
+    case 'hood': hood(ctx, d, col, hx); break;
   }
+  // Платок, натянутый на лицо (слот шеи), — поверх лица и под очками.
+  if (C.neck === 'mask' && d !== 'N') faceMask(ctx, d, C.neckColor ?? '#1d1d1f', hx);
   if (C.glasses && d !== 'N') glasses(ctx, d, hx);
 }
 
-/** Головной убор целиком скрывает причёску (платок). */
+/** Головной убор целиком скрывает причёску (платок, капюшон). */
 export function hidesHair(C: ClothesLook): boolean {
-  return C.hat === 'kerchief';
+  return C.hat === 'kerchief' || C.hat === 'hood';
 }
+
+/** Платок на нижней половине лица (бандит; вещь «платок на лицо»). */
+export function faceMask(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
+  const H = PAWN.head;
+  const cy = H.y;
+  ctx.beginPath();
+  if (d === 'E') {
+    ctx.moveTo(hx - 2, cy + 0.6);
+    ctx.lineTo(hx + H.r + 1.2, cy + 0.6);
+    ctx.lineTo(hx + H.r - 0.6, cy + 5.6);
+    ctx.lineTo(hx - 1, cy + H.r);
+  } else {
+    ctx.moveTo(-H.r + 0.4, cy + 0.4);
+    ctx.lineTo(H.r - 0.4, cy + 0.4);
+    ctx.lineTo(H.r * 0.5, cy + H.r + 0.4);
+    ctx.lineTo(0, cy + H.r + 2.2);
+    ctx.lineTo(-H.r * 0.5, cy + H.r + 0.4);
+  }
+  ctx.closePath();
+  fillStroke(ctx, color, PAWN.outlineWidth * 0.8);
+}
+
+/** Капюшон (вор, спецагент; вещь «капюшон»): накрывает голову и плечи, лицо в тени. */
+export function hood(ctx: Ctx, d: PawnDir, color: string, hx: number): void {
+  const H = PAWN.head;
+  const cy = H.y;
+  const r = H.r + 1.6;
+  ctx.save();
+  ctx.beginPath();
+  if (d === 'N') {
+    ctx.arc(0, cy, r, 0, Math.PI * 2);
+  } else if (d === 'E') {
+    ctx.moveTo(hx + r - 3, cy - r + 1);
+    ctx.bezierCurveTo(hx + 1, cy - r - 2.2, hx - r - 1.5, cy - r, hx - r - 1, cy + 3);
+    ctx.lineTo(hx - r + 1, cy + r + 0.5);
+    ctx.lineTo(hx + 1, cy + r - 1);
+    ctx.bezierCurveTo(hx - 2, cy + 2, hx + 0.5, cy - 4, hx + r - 3, cy - r + 1);
+  } else {
+    // Спереди: край капюшона обрамляет лицо.
+    ctx.moveTo(-r, cy + r - 1);
+    ctx.bezierCurveTo(-r - 0.6, cy - r - 2.4, r + 0.6, cy - r - 2.4, r, cy + r - 1);
+    ctx.lineTo(r - 2.6, cy + r - 2);
+    ctx.bezierCurveTo(r - 2.2, cy - 3, -r + 2.2, cy - 3, -r + 2.6, cy + r - 2);
+  }
+  ctx.closePath();
+  fillStroke(ctx, color, PAWN.outlineWidth);
+  if (d === 'S') {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(-r + 2.6, cy - 3.6, (r - 2.6) * 2, 2.6);
+  }
+  ctx.restore();
+}
+
 
 function ushanka(ctx: Ctx, d: PawnDir, col: string, front: string, hx: number): void {
   const cy = H.y;
