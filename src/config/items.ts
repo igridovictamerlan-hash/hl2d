@@ -43,7 +43,7 @@ export type ItemId =
 /** Вещь одежды из каталога (config/clothes.ts): `cl_<фасон>_<цвет>`. */
 export type ClothId = `cl_${string}`;
 /** Снаряжение, которое можно надеть (слоты пешки в инвентаре); плащ и кепка — тоже одежда. */
-export type GearId = 'helmet' | 'vest' | 'plate_vest' | 'backpack' | 'coat' | 'cap' | ClothId | UniformId;
+export type GearId = 'vest' | 'coat' | 'cap' | ClothId | UniformId;
 /**
  * Куда надевается: броня — голова, корпус; лицо — противогаз; спина — рюкзак; одежда — убор, верх, низ, шея, обувь
  * (ClothSlot). Броня надевается поверх одежды.
@@ -274,10 +274,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   medkit: { id: 'medkit', name: 'Аптечка', desc: 'Лечение +40.', kind: 'medical', stack: 3, heal: 40, price: 28 },
   bandage: { id: 'bandage', name: 'Бинт', desc: 'Лечение +15.', kind: 'medical', stack: 5, heal: 15, price: 9 },
   cigarettes: { id: 'cigarettes', name: 'Сигареты', desc: 'Ходовая валюта «чёрного рынка».', kind: 'misc', stack: 10, price: 5 },
-  helmet: { id: 'helmet', name: 'Армейский шлем', desc: 'Шлем армии сопротивления: держит часть пуль в голову.', kind: 'gear', stack: 1, price: 60, gear: { slot: 'head', head: 0.45, color: '#55603a', worn: 'армейском шлеме' } },
   vest: { id: 'vest', name: 'Бронежилет', desc: 'Мягкий бронежилет: держит часть пуль в корпус.', kind: 'gear', stack: 1, price: 70, gear: { slot: 'torso', torso: 0.4, color: '#4b5663', worn: 'бронежилете' } },
-  plate_vest: { id: 'plate_vest', name: 'Плитник', desc: 'Бронежилет с пластинами: крепче, но редкость.', kind: 'gear', stack: 1, price: 110, gear: { slot: 'torso', torso: 0.55, color: '#5d6b3a', worn: 'плитнике' } },
-  backpack: { id: 'backpack', name: 'Рюкзак', desc: 'Больше места: +4 ячейки инвентаря, пока надет.', kind: 'gear', stack: 1, price: 40, gear: { slot: 'back', capacity: 4, color: '#5a6238' } },
   // Одежда без брони: по ней свидетели и ВС узнают вас в ориентировке. Плащ занимает место бронежилета.
   coat: { id: 'coat', name: 'Плащ', desc: 'Длинный плащ. Брони не даёт, но по нему узнают в ориентировке. Надевается под бронежилет.', kind: 'gear', stack: 1, price: 25, gear: { slot: 'outer', color: '#6a5a46', worn: 'плаще', tier: 'middle', cloth: { outer: 'trench', outerColor: '#6a5a46' } } },
   cap: { id: 'cap', name: 'Кепка', desc: 'Кепка. Брони не даёт, но по ней узнают в ориентировке.', kind: 'gear', stack: 1, price: 10, gear: { slot: 'hat', color: '#3b4048', worn: 'кепке', tier: 'middle', cloth: { hat: 'flatcap', hatColor: '#3b4048' } } },

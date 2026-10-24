@@ -102,7 +102,8 @@ import { ECONOMY } from '../config/economy';
 import type { DivisionId } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION, type ProfessionId } from '../config/professions';
 import { ITEMS, type ItemId, type WeaponId, type GrenadeId, type GearId, type GearSlot } from '../config/items';
-import { wear, takeOff, issueUniform } from '../systems/Gear';
+import { wear, takeOff, issueKit, issueUniform } from '../systems/Gear';
+import { REBEL_KITS } from '../config/uniforms';
 import { T } from '../world/tiles';
 import { UI } from '../ui/UI';
 import type { CheckChoice } from '../ui/CheckPanel';
@@ -630,7 +631,7 @@ export class Game {
     const profKit = p.profession ? PROFESSIONS[p.profession].kit : undefined;
     const kit = faction === 'cp' ? cpKit(p.rank) : profKit ?? faction;
     equipKit(p, kit, this.ai);
-    if (faction === 'cp') issueUniform(p, cpUnit(p.rank).unit);
+    this.syncUniform();
     // Жителям оружие на виду ни к чему; повстанец начинает в убежище — с оружием в руках (Q/H — убрать).
     if (faction !== 'cp' && faction !== 'rebel') this.combat.equip(p, null);
     // Партизан выходит в маскировке, без оружия в руках.
@@ -938,6 +939,13 @@ export class Game {
     if (!this.player.alive) return;
     const err = wear(this.player, id);
     this.bus.emit('log', { text: err ?? `Вы надели: ${ITEMS[id].name}.`, kind: 'system' });
+    if (!err) this.wornCover();
+  }
+
+  /** Партизан или спецагент надел или снял части формы ВС — маскировка из настоящих вещей (InsurgencySystem). */
+  private wornCover(): void {
+    const text = this.insurgency.wornCover(this.player);
+    if (text) this.bus.emit('log', { text, kind: 'world' });
   }
 
   /** Инвентарь: снять надетое в рюкзак. */
@@ -946,6 +954,7 @@ export class Game {
     const id = this.player.gear[slot];
     const err = takeOff(this.player, slot);
     this.bus.emit('log', { text: err ?? `Вы сняли: ${id ? ITEMS[id].name : ''}.`, kind: 'system' });
+    if (!err) this.wornCover();
   }
 
   /** Инвентарь: выбрать гранату для T. */
@@ -1193,13 +1202,18 @@ export class Game {
     this.canvas.focus();
   }
 
-  /** Игроку ВС — форма его юнита по частям (config/uniforms.ts): при назначении, повышении, присяге. */
+  /**
+   * Игроку ВС — форма его юнита по частям (config/uniforms.ts): при назначении, повышении, присяге; бойцу армии
+   * сопротивления — экипировка профессии (REBEL_KITS). В маскировке не трогаем: на нём чужая форма.
+   */
   private syncUniform(): void {
     const p = this.player;
-    const unit = p.faction === 'cp' && !p.disguised ? cpUnit(p.rank).unit : null;
-    if (unit === p.kitUnit) return;
-    if (unit) issueUniform(p, unit);
-    else p.kitUnit = null;
+    if (p.disguised) return;
+    const key = p.faction === 'cp' ? cpUnit(p.rank).unit : p.faction === 'rebel' && p.profession && REBEL_KITS[p.profession] ? `r:${p.profession}` : null;
+    if (key === p.kitUnit) return;
+    if (!key) p.kitUnit = null;
+    else if (p.faction === 'cp') issueUniform(p, cpUnit(p.rank).unit);
+    else issueKit(p, key, REBEL_KITS[p.profession!]!);
   }
 
   private update(dt: number): void {

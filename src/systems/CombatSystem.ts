@@ -16,7 +16,7 @@ import { resolveCircleVsTiles } from '../world/collision';
 import { CHARACTER } from '../config/entities';
 import { WEAPONS, AMMO_ITEM, ITEMS, GEAR, weaponDps, type WeaponDef, type WeaponId, type WeaponClass, type GrenadeId } from '../config/items';
 import { gearLoot } from './Gear';
-import { CP_KITS, type KitLook } from '../config/uniforms';
+import { CP_KITS, REBEL_KITS, type KitLook } from '../config/uniforms';
 import { plainclothesOf, type ClothesLook } from '../config/clothes';
 import { armorOf, roleArmor, rollZone } from './wounds';
 import { FACTIONS, cpHas, cpUnit, type FactionId } from '../config/factions';
@@ -963,8 +963,12 @@ export class CombatSystem {
     const drop = GEAR.drops[c.faction];
     if (drop && this.rng.chance(GEAR.dropChance)) {
       // ВС — форма юнита по частям (у игрока она и так надета — уже в луте).
+      // Армия сопротивления — экипировка профессии по частям (REBEL_KITS).
+      const rebel = c.faction === 'rebel' && c.profession ? REBEL_KITS[c.profession] : undefined;
       if (c.faction === 'cp') {
         if (!c.kitUnit) for (const id of CP_KITS[cpUnit(c.rank).unit]) loot.push({ id, qty: 1 });
+      } else if (rebel) {
+        if (!c.kitUnit) for (const id of rebel) loot.push({ id, qty: 1 });
       } else {
         const a = roleArmor(c);
         if (a.head > 0) loot.push({ id: drop.head, qty: 1 });

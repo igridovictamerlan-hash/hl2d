@@ -8,7 +8,7 @@ import type { ProfessionId } from '../config/professions';
 import { bodyPath, fillStroke, headPath, roundRect, stroke, tint } from './pawnShapes';
 import { balaclava, gasMaskS10, michHelmet, tacticalBody, tacticalFace } from './pawnTactical';
 import { clothedBody, clothesHead, clothesNeck, faceMask, hidesHair, hood } from './pawnClothes';
-import { unitKit, type KitLook } from '../config/uniforms';
+import { REBEL_KITS, kitFrom, rebelKitIds, unitKit, type KitLook } from '../config/uniforms';
 import type { ClothesLook } from '../config/clothes';
 
 export { tint };
@@ -311,30 +311,53 @@ export function drawPawn(ctx: Ctx, look: PawnLook, x: number, y: number, s: numb
   ctx.restore();
 }
 
+/** Балаклава у части ветеранов и медиков — по внешности (тот же жребий, что прежде у экипировки). */
+function maskRoll(seed: number): number {
+  return ((Math.imul(seed ^ 0x5bd1e995, 2654435761) >>> 0) % 1000) / 1000;
+}
+
+const rebelKits = new Map<string, KitLook | null>();
 /**
- * Форма пешки: явная (look.kit) или у ВС — форма юнита по рангу. Части формы рисуются только у тех, кто выглядит
- * горожанином или стражником; у армии сопротивления, Легиона, санитара — своя экипировка.
+ * Форма стороны по умолчанию (без предметов): ВС — форма юнита по рангу, армия сопротивления и «Грозы» — экипировка
+ * профессии (REBEL_KITS; балаклава — по внешности); у остальных — нет.
+ */
+export function defaultKit(faction: FactionId, rank: number, profession: ProfessionId | null | undefined, seed: number): KitLook | null {
+  if (faction === 'cp') return unitKit(cpUnit(rank).unit);
+  if (faction !== 'rebel' || !profession || !REBEL_KITS[profession]) return null;
+  const ids = rebelKitIds(profession, maskRoll(seed), PAWN.tactical.maskChance);
+  const key = ids.join('|');
+  if (!rebelKits.has(key)) rebelKits.set(key, kitFrom(ids));
+  return rebelKits.get(key)!;
+}
+
+/**
+ * Форма пешки: явная (look.kit) или форма стороны по умолчанию (defaultKit). У Легиона и санитара — своя экипировка;
+ * опер в штатском (гражданское, без look.kit) — без формы.
  */
 function kitLookOf(look: PawnLook, O: Outfit): KitLook | null {
-  if (look.faction !== 'cp' && look.faction !== 'citizen') return null;
-  if (O.style === 'tactical' || O.style === 'cremator') return null;
+  if (look.faction === 'ota' || O.style === 'cremator') return null;
   if (look.kit !== undefined) return look.kit;
-  return look.faction === 'cp' && !look.clothes ? unitKit(cpUnit(look.rank).unit) : null;
+  if (look.faction === 'cp' && look.clothes) return null;
+  return defaultKit(look.faction, look.rank, look.profession, look.seed);
 }
 
 /**
  * Пешка в форме по частям (config/uniforms.ts), слоями: волосы сзади → за спиной (накидка, полы шинели, ранец,
- * антенна) → гражданское из ателье или форменная рубаха → броня (бронежилет ВС, броня спецотряда, силовая) →
- * шея из ателье → шинель, нашивки и навесное по юниту → голова: силовой шлем или шлем спецотряда с балаклавой, иначе
- * противогаз или лицо, сверху убор (каска, фуражка, пилотка; без них — шляпа из ателье) → поверх головы сзади.
- * Нашивки и навесное (рация, фонарь, шевроны, погоны…) — у того, кто выглядит стражником (PAWN.cpUnits.acc).
+ * антенна) → гражданское из ателье, полевая форма или форменная рубаха → броня (бронежилет ВС, броня спецотряда,
+ * силовая, плитник, разгрузка) → шея из ателье → шинель, нашивки и навесное → голова: силовой шлем или шлем
+ * спецотряда с балаклавой, иначе противогаз, S10, балаклава или лицо (очки), сверху убор (каска, шлем MICH, фуражка,
+ * пилотка, кепи, берет; без них — шляпа из ателье) → поверх головы сзади. Нашивки и навесное — у того, кто выглядит
+ * стражником (PAWN.cpUnits.acc по юниту) или бойцом сопротивления (PAWN.professionOutfits: молния, повязка
+ * «Грозы», патронташ, рация, подсумки, сумка медика).
  */
 function kitPawn(ctx: Ctx, d: PawnDir, look: PawnLook, K: KitLook, fallback: string, skin: string, hair: string, style: HairStyle, hx: number): void {
   const C = look.clothes ?? null;
   const civil = !!C && !C.bare;
   const cp = look.faction === 'cp';
-  const trim = K.trim ?? (cp ? look.color : PAWN.gear.trim);
-  const acc = cp ? accessoriesOf(PAWN.cpUnits[cpUnit(look.rank).unit], look.seed) : new Set<string>();
+  const prof = look.faction === 'rebel' && look.profession ? PAWN.professionOutfits[look.profession] : undefined;
+  const army = !!prof && (prof.style === 'tactical' || prof.style === 'marine') ? prof : undefined;
+  const trim = K.trim ?? (cp ? look.color : army ? ((army.armband as string | undefined) ?? PAWN.tactical.lambda) : PAWN.gear.trim);
+  const acc = cp ? accessoriesOf(PAWN.cpUnits[cpUnit(look.rank).unit], look.seed) : army ? accessoriesOf(army, look.seed) : new Set<string>();
   // Шинель, накидка и ранец — вещи, а не навесное юнита.
   for (const a of ['coat', 'cape', 'pack']) acc.delete(a);
   if (K.coat === 'greatcoat') acc.add('coat');
@@ -343,7 +366,7 @@ function kitPawn(ctx: Ctx, d: PawnDir, look: PawnLook, K: KitLook, fallback: str
   const shirt = K.shirt ?? (cp ? (PAWN.outfits.cp.base as string) : fallback);
   const O: Outfit = {
     style: K.armor === 'marine' ? 'marine' : 'kit',
-    base: civil ? '' : shirt,
+    base: shirt,
     armor: K.armorColor ?? PAWN.gear.reconArmor,
     flak: K.armorColor ?? PAWN.gear.flak,
     vest: K.armor === 'flak',
@@ -356,19 +379,28 @@ function kitPawn(ctx: Ctx, d: PawnDir, look: PawnLook, K: KitLook, fallback: str
     eye: K.eye ?? PAWN.gear.reconGlow,
     eyes: K.eyes ?? 1,
   };
-  if (civil) delete O.base;
-  // Голова открыта: нет шлема и маски, причёску не прячет убор из ателье.
-  const covered = K.head === 'flak' || K.head === 'recon' || K.head === 'marine' || K.face === 'gas';
-  const hairStyle: HairStyle = K.head === 'peaked' || K.head === 'cadet' ? 'short' : style;
-  const hairOn = !covered && !(C && hidesHair(C));
+  if (K.packColor) O.packColor = K.packColor;
+  // Лицо и причёска: шлем на всю голову, маска, кепи и фуражка (коротко стрижен), шлем MICH и каска (под ними не видно).
+  const fullHelmet = K.head === 'recon' || K.head === 'marine';
+  const masked = K.face === 'gas' || K.face === 's10' || K.face === 'balaclava';
+  const hairStyle: HairStyle = K.head === 'flak' || K.head === 'mich' ? 'bald' : K.head === 'peaked' || K.head === 'cadet' || K.head === 'fieldcap' || K.head === 'beret' ? 'short' : style;
+  const hairOn = !fullHelmet && !masked && !(C && hidesHair(C));
   if (hairOn && !K.head && d !== 'N') backHair(ctx, d, hairStyle, hair, hx);
   if (hairOn && !K.head && hairStyle === 'bun' && !C?.hat) bun(ctx, hair, hx);
   accBack(ctx, d, O, acc);
+  // Низ: гражданское, полевая форма или рубаха (у формы ВС без своей одежды — одним проходом с бронёй, как прежде).
+  const own = !civil && !K.fatigues;
+  const tactical = K.armor === 'plate' || K.armor === 'chest';
   if (civil) clothedBody(ctx, d, C!, skin, look.band);
-  if (K.armor === 'marine') marineBody(ctx, d, O, trim, acc.has('bigPads'));
-  else if (K.armor === 'recon') reconBody(ctx, d, O, trim, acc);
-  else if (K.armor === 'flak' || !civil) flakBody(ctx, d, O, trim, acc);
-  // Бронежилет или плитник не из формы (снаряжение) — пластины поверх.
+  else if (K.fatigues) tacticalBody(ctx, d, { base: K.fatigues, camo: K.camo ?? '', belt: K.belt ?? PAWN.tactical.belt, lambda: army?.lambda ?? false }, look.seed);
+  else if (!K.armor || tactical) flakBody(ctx, d, { ...O, vest: false }, trim, acc);
+  const over: Outfit = own ? O : { ...O, base: '' };
+  if (!own) delete over.base;
+  if (K.armor === 'marine') marineBody(ctx, d, over, trim, acc.has('bigPads'));
+  else if (K.armor === 'recon') reconBody(ctx, d, over, trim, acc);
+  else if (K.armor === 'flak') flakBody(ctx, d, own ? O : { ...over, vest: true }, trim, acc);
+  else if (tactical) tacticalBody(ctx, d, { rig: K.armor!, rigColor: K.armorColor ?? '#4a5234' }, look.seed);
+  // Бронежилет не из формы (снаряжение) — пластины поверх.
   if (!K.armor && look.vest) {
     ctx.save();
     bodyPath(ctx, d);
@@ -381,11 +413,16 @@ function kitPawn(ctx: Ctx, d: PawnDir, look: PawnLook, K: KitLook, fallback: str
   }
   if (C?.bare) clothesNeck(ctx, d, C);
   accBody(ctx, d, O, trim, acc);
+  if (army) professionBody(ctx, d, { bandolier: army.bandolier ?? false, nade: army.nade ?? false, armband: army.armband ?? false });
   if (K.head === 'marine') marineHelmet(ctx, d, O, trim, hx);
   else if (K.head === 'recon') reconHelmet(ctx, d, { armor: O.helmet }, trim, hx);
   else {
     if (K.face === 'gas') gasMaskHead(ctx, d, hx);
-    else {
+    else if (K.face === 's10') gasMaskS10(ctx, d, { mask: K.maskColor ?? '#17181a', lens: K.lens ?? '#2c3a46', filter: K.filter ?? '#232629', filterRing: K.filterRing ?? '#4d86b8' }, hx);
+    else if (K.face === 'balaclava') {
+      balaclava(ctx, d, skin, K.maskColor ?? '#3a3a30', hx);
+      if (d !== 'N') face(ctx, d, hx);
+    } else {
       headPath(ctx, d, hx);
       ctx.fillStyle = skin;
       ctx.fill();
@@ -400,12 +437,15 @@ function kitPawn(ctx: Ctx, d: PawnDir, look: PawnLook, K: KitLook, fallback: str
       if (d !== 'N') face(ctx, d, hx);
       if (hairOn) frontHair(ctx, d, hairStyle, hair, hx);
     }
-    // Из ателье: убор (если формы на голове нет), платок на лице и очки (не поверх противогаза).
-    if (C && !K.face) clothesHead(ctx, d, C, hx, !K.head);
+    if (K.face === 'goggles' && d !== 'N') goggles(ctx, d, K.goggles ?? '#ff8a3a', hx);
+    // Из ателье: убор (если формы на голове нет), платок на лице и очки (не поверх маски).
+    if (C && !masked) clothesHead(ctx, d, C, hx, !K.head);
     else if (C && !K.head) clothesHead(ctx, d, { ...C, neck: undefined, glasses: false }, hx, true);
     if (K.head === 'flak') flakHelmet(ctx, d, trim, hx);
     else if (K.head === 'peaked') peakedCap(ctx, d, trim, hx);
-    else if (K.head === 'cadet') cap(ctx, d, O.helmet as string, hx);
+    else if (K.head === 'cadet' || K.head === 'fieldcap') cap(ctx, d, O.helmet as string, hx);
+    else if (K.head === 'beret') beret(ctx, d, O.helmet as string, hx);
+    else if (K.head === 'mich') michHelmet(ctx, d, { helmet: O.helmet, helmetCamo: !!K.headCamo, camo: K.headCamo ?? '', hgoggles: K.hgoggles ?? false, nvg: !!K.nvg }, hx, look.seed);
     else if (look.helmet) michHelmet(ctx, d, { helmet: look.helmet }, hx, look.seed);
   }
   accTop(ctx, d, acc);

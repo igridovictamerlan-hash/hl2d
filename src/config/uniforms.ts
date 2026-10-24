@@ -1,4 +1,5 @@
 import type { CpUnitId } from './factions';
+import type { ProfessionId } from './professions';
 
 /**
  * Форма из отдельных вещей (рисунок — entities/pawnKit.ts, сборка — systems/Gear.kitOf). Каждая часть формы — свой
@@ -6,14 +7,19 @@ import type { CpUnitId } from './factions';
  * или накидка, ранец. Части складываются в комплект `KitLook` и рисуются слоями поверх (или вместо) гражданской одежды:
  * за спиной → рубаха или гражданское → броня → шинель → нашивки и навесное → голова (маска, шлем, убор). Можно снять
  * любую часть, надеть чужую, носить с вещами из ателье (шарф, очки, шляпа вместо фуражки).
+ * Так же собрана экипировка армии сопротивления и «Грозы» (REBEL_KITS): полевая форма или комбинезон, плитник или
+ * разгрузка, шлем MICH (в чехле, с очками, с креплением ПНВ), кепи, берет, балаклава, противогаз S10, очки, рюкзак.
  */
-export type KitHead = 'flak' | 'recon' | 'peaked' | 'cadet' | 'marine';
-export type KitArmor = 'flak' | 'recon' | 'marine';
-export type KitFace = 'gas';
+export type KitHead = 'flak' | 'recon' | 'peaked' | 'cadet' | 'marine' | 'mich' | 'fieldcap' | 'beret';
+export type KitArmor = 'flak' | 'recon' | 'marine' | 'plate' | 'chest';
+export type KitFace = 'gas' | 's10' | 'balaclava' | 'goggles';
 
 export interface KitLook {
   /** Форменная рубаха (комбинезон): цвет; нет — гражданское или своё тело. */
   shirt?: string;
+  /** Полевая форма сопротивления (вместо рубахи): цвет и пятна камуфляжа (цвета через пробел). */
+  fatigues?: string;
+  camo?: string;
   /** Броня на корпус: стиль, цвет пластин, ремень. */
   armor?: KitArmor;
   armorColor?: string;
@@ -25,8 +31,19 @@ export interface KitLook {
   head?: KitHead;
   headColor?: string;
   face?: KitFace;
-  /** Ранец за спиной. */
+  /** Ранец (рюкзак) за спиной и его цвет. */
   pack?: boolean;
+  packColor?: string;
+  /** Шлем MICH: чехол в камуфляже формы, очки на шлеме (цвет линз), крепление ПНВ. */
+  headCamo?: string;
+  hgoggles?: string;
+  nvg?: boolean;
+  /** Маска: цвет балаклавы или противогаза S10, линзы, фильтр и его кольцо; очки пиротехника (цвет линз). */
+  maskColor?: string;
+  lens?: string;
+  filter?: string;
+  filterRing?: string;
+  goggles?: string;
   /** Силовой шлем: визор, блик, глаза (цвет и число), полоса (вместо цвета ранга). */
   visor?: string;
   shine?: string;
@@ -77,6 +94,28 @@ export const UNIFORM_PIECES = {
   un_marine_armor: { name: 'Силовая броня', desc: 'Кираса, горжет, большие наплечники с золотой полосой.', worn: 'силовой броне', slot: 'torso', price: 200, color: '#2b2e33', torso: 0.65, kit: { armor: 'marine', armorColor: '#2b2e33', ...MARINE } },
   un_greatcoat: { name: 'Шинель инспектора', desc: 'Длинная тёмная шинель: носят распахнутой поверх брони.', worn: 'шинели', slot: 'outer', price: 60, color: '#1f2328', kit: { coat: 'greatcoat', coatColor: '#1f2328' } },
   un_cape: { name: 'Плащ-накидка', desc: 'Красная накидка начальника стражи.', worn: 'красной накидке', slot: 'outer', price: 50, color: '#6e1414', kit: { coat: 'cape', coatColor: '#6e1414' } },
+  // ——— Армия сопротивления и «Грозы» (армейский шлем, плитник и рюкзак — прежние предметы) ———
+  rb_fatigues: { name: 'Полевая форма', desc: 'Оливковая полевая форма новобранца.', worn: 'полевой форме', slot: 'top', price: 25, color: '#5d6443', kit: { fatigues: '#5d6443', camo: '', belt: '#2c2a24' } },
+  rb_fatigues_green: { name: 'Форма в камуфляже', desc: 'Полевая форма с зелёным камуфляжем.', worn: 'зелёном камуфляже', slot: 'top', price: 35, color: '#56603f', kit: { fatigues: '#56603f', camo: '#4a5336 #666f4c', belt: '#2c2a24' } },
+  rb_fatigues_mc: { name: 'Камуфляж ветерана', desc: 'Песочный пятнистый камуфляж ветеранов.', worn: 'песочном камуфляже', slot: 'top', price: 45, color: '#8a7f5e', kit: { fatigues: '#8a7f5e', camo: '#6e6a45 #a8956a #5a4a34 #8f8a62', belt: '#2c2a24' } },
+  rb_fatigues_grey: { name: 'Серый камуфляж', desc: 'Серо-оливковый камуфляж.', worn: 'сером камуфляже', slot: 'top', price: 35, color: '#5a5a48', kit: { fatigues: '#5a5a48', camo: '#4a4a3a #6a6852', belt: '#2c2a24' } },
+  rb_coverall: { name: 'Комбинезон «Грозы»', desc: 'Тёмно-синий штурмовой комбинезон.', worn: 'тёмном комбинезоне', slot: 'top', price: 50, color: '#283241', kit: { fatigues: '#283241', camo: '', belt: '#2c2a24' } },
+  rb_leader_suit: { name: 'Комбинезон главы', desc: 'Оливковый комбинезон под трофейную броню.', worn: 'оливковом комбинезоне', slot: 'top', price: 40, color: '#2e3228', kit: { fatigues: '#2e3228', camo: '', belt: '#2a2a22' } },
+  plate_vest: { name: 'Плитник', desc: 'Бронежилет с пластинами и подсумками: крепче, но редкость.', worn: 'плитнике', slot: 'torso', price: 110, color: '#5d6b3a', torso: 0.55, kit: { armor: 'plate', armorColor: '#5d6b3a' } },
+  rb_plate_mc: { name: 'Плитник в чехле', desc: 'Плитник в песочном чехле ветерана.', worn: 'плитнике в чехле', slot: 'torso', price: 110, color: '#7d6c4f', torso: 0.5, kit: { armor: 'plate', armorColor: '#7d6c4f' } },
+  rb_plate_grey: { name: 'Серый плитник', desc: 'Серый тактический плитник «Грозы».', worn: 'сером плитнике', slot: 'torso', price: 120, color: '#484b45', torso: 0.55, kit: { armor: 'plate', armorColor: '#484b45' } },
+  rb_chest_rig: { name: 'Разгрузка', desc: 'Подсумки поперёк груди, лямки крест-накрест: брони мало.', worn: 'разгрузке', slot: 'torso', price: 40, color: '#4a5234', torso: 0.3, kit: { armor: 'chest', armorColor: '#4a5234' } },
+  rb_chest_rig_dark: { name: 'Тёмная разгрузка', desc: 'Тёмная разгрузка с подсумками.', worn: 'тёмной разгрузке', slot: 'torso', price: 40, color: '#3f423c', torso: 0.35, kit: { armor: 'chest', armorColor: '#3f423c' } },
+  rb_leader_armor: { name: 'Трофейная броня', desc: 'Силовая броня Легиона, перекрашенная в олив, с красными полосами.', worn: 'трофейной броне', slot: 'torso', price: 200, color: '#6a6f52', torso: 0.6, kit: { armor: 'marine', armorColor: '#6a6f52', trim: '#b3261e' } },
+  helmet: { name: 'Армейский шлем', desc: 'Шлем MICH армии сопротивления: держит часть пуль в голову.', worn: 'армейском шлеме', slot: 'head', price: 60, color: '#555e41', head: 0.45, kit: { head: 'mich', headColor: '#555e41' } },
+  rb_helmet_mc: { name: 'Шлем в чехле', desc: 'Шлем в камуфляжном чехле, очки на лбу.', worn: 'шлеме в чехле', slot: 'head', price: 70, color: '#7d6c4f', head: 0.45, kit: { head: 'mich', headColor: '#7d6c4f', headCamo: '#6e6a45 #a8956a #5a4a34 #8f8a62', hgoggles: '#2e3a44' } },
+  rb_helmet_nvg: { name: 'Шлем с креплением ПНВ', desc: 'Чёрный шлем «Грозы».', worn: 'чёрном шлеме', slot: 'head', price: 80, color: '#202225', head: 0.5, kit: { head: 'mich', headColor: '#202225', nvg: true } },
+  rb_field_cap: { name: 'Кепи', desc: 'Полевое кепи новобранца.', worn: 'кепи', slot: 'hat', price: 8, color: '#4c5436', kit: { head: 'fieldcap', headColor: '#4c5436' } },
+  rb_beret: { name: 'Красный берет', desc: 'Берет главы восстания.', worn: 'красном берете', slot: 'hat', price: 15, color: '#a31a1a', kit: { head: 'beret', headColor: '#a31a1a' } },
+  rb_balaclava: { name: 'Балаклава', desc: 'Тёмная балаклава: видны только глаза.', worn: 'балаклаве', slot: 'face', price: 10, color: '#3a3a30', kit: { face: 'balaclava', maskColor: '#3a3a30' } },
+  rb_s10: { name: 'Противогаз S10', desc: 'Резиновая маска с каплевидными линзами, фильтр сбоку.', worn: 'противогазе', slot: 'face', price: 40, color: '#17181a', head: 0.1, kit: { face: 's10', maskColor: '#17181a', lens: '#2c3a46', filter: '#232629', filterRing: '#4d86b8' } },
+  rb_goggles: { name: 'Очки пиротехника', desc: 'Защитные очки с оранжевыми линзами.', worn: 'защитных очках', slot: 'face', price: 12, color: '#ff8a3a', kit: { face: 'goggles', goggles: '#ff8a3a' } },
+  backpack: { name: 'Рюкзак', desc: 'Больше места: +4 ячейки инвентаря, пока надет.', worn: 'с рюкзаком', slot: 'back', price: 40, color: '#5a6238', capacity: 4, kit: { pack: true, packColor: '#5a6238' } },
   un_pack: { name: 'Ранец ВС', desc: 'Ранец спецотряда: +2 ячейки инвентаря.', worn: 'с ранцем', slot: 'back', price: 35, color: '#3a4048', capacity: 2, kit: { pack: true } },
 } satisfies Record<string, UniformPiece>;
 
@@ -103,6 +142,34 @@ export const CP_KITS: Record<CpUnitId, readonly UniformId[]> = {
   cdt: ['un_cp_shirt', 'un_cadet_cap'],
   instr: ['un_cp_shirt', 'un_peaked_cap', 'un_gasmask', 'un_flak_vest_instr'],
 };
+
+/**
+ * Экипировка армии сопротивления и «Грозы» по профессиям. Балаклава у ветеранов и медиков — у части бойцов по
+ * внешности (rebelKit: PAWN.tactical.maskChance); нашивки, повязки, патронташ, рация и подсумки — по профессии
+ * (PAWN.professionOutfits).
+ */
+export const REBEL_KITS: Partial<Record<ProfessionId, readonly UniformId[]>> = {
+  rebel_recruit: ['rb_fatigues', 'rb_field_cap'],
+  rebel_soldier: ['rb_fatigues_green', 'rb_chest_rig', 'helmet'],
+  demolitionist: ['rb_fatigues_green', 'rb_chest_rig', 'helmet'],
+  pyro: ['rb_fatigues_grey', 'rb_chest_rig_dark', 'helmet', 'rb_goggles'],
+  veteran: ['rb_fatigues_mc', 'rb_plate_mc', 'rb_helmet_mc'],
+  rebel_medic: ['rb_fatigues_mc', 'rb_plate_mc', 'rb_helmet_mc'],
+  hydra_rct: ['rb_coverall', 'rb_plate_grey', 'rb_helmet_nvg', 'rb_s10'],
+  hydra_sergeant: ['rb_coverall', 'rb_plate_grey', 'rb_helmet_nvg', 'rb_s10'],
+  hydra_sniper: ['rb_coverall', 'rb_chest_rig_dark', 'rb_helmet_nvg', 'rb_s10'],
+  commando: ['rb_coverall', 'rb_plate_grey', 'rb_helmet_nvg', 'rb_s10', 'backpack'],
+  rebel_leader: ['rb_leader_suit', 'rb_leader_armor', 'rb_beret'],
+};
+/** Профессии, у которых часть бойцов в балаклаве. */
+export const MAYBE_MASK: ReadonlySet<string> = new Set(['veteran', 'rebel_medic']);
+
+/** Экипировка бойца по профессии (с балаклавой — по внешности, maskRoll в 0..1). */
+export function rebelKitIds(prof: ProfessionId, maskRoll: number, maskChance: number): UniformId[] {
+  const ids = [...(REBEL_KITS[prof] ?? [])];
+  if (ids.length && MAYBE_MASK.has(prof) && maskRoll < maskChance) ids.push('rb_balaclava');
+  return ids;
+}
 
 /** Комплект из частей формы (по порядку: позже — поверх). */
 export function kitFrom(ids: readonly string[]): KitLook | null {

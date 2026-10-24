@@ -12,7 +12,8 @@ import { AMMO_ITEM, WEAPONS, type ItemId, type WeaponId } from '../config/items'
 import { poiWorld } from './Population';
 import { spawnRole } from './Roster';
 import { ROSTER } from '../config/roster';
-import { REBEL_UNIT, FACTIONS } from '../config/factions';
+import { REBEL_UNIT, FACTIONS, CP_UNIT, cpUnit } from '../config/factions';
+import { CP_KITS } from '../config/uniforms';
 import { UndergroundBrain } from '../ai/brains/UndergroundBrain';
 import { AgentBrain } from '../ai/brains/AgentBrain';
 import { HiredGunBrain } from '../ai/brains/HiredGunBrain';
@@ -22,7 +23,7 @@ import { OtaBrain } from '../ai/brains/OtaBrain';
 import { RebelBrain } from '../ai/brains/RebelBrain';
 import { PRISON } from '../config/prison';
 import { isArmy } from './Prison';
-import { wear } from './Gear';
+import { cpCoverOf, dressPieces, wear } from './Gear';
 import { randomAnchorAround, zoneIds } from '../ai/destinations';
 import type { Convoy } from './Arsenal';
 
@@ -1028,9 +1029,46 @@ export class InsurgencySystem {
     c.law.wanted = false;
     c.hostile = false;
     c.cover = { faction: corpse.faction, rank: corpse.rank, profession: corpse.profession, name: corpse.name };
+    // Игрок надевает форму убитого по частям — настоящими вещами (снимет каску и противогаз — маскировка спадёт).
+    // NPC-агент — как прежде, личиной без вещей.
+    if (c.isPlayer && corpse.faction === 'cp') {
+      const ids = CP_KITS[cpUnit(corpse.rank).unit];
+      if (ids.length) {
+        corpse.loot = corpse.loot.filter((s) => !(ids as readonly string[]).includes(s.id));
+        dressPieces(c, ids);
+        c.cover.worn = true;
+      }
+    }
     this.ctx.combat.equip(c, null);
     c.say(this.ctx.rng.pick(PARTISANS.lines.agent), this.ctx.law.now, 2);
     this.say(`спецагент ${c.isPlayer ? '(вы) ' : ''}переоделся в форму убитого: ${corpse.name}.`);
+  }
+
+  /**
+   * Маскировка из настоящих вещей: партизан или спецагент надел форму ВС по частям (с тела, со склада) — для ВС он
+   * стражник того юнита, чья форма на нём (Gear.cpCoverOf); розыск и «враг» снимаются, как при переодевании. Снял
+   * нужные части — маскировка спала. Возвращает строку для журнала или null (ничего не изменилось).
+   */
+  wornCover(c: Character): string | null {
+    if (!isUnderground(c)) return null;
+    const unit = cpCoverOf(c.gear);
+    if (c.disguised && c.cover?.faction === 'cp' && c.cover.worn) {
+      if (unit) {
+        c.cover.rank = CP_UNIT[unit];
+        return null;
+      }
+      c.disguised = false;
+      c.cover = null;
+      return 'Форма ВС снята не вся — за стражника вас больше не примут.';
+    }
+    if (!unit || (c.disguised && c.cover?.faction === 'cp')) return null;
+    // Только что видели в бою — форма не поможет (как у маскировки партизана).
+    if (this.ctx.combat.now - Math.max(c.lastHurt, c.lastFired) < PARTISANS.coverAfterFight) return null;
+    c.disguised = true;
+    c.law.wanted = false;
+    c.hostile = false;
+    c.cover = { faction: 'cp', rank: CP_UNIT[unit], profession: null, name: null, worn: true };
+    return `Вы в форме ВС (${cpUnit(CP_UNIT[unit]).name.toLowerCase()}): для стражи — свой, розыск снят; выдаст только убийство.`;
   }
 
   /** Спецагент раскрыл себя (покушение): враг Протектората, в розыске. */

@@ -15,7 +15,7 @@ import { SUPPLY_LOOK } from '../config/port';
 import { RENDER } from '../config/render';
 import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
-import { bootColor, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
+import { bootColor, defaultKit, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
 import { animOf, isTalking, drawActionHands, drawBlanket, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash } from './poses';
 import { CHARACTER } from '../config/entities';
@@ -91,8 +91,12 @@ export class EntityRenderer {
     const op = faction === 'cp' && !c.disguised && cpUnit(rank).plainclothes ? plainclothesOf(c.pid) : null;
     // Форма по частям: в маскировке — форма личины; стражник с выданной формой — что надето; NPC стражи — форма юнита
     // (undefined: по рангу); горожанин — части формы, если надел (каска с тела).
-    const kit = op ? null : c.disguised ? undefined : faction === 'cp' ? (c.kitUnit ? c.kit : undefined) : faction === 'citizen' ? c.kit : null;
-    const worn = !c.disguised && (faction === 'cp' || faction === 'citizen') && (c.kit || c.kitUnit);
+    // Форма по частям: выдана по частям (игрок) — только надетое; иначе форма стороны по умолчанию (ВС — юнита,
+    // армия — профессии, в маскировке — личины) и поверх неё надетые части (каска с тела, плитник из тюрьмы).
+    const profession = c.disguised ? c.cover?.profession ?? null : c.profession;
+    const base = op || c.kitUnit || (c.disguised && c.cover?.worn) ? null : defaultKit(faction, rank, profession, lookSeed(c.pid));
+    const kit = op ? null : c.kitUnit ? c.kit : base || c.kit ? { ...base, ...c.kit } : faction === 'citizen' ? null : undefined;
+    const worn = (faction === 'cp' || faction === 'citizen' || faction === 'rebel') && (!!c.kit || !!c.kitUnit);
     const dressed = op ? op.clothes : worn ? c.clothes ?? clothesOf(c.gear, true) ?? null : c.clothes && faction === 'citizen' ? c.clothes : null;
     const band = gang?.def.color ?? (dressed && loyalist ? LOYALTY.uniform.color : fam?.color);
     return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, kit, clothesKey: op ? op.key : dressed || worn ? c.clothesKey : undefined };

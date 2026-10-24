@@ -1,4 +1,6 @@
-import { CP_KITS, kitFrom, type KitLook } from '../config/uniforms';
+import { CP_KITS, REBEL_KITS, kitFrom, type KitLook } from '../config/uniforms';
+import { PROFESSIONS, type ProfessionId } from '../config/professions';
+import { REBEL_UNIT, rebelUnitOf } from '../config/factions';
 import { CP_UNIT, colorsOf, cpUnit, type CpUnitId } from '../config/factions';
 import { CLOTH_ITEMS, type ClothesLook } from '../config/clothes';
 import type { PawnDir, PawnLook } from '../entities/PawnRenderer';
@@ -19,6 +21,10 @@ const cp = (unit: CpUnitId, kit?: KitLook | null, clothes?: ClothesLook): PawnLo
 };
 const rows: Row[] = [
   ...(Object.keys(CP_KITS) as CpUnitId[]).filter((u) => CP_KITS[u].length).map((u) => ({ title: `${cpUnit(CP_UNIT[u]).name}: ${CP_KITS[u].length} части`, look: cp(u) })),
+  ...(Object.keys(REBEL_KITS) as ProfessionId[]).map((p, k) => ({ title: `${PROFESSIONS[p].name}: ${REBEL_KITS[p]!.length} части`, look: { faction: 'rebel', rank: rebelUnitOf(p)?.rank ?? REBEL_UNIT.soldier, color: '#f2d34a', seed: 300 + k * 13, profession: p } as PawnLook })),
+  { title: 'Ветеран без шлема, в кепи и балаклаве', look: { faction: 'rebel', rank: REBEL_UNIT.veteran, color: '#f2d34a', seed: 5, profession: 'veteran', kit: kitFrom(['rb_fatigues_mc', 'rb_plate_mc', 'rb_field_cap', 'rb_balaclava']) } },
+  { title: 'Горожанин в плитнике и шлеме', look: { faction: 'citizen', rank: 0, color: '#6a6f75', seed: 17, kit: kitFrom(['plate_vest', 'helmet', 'backpack']), clothes: civ(cloth('shirt'), cloth('zip')) } },
+  { title: 'Спецагент (сопротивление) в форме ВС с тела', look: { faction: 'rebel', rank: 0, color: '#f2d34a', seed: 23, profession: 'spec_agent', kit: kitFrom(CP_KITS.pcu2) } },
   { title: 'Инспектор без шинели, с шарфом', look: cp('insp', kitFrom(CP_KITS.insp.filter((id) => id !== 'un_greatcoat')), bare(cloth('scarf', 2))) },
   { title: 'Офицер: шляпа вместо фуражки, без противогаза', look: cp('ofc', kitFrom(['un_cp_shirt', 'un_flak_vest_ofc']), bare(cloth('fedora'), cloth('tie'))) },
   { title: 'Спецназ без шлема', look: cp('su3', kitFrom(['un_cp_shirt', 'un_recon_armor', 'un_pack'])) },

@@ -1031,7 +1031,7 @@ export class PlayerController {
         return this.say('Маскировка снята.', 'world');
       }
       if (p.weapon) return this.say('Уберите оружие (H), чтобы надеть маскировку.');
-      if (ctx.combat.now - Math.max(p.lastHurt, p.lastFired) < 10) return this.say('Вас только что видели в бою — маскировка не поможет.');
+      if (ctx.combat.now - Math.max(p.lastHurt, p.lastFired) < PARTISANS.coverAfterFight) return this.say('Вас только что видели в бою — маскировка не поможет.');
       ctx.insurgency.giveCover(p);
       return this.say(`Вы в маскировке: для ВС вы ${p.cover?.faction === 'cwu' ? 'рабочий ТС' : 'обычный гражданин'}, розыск снят. Выдаст только убийство; проверка CID — может, со стволом в руках ВС остановит.`, 'world');
     }

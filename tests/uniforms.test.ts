@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CP_KITS, UNIFORM_PIECES, kitFrom, unitKit } from '../src/config/uniforms';
-import { CP_UNIT, colorsOf, type CpUnitId } from '../src/config/factions';
+import { CP_KITS, REBEL_KITS, UNIFORM_PIECES, kitFrom, unitKit } from '../src/config/uniforms';
+import { CP_UNIT, colorsOf, rebelUnitOf, type CpUnitId } from '../src/config/factions';
+import type { ProfessionId } from '../src/config/professions';
 import { CLOTH_ITEMS } from '../src/config/clothes';
 import { GEAR, ITEMS } from '../src/config/items';
 import { createCharacter } from '../src/entities/factory';
-import { issueUniform, takeOff, wear } from '../src/systems/Gear';
+import { cpCoverOf, issueKit, issueUniform, takeOff, wear } from '../src/systems/Gear';
 import { armorOf } from '../src/systems/wounds';
 import { drawPawn, type PawnDir, type PawnLook } from '../src/entities/PawnRenderer';
 import { makeSim } from './simHarness';
@@ -104,5 +105,81 @@ describe('форма по частям', () => {
     } finally {
       (GEAR as { dropChance: number }).dropChance = was;
     }
+  });
+
+  it('экипировка армии сопротивления и «Грозы» — по частям, рисуется со всех сторон', () => {
+    for (const [p, ids] of Object.entries(REBEL_KITS) as [ProfessionId, readonly string[]][]) {
+      const slots = ids.map((id) => ITEMS[id as keyof typeof UNIFORM_PIECES].gear!.slot);
+      expect(new Set(slots).size, p).toBe(slots.length);
+      for (let seed = 0; seed < 6; seed++) {
+        for (const dir of DIRS) {
+          const { ctx, calls } = fakeCtx();
+          drawPawn(ctx, { faction: 'rebel', rank: rebelUnitOf(p)?.rank ?? 0, color: '#f2d34a', seed, profession: p }, 0, 0, 2, dir);
+          expect(calls.get('save'), p).toBe(calls.get('restore'));
+        }
+      }
+    }
+  });
+
+  it('бойцу армии экипировка выдаётся в слоты; с тела бойца снимается по частям', () => {
+    const sim = makeSim(4244);
+    const p = createCharacter(sim.entities, sim.ctx.rng, 'rebel', 100, 100, true, 0);
+    p.profession = 'veteran';
+    issueKit(p, 'r:veteran', REBEL_KITS.veteran!);
+    expect(p.gear.top).toBe('rb_fatigues_mc');
+    expect(p.gear.torso).toBe('rb_plate_mc');
+    expect(p.kit?.head).toBe('mich');
+    expect(armorOf(p).torso).toBeCloseTo(UNIFORM_PIECES.rb_plate_mc.torso);
+    const was = GEAR.dropChance;
+    (GEAR as { dropChance: number }).dropChance = 1;
+    try {
+      const c = createCharacter(sim.entities, sim.ctx.rng, 'rebel', 200, 100, false, 0);
+      c.profession = 'commando';
+      sim.combat.kill(c, null);
+      const body = sim.combat.corpses[sim.combat.corpses.length - 1];
+      for (const id of REBEL_KITS.commando!) expect(body.loot.some((st) => st.id === id), id).toBe(true);
+    } finally {
+      (GEAR as { dropChance: number }).dropChance = was;
+    }
+  });
+
+  it('маскировка из настоящих вещей: партизан надел форму ВС — свой для стражи; снял каску и противогаз — маскировка спала', () => {
+    const sim = makeSim(4245);
+    const p = createCharacter(sim.entities, sim.ctx.rng, 'rebel', 100, 100, true, 0);
+    p.profession = 'partisan';
+    p.law.wanted = true;
+    for (const id of CP_KITS.pcu3) p.inventory.add(id, 1);
+    expect(wear(p, 'un_flak_vest')).toBeNull();
+    // Один бронежилет — ещё не стражник.
+    expect(cpCoverOf(p.gear)).toBeNull();
+    expect(sim.ctx.insurgency.wornCover(p)).toBeNull();
+    expect(p.disguised).toBe(false);
+    expect(wear(p, 'helmet_cp')).toBeNull();
+    expect(wear(p, 'un_gasmask')).toBeNull();
+    expect(sim.ctx.insurgency.wornCover(p)).toContain('форме ВС');
+    expect(p.disguised).toBe(true);
+    expect(p.cover?.faction).toBe('cp');
+    expect(p.law.wanted).toBe(false);
+    expect(takeOff(p, 'head')).toBeNull();
+    // Противогаз ещё на лице — сойдёт.
+    sim.ctx.insurgency.wornCover(p);
+    expect(p.disguised).toBe(true);
+    expect(takeOff(p, 'face')).toBeNull();
+    expect(sim.ctx.insurgency.wornCover(p)).toContain('не примут');
+    expect(p.disguised).toBe(false);
+  });
+
+  it('игрок-спецагент переодевается в убитого стражника — форма его юнита надета по частям, с тела снята', () => {
+    const sim = makeSim(4246);
+    const p = createCharacter(sim.entities, sim.ctx.rng, 'rebel', 100, 100, true, 0);
+    p.profession = 'spec_agent';
+    const c = createCharacter(sim.entities, sim.ctx.rng, 'cp', 120, 100, false, CP_UNIT.su3);
+    sim.combat.kill(c, null);
+    const body = sim.combat.corpses[sim.combat.corpses.length - 1];
+    sim.ctx.insurgency.dressAs(p, body);
+    for (const id of CP_KITS.su3) expect(Object.values(p.gear)).toContain(id);
+    expect(body.loot.some((st) => (CP_KITS.su3 as readonly string[]).includes(st.id))).toBe(false);
+    expect(p.cover?.worn).toBe(true);
+    expect(p.kit?.armor).toBe('recon');
   });
 });

@@ -503,14 +503,14 @@ for (const slot of CLOTH_SLOTS) I[`ghost_${slot}`] = (c) => clothIcon(c, slot, G
 
 // Части формы: ткань — рисунком одежды своего цвета, остальное — иконками снаряжения.
 for (const [id, p] of Object.entries(UNIFORM_PIECES) as [string, UniformPiece][]) {
-  const cloth: Partial<Record<string, [ClothSlot, string]>> = { top: ['top', 'shirt'], outer: ['outer', 'trench'], hat: ['hat', p.kit.head === 'cadet' ? 'beret' : 'flatcap'] };
+  const cloth: Partial<Record<string, [ClothSlot, string]>> = { top: ['top', 'shirt'], outer: ['outer', 'trench'], hat: ['hat', p.kit.head === 'cadet' || p.kit.head === 'beret' ? 'beret' : 'flatcap'] };
   const c0 = cloth[p.slot];
   if (c0) I[id] = (c) => clothIcon(c, c0[0], c0[1], p.color);
 }
 const KIT_ICON: Record<string, string> = { head: 'helmet', face: 'gasmask', torso: 'vest', back: 'backpack' };
 
 const ITEM_ICON: Partial<Record<ItemId, string>> = {
-  ...(Object.fromEntries((Object.entries(UNIFORM_PIECES) as [string, UniformPiece][]).filter(([, p]) => KIT_ICON[p.slot]).map(([id, p]) => [id, p.kit.armor === 'recon' || p.kit.armor === 'marine' ? 'plate_vest' : KIT_ICON[p.slot]])) as Partial<Record<ItemId, string>>),
+  ...(Object.fromEntries((Object.entries(UNIFORM_PIECES) as [string, UniformPiece][]).filter(([, p]) => KIT_ICON[p.slot]).map(([id, p]) => [id, p.kit.armor === 'recon' || p.kit.armor === 'marine' || p.kit.armor === 'plate' ? 'plate_vest' : p.kit.face === 'balaclava' ? 'mask' : KIT_ICON[p.slot]])) as Partial<Record<ItemId, string>>),
   ammo_ar2: 'cell_ar2',
   ammo_357: 'rounds',
   ammo_buckshot: 'buckshot',

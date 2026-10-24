@@ -578,7 +578,7 @@ export function accBack(ctx: Ctx, d: PawnDir, O: Outfit, acc: Set<string>): void
     } else if (acc.has('pack') && O.style !== 'marine') {
       ctx.beginPath();
       roundRect(ctx, -9.6, top + 1.2, 5, 8.6, 1.6);
-      fillStroke(ctx, G.pack, PAWN.outlineWidth);
+      fillStroke(ctx, (O.packColor as string | undefined) ?? G.pack, PAWN.outlineWidth);
     }
   }
   if (acc.has('antenna') && d !== 'N') antenna(ctx, d === 'E' ? -7.6 : 5.4, d === 'E' ? -9.8 : 7.2);
@@ -663,11 +663,11 @@ export function accBody(ctx: Ctx, d: PawnDir, O: Outfit, trim: string, acc: Set<
     if (d === 'N') {
       ctx.beginPath();
       roundRect(ctx, -4.4, top + 1.6, 8.8, 7.4, 1.6);
-      fillStroke(ctx, G.pack, PAWN.outlineWidth * 0.9);
+      fillStroke(ctx, (O.packColor as string | undefined) ?? G.pack, PAWN.outlineWidth * 0.9);
       ctx.beginPath();
       ctx.moveTo(-4.4, top + 3.6);
       ctx.lineTo(4.4, top + 3.6);
-      stroke(ctx, 0.7, tint(G.pack, 0.25));
+      stroke(ctx, 0.7, tint((O.packColor as string | undefined) ?? G.pack, 0.25));
       if (acc.has('medic')) cross(ctx, 0, top + 6, 1.4);
     } else if (d === 'S') {
       ctx.beginPath();
@@ -675,7 +675,7 @@ export function accBody(ctx: Ctx, d: PawnDir, O: Outfit, trim: string, acc: Set<
       ctx.lineTo(-5.6, top + 5.8);
       ctx.moveTo(5, top + 0.8);
       ctx.lineTo(5.6, top + 5.8);
-      stroke(ctx, 1.2, tint(G.pack, -0.2));
+      stroke(ctx, 1.2, tint((O.packColor as string | undefined) ?? G.pack, -0.2));
     }
   }
   if (acc.has('chevrons')) {

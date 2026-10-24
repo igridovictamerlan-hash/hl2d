@@ -1,5 +1,5 @@
 import type { RoleSpec } from '../systems/Roster';
-import type { FactionId, DivisionId, CpUnitId } from '../config/factions';
+import type { FactionId, DivisionId } from '../config/factions';
 import type { ProfessionId } from '../config/professions';
 import type { ItemId, WeaponId, GrenadeId, GearId, GearSlot } from '../config/items';
 import type { ClothesLook } from '../config/clothes';
@@ -64,6 +64,8 @@ export interface Cover {
   rank: number;
   profession: ProfessionId | null;
   name: string | null;
+  /** Маскировка из настоящих вещей (форма ВС надета по частям): снял нужные части — маскировка спала. */
+  worn?: boolean;
 }
 
 export interface CharacterInit {
@@ -186,8 +188,11 @@ export class Character {
   clothesKey = '';
   /** Форма из надетых частей (Gear.kitOf; config/uniforms.ts) или null. NPC ВС носят форму юнита без предметов. */
   kit: KitLook | null = null;
-  /** Юнит, чья форма выдана игроку (issueUniform); сменился юнит — выдаётся новая. */
-  kitUnit: CpUnitId | null = null;
+  /**
+   * Чья форма выдана игроку по частям (Gear.issueKit): юнит ВС или `r:<профессия>` у армии сопротивления; сменился —
+   * выдаётся новая. Пока выдана — броня только надетого.
+   */
+  kitUnit: string | null = null;
   /** Патронов в магазине оружия в руках. */
   mag = 0;
   /** Патроны, оставшиеся в магазинах убранных стволов. */

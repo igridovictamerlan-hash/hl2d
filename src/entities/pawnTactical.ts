@@ -41,22 +41,29 @@ export function tacticalFace(O: Outfit, seed: number): 'bare' | 'balaclava' | 'g
   return f === 'balaclava' || f === 'gasmask' ? f : 'bare';
 }
 
-/** Форма, камуфляж, плитник или разгрузка с подсумками, пояс; рукава. */
+/**
+ * Форма, камуфляж, плитник или разгрузка с подсумками, пояс; рукава. Без O.base — только плитник или разгрузка поверх
+ * уже нарисованной одежды (экипировка по частям).
+ */
 export function tacticalBody(ctx: Ctx, d: PawnDir, O: Outfit, seed: number): void {
   const top = PAWN.body.top;
   const side = d === 'E';
-  const base = O.base as string;
+  const base = O.base as string | undefined;
   const rig = O.rig as string | undefined;
-  const rc = (O.rigColor as string | undefined) ?? tint(base, -0.15);
+  const rc = (O.rigColor as string | undefined) ?? tint(base ?? '#4a5234', -0.15);
   bodyPath(ctx, d);
-  ctx.fillStyle = base;
-  ctx.fill();
+  if (base) {
+    ctx.fillStyle = base;
+    ctx.fill();
+  }
   ctx.save();
   ctx.clip();
-  const cc = camoColors(O);
+  const cc = base ? camoColors(O) : [];
   if (cc.length) camo(ctx, cc, -10, top, 20, 20, seed % 5);
-  ctx.fillStyle = PAWN.shade;
-  ctx.fillRect(side ? -1 : 2.5, -20, 20, 40);
+  if (base) {
+    ctx.fillStyle = PAWN.shade;
+    ctx.fillRect(side ? -1 : 2.5, -20, 20, 40);
+  }
   if (rig === 'plate') {
     // Плитник: пластина на груди (на спине — целиком), камербанд по бокам, три подсумка под магазины.
     ctx.beginPath();
@@ -119,7 +126,7 @@ export function tacticalBody(ctx: Ctx, d: PawnDir, O: Outfit, seed: number): voi
       }
       stroke(ctx, 0.5, tint(rc, -0.35));
     }
-  } else if (d === 'S') {
+  } else if (d === 'S' && base) {
     // Без снаряжения — полевая рубаха: карманы и планка.
     ctx.beginPath();
     ctx.rect(-5.4, top + 2.6, 3, 2.6);
@@ -131,12 +138,15 @@ export function tacticalBody(ctx: Ctx, d: PawnDir, O: Outfit, seed: number): voi
     stroke(ctx, 0.6, tint(base, -0.4));
   }
   // Ремень.
-  ctx.beginPath();
-  ctx.rect(-12, 9.6, 24, 2);
-  fillStroke(ctx, (O.belt as string) ?? T.belt, 0.6);
+  if (base) {
+    ctx.beginPath();
+    ctx.rect(-12, 9.6, 24, 2);
+    fillStroke(ctx, (O.belt as string) ?? T.belt, 0.6);
+  }
   ctx.restore();
   bodyPath(ctx, d);
   stroke(ctx, PAWN.outlineWidth);
+  if (!base) return;
   // Рукава и нашивка-молния «Грозы» на плече.
   const sleeves = side ? [0.5] : [-PAWN.body.shoulder - 0.2, PAWN.body.shoulder + 0.2];
   for (const px of sleeves) {

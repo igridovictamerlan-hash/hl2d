@@ -3,7 +3,7 @@ import type { Stack } from '../entities/Inventory';
 import { ITEMS, type GearId, type GearSlot, type ItemId } from '../config/items';
 import { ECONOMY } from '../config/economy';
 import { CLOTHES, CLOTH_SLOTS, type ClothSlot, type ClothesLook, type ClothTier } from '../config/clothes';
-import { CP_KITS, UNIFORM_PIECES, kitFrom, type KitLook } from '../config/uniforms';
+import { CP_KITS, UNIFORM_PIECES, kitFrom, type KitLook, type UniformId } from '../config/uniforms';
 import type { CpUnitId } from '../config/factions';
 
 const TIERS: readonly ClothTier[] = ['poor', 'middle', 'rich'];
@@ -66,24 +66,60 @@ export function refreshClothes(c: Character): void {
   c.clothesKey = c.clothes || c.kit ? key : '';
 }
 
+/** Надеть части формы в свои слоты; вещь, занимавшая слот, — в инвентарь (нет места — пропадает). */
+export function dressPieces(c: Character, ids: readonly GearId[]): void {
+  for (const id of ids) {
+    const slot = ITEMS[id].gear!.slot;
+    const prev = c.gear[slot];
+    if (prev === id) continue;
+    c.gear[slot] = id;
+    c.inventory.capacity = capacityOf(c);
+    if (prev) c.inventory.add(prev, 1);
+  }
+  c.inventory.capacity = capacityOf(c);
+  refreshClothes(c);
+}
+
 /**
- * Выдать форму юнита (игроку ВС при назначении и повышении): прежние части формы сняты (в никуда), части нового
- * юнита — в свои слоты; гражданская вещь, занимавшая слот, уходит в инвентарь (нет места — пропадает).
+ * Выдать форму по частям (игроку ВС при назначении и повышении, бойцу армии сопротивления — по профессии): прежние
+ * части формы сняты (в никуда), новые — в свои слоты; гражданская вещь из занятого слота уходит в инвентарь.
  */
-export function issueUniform(c: Character, unit: CpUnitId): void {
+export function issueKit(c: Character, key: string, ids: readonly GearId[]): void {
   for (const s of Object.keys(c.gear) as GearSlot[]) {
     const id = c.gear[s];
     if (id && isUniform(id)) delete c.gear[s];
   }
-  for (const id of CP_KITS[unit]) {
-    const slot = ITEMS[id].gear!.slot;
-    const prev = c.gear[slot];
-    c.gear[slot] = id;
-    if (prev) c.inventory.add(prev, 1);
+  c.kitUnit = key;
+  dressPieces(c, ids);
+}
+
+/** Форма юнита ВС. */
+export function issueUniform(c: Character, unit: CpUnitId): void {
+  issueKit(c, unit, CP_KITS[unit]);
+}
+
+/** Части формы ВС, по которым узнают стражника: рубаха или броня ВС и каска, шлем, фуражка или противогаз. */
+const CP_BODY = new Set<string>(['un_cp_shirt', 'un_epu_suit', 'un_flak_vest', 'un_flak_vest_ofc', 'un_flak_vest_instr', 'un_recon_armor', 'un_recon_armor_guard', 'un_recon_armor_insp', 'un_recon_armor_qm', 'un_marine_armor']);
+const CP_HEAD = new Set<string>(['helmet_cp', 'un_recon_helmet', 'un_recon_helmet_guard', 'un_recon_helmet_qm', 'un_marine_helmet', 'un_peaked_cap', 'un_gasmask']);
+
+/**
+ * Под кого из ВС сойдёт надетая форма (маскировка из настоящих вещей): нужно хотя бы одна часть на корпус и одна на
+ * голову или лицо; юнит — тот, с чьей формой больше всего совпадений. null — за стражника не примут.
+ */
+export function cpCoverOf(gear: Character['gear']): CpUnitId | null {
+  const worn = Object.values(gear).filter((id): id is GearId => !!id && isUniform(id));
+  if (!worn.some((id) => CP_BODY.has(id)) || !worn.some((id) => CP_HEAD.has(id))) return null;
+  let best: CpUnitId | null = null;
+  let score = 0;
+  for (const [u, ids] of Object.entries(CP_KITS) as [CpUnitId, readonly UniformId[]][]) {
+    if (u === 'cdt' || u === 'su1') continue;
+    const n = ids.filter((id) => worn.includes(id)).length - (ids.length - worn.length) * 0.01;
+    if (n > score) {
+      score = n;
+      best = u;
+    }
   }
-  c.kitUnit = unit;
-  c.inventory.capacity = capacityOf(c);
-  refreshClothes(c);
+  return best;
 }
 
 /** Надеть вещь без инвентаря (заселение, покупка NPC): прежняя в этом слоте выброшена. */
