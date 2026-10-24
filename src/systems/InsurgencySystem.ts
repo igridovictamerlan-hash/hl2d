@@ -8,7 +8,9 @@ import { inCustody, type Corpse } from './CombatSystem';
 import { isUnderground, type Cell } from './LawSystem';
 import { INSURGENCY, PARTISANS } from '../config/underground';
 import { FENCE, GANGS } from '../config/gangs';
-import { AMMO_ITEM, WEAPONS, type ItemId, type WeaponId } from '../config/items';
+import { AMMO_ITEM, ITEMS, WEAPONS, type GearId, type ItemId, type WeaponId } from '../config/items';
+import { PASSPORT } from '../config/law';
+import { fmt } from './Radio';
 import { poiWorld } from './Population';
 import { spawnRole } from './Roster';
 import { ROSTER } from '../config/roster';
@@ -229,7 +231,9 @@ export class InsurgencySystem {
     c.hostile = false;
     const cwu = this.ctx.rng.chance(PARTISANS.cwuCoverShare);
     this.ctx.combat.equip(c, null);
-    c.cover = { faction: cwu ? 'cwu' : 'citizen', rank: 0, profession: cwu ? 'janitor' : 'citizen', name: null };
+    // Есть чужой паспорт — личина по нему (имя, работа); нет — просто горожанин или ТС (проверка документов выдаст).
+    const pp = c.passport;
+    c.cover = pp ? { faction: pp.faction, rank: 0, profession: pp.profession ?? 'citizen', name: pp.name } : { faction: cwu ? 'cwu' : 'citizen', rank: 0, profession: cwu ? 'janitor' : 'citizen', name: null };
   }
 
   /** Первый спецагент (совместимость). */
@@ -1069,6 +1073,42 @@ export class InsurgencySystem {
     c.hostile = false;
     c.cover = { faction: 'cp', rank: CP_UNIT[unit], profession: null, name: null, worn: true };
     return `Вы в форме ВС (${cpUnit(CP_UNIT[unit]).name.toLowerCase()}): для стражи — свой, розыск снят; выдаст только убийство.`;
+  }
+
+  /**
+   * Забрать паспорт у жертвы (руки вверх под стволом, без сознания, тяжело ранен) или с тела: у подпольщика под
+   * личиной она становится личиной по паспорту (имя, работа). Прежний паспорт остаётся жертве (обмен). Возвращает
+   * строку для журнала.
+   */
+  takePassport(c: Character, from: { passport?: Character['passport'] }, victim: Character | null = null): string | null {
+    const pp = from.passport;
+    if (!pp) return null;
+    const had = c.passport;
+    c.passport = pp;
+    from.passport = had && had.owner !== c.pid ? had : null;
+    if (c.disguised && c.cover && c.cover.faction !== 'cp') c.cover = { faction: pp.faction, rank: 0, profession: pp.profession ?? 'citizen', name: pp.name };
+    victim?.say(this.ctx.rng.pick(PASSPORT.lines.victim), this.ctx.law.now, 2);
+    return fmt(had ? PASSPORT.lines.swapped : PASSPORT.lines.taken, { name: pp.name, job: pp.job });
+  }
+
+  /**
+   * Чужая личность с тела горожанина или рабочего ТС: паспорт и одежда убитого — на себя; для ВС — тот, чей паспорт
+   * (имя и работа на подписи), розыск снят, как при новой личине. Тело раздето.
+   */
+  takeIdentity(c: Character, corpse: Corpse): string | null {
+    const pp = corpse.passport;
+    if (!pp || corpse.stripped) return null;
+    corpse.stripped = true;
+    const clothes = corpse.loot.filter((s) => ITEMS[s.id].gear?.cloth).map((s) => s.id as GearId);
+    corpse.loot = corpse.loot.filter((s) => !ITEMS[s.id].gear?.cloth);
+    dressPieces(c, clothes);
+    const text = this.takePassport(c, corpse);
+    c.disguised = true;
+    c.law.wanted = false;
+    c.hostile = false;
+    this.ctx.combat.equip(c, null);
+    c.cover = { faction: pp.faction, rank: 0, profession: pp.profession ?? 'citizen', name: pp.name };
+    return `${text} Вы в его одежде: для ВС вы ${pp.name}.`;
   }
 
   /** Спецагент раскрыл себя (покушение): враг Протектората, в розыске. */

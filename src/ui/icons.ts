@@ -147,14 +147,13 @@ I.fire_grenade = (c) => {
   shp(c, '#4a4f55', () => c.rect(-8, -22, 16, 8), 2.5);
   c.beginPath(); c.arc(-12, -22, 5, 0, TAU); c.lineWidth = 4.5; c.strokeStyle = OUT; c.stroke(); c.lineWidth = 2; c.strokeStyle = '#c9ccd0'; c.stroke();
 };
+/** Паспорт: книжечка в обложке Протектората с гербом; раскрыт — фото и строки (у поддельного — штамп «ЧИСТ.»). */
 function cidCard(c: C2, fake: boolean): void {
-  shp(c, fake ? '#c9c2a4' : '#c9d6df', () => c.roundRect(-26, -17, 52, 34, 4));
-  fl(c, fake ? '#aa9f7c' : '#7d95a6', () => c.rect(-24, -15, 48, 7));
-  shp(c, '#e6e2d8', () => c.rect(-21, -5, 14, 17), 2);
-  fl(c, '#6b5a48', () => c.arc(-14, 1, 3.5, 0, TAU));
-  fl(c, '#6b5a48', () => c.ellipse(-14, 9, 6, 3.5, 0, Math.PI, TAU));
-  for (const y of [-2, 3, 8]) ln(c, [[-3, y], [20, y]], 2, fake ? '#8a7d5a' : '#4d6373');
-  txt(c, 'CID', 14, -11.5, 6, '#f5f5f5', 'center', 900);
+  shp(c, fake ? '#6e5a3a' : '#5a2a2e', () => c.roundRect(-20, -24, 40, 48, 4));
+  fl(c, 'rgba(0,0,0,0.25)', () => c.rect(-20, -24, 5, 48));
+  shp(c, '#d9b24a', () => c.arc(2, -6, 8, 0, TAU), 2);
+  fl(c, fake ? '#6e5a3a' : '#5a2a2e', () => { c.moveTo(2, -11); c.lineTo(6, -3); c.lineTo(-2, -3); c.closePath(); });
+  txt(c, 'ПАСПОРТ', 2, 13, 6.5, '#d9b24a', 'center', 900);
   if (fake) {
     c.save(); c.rotate(-0.35);
     rrect(c, -4, -9, 30, 14, 2, null, '#b8342a', 2);

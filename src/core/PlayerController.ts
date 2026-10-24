@@ -16,7 +16,8 @@ import { FACTIONS, cpHas, cpUnit } from '../config/factions';
 import { poiWorld, cpKit } from '../systems/Population';
 import { WEAPONS, KITS, ITEMS, type ItemId } from '../config/items';
 import { UNDERGROUND, INSURGENCY, PARTISANS } from '../config/underground';
-import { chargeDef, type Cell } from '../systems/LawSystem';
+import { chargeDef, isUnderground, type Cell } from '../systems/LawSystem';
+import { PASSPORT } from '../config/law';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { PRISON } from '../config/prison';
 import { ECONOMY } from '../config/economy';
@@ -58,7 +59,7 @@ export class PlayerController {
   /** Саботирует узел Протектората (повстанец). */
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
-  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'break' | 'armory' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot } | null = null;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'papers' | 'identity' | 'break' | 'armory' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot } | null = null;
   /** Откат бунта у игрока-спецагента (G). */
   private riotCooldown = 0;
   private healCooldown = 0;
@@ -560,6 +561,21 @@ export class PlayerController {
         }
       }
     }
+    // Подпольщик: своего паспорта нет — забрать чужой: с тела горожанина или ТС вместе с его одеждой (личина) или у
+    // живой жертвы, которая не сопротивляется (руки вверх под стволом, без сознания, тяжело ранена).
+    if (isUnderground(p)) {
+      const T = PASSPORT.take.time;
+      if (corpse && corpse.passport && !corpse.stripped && corpse.faction !== 'cp' && !ctx.war.scenes.sealed(corpse, p)) {
+        this.task = { kind: 'identity', x: corpse.x, y: corpse.y, left: T * 2, total: T * 2, corpse };
+        return this.say(`Снимаете с тела одежду и паспорт: ${corpse.name}…`, 'world');
+      }
+      const now = ctx.combat.now;
+      const victim = this.facingTarget(p, ctx, PASSPORT.take.reach, (o) => o !== p && !!o.passport && o.alive && (o.task === 'hands' || o.melee.ko > now || o.downed));
+      if (victim) {
+        this.task = { kind: 'papers', x: victim.x, y: victim.y, left: T, total: T, victim };
+        return this.say(`Забираете паспорт: ${victim.name}…`, 'world');
+      }
+    }
     // Спецагент: форма с убитого ВС (в OTA не переодеться), взлом камеры КПЗ.
     if (p.faction === 'rebel' && p.profession === 'spec_agent') {
       const A = PARTISANS.agent;
@@ -887,7 +903,7 @@ export class PlayerController {
   private updateTask(p: Character, ctx: AiContext, dt: number): void {
     const t = this.task!;
     const at = t.victim ?? t;
-    if (Math.hypot(at.x - p.x, at.y - p.y) > (t.kind === 'pick' || t.kind === 'rob' ? 50 : 34)) {
+    if (Math.hypot(at.x - p.x, at.y - p.y) > (t.kind === 'pick' || t.kind === 'rob' || t.kind === 'papers' ? 50 : 34)) {
       this.task = null;
       if (t.kind === 'clean' && t.pile?.worker === p) t.pile.worker = null;
       if (t.kind === 'paper') ctx.labor.releaseDesk(p);
@@ -925,6 +941,13 @@ export class PlayerController {
       ctx.labor.payPaperwork(p);
       ctx.labor.releaseDesk(p);
       return this.say(`Отчёт сдан: +${LABOR.paperwork.pay} токенов.`, 'world');
+    }
+    if (t.kind === 'papers' && t.victim) {
+      const text = t.victim.passport ? ctx.insurgency.takePassport(p, t.victim, t.victim) : null;
+      return this.say(text ?? 'Паспорта у него уже нет.', 'world');
+    }
+    if (t.kind === 'identity' && t.corpse) {
+      return this.say(ctx.insurgency.takeIdentity(p, t.corpse) ?? 'С тела уже всё сняли.', 'world');
     }
     if (t.kind === 'dress' && t.corpse) {
       if (t.corpse.stripped) return this.say('С тела уже сняли форму.');
@@ -1033,7 +1056,8 @@ export class PlayerController {
       if (p.weapon) return this.say('Уберите оружие (H), чтобы надеть маскировку.');
       if (ctx.combat.now - Math.max(p.lastHurt, p.lastFired) < PARTISANS.coverAfterFight) return this.say('Вас только что видели в бою — маскировка не поможет.');
       ctx.insurgency.giveCover(p);
-      return this.say(`Вы в маскировке: для ВС вы ${p.cover?.faction === 'cwu' ? 'рабочий ТС' : 'обычный гражданин'}, розыск снят. Выдаст только убийство; проверка CID — может, со стволом в руках ВС остановит.`, 'world');
+      const who = p.passport ? `${p.passport.name} (${p.passport.job})` : p.cover?.faction === 'cwu' ? 'рабочий ТС' : 'обычный гражданин';
+      return this.say(`Вы в маскировке: для ВС вы ${who}, розыск снят. Выдаст убийство${p.passport ? ' и фото в чужом паспорте' : ''}. ${p.passport ? '' : PASSPORT.lines.none}`, 'world');
     }
     if (p.faction !== 'cp') return this.say('Умение (G) есть у ВС и у некоторых профессий (медики, партизан).');
     // SU.02 в городе (не у раненых) — сканер; иначе — лечение.
@@ -1063,7 +1087,7 @@ export class PlayerController {
   /** F: у ВС — проверка документов у ближайшего, кто перед игроком. */
   private roleAction(p: Character, ctx: AiContext): void {
     if (p.faction !== 'cp') {
-      this.bus.emit('log', { text: 'Действие роли (F) пока есть только у ВС: проверка CID.', kind: 'system' });
+      this.bus.emit('log', { text: 'Действие роли (F) пока есть только у ВС: проверка документов.', kind: 'system' });
       return;
     }
     if (this.check || this.hooks.checkPanelTarget()) return;

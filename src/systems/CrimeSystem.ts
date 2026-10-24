@@ -133,7 +133,7 @@ export class CrimeSystem {
       this.ctx.war.lastKnown.set(k, { x: k.x, y: k.y });
     }
     const who = k.isPlayer ? 'ВЫ' : k.name;
-    const text = `Надзор: скан тела (${zone}) — убийца ${who}, CID #${k.cid}. Объявлен в розыск.`;
+    const text = `Надзор: скан тела (${zone}) — убийца ${who}${k.passport ? `, паспорт № ${k.passport.no}` : ''}. Объявлен в розыск.`;
     this.ctx.bus.emit('log', { text, kind: 'radio' });
     if (k.isPlayer) this.ctx.bus.emit('announce', { text: 'Вас объявили в розыск' });
     void obs;

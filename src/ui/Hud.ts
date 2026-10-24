@@ -272,7 +272,7 @@ export class Hud {
   private updateText(p: Character, now: number, info: HudInfo): void {
     const law = lawStatus(p, now);
     const busy = busyStatus(p, now);
-    const key = `${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${p.profession}|${p.disguised}|${p.money}|${p.loyalty}|${law}|${busy}|${info.ration}|${info.rally > 0 ? Math.ceil(info.rally) : info.rally}`;
+    const key = `${p.name}|${p.faction}|${p.rank}|${p.division}|${p.cid}|${p.passport?.no ?? ''}|${p.profession}|${p.disguised}|${p.money}|${p.loyalty}|${law}|${busy}|${info.ration}|${info.rally > 0 ? Math.ceil(info.rally) : info.rally}`;
     if (key === this.lastText) return;
     this.lastText = key;
     this.name.textContent = p.name;
@@ -283,7 +283,7 @@ export class Hud {
     const pname = prof && prof.id !== DEFAULT_PROFESSION[p.faction] && prof.name !== r?.name ? ` · ${prof.name}` : '';
     const cd = p.profession === 'rebel_leader' && p.faction === 'rebel' ? info.rally : -1;
     const rally = cd < 0 ? '' : cd > 0 ? ` · клич через ${Math.ceil(cd)} с` : ' · клич готов (G)';
-    this.role.textContent = r ? `${r.name}${div}${pname}${rally}` : `${prof && pname ? prof.name : f.role} · CID #${p.cid}`;
+    this.role.textContent = r ? `${r.name}${div}${pname}${rally}` : `${prof && pname ? prof.name : f.role} · ${p.passport ? `паспорт № ${p.passport.no}${p.passport.owner !== p.pid && !p.passport.forged ? ` (чужой: ${p.passport.name})` : ''}` : 'без паспорта'}`;
     this.role.style.color = r ? r.color : f.label;
     let meta = `◉ ${p.money}`;
     if (hasLoyalty(p)) meta += ` · ${loyaltyTier(p).name} (${p.loyalty})`;
@@ -315,7 +315,7 @@ function statusOf(p: Character, now: number, info: HudInfo): Status[] {
     const term = Number.isFinite(left)
       ? `Снимут через ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}, если не попадётесь ВС на глаза (узнают в лицо вблизи, при тяжкой статье — и прохожие).`
       : 'Бессрочно.';
-    const how = 'Снять сразу — маскировка, поддельная CID у барыги или явка с повинной у стойки дежурного Управы (E).';
+    const how = 'Снять сразу — маскировка, поддельный паспорт у барыги или явка с повинной у стойки дежурного Управы (E).';
     const head = w ? `Розыск ${stars}: ${w.name}.` : 'Розыск.';
     out.push({ icon: 'wanted', label: `розыск ${stars}${Number.isFinite(left) ? ` ${Math.ceil(left / 60)} мин` : ''}`, tone: 'red', hint: [head, term, how, info.suspect].filter(Boolean).join('\n') });
   }

@@ -5,7 +5,7 @@
 export interface LoyaltyTier {
   min: number;
   name: string;
-  /** Множитель шанса плановой проверки CID. */
+  /** Множитель шанса плановой проверки документов. */
   checkMul: number;
   /** Доп. токены в рационе. */
   rationBonus: number;

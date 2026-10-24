@@ -2,6 +2,30 @@
 /** Статья розыска (LAW.wanted.charges). */
 export type WantedCharge = 'flight' | 'informed' | 'fraud' | 'theft' | 'riot' | 'assault' | 'escape' | 'sabotage' | 'fugitive' | 'murder' | 'attackCp' | 'rebel';
 
+/**
+ * Паспорта вместо CID (systems/Passports.ts). Отметка о работе: jobs — слова, citizenJobs — профессии горожан, что пишут
+ * в паспорт (бандит и вор — «без постоянной работы»). without — профессии без своего паспорта (беглец). coverJobs —
+ * кем записан пропавший без вести (паспорт NPC-подпольщика). photo — шанс, что на проверке опознают чужое фото (не
+ * подпольщик: у тех PARTISANS.checkReveal); у поддельного (fake_cid) — forgedCatch. take — сколько секунд отбирать
+ * паспорт у жертвы (руки вверх, без сознания, тяжело ранен) и на каком расстоянии (reach px).
+ */
+export const PASSPORT = {
+  jobs: { none: 'без постоянной работы', cwu: 'Трудовой союз', worker: 'рабочий', vort: 'поднадзорный · принудительные работы' },
+  citizenJobs: [] as readonly string[],
+  without: ['fugitive'] as readonly string[],
+  coverJobs: ['citizen', 'citizen', 'janitor', 'packer', 'courier', 'cook'] as readonly string[],
+  photo: 0.35,
+  forgedCatch: 0.1,
+  take: { time: 2, reach: 40 },
+  lines: {
+    caught: 'Патруль: «Фото не ваше». Паспорт изъят — задержаны за подлог.',
+    none: 'Паспорта у вас нет: заберите чужой — у жертвы (руки вверх, без сознания) или с тела.',
+    taken: 'Вы забрали паспорт: {name}, {job}.',
+    swapped: 'Вы взяли паспорт: {name}, {job}. Прежний оставили.',
+    victim: ['Отдай… только не стреляй.', 'Это мои документы!', 'Как я без паспорта…'],
+  },
+} as const;
+
 export const LAW = {
   /**
    * Оружие в городе: стрелявший ближе firedWithin с назад (бандит, стычка банд) — уже не нарушитель, а
@@ -22,9 +46,9 @@ export const LAW = {
   runSpeed: 125,
   /** Как часто ВС осматривается. */
   scanInterval: 0.3,
-  /** Шанс «на всякий случай» проверить CID у замеченного гражданина за один осмотр. */
+  /** Шанс «на всякий случай» проверить документы у замеченного гражданина за один осмотр. */
   randomCheckChance: 0.035,
-  /** Код жёлтый (тревога в городе): плановые проверки CID во столько раз чаще. */
+  /** Код жёлтый (тревога в городе): плановые проверки документов во столько раз чаще. */
   alarmCheckMul: 2.5,
   /** На пограничном КПП проверяют почти всех. */
   checkpointCheckChance: 0.5,
@@ -169,7 +193,7 @@ export type Violation =
 export const VIOLATION_NAMES: Record<Violation, string> = {
   running: 'бег',
   restricted: 'нахождение в запретной зоне',
-  no_cid: 'отсутствие CID',
+  no_cid: 'нет паспорта',
   wanted: 'розыск',
   resisting: 'неподчинение',
   routine: 'плановая проверка',
@@ -181,7 +205,7 @@ export const VIOLATION_NAMES: Record<Violation, string> = {
   riot: 'участие в беспорядках',
   contraband: 'контрабанда',
   fight: 'драка на улице',
-  forgery: 'поддельный пропуск',
+  forgery: 'подложные документы',
   murder: 'убийство',
   assault: 'нападение с оружием',
   suspect: 'проверка по ориентировке',

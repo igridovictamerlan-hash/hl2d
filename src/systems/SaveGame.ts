@@ -1,4 +1,5 @@
 /** Описание системы — docs/ui.md. */
+import type { Passport } from '../entities/Character';
 import type { Character } from '../entities/Character';
 import type { FactionId, DivisionId } from '../config/factions';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
@@ -35,6 +36,8 @@ export interface SaveData {
   /** Надетое снаряжение (нет в старых сохранениях). */
   gear?: Partial<Record<GearSlot, GearId>>;
   law: { hasCid: boolean; wanted: boolean };
+  /** Паспорт в кармане (свой, чужой или поддельный; нет в старых сохранениях — выдаётся по роли). */
+  passport?: Passport | null;
   pos: { x: number; y: number } | null;
   explored: string;
   hatches: number[];
@@ -75,6 +78,7 @@ export function capturePlayer(
     mags: { ...p.mags },
     gear: { ...p.gear },
     law: { hasCid: p.law.hasCid, wanted: p.law.wanted || caught },
+    passport: p.passport ? { ...p.passport } : null,
     pos: caught ? null : { x: Math.round(p.x), y: Math.round(p.y) },
     explored: encodeBits(knowledge.explored),
     hatches: [...knowledge.hatches],
@@ -126,6 +130,9 @@ export function applyToPlayer(p: Character, d: SaveData): void {
   p.weapon = d.weapon && p.inventory.has(d.weapon) ? d.weapon : null;
   p.mag = p.weapon ? Math.max(0, Math.min(WEAPONS[p.weapon].magazine, d.mag)) : 0;
   p.law.hasCid = d.law?.hasCid ?? true;
+  // Свой паспорт — на сохранённый номер и имя (роль его уже выдала); чужой или поддельный — как был.
+  if (d.passport !== undefined) p.passport = d.passport ? { ...d.passport, owner: d.passport.owner === -1 ? -1 : d.passport.forged || d.passport.no === p.cid ? p.pid : d.passport.owner } : null;
+  else if (p.passport) Object.assign(p.passport, { no: p.cid, name: p.name });
   p.law.wanted = d.law?.wanted ?? false;
   p.merit = Math.max(0, d.merit ?? 0);
   // Курсант продолжает учёбу с теми же баллами.

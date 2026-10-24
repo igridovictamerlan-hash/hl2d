@@ -15,7 +15,7 @@ import { newMeleeState, type MeleeState } from './meleeState';
 
 /**
  * Этапы разбирательства с законом:
- * ordered — ВС приказал стоять; checking — идёт проверка CID; fleeing — убегает;
+ * ordered — ВС приказал стоять; checking — идёт проверка документов; fleeing — убегает;
  * cuffed — в наручниках, идёт за конвоиром; entering — заводят в камеру; jailed — сидит;
  * releasing — выходит из Управы после отсидки.
  */
@@ -53,6 +53,24 @@ export interface LawState {
   crimeUntil?: number;
   /** До этого времени — участник бунта: увидевший ВС задерживает (нарушение 'riot'). */
   riotUntil?: number;
+}
+
+/**
+ * Паспорт (systems/Passports.ts): номер, имя, место работы и кому выдан. Предъявляют на проверке документов; чужой
+ * (owner ≠ pid предъявившего) могут опознать по фото. У подпольщиков своего нет — только снятый с жертвы или с тела.
+ */
+export interface Passport {
+  no: string;
+  name: string;
+  /** Отметка о работе: «Трудовой союз · Повар ТС», «без постоянной работы»… */
+  job: string;
+  /** Под кого сойдёт предъявивший (личина по паспорту): горожанин или рабочий ТС и его профессия. */
+  faction: 'citizen' | 'cwu';
+  profession: ProfessionId | null;
+  /** pid владельца (-1 — пропавший без вести, паспорт подполья). */
+  owner: number;
+  /** Поддельный (с чёрного рынка): на имя предъявившего. */
+  forged?: boolean;
 }
 
 /**
@@ -100,6 +118,8 @@ export class Character {
   disguised = false;
   /** Под кого одет в маскировке (null — просто гражданин). */
   cover: Cover | null = null;
+  /** Паспорт в кармане (null — нет: подпольщик, власти, отобрали). */
+  passport: Passport | null = null;
   /** Горит (пиротехник): до этого времени, урон в секунду и кто поджёг. */
   burnUntil = 0;
   burnBy: Character | null = null;

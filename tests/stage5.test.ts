@@ -68,8 +68,8 @@ describe('чат и команды', () => {
     expect(sim.log.at(-1)).toBe(`* ${me.name} поправляет воротник`);
     chat.submit(me, '/roll');
     expect(sim.log.at(-1)).toMatch(/бросает кости: \d+/);
-    chat.submit(me, '/cid');
-    expect(sim.log.at(-1)).toContain(`CID #${me.cid}`);
+    chat.submit(me, '/паспорт');
+    expect(sim.log.at(-1)).toContain(`Паспорт № ${me.cid}`);
     chat.submit(me, '/абракадабра');
     expect(sim.log.at(-1)).toContain('Неизвестная команда');
   });

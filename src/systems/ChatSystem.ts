@@ -15,7 +15,7 @@ export const CHAT_HELP: [string, string][] = [
   ['/me действие', 'действие от третьего лица'],
   ['/r текст', 'рация (ВС, Легион)'],
   ['/roll', 'бросок 1–100'],
-  ['/cid', 'ваша CID, статус и лояльность'],
+  ['/паспорт', 'ваш паспорт, статус и лояльность'],
   ['/донос', 'сообщить ВС о подозрительном, кого видите (+лояльность; ложный — минус)'],
   ['/поощрить', 'ВС: поднять лояльность гражданину перед собой'],
   ['/охрана', 'доверенный лоялист: два юнита ВС сопровождают вас'],
@@ -68,11 +68,13 @@ export class ChatSystem {
         return this.log(`* ${p.name} бросает кости: ${n}`, 'chat');
       }
       case 'cid':
-      case 'сид': {
+      case 'сид':
+      case 'паспорт': {
         const l = p.law;
-        const status = l.wanted ? 'в розыске' : l.hasCid ? 'чистая' : 'недействительна';
+        const pp = p.passport;
+        const status = l.wanted ? 'в розыске' : !pp ? 'паспорта нет' : l.hasCid ? 'в порядке' : 'просрочен';
         const loy = hasLoyalty(p) ? ` · лояльность ${p.loyalty} (${loyaltyTier(p).name})` : '';
-        return this.log(`CID #${p.cid}: ${status}${loy}`);
+        return this.log(`${pp ? `Паспорт № ${pp.no} · ${pp.name} · ${pp.job}` : 'Без паспорта'}: ${status}${loy}`);
       }
       case 'выборы':
       case 'election':
@@ -173,7 +175,7 @@ export class ChatSystem {
     }
     const zone = ctx.map.zoneAtWorld(suspect.x, suspect.y)?.name ?? 'город';
     adjustLoyalty(p, LOYALTY.points.report, 'донос', ctx.bus);
-    this.log(`Надзор: принят донос гражданина #${p.cid} — ${zone}. Патрули направлены.`, 'radio');
+    this.log(`Надзор: принят донос гражданина (паспорт № ${p.passport?.no ?? 'не предъявлен'}) — ${zone}. Патрули направлены.`, 'radio');
     ctx.law.declare(suspect, 'informed');
     if (suspect.faction === 'rebel' || suspect.weapon) ctx.war.raiseAlarm(suspect.x, suspect.y, 'донос о вооружённом', false, { kind: 'tip', suspect });
     else {

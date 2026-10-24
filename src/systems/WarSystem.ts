@@ -1035,7 +1035,7 @@ export class WarSystem {
 
   /**
    * Тревога: патрули рядом стягиваются к точке и прочёсывают её (нападение, саботаж, побег…). Код
-   * жёлтый (yellow = true) — только когда нашли убитого патрульного в городе: проверки CID чаще.
+   * жёлтый (yellow = true) — только когда нашли убитого патрульного в городе: проверки документов чаще.
    */
   raiseAlarm(x: number, y: number, what: string, yellow = false, info: AlarmInfo = {}): void {
     this.lastAlarmRaise = this.time;
@@ -1059,7 +1059,7 @@ export class WarSystem {
     this.code = 'yellow';
     this.yellowSince = this.time;
     this.calm = 0;
-    this.ctx.law.log(`Администрация: Код ЖЁЛТЫЙ! ${what[0].toUpperCase()}${what.slice(1)} — ${zone}. Граждане, сохраняйте спокойствие и предъявляйте CID по первому требованию.`, 'world');
+    this.ctx.law.log(`Администрация: Код ЖЁЛТЫЙ! ${what[0].toUpperCase()}${what.slice(1)} — ${zone}. Граждане, сохраняйте спокойствие и предъявляйте паспорт по первому требованию.`, 'world');
     this.ctx.bus.emit('alert', { code: 'yellow' });
     this.ctx.bus.emit('announce', { text: `Код жёлтый · ${what}` });
     this.ctx.radio?.code('yellow');
@@ -1108,7 +1108,7 @@ export class WarSystem {
     this.calm = 0;
     for (const o of this.ota) (o.brain as OtaBrain | null)?.goHome();
     this.ctx.law.log(
-      `Администрация: Код ЖЁЛТЫЙ ${why}.${wasCurfew ? ' Комендантский час отменён.' : ''} Граждане, предъявляйте CID по первому требованию.`,
+      `Администрация: Код ЖЁЛТЫЙ ${why}.${wasCurfew ? ' Комендантский час отменён.' : ''} Граждане, предъявляйте паспорт по первому требованию.`,
       'world',
     );
     this.ctx.bus.emit('alert', { code: 'yellow' });

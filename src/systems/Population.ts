@@ -123,7 +123,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
     const prof: ProfessionId = j >= 0 ? special[j] : 'citizen';
     const c = put({ kind: 'citizen', faction: 'citizen', profession: prof, division: null, rank: 0, kit: PROFESSIONS[prof].kit ?? 'citizen' }, spot);
     if (!c) continue;
-    // Отбросы общества — без лояльности к Протекторату; беглец — без CID и в розыске.
+    // Отбросы общества — без лояльности к Протекторату; беглец — без паспорта и в розыске.
     if (prof === 'outcast' || prof === 'bandit') c.loyalty = Math.min(c.loyalty, -10);
     if (prof === 'fugitive') {
       c.loyalty = Math.min(c.loyalty, -20);

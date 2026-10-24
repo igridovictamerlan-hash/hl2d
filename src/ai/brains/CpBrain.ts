@@ -95,7 +95,7 @@ const WATCHING = new Set(['patrol', 'post', 'guard', 'hunt', 'medic', 'follow', 
 /**
  * Сотрудник ВС. Патрулирует узкие места и ключевые точки, иногда стоит постом.
  * Часовой КПП (GRID) стоит на посту и держит коридор; медик HELIX лечит раненых.
- * Нарушение: приказ «стоять» → подход → проверка CID → штраф/арест → конвой в КПЗ.
+ * Нарушение: приказ «стоять» → подход → проверка документов → штраф/арест → конвой в КПЗ.
  * Вооружённый враг (повстанец с оружием, напавший на Протекторат) — бой на поражение;
  * безоружного повстанца пытается задержать. Ранен — отходит к медику/в бункер.
  * При красном коде патрульные прочёсывают город по данным «Надзора».
@@ -822,7 +822,7 @@ export class CpBrain implements Brain {
       }
     }
     if (ctx.war.code === 'red' || this.medicStation) return;
-    // Плановые проверки CID — работа PCU (и следователей), не командования и не охраны. Юнит с постом проверяет только у
+    // Плановые проверки документов — работа PCU (и следователей), не командования и не охраны. Юнит с постом проверяет только у
     // поста: идущий на пост через город (часовой КПП после повышения) по дороге документы не спрашивает.
     if (!this.checksPeople) return;
     if (this.guardPost && !atCheckpoint && dist(this.guardPost.x, this.guardPost.y, self.x, self.y) > SECURITY.postReach) return;
@@ -877,7 +877,7 @@ export class CpBrain implements Brain {
     return !this.guardPost || atCheckpoint || ((this.duty === 'post' || this.duty === 'sentry' || this.duty === 'jailer') && dist(this.guardPost.x, this.guardPost.y, o.x, o.y) < SECURITY.postReach);
   }
 
-  /** Плановые проверки CID и опознание — работа патрульных и офицера, не командования, охраны, кладовщика и конвоя. */
+  /** Плановые проверки документов и опознание — работа патрульных и офицера, не командования, охраны, кладовщика и конвоя. */
   get checksPeople(): boolean {
     return !this.medicStation && !((this.duty && STAFF.has(this.duty) && this.duty !== 'officer') || this.duty === 'qm' || this.duty === 'convoy' || this.duty === 'jailer' || this.formation);
   }

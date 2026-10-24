@@ -84,7 +84,7 @@ export class TouchControls {
       <div class="t-move" hidden><i class="t-knob"></i></div>
       <div class="t-aim"><i class="t-ring"></i><i class="t-knob"></i><span>Огонь</span></div>
       <div class="t-cluster">${B.main.map((b) => btn(b, `t-${b.action}`)).join('')}
-        <button class="t-btn small t-roleF" data-act="roleAction" hidden><b>F</b><span>CID</span></button>
+        <button class="t-btn small t-roleF" data-act="roleAction" hidden><b>F</b><span>ДОК</span></button>
         <button class="t-btn small t-roleG" data-act="special" hidden><b>G</b><span>Умение</span></button>
       </div>
       <div class="t-top">${B.top.map((b) => `<button class="t-btn top" data-act="${b.action}" title="${b.title}">${b.label}</button>`).join('')}</div>

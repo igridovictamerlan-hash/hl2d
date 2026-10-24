@@ -570,7 +570,7 @@ export class Suspects {
       this.ctx.war.operatives.add(a);
       this.ctx.war.lastKnown.set(a, { x: cs.lastX, y: cs.lastY });
     }
-    const line = fmt(this.rng.pick(SUSPECTS.lines.named), { name: displayName(a), cid: a.cid });
+    const line = fmt(this.rng.pick(SUSPECTS.lines.named), { name: displayName(a), cid: a.passport?.no ?? a.cid });
     this.ctx.law.log(`${line} (${how})`, 'radio');
     if (a.isPlayer) this.ctx.bus.emit('announce', { text: 'Вас опознали — розыск' });
     this.ctx.talk?.event('wanted', cs.x, cs.y, { who: displayName(a), big: true });

@@ -69,7 +69,7 @@ export class Trigger {
  * иначе null (кнопка спрятана).
  */
 export function roleButtons(c: Character): { f: string | null; g: string | null } {
-  const f = c.faction === 'cp' && !c.cadet ? 'CID' : null;
+  const f = c.faction === 'cp' && !c.cadet ? 'ДОК' : null;
   let g: string | null = null;
   if (c.profession === 'cwu_medic' || c.profession === 'rebel_medic') g = 'Лечить';
   else if (c.profession === 'rebel_leader' && c.faction === 'rebel') g = 'Клич';

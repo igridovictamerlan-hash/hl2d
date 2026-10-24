@@ -12,6 +12,7 @@ import { LOYALTY } from '../config/loyalty';
 import { adjustLoyalty, hasLoyalty, loyaltyTier, loyalistPerk } from './Loyalty';
 import { ITEMS, WEAPONS, AMMO_ITEM, type ItemId, type WeaponId } from '../config/items';
 import { T } from '../world/tiles';
+import { jobLine } from './Passports';
 import type { Vec2 } from '../core/math';
 
 /**
@@ -273,11 +274,12 @@ export class EconomySystem {
 
   use(c: Character, id: ItemId): boolean {
     const def = ITEMS[id];
-    // Поддельная CID: «чистая» карта, розыск снят.
+    // Поддельный паспорт: на своё имя, «чистый», розыск снят.
     if (id === 'fake_cid') {
       if (!c.inventory.remove(id, 1)) return false;
       c.law.hasCid = true;
       c.law.wanted = false;
+      c.passport = { no: c.cid, name: c.name, job: jobLine(c.faction, c.profession), faction: c.faction === 'cwu' ? 'cwu' : 'citizen', profession: c.profession, owner: c.pid, forged: true };
       return true;
     }
     if (!def.food && !def.heal) return false;

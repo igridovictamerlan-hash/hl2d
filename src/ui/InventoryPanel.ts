@@ -9,6 +9,7 @@ import { REBEL_RANKS } from '../config/factions';
 import { HUD } from '../config/hud';
 import { drawGunIcon, drawIcon, iconOf } from './icons';
 import { drawPawnFigure } from './pawnFigure';
+import { PASSPORT } from '../config/law';
 import { MELEE as MELEE_CFG } from '../config/melee';
 
 export interface InventoryHost {
@@ -134,7 +135,7 @@ export class InventoryPanel {
   update(p: Character, combat: CombatSystem, look: PawnLook): void {
     if (!this.isOpen) return;
     const hoverKey = this.hover ? `${this.hover.x},${this.hover.y}` : '';
-    const sig = `${p.inventory.slots.map((s) => `${s.id}:${s.qty}`).join(',')}|${p.weapon}|${p.gear.head}|${p.gear.torso}|${p.gear.back}|${p.clothesKey}|${p.mag}|${p.grenadeKind}|${p.money}|${this.dir}|${hoverKey}|${look.seed}|${look.color}|${combat.reloading(p)}|${window.innerWidth}x${window.innerHeight}|${this.touch}`;
+    const sig = `${p.inventory.slots.map((s) => `${s.id}:${s.qty}`).join(',')}|${p.weapon}|${p.gear.head}|${p.gear.torso}|${p.gear.back}|${p.clothesKey}|${p.passport?.no ?? '-'}|${p.mag}|${p.grenadeKind}|${p.money}|${this.dir}|${hoverKey}|${look.seed}|${look.color}|${combat.reloading(p)}|${window.innerWidth}x${window.innerHeight}|${this.touch}`;
     if (sig === this.sig) return;
     this.sig = sig;
     this.draw(p, combat, look);
@@ -206,11 +207,12 @@ export class InventoryPanel {
         this.hits.push({ x, y, w: S, h, title: `${label.toLowerCase()}: пусто`, desc, act: '' });
       }
     };
-    // Верхний ряд: CID и токены; лицо и рация — над правой колонкой.
-    const cidId = p.inventory.has('fake_cid') ? 'fake_cid' : 'cid';
-    this.slot(ctx, L, T, S, S - 4, 'CID', null);
-    drawIcon(ctx, cidId, L + S / 2, T + S / 2, 0.85);
-    this.hits.push({ x: L, y: T, w: S, h: S - 4, title: `CID #${p.cid}`, desc: p.law.wanted ? 'В розыске.' : p.law.hasCid ? 'Документы в порядке.' : 'Карты нет.', act: '' });
+    // Верхний ряд: паспорт и токены; лицо и рация — над правой колонкой.
+    const pp = p.passport;
+    this.slot(ctx, L, T, S, S - 4, 'ПАСПОРТ', pp ? null : 'cid');
+    if (pp) drawIcon(ctx, pp.forged ? 'fake_cid' : 'cid', L + S / 2, T + S / 2, 0.85);
+    const whose = !pp ? '' : pp.forged ? ' Поддельный: при проверке могут заметить.' : pp.owner !== p.pid ? ' Чужой: на проверке могут сличить фото.' : '';
+    this.hits.push({ x: L, y: T, w: S, h: S - 4, title: pp ? `Паспорт № ${pp.no}: ${pp.name}` : 'Паспорта нет', desc: pp ? `Работа: ${pp.job}.${whose}${p.law.wanted ? ' Вы в розыске.' : p.law.hasCid ? '' : ' Просрочен.'}` : PASSPORT.lines.none, act: '' });
     this.slot(ctx, L + S + G, T, S, S - 4, 'ТОКЕНЫ', null);
     drawIcon(ctx, 'tokens', L + S + G + S / 2, T + S / 2 - 2, 0.8);
     text(ctx, String(p.money), L + 2 * S + G - 8, T + S - 16, 13, C.ink, 'right', 900);

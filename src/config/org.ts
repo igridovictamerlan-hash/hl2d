@@ -18,7 +18,7 @@ export const ORG = {
     duty: 'на службе',
     follow: 'в группе',
     approach: 'проверка',
-    check: 'проверка CID',
+    check: 'проверка документов',
     chase: 'погоня',
     escort: 'конвой задержанного',
     fight: 'бой',

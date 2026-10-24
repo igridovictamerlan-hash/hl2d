@@ -172,8 +172,8 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionDef> = {
   },
   fugitive: {
     id: 'fugitive', faction: 'citizen', name: 'Беглец', kit: 'fugitive', selectable: true,
-    desc: 'Сбежал из-под надзора: без CID и в розыске. Прячется, ждёт прорыва КПП, чтобы уйти к своим.',
-    perks: ['Проверка CID — арест: не попадайтесь ВС', 'КПП прорван — первым бежит к повстанцам'],
+    desc: 'Сбежал из-под надзора: без паспорта и в розыске. Прячется, ждёт прорыва КПП, чтобы уйти к своим.',
+    perks: ['Проверка документов — арест: не попадайтесь ВС', 'КПП прорван — первым бежит к повстанцам'],
   },
   rebel_leader: {
     id: 'rebel_leader', faction: 'rebel', name: 'Глава восстания', kit: 'rebel_leader', selectable: true,

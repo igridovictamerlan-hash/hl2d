@@ -4,10 +4,13 @@ import type { Verdict } from '../systems/LawSystem';
 import { VIOLATION_NAMES, LAW } from '../config/law';
 import { FACTIONS } from '../config/factions';
 import { chargeDef, wantedLevel } from '../systems/LawSystem';
+import { displayName } from '../entities/cover';
+
+const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
 
 export type CheckChoice = 'release' | 'fine' | 'arrest';
 
-/** Результат проверки CID для игрока-ВС: 1 — отпустить, 2 — штраф, 3 — арест. */
+/** Результат проверки документов для игрока-ВС: 1 — отпустить, 2 — штраф, 3 — арест. */
 export class CheckPanel {
   private readonly el: HTMLElement;
   target: Character | null = null;
@@ -29,14 +32,17 @@ export class CheckPanel {
 
   private show(t: Character, v: Verdict): void {
     this.target = t;
-    const cid = t.law.hasCid ? `#${t.cid}` : '<span class="bad">нет действующей CID</span>';
+    const pp = t.passport;
+    const cid = !pp ? '<span class="bad">нет паспорта</span>' : `№ ${esc(pp.no)} · ${esc(pp.name)}${t.law.hasCid ? '' : ' · <span class="bad">просрочен</span>'}`;
+    const job = pp ? esc(pp.job) : '—';
     const status = t.law.wanted ? `<span class="bad">В РОЗЫСКЕ ${'★'.repeat(wantedLevel(t))} — ${chargeDef(t).name}</span>` : 'чист';
     const hint = v.kind === 'arrest' ? 'рекомендуется арест' : v.kind === 'fine' ? `рекомендуется штраф ${v.fine}` : 'нарушений нет';
     const fine = v.fine || LAW.fines.running;
     this.el.innerHTML = `
-      <div class="check-head">ПРОВЕРКА CID</div>
-      <div class="check-name">${t.name} · ${FACTIONS[t.faction].role}</div>
-      <div>CID: ${cid}</div>
+      <div class="check-head">ПРОВЕРКА ДОКУМЕНТОВ</div>
+      <div class="check-name">${esc(displayName(t))} · ${FACTIONS[t.disguised && t.cover ? t.cover.faction : t.faction].role}</div>
+      <div>Паспорт: ${cid}</div>
+      <div>Работа: ${job}</div>
       <div>Статус: ${status}</div>
       <div>Причина: ${VIOLATION_NAMES[v.reason]} — ${hint}</div>
       <div class="check-actions">

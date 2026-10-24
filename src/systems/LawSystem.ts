@@ -11,7 +11,7 @@ import { adjustLoyalty } from './Loyalty';
 import { LOYALTY } from '../config/loyalty';
 import { ERRANDS } from '../config/errands';
 import { STAFFING } from '../config/staffing';
-import { LAW, VIOLATION_NAMES, type Violation, type WantedCharge } from '../config/law';
+import { LAW, PASSPORT, VIOLATION_NAMES, type Violation, type WantedCharge } from '../config/law';
 import { VISION } from '../config/vision';
 import { loyalistPerk } from './Loyalty';
 import { FACTIONS, cpHas } from '../config/factions';
@@ -24,6 +24,7 @@ import { CHARACTER } from '../config/entities';
 import { PARTISANS, UNDERGROUND } from '../config/underground';
 import { SUSPECTS } from '../config/suspects';
 import { ITEMS, type ItemId } from '../config/items';
+import { foreignPassport } from './Passports';
 import type { Vec2 } from '../core/math';
 
 const PRISONER_MASS = 0.4;
@@ -100,7 +101,7 @@ function belongsInCommon(c: Character): boolean {
 }
 
 /**
- * Закон Верхнеречье: кто что нарушил на глазах у ВС, приказы «стоять», проверка CID, штрафы,
+ * Закон Верхнеречье: кто что нарушил на глазах у ВС, приказы «стоять», проверка документов, штрафы,
  * аресты, камеры КПЗ и сроки. Решения за NPC (побежит ли) принимаются здесь.
  * Мозги ВС (CpBrain) решают, КОГДА вмешаться; эта система — ЧТО из этого следует.
  */
@@ -334,7 +335,7 @@ export class LawSystem {
     if (!target.isPlayer) {
       // Подпольщик под личиной не бежит: бег выдал бы его. Лоялист (не в розыске) — тоже: ему незачем.
       const loyal = target.faction === 'citizen' && target.loyalty >= LOYALTY.uniform.min && !law.wanted;
-      // Бежит тот, кому есть что скрывать (под личиной — поддельная CID: «без документов» он не бежит).
+      // Бежит тот, кому есть что скрывать (под личиной — поддельный паспорт: «без документов» он не бежит).
       const guilty = !target.disguised && (law.wanted || !law.hasCid || (law.crimeUntil ?? -1) > this.time || (law.riotUntil ?? -1) > this.time || reason === 'weapon' || reason === 'rebel' || reason === 'theft');
       const table = guilty ? LAW.npc.fleeChance : LAW.npc.fleeCalm;
       const base = table[target.profession ?? ''] ?? table[target.faction] ?? 0.05;
@@ -367,7 +368,7 @@ export class LawSystem {
     if (!law.reason) law.reason = 'routine';
   }
 
-  /** Решение по результатам проверки CID. */
+  /** Решение по результатам проверки документов. */
   /** Стоит на площади блок-поста на стене Верхнего города (там досматривают). */
   atBorder(c: Character): boolean {
     this.borderAreas ??= this.map.poisOf('border_check');
@@ -385,8 +386,12 @@ export class LawSystem {
   judge(target: Character): Verdict {
     const law = target.law;
     let reason: Violation = law.reason ?? 'routine';
-    // Подпольщик под личиной показывает поддельную CID: раскрывают с шансом (в розыске — всегда).
-    const fake = target.faction === 'rebel' && target.disguised && !law.wanted && !this.rng.chance(PARTISANS.checkReveal);
+    // Подпольщик под личиной показывает чужой паспорт: опознают по фото с шансом (в розыске — всегда); паспорта нет —
+    // раскрыт сразу.
+    const fake = target.faction === 'rebel' && target.disguised && !!target.passport && !law.wanted && !this.rng.chance(PARTISANS.checkReveal);
+    // Не подпольщик с чужим паспортом (снял с тела, отобрал) — фото не его; с поддельным — заметят подделку.
+    const pp = target.passport;
+    const caught = target.faction !== 'rebel' && !!pp && (pp.forged ? this.rng.chance(PASSPORT.forgedCatch) : foreignPassport(target) && this.rng.chance(PASSPORT.photo));
     // Дело по ориентировке (Suspects): убийство или нападение — арест. Нет дела — причина 'suspect' отпустит ниже.
     const ch = this.charge(target);
     if (target.faction === 'rebel' && !fake) {
@@ -397,7 +402,13 @@ export class LawSystem {
     else if ((target.law.riotUntil ?? -1) > this.time) reason = 'riot';
     else if (ch) reason = ch;
     else if (law.wanted && !LAW.arrestFor.includes(reason)) reason = 'wanted';
-    else if (!law.hasCid && !fake) reason = 'no_cid';
+    else if (caught) {
+      // Чужой или поддельный паспорт изъят.
+      reason = 'forgery';
+      target.passport = null;
+      if (target.isPlayer) this.bus.emit('log', { text: PASSPORT.lines.caught, kind: 'law' });
+    }
+    else if ((!law.hasCid || !target.passport) && !fake) reason = 'no_cid';
     // Блок-пост на стене Верхнего города — досмотр вещей.
     const border = this.atBorder(target);
     if (border) this.borderChecked.set(target, this.time);

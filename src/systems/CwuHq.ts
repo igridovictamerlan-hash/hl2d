@@ -5,6 +5,7 @@ import type { Vec2 } from '../core/math';
 import { CWU_HQ } from '../config/cwuHq';
 import { PROFESSIONS, type ProfessionId } from '../config/professions';
 import { KITS } from '../config/items';
+import { stampJob } from './Passports';
 import { adjustLoyalty } from './Loyalty';
 
 /**
@@ -187,6 +188,8 @@ export class CwuHqSystem {
     for (const [id, qty] of KITS[kit] ?? []) c.inventory.add(id, qty);
     // На склад Протектората — с допуском (документы выправлены при найме).
     if (prof === 'loader' || prof === 'armorer') c.law.hasCid = true;
+    // Отметка о работе в паспорте.
+    stampJob(c);
     if (c.role) c.role = { ...c.role, kind: 'cwu', faction: 'cwu', profession: prof, division: null, rank: 0, kit, name: c.name, family: undefined };
     adjustLoyalty(c, CWU_HQ.hire.loyalty, 'устройство в ТС', ctx.bus);
     this.stats.hired++;

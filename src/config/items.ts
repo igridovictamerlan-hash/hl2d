@@ -266,7 +266,7 @@ export function weaponDps(w: WeaponDef): number {
 
 export const ITEMS: Record<ItemId, ItemDef> = {
   parcel: { id: 'parcel', name: 'Посылка', desc: 'Поручение с доски объявлений: отнести по адресу (метка на карте), E у дома.', kind: 'misc', stack: 1 },
-  parcel_x: { id: 'parcel_x', name: 'Свёрток', desc: 'Тайное поручение подполья. Не попадайтесь на проверке CID — это контрабанда.', kind: 'misc', stack: 1 },
+  parcel_x: { id: 'parcel_x', name: 'Свёрток', desc: 'Тайное поручение подполья. Не попадайтесь на проверке документов — это контрабанда.', kind: 'misc', stack: 1 },
   ration: { id: 'ration', name: 'Рацион', desc: 'Стандартный паёк Протектората. Сытость +60.', kind: 'food', stack: 5, food: 60 },
   bread: { id: 'bread', name: 'Хлеб', desc: 'Серый хлеб. Сытость +25.', kind: 'food', stack: 5, food: 25, price: 6 },
   water: { id: 'water', name: 'Вода Breen', desc: 'Банка «воды». Сытость +10.', kind: 'food', stack: 5, food: 10, price: 3 },
@@ -282,7 +282,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   grenade: { id: 'grenade', name: 'Осколочная граната', desc: 'T — бросить к курсору (взрыв через 2 с), Y — сменить гранату.', kind: 'misc', stack: 3 },
   smoke_grenade: { id: 'smoke_grenade', name: 'Дымовая граната', desc: 'Дымовая завеса: сквозь неё не видно (пули летят).', kind: 'misc', stack: 3 },
   fire_grenade: { id: 'fire_grenade', name: 'Зажигательная граната', desc: 'Пламя на земле: кто в нём — горит.', kind: 'misc', stack: 3 },
-  fake_cid: { id: 'fake_cid', name: 'Поддельная CID', desc: 'С чёрного рынка: «чистая» карта — снимает розыск (повстанца в лицо всё равно узнают).', kind: 'misc', stack: 1 },
+  fake_cid: { id: 'fake_cid', name: 'Поддельный паспорт', desc: 'С чёрного рынка: «чистая» карта — снимает розыск (повстанца в лицо всё равно узнают).', kind: 'misc', stack: 1 },
   forged_pass: { id: 'forged_pass', name: 'Пропуск в Управу (липа)', desc: 'С чёрного рынка: вахта Управы пропустит, но может присмотреться — раскроют, задержат за подделку.', kind: 'misc', stack: 1 },
   toolkit: { id: 'toolkit', name: 'Набор инструментов', desc: 'Для ремонта (ТС).', kind: 'tool', stack: 1, price: 20 },
   // Товары с барж (порт → склад штаба ТС → лавки): продукты — для котла столовой, остальное — на полки.

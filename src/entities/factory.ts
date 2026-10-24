@@ -6,6 +6,7 @@ import type { Rng } from '../core/rng';
 import { CHARACTER } from '../config/entities';
 import { LAW } from '../config/law';
 import { LOYALTY } from '../config/loyalty';
+import { issuePassport } from '../systems/Passports';
 import { DEFAULT_PROFESSION } from '../config/professions';
 
 /** Поднадзорные — прозвища (у рабов Протектората номеров нет). */
@@ -69,5 +70,6 @@ export function createCharacter(
     const L = faction === 'cwu' ? LOYALTY.start.cwu : LOYALTY.start.citizen;
     c.loyalty = Math.round(rng.range(L[0], L[1]));
   }
+  issuePassport(c);
   return entities.add(c);
 }

@@ -22,6 +22,7 @@ import { PostBrain } from '../ai/brains/PostBrain';
 import { AgentBrain } from '../ai/brains/AgentBrain';
 import { randomAnchorAround, randomAnchorInZone } from '../ai/destinations';
 import type { AccessSite } from '../config/access';
+import { issuePassport } from './Passports';
 import { CadetBrain } from '../ai/brains/CadetBrain';
 
 /** Вид роли — от него зависят спавн, мозг и время возрождения. */
@@ -182,6 +183,8 @@ export function spawnRole(ctx: AiContext, spec: RoleSpec, at: Vec2 | null = null
   if (spec.profession === 'loader' || spec.profession === 'armorer') c.law.hasCid = true;
   // Тот же человек после возрождения: номер прежний (знакомства, мнение, характер), воспоминания о смерти забыты.
   if (spec.pid !== undefined) c.pid = spec.pid;
+  // Паспорт — на имя, номер и работу роли (подпольщику — паспорт пропавшего без вести).
+  issuePassport(c);
   c.role = { ...spec, name: c.name, pid: c.pid };
   ctx.relations?.register(c, spec.pid !== undefined);
   c.brain = brainFor(ctx, c, spec);

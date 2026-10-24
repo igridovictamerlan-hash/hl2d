@@ -86,6 +86,8 @@ export class FamilySystem {
       for (const c of members) {
         const first = c.name.split(' ')[0];
         c.name = `${first} ${genderedLastName(surname, FEMALE_FIRST.has(first))}`;
+        // Фамилия семьи — и в паспорте.
+        if (c.passport?.owner === c.pid) c.passport.name = c.name;
         c.family = id;
         // Богатая семья — вся лоялисты (особняк, форма лоялиста).
         if (rich) c.loyalty = Math.max(c.loyalty, F.richLoyalty);

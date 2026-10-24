@@ -627,7 +627,7 @@ const noDetails: DetailLine[] = [];
 function labelDetails(c: Character, families: FamilySystem | null, gang: ReturnType<GangSystem['of']>, rel: Relations | null, viewer: Character | null, senses: Senses | null): DetailLine[] {
   if (c.downed) return noDetails;
   // Номер CID видят только власти (проверяют его); горожанину чужой номер ни к чему.
-  const cid = viewer && FACTIONS[viewer.faction].authority && (c.faction === 'citizen' || c.faction === 'cwu' || c.disguised) ? `#${c.cid}` : '';
+  const cid = viewer && FACTIONS[viewer.faction].authority && (c.faction === 'citizen' || c.faction === 'cwu' || c.disguised) ? (c.passport ? `паспорт № ${c.passport.no}` : 'без паспорта') : '';
   const fam = !c.disguised ? families?.of(c) ?? null : null;
   const extra = gang ? `«${gang.def.name}»` : fam ? familyTitle(fam.surname) : '';
   const out: DetailLine[] = [];

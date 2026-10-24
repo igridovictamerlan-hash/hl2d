@@ -45,7 +45,7 @@ export class CodePanel {
     this.el.innerHTML = `
       <div class="check-head">ТЕРМИНАЛ АДМИНИСТРАЦИИ · КОДЫ ТРЕВОГИ</div>
       <div>Сейчас: <span class="code-now code-${w.code}">КОД ${NAMES[w.code]}</span>${manual}</div>
-      <div class="code-hint">Жёлтый — усиленные проверки CID. Красный — комендантский час, раздача закрыта, Легион держит Управу.</div>
+      <div class="code-hint">Жёлтый — усиленные проверки документов. Красный — комендантский час, раздача закрыта, Легион держит Управу.</div>
       <div class="check-actions">
         <button data-c="yellow"><kbd>1</kbd> Код жёлтый</button>
         <button data-c="red"><kbd>2</kbd> Код красный</button>

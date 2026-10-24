@@ -58,7 +58,7 @@ describe('сенсорное управление', () => {
 
   test('ролевые кнопки: ВС — проверка, медик — лечить, глава — клич, горожанин — нет', () => {
     const c = (o: Partial<Character>) => ({ faction: 'citizen', profession: 'citizen', rank: 0, cadet: null, disguised: false, ...o }) as unknown as Character;
-    expect(roleButtons(c({ faction: 'cp', profession: null, rank: CP_UNIT.pcu3 })).f).toBe('CID');
+    expect(roleButtons(c({ faction: 'cp', profession: null, rank: CP_UNIT.pcu3 })).f).toBe('ДОК');
     expect(roleButtons(c({ faction: 'cwu', profession: 'cwu_medic' })).g).toBe('Лечить');
     expect(roleButtons(c({ faction: 'rebel', profession: 'rebel_leader' })).g).toBe('Клич');
     const civ = roleButtons(c({}));

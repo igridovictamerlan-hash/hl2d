@@ -1,5 +1,6 @@
 /** Описание системы — docs/combat.md. */
 import { ARSENAL } from '../config/arsenal';
+import type { Passport } from '../entities/Character';
 import type { Character } from '../entities/Character';
 import type { EntityManager } from '../entities/EntityManager';
 import type { Stack } from '../entities/Inventory';
@@ -118,6 +119,8 @@ export interface Corpse {
   loot: Stack[];
   /** Спецагент снял форму (переоделся в убитого) — второй раз нельзя. */
   stripped?: boolean;
+  /** Паспорт убитого (его можно забрать с тела — systems/Passports.ts). */
+  passport?: Passport | null;
   /** Медик на месте преступления накрыл тело белой простынёй (CrimeScenes.cover). */
   covered?: boolean;
   /** Номер человека (Character.pid) и когда погиб (время боя): родня узнаёт своего, тело «свежее». */
@@ -978,7 +981,9 @@ export class CombatSystem {
     c.weapon = null;
     c.mag = 0;
     c.mags = {};
-    this.corpses.push({ x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot, pid: c.pid, t: this.time, dressed, weapon: killer?.weapon ? WEAPONS[killer.weapon].class : null, fell: { at: this.time, ang: c.lastAttacker ? Math.atan2(c.y - c.lastAttacker.y, c.x - c.lastAttacker.x) : c.facing + Math.PI } });
+    const passport = c.passport;
+    c.passport = null;
+    this.corpses.push({ passport, x: c.x, y: c.y, faction: c.faction, profession: c.profession, killer, rank: c.rank, name: c.name, until: this.time + COMBAT.corpseTime, loot, pid: c.pid, t: this.time, dressed, weapon: killer?.weapon ? WEAPONS[killer.weapon].class : null, fell: { at: this.time, ang: c.lastAttacker ? Math.atan2(c.y - c.lastAttacker.y, c.x - c.lastAttacker.x) : c.facing + Math.PI } });
     // Разорвать связи: кого он вёл/проверял, кто вёл его.
     for (const o of this.entities.list) if (o.law.handler === c && o !== c) this.law.clear(o);
     if (c.law.phase !== 'none') this.law.release(c);

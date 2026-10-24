@@ -113,6 +113,7 @@ import { Ambience } from '../world/Ambience';
 import { COZY } from '../config/lighting';
 import { orgCrimes, orgOrder, orgStaff, orgSummary, orgWanted } from '../systems/CpOrg';
 import { ORG } from '../config/org';
+import { issuePassport } from '../systems/Passports';
 import type { OrgSource } from '../ui/OrgPanel';
 
 export interface GameOptions {
@@ -651,7 +652,9 @@ export class Game {
       hasCid: true, wanted: faction === 'rebel' && !underground, phase: 'none', handler: null, reason: null,
       cell: -1, jailUntil: 0, savedBrain: null, lastCheck: this.law.now,
     });
-    // Подпольщик и спецагент выходят под личиной горожанина или ТС.
+    // Паспорт на новое имя и работу; у подпольщика своего нет — только чужой, снятый с жертвы или тела.
+    issuePassport(p);
+    // Подпольщик и спецагент выходят под личиной горожанина или ТС (без паспорта: проверка документов выдаст).
     if (underground) this.insurgency.giveCover(p);
     const barracks = cadet ? this.ai.academy?.barracks : null;
     const spot = barracks ?? roleSpawn(this.ai, faction, p.profession);
@@ -1092,7 +1095,7 @@ export class Game {
     this.mapRenderer.refresh(x, y);
   }
 
-  /** Решение игрока-ВС по проверке CID (панель или клавиши 1/2/3). */
+  /** Решение игрока-ВС по проверке документов (панель или клавиши 1/2/3). */
   /** Терминал кодов тревоги в кабинете Коменданта. */
   setAlertCode(code: AlertCode): void {
     const err = this.war.setCode(code, this.player);
