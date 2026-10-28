@@ -13,7 +13,7 @@ import type { WarSystem } from '../systems/WarSystem';
 import type { GameMap } from './GameMap';
 import { colorsOf } from '../config/factions';
 import { lookSeed } from '../entities/PawnRenderer';
-import { drawPawnCached } from '../entities/PawnCache';
+import { drawPawnSprite } from '../entities/PawnCache';
 import type { Barrel, Bench, Lamp, NoticeBoard } from '../systems/StreetLife';
 import type { Poi } from './GameMap';
 import { PAWN } from '../config/pawns';
@@ -193,7 +193,7 @@ export class EffectsRenderer {
       ctx.translate(x + ox, y + oy + pivot);
       ctx.rotate((seed % 2 ? Math.PI / 2 : -Math.PI / 2) * (e + FALL.bounce * Math.sin(f * Math.PI)));
       ctx.globalAlpha = PAWN.corpseAlpha;
-      drawPawnCached(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession, clothes: c.dressed?.clothes, kit: c.dressed?.kit ?? undefined, clothesKey: c.dressed?.clothesKey }, 0, -2 * s * e - pivot, s * PAWN.scale, 'S');
+      drawPawnSprite(ctx, { faction: c.faction, rank: c.rank, color: col.color, seed, profession: c.profession, clothes: c.dressed?.clothes, kit: c.dressed?.kit ?? undefined, clothesKey: c.dressed?.clothesKey }, 0, -2 * s * e - pivot, s * PAWN.scale, 'S');
       ctx.restore();
       ctx.globalAlpha = 1;
       if (c.loot.length) {

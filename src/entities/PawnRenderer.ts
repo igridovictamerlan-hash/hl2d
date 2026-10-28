@@ -42,10 +42,10 @@ export interface PawnLook {
   talk?: boolean;
 }
 
-type Outfit = Record<string, string | boolean | number>;
+export type Outfit = Record<string, string | boolean | number>;
 
 /** Одежда пешки: фракционная, поля профессии перекрывают. */
-function outfitOf(look: PawnLook): Outfit {
+export function outfitOf(look: PawnLook): Outfit {
   let base = PAWN.outfits[look.faction] ?? PAWN.outfits.citizen;
   // ВС — снаряжение по юниту (каска и жилет PCU, рекон-броня SU, силовая броня главы).
   if (look.faction === 'cp') base = { ...base, ...PAWN.cpUnits[cpUnit(look.rank).unit] };
@@ -72,7 +72,7 @@ export function bootColor(look: Pick<PawnLook, 'faction' | 'clothes'>): string {
   return look.clothes?.boots ?? PAWN.boots[look.faction] ?? PAWN.gear.boot;
 }
 
-type HairStyle = keyof typeof PAWN.hairStyles;
+export type HairStyle = keyof typeof PAWN.hairStyles;
 type Ctx = CanvasRenderingContext2D;
 
 /** Сторона взгляда по углу (как в RimWorld: четыре стороны). */
@@ -91,11 +91,11 @@ export function lookSeed(v: string | number): number {
   return h >>> 0;
 }
 
-function pick<T>(list: readonly T[], seed: number, salt: number): T {
+export function pick<T>(list: readonly T[], seed: number, salt: number): T {
   return list[(((seed >>> salt) ^ Math.imul(seed, salt + 7)) >>> 0) % list.length];
 }
 
-function hairStyleOf(seed: number): HairStyle {
+export function hairStyleOf(seed: number): HairStyle {
   let roll = ((seed >>> 13) % 1000) / 1000;
   for (const [k, p] of Object.entries(PAWN.hairStyles) as [HairStyle, number][]) {
     if ((roll -= p) < 0) return k;
@@ -334,7 +334,7 @@ export function defaultKit(faction: FactionId, rank: number, profession: Profess
  * Форма пешки: явная (look.kit) или форма стороны по умолчанию (defaultKit). У Легиона и санитара — своя экипировка;
  * опер в штатском (гражданское, без look.kit) — без формы.
  */
-function kitLookOf(look: PawnLook, O: Outfit): KitLook | null {
+export function kitLookOf(look: PawnLook, O: Outfit): KitLook | null {
   if (look.faction === 'ota' || O.style === 'cremator') return null;
   if (look.kit !== undefined) return look.kit;
   if (look.faction === 'cp' && look.clothes) return null;

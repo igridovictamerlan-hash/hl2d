@@ -4,6 +4,9 @@ import { drawPawn, handColor, type PawnDir, type PawnLook } from '../entities/Pa
 import { drawWeapon } from '../entities/WeaponRenderer';
 import { drawFeet } from '../entities/EntityRenderer';
 import { PAWN } from '../config/pawns';
+import { isPixelStyle } from '../entities/pixel/pawnStyle';
+import { PIXEL } from '../config/pixelPawns';
+import { drawPixelFrame, gunHold, newFrame } from '../entities/pixel/pixelPawn';
 
 /** Куда пешка держит ствол, стоя лицом в сторону dir (как в игре: ствол — по взгляду). */
 const HOLD: Record<PawnDir, number> = { E: 0, S: Math.PI / 2, W: Math.PI, N: -Math.PI / 2 };
@@ -14,6 +17,10 @@ const HOLD: Record<PawnDir, number> = { E: 0, S: Math.PI / 2, W: Math.PI, N: -Ma
  * (x, groundY) — точка у ног, ps — масштаб пешки (px экрана на единицу модели).
  */
 export function drawPawnFigure(ctx: CanvasRenderingContext2D, look: PawnLook, weapon: WeaponId | null, x: number, groundY: number, ps: number, dir: PawnDir, reloading = false): void {
+  if (isPixelStyle()) {
+    drawPixelFigure(ctx, look, weapon, x, groundY, ps, dir, reloading);
+    return;
+  }
   const footY = PAWN.walk.foot.y * ps;
   const y = groundY - footY;
   ctx.save();
@@ -28,4 +35,20 @@ export function drawPawnFigure(ctx: CanvasRenderingContext2D, look: PawnLook, we
   if (weapon && dir === 'N') drawWeapon(ctx, dummy, x, y, s, reloading, hold, hand);
   drawPawn(ctx, look, x, y, ps, dir);
   if (weapon && dir !== 'N') drawWeapon(ctx, dummy, x, y, s, reloading, hold, hand);
+}
+
+const fig = newFrame();
+/** Пиксельная пешка для интерфейса: подошвы на groundY, ствол — по взгляду (смотрит от нас — за спиной). */
+function drawPixelFigure(ctx: CanvasRenderingContext2D, look: PawnLook, weapon: WeaponId | null, x: number, groundY: number, ps: number, dir: PawnDir, reloading: boolean): void {
+  const s = ps / PAWN.scale;
+  fig.dir = dir;
+  fig.blink = false;
+  fig.gun = null;
+  fig.reload = false;
+  if (weapon) {
+    const hold = HOLD[dir];
+    const dummy = { x: 0, y: 0, weapon, recoil: 0, kick: 0, facing: hold } as unknown as Character;
+    fig.gun = gunHold(dummy, reloading, hold);
+  }
+  drawPixelFrame(ctx, look, fig, x, groundY - PIXEL.footY * s, s);
 }

@@ -1,6 +1,8 @@
 import { PAWN } from '../config/pawns';
 import { drawPawn, type PawnDir, type PawnLook } from './PawnRenderer';
 import { LruCache, scaleLevel } from '../core/spriteCache';
+import { isPixelStyle } from './pixel/pawnStyle';
+import { drawPixelSprite } from './pixel/pixelPawn';
 
 /**
  * Кэш спрайтов пешек. Пешка — десятки кривых, заливок и клипов; в бою у КПП на экране десятки
@@ -26,4 +28,13 @@ export function drawPawnCached(ctx: CanvasRenderingContext2D, look: PawnLook, x:
   }
   const k = s / q;
   ctx.drawImage(sprite, x - C.left * s, y - C.top * s, sprite.width * k, sprite.height * k);
+}
+
+/**
+ * Пешка стоя без дела в выбранном стиле (меню «Пешки»): фасолина из кэша или пиксельная. Для тел, раненых,
+ * спящих и нокаута (вызывающий поворачивает холст) и портретов.
+ */
+export function drawPawnSprite(ctx: CanvasRenderingContext2D, look: PawnLook, x: number, y: number, s: number, dir: PawnDir): void {
+  if (isPixelStyle()) drawPixelSprite(ctx, look, x, y, s, dir, !!look.blink);
+  else drawPawnCached(ctx, look, x, y, s, dir);
 }

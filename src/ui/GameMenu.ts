@@ -54,6 +54,9 @@ export interface GameMenuHost {
   readonly lightingOn: boolean;
   /** Упрощена под слабую машину. */
   readonly lightingLite: boolean;
+  /** Стиль пешек: пиксельные или прежние фасолины (меню «Пешки»). */
+  togglePawnStyle(): void;
+  readonly pawnsPixel: boolean;
   /** Население города: подпись уровня и следующий уровень по кругу (город пересобирается при возврате в игру). */
   readonly populationLabel: string;
   cyclePopulation(): void;
@@ -225,6 +228,10 @@ export class GameMenu {
       case 'light':
         h.toggleLighting();
         break;
+      case 'pawns':
+        h.togglePawnStyle();
+        this.paintPhoto();
+        break;
       case 'population':
         h.cyclePopulation();
         break;
@@ -346,6 +353,7 @@ export class GameMenu {
       const sound: Item = { act: 'sound', label: L.sound, on: !h.soundMuted, value: h.soundMuted ? 'ВЫКЛ' : 'ВКЛ' };
       const light: Item = { act: 'light', label: L.light, on: h.lightingOn, value: h.lightingOn ? (h.lightingLite ? L.lightLite.toUpperCase() : 'ВКЛ') : 'ВЫКЛ' };
       const people: Item = { act: 'population', label: L.population, value: h.populationLabel };
+      const pawns: Item = { act: 'pawns', label: L.pawns, value: h.pawnsPixel ? L.pawnsPixel : L.pawnsBean };
       items = main
         ? [
             { act: 'continue', label: h.canContinue() ? L.continue : L.register, primary: true },
@@ -355,10 +363,11 @@ export class GameMenu {
             { act: 'controls', label: L.controls },
             sound,
             light,
+            pawns,
             people,
           ]
         : h.inArena
-          ? [{ act: 'continue', label: L.resume, primary: true }, { act: 'controls', label: L.controls }, sound, light, { act: 'leaveArena', label: L.leaveArena }]
+          ? [{ act: 'continue', label: L.resume, primary: true }, { act: 'controls', label: L.controls }, sound, light, pawns, { act: 'leaveArena', label: L.leaveArena }]
           : [
               { act: 'continue', label: L.resume, primary: true },
               { act: 'save', label: L.save },
@@ -366,6 +375,7 @@ export class GameMenu {
               { act: 'controls', label: L.controls },
               sound,
               light,
+              pawns,
               people,
               { act: 'exit', label: L.exit },
             ];

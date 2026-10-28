@@ -19,7 +19,13 @@ import { bootColor, defaultKit, drawPawnShadow, handColor, lookSeed, pawnDir } f
 import { isWalking } from './gait';
 import { animOf, isTalking, drawActionHands, drawBlanket, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash } from './poses';
 import { CHARACTER } from '../config/entities';
-import { drawPawnCached } from './PawnCache';
+import { drawPawnCached, drawPawnSprite } from './PawnCache';
+import { isPixelStyle } from './pixel/pawnStyle';
+import { HandRecorder, drawPixelFrame, gunHold, newFrame } from './pixel/pixelPawn';
+import { PIXEL } from '../config/pixelPawns';
+import type { PawnAnim } from './poses';
+import type { MeleeSwing } from './meleePose';
+import type { PawnDir } from './PawnRenderer';
 import { clothesOf } from '../systems/Gear';
 import { PAWN } from '../config/pawns';
 import { apparentFaction, displayName } from './cover';
@@ -180,11 +186,6 @@ export class EntityRenderer {
       // Присел — ниже ростом (сжат по вертикали к ступням).
       // В траншее — ещё ниже (по пояс за бруствером), ступни скрыты.
       const k = (c.crouch ? CROUCH.squash : 1) * (c.trench ? TRENCH.squash : 1) * an.squash;
-      ctx.setTransform(cs, si, -si * k, cs * k, gx + an.dx * ps + fl.dx * s, gy + footY + (an.drop + an.dy) * ps + fl.dy * s);
-      // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
-      const x = 0;
-      const y = -footY - bob * ps;
-      if (an.feet && !c.trench) drawFeet(ctx, dir, look, ps, walking ? phase : null, amt, marching ? PAWN.anim.march.lift : 1);
       // Ствол: целится или стоит — куда смотрит, идёт без прицела — по ходу; в ударе и блоке — куда смотрит.
       const swing = c.weapon ? meleeSwing(c, now) : null;
       const hold = swing || c.melee.engaged || pawnDir(c.facing) === dir || !walking ? c.facing : Math.atan2(c.gaitVy, c.gaitVx);
@@ -192,32 +193,45 @@ export class EntityRenderer {
       const fists = fistsShown(c, now);
       const hand = c.weapon || fists ? handColor(look) : null;
       const armed = (!!c.weapon || fists) && !lying;
-      if (armed && dir === 'N') {
-        if (fists) drawFists(ctx, c, x, y, s, now, hand!);
-        else drawWeapon(ctx, c, x, y, s, reloading, hold, hand, swing);
-      }
-      drawPawnCached(ctx, look, x, y, ps, dir);
       // Вспышка от попадания (любой урон — hurtFlash, удар в ближнем бою — flinch): та же пешка ещё раз «на свет».
       const flash = Math.max(fl.flash, hurtFlash(c, now));
-      if (flash > 0) {
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = (c.visible ? 1 : 0.4) * flash;
-        drawPawnCached(ctx, look, x, y, ps, dir);
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = c.visible ? 1 : 0.4;
-      }
-      if (lying) {
-        if (c.asleep) {
-          drawBlanket(ctx, c, x, y, ps);
-          drawSleepZ(ctx, c, x, y, ps, now);
+      // Дальше — в осях пешки: x = 0 у её центра, y — центр над землёй с подъёмом шага.
+      const x = 0;
+      let y = -footY - bob * ps;
+      if (isPixelStyle()) {
+        // Пиксельная пешка: ноги, руки и оружие — в спрайте, без поворота (наклон и подъём — целыми пикселями).
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.pixelStanding(ctx, c, look, gx, gy, s, ps, now, an, fl, walking, lying, dir, hold, swing, fists, hand, armed, reloading, flash, marching ? sn : 0, speed);
+        ctx.setTransform(1, 0, 0, 1, gx, gy + footY);
+        y = -footY;
+      } else {
+        ctx.setTransform(cs, si, -si * k, cs * k, gx + an.dx * ps + fl.dx * s, gy + footY + (an.drop + an.dy) * ps + fl.dy * s);
+        if (an.feet && !c.trench) drawFeet(ctx, dir, look, ps, walking ? phase : null, amt, marching ? PAWN.anim.march.lift : 1);
+        if (armed && dir === 'N') {
+          if (fists) drawFists(ctx, c, x, y, s, now, hand!);
+          else drawWeapon(ctx, c, x, y, s, reloading, hold, hand, swing);
         }
-      } else if (!drawHandProps(ctx, c, look, x, y, ps, dir, now) && armed && dir !== 'N') {
-        if (fists) drawFists(ctx, c, x, y, s, now, hand!);
-        else drawWeapon(ctx, c, x, y, s, reloading, hold, hand, swing);
+        drawPawnCached(ctx, look, x, y, ps, dir);
+        if (flash > 0) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = (c.visible ? 1 : 0.4) * flash;
+          drawPawnCached(ctx, look, x, y, ps, dir);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = c.visible ? 1 : 0.4;
+        }
+        if (lying) {
+          if (c.asleep) {
+            drawBlanket(ctx, c, x, y, ps);
+            drawSleepZ(ctx, c, x, y, ps, now);
+          }
+        } else if (!drawHandProps(ctx, c, look, x, y, ps, dir, now) && armed && dir !== 'N') {
+          if (fists) drawFists(ctx, c, x, y, s, now, hand!);
+          else drawWeapon(ctx, c, x, y, s, reloading, hold, hand, swing);
+        }
+        if (!lying) drawGestureHands(ctx, c, look, x, y, ps, dir, now);
+        if (!lying) drawWorkHands(ctx, c, look, x, y, ps, dir, now);
+        if (!lying) drawActionHands(ctx, c, look, x, y, ps, dir, now, marching ? sn : 0);
       }
-      if (!lying) drawGestureHands(ctx, c, look, x, y, ps, dir, now);
-      if (!lying) drawWorkHands(ctx, c, look, x, y, ps, dir, now);
-      if (!lying) drawActionHands(ctx, c, look, x, y, ps, dir, now, marching ? sn : 0);
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
         const bx = x + Math.cos(hold) * 6 * ps;
@@ -282,6 +296,73 @@ export class EntityRenderer {
     ctx.globalAlpha = 1;
   }
 
+  private readonly rec = new HandRecorder();
+  private readonly frame = newFrame();
+
+  /**
+   * Пиксельная пешка стоя (идёт, бежит, присела, сидит, в траншее): кадр — ноги по фазе шага, руки к оружию или к
+   * делу (те же анимации poses.ts — записью вместо рисования), ствол по позе оружия. Лежит (спит, нокаут) — спрайт
+   * на боку. Смещения анимаций (выпад, отброс, дыхание, кивок) — целыми пикселями силуэта.
+   */
+  private pixelStanding(
+    ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number,
+    an: PawnAnim, fl: { dx: number; dy: number }, walking: boolean, lying: boolean, dir: PawnDir, hold: number,
+    swing: MeleeSwing | null, fists: boolean, hand: string | null, armed: boolean, reloading: boolean, flash: number, sn: number, speed: number,
+  ): void {
+    if (lying) {
+      const a = (c.id % 2 ? 1 : -1) * (Math.PI / 2);
+      ctx.setTransform(Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), gx, gy);
+      drawPawnSprite(ctx, look, 0, -2 * ps, ps, 'S');
+      if (c.asleep) drawBlanket(ctx, c, 0, -2 * ps, ps);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (c.asleep) drawSleepZ(ctx, c, gx, gy - 6 * ps, ps, now);
+      return;
+    }
+    const f = this.frame;
+    f.hands.length = 0;
+    f.sticks.length = 0;
+    f.boxes.length = 0;
+    f.gun = null;
+    f.reload = false;
+    f.dir = dir;
+    // Лица не видно (спиной) — без мимики; на ходу — без моргания и рта (меньше вариантов спрайта).
+    f.blink = dir !== 'N' && !walking && !!look.blink;
+    f.talk = dir !== 'N' && !walking && !!look.talk;
+    const run = walking && speed > CHARACTER.runSpeed * PIXEL.runFrom;
+    f.legs = c.crouch || an.kind === 'busy' ? 'crouch' : an.kind === 'sit' ? 'sit' : walking ? (run ? 'run' : 'walk') : 'stand';
+    const n = f.legs === 'run' ? PIXEL.runFrames : PIXEL.walkFrames;
+    const cyc = (((c.stride / (2 * PAWN.walk.stride)) % 1) + 1) % 1;
+    // Стоит — дышит: на выдохе корпус на пиксель ниже (своя фаза у каждого).
+    const I = PAWN.anim.idle;
+    const breath = Math.sin((now / I.breathePeriod) * Math.PI * 2 + c.id * 1.7) > PIXEL.breathe;
+    f.frame = f.legs === 'walk' || f.legs === 'run' ? Math.floor(cyc * n) % n : f.legs === 'stand' && breath ? 1 : 0;
+    f.cut = c.trench ? PIXEL.trenchCut : null;
+    const R = this.rec;
+    R.reset();
+    const busy = drawHandProps(R.ctx, c, look, 0, 0, 1, dir, now);
+    drawGestureHands(R.ctx, c, look, 0, 0, 1, dir, now);
+    drawWorkHands(R.ctx, c, look, 0, 0, 1, dir, now);
+    drawActionHands(R.ctx, c, look, 0, 0, 1, dir, now, sn);
+    if (fists && hand) drawFists(R.ctx, c, 0, 0, 1 / PAWN.scale, now, hand);
+    R.into(f);
+    if (c.weapon && armed && !busy && !fists) {
+      f.gun = gunHold(c, reloading, hold, swing);
+      f.reload = reloading;
+    }
+    const k = s * PIXEL.unit;
+    const snap = (v: number) => Math.round(v / k) * k;
+    const sx = gx + snap(an.dx * ps + fl.dx * s);
+    const sy = gy + snap(an.dy * ps + fl.dy * s);
+    drawPixelFrame(ctx, look, f, sx, sy, s);
+    if (flash > 0) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = (c.visible ? 1 : 0.4) * flash;
+      drawPixelFrame(ctx, look, f, sx, sy, s);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = c.visible ? 1 : 0.4;
+    }
+  }
+
   /** Нокаут: пешка на боку (ворочается), над головой кружат звёздочки. */
   private koBody(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number): void {
     const K = MELEE_LOOK.ko;
@@ -290,7 +371,7 @@ export class EntityRenderer {
     const cs = Math.cos(a);
     const si = Math.sin(a);
     ctx.setTransform(cs, si, -si, cs, gx, gy);
-    drawPawnCached(ctx, look, 0, -2 * ps, ps, 'S');
+    drawPawnSprite(ctx, look, 0, -2 * ps, ps, 'S');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // Голова — сбоку (пешка лежит на боку): там и звёздочки.
     const hx = gx + side * (2 - PAWN.head.y) * ps;
@@ -327,7 +408,7 @@ export class EntityRenderer {
     const cs = Math.cos(a) * br;
     const si = Math.sin(a) * br;
     ctx.setTransform(cs, si, -si, cs, bx, by);
-    drawPawnCached(ctx, look, 0, -2 * ps, ps, 'S');
+    drawPawnSprite(ctx, look, 0, -2 * ps, ps, 'S');
     drawBlanket(ctx, c, 0, -2 * ps, ps);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     drawSleepZ(ctx, c, bx + (horizontal ? (a > 0 ? 1 : -1) * 9 * ps : 0), by + 2 * ps, ps, now);
@@ -344,7 +425,7 @@ export class EntityRenderer {
     const cs = Math.cos(a);
     const si = Math.sin(a);
     ctx.setTransform(cs, si, -si, cs, gx, gy);
-    drawPawnCached(ctx, look, 0, -2 * ps, ps, 'S');
+    drawPawnSprite(ctx, look, 0, -2 * ps, ps, 'S');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const left = Math.max(0, Math.min(1, (c.downedUntil - now) / DOWNED.time));
     const r = D.ringR * s;

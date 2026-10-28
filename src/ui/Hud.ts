@@ -2,6 +2,9 @@
 import type { Character } from '../entities/Character';
 import type { PawnLook } from '../entities/PawnRenderer';
 import { drawPawn } from '../entities/PawnRenderer';
+import { isPixelStyle } from '../entities/pixel/pawnStyle';
+import { drawPixelSprite } from '../entities/pixel/pixelPawn';
+import { PIXEL } from '../config/pixelPawns';
 import { FACTIONS, CP_DIVISIONS, rankOf } from '../config/factions';
 import { PROFESSIONS, DEFAULT_PROFESSION } from '../config/professions';
 import { WEAPONS, type WeaponId, type GrenadeId } from '../config/items';
@@ -181,7 +184,8 @@ export class Hud {
     ctx.clip();
     ctx.fillStyle = C.portrait;
     ctx.fillRect(0, 0, R.size, R.size);
-    drawPawn(ctx, look, c, c + R.pawnY - 12, R.pawnScale, 'S');
+    if (isPixelStyle()) drawPixelSprite(ctx, look, c, c + R.pawnY - 12 + PIXEL.portrait.dy, R.pawnScale * PIXEL.portrait.scale, 'S');
+    else drawPawn(ctx, look, c, c + R.pawnY - 12, R.pawnScale, 'S');
     ctx.restore();
     // Цифры в разрыве колец снизу.
     ctx.font = '700 11px "Segoe UI", Arial, sans-serif';

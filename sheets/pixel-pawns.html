@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Пиксельные пешки</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@600&family=PT+Mono&family=PT+Sans+Narrow&display=swap">
+  <style>
+    body { margin: 0; background: #23211e; color: #e8e2d4; font: 15px "PT Sans Narrow", sans-serif; }
+    section { padding: 14px 18px 20px; border-bottom: 2px solid #3a3631; }
+    h2 { font: 600 24px Oswald, sans-serif; margin: 0 0 10px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .card { background: #2e2b27; padding: 5px; }
+    .card div { font: 13px "PT Mono", monospace; color: #cfc6b4; padding-top: 3px; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <!-- Лист пиксельных пешек (как в игре): npm run dev → http://localhost:5173/sheets/pixel-pawns.html -->
+  <main id="sheet"></main>
+  <script type="module" src="/src/dev/pixelPawnsSheet.ts"></script>
+</body>
+</html>

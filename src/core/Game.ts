@@ -1,4 +1,5 @@
 /** Описание системы — docs/architecture.md. */
+import { isPixelStyle, loadPawnStyle, setPawnStyle } from '../entities/pixel/pawnStyle';
 import { Wardrobe } from '../systems/Wardrobe';
 import { EventBus } from './EventBus';
 import { Camera, type View } from './Camera';
@@ -224,6 +225,7 @@ export class Game {
       /* по умолчанию включена */
     }
     this.popLevel = Game.loadPopulation();
+    loadPawnStyle();
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.input = new Input(canvas);
     this.zones = new ZoneSystem(this.bus);
@@ -766,6 +768,15 @@ export class Game {
       /* не запомним — не страшно */
     }
     return on;
+  }
+
+  /** Стиль пешек: пиксельные или прежние фасолины (меню «Пешки»); помнится в браузере. */
+  togglePawnStyle(): void {
+    setPawnStyle(isPixelStyle() ? 'bean' : 'pixel');
+  }
+
+  get pawnsPixel(): boolean {
+    return isPixelStyle();
   }
 
   get lightingOn(): boolean {
