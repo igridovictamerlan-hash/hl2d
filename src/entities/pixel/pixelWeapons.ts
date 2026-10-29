@@ -1,29 +1,19 @@
 /**
- * Оружие пиксельных пешек: те же модели (config/weaponSprites.ts), что у фасолин, переведены в пиксели силуэта —
- * отрисовка одной заливкой с 4× запасом и выбор самого частого цвета в каждом пикселе (чёткие края без размытия).
- * Поворот — в сетке силуэта (выборка по ближайшему пикселю), чтобы ствол был той же пиксельной сеткой, что пешка.
+ * Оружие пиксельных пешек: те же модели (config/weaponSprites.ts), что у фасолин, но мельче (по руке пиксельной
+ * пешки, PIXEL.weapon.scale) и с тонким контуром вместо толстой обводки RimWorld — чётко видно, что в руках.
+ * Модель рисуется в холст один раз на ствол и шаг масштаба, на экран — с поворотом за прицелом (плавно, без шагов
+ * угла). Руки — на рукояти и цевье модели.
  */
 import type { WeaponId } from '../../config/items';
 import { WEAPON_POSE, WEAPON_SPRITES, type SpritePart } from '../../config/weaponSprites';
 import { PAWN } from '../../config/pawns';
 import { PIXEL } from '../../config/pixelPawns';
-import { Grid, hex } from './grid';
 
-export interface PixelGun {
-  grid: Grid;
-  /** Рукоять, цевьё и дульный срез — в пикселях сетки ствола. */
-  grip: [number, number];
-  fore: [number, number] | null;
-  muzzle: [number, number];
-  /** Дальше всего от рукояти (для рамки поворота). */
-  reach: number;
-}
+/** Пиксель силуэта на единицу модели оружия. */
+export const GUN_FIG = (WEAPON_POSE.scale * PAWN.scale * PIXEL.weapon.scale) / PIXEL.unit;
 
-const SS = 4;
-const guns = new Map<WeaponId, PixelGun>();
-
-/** Пиксель модели в пикселях силуэта: модели оружия — в масштабе пешки, как у фасолин. */
-export const GUN_K = (WEAPON_POSE.scale * PAWN.scale) / PIXEL.unit;
+interface GunSprite { cv: HTMLCanvasElement; ox: number; oy: number; k: number }
+const sprites = new Map<string, GunSprite>();
 
 function bounds(parts: readonly SpritePart[]): [number, number, number, number] {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -39,16 +29,17 @@ function bounds(parts: readonly SpritePart[]): [number, number, number, number] 
     else if ('l' in p) for (const [x, y] of p.l) add(x, y, p.w / 2);
     else add(p.o[0], p.o[1], p.o[2]);
   }
-  return [x0 - 1, y0 - 1, x1 + 1, y1 + 1];
+  const m = PIXEL.weapon.outline * 2 + 1.5;
+  return [x0 - m, y0 - m, x1 + m, y1 + m];
 }
 
-function fillPart(ctx: CanvasRenderingContext2D, part: SpritePart): void {
+function shape(ctx: CanvasRenderingContext2D, part: SpritePart, outline: boolean): void {
+  const W = PIXEL.weapon;
   ctx.beginPath();
   if ('l' in part) {
     part.l.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.strokeStyle = part.c;
-    ctx.lineWidth = part.w;
-    ctx.lineCap = 'round';
+    ctx.lineWidth = part.w + (outline ? W.outline * 2 : 0);
+    ctx.strokeStyle = outline ? W.ink : part.c;
     ctx.stroke();
     return;
   }
@@ -57,78 +48,70 @@ function fillPart(ctx: CanvasRenderingContext2D, part: SpritePart): void {
     part.p.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.closePath();
   } else ctx.arc(part.o[0], part.o[1], part.o[2], 0, Math.PI * 2);
-  ctx.fillStyle = part.c;
-  ctx.fill();
+  if (outline) {
+    ctx.lineWidth = W.outline * 2;
+    ctx.strokeStyle = W.ink;
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = part.c;
+    ctx.fill();
+  }
 }
 
-/** Ствол в пикселях (кэш). Нужен DOM (холст для выборки). */
-export function pixelGun(id: WeaponId): PixelGun {
-  let g = guns.get(id);
+/** Модель в холст при k px экрана на единицу модели (кэш по шагу масштаба). */
+function gunSprite(id: WeaponId, k: number): GunSprite {
+  const step = PIXEL.weapon.cacheStep;
+  const q = Math.max(step, Math.ceil(k / step) * step);
+  const key = `${id}:${q}`;
+  let g = sprites.get(key);
   if (g) return g;
   const sp = WEAPON_SPRITES[id];
   const [x0, y0, x1, y1] = bounds(sp.parts);
-  const k = GUN_K;
-  const W = Math.max(1, Math.ceil((x1 - x0) * k));
-  const H = Math.max(1, Math.ceil((y1 - y0) * k));
   const cv = document.createElement('canvas');
-  cv.width = W * SS;
-  cv.height = H * SS;
+  cv.width = Math.max(1, Math.ceil((x1 - x0) * q));
+  cv.height = Math.max(1, Math.ceil((y1 - y0) * q));
   const ctx = cv.getContext('2d')!;
-  ctx.scale(k * SS, k * SS);
+  ctx.scale(q, q);
   ctx.translate(-x0, -y0);
-  for (const p of sp.parts) fillPart(ctx, p);
-  const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
-  const grid = new Grid(W, H);
-  const votes = new Map<number, number>();
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    votes.clear();
-    let n = 0;
-    for (let j = 0; j < SS; j++) for (let i = 0; i < SS; i++) {
-      const o = ((y * SS + j) * cv.width + (x * SS + i)) * 4;
-      if (d[o + 3] < 128) continue;
-      n++;
-      // Цвет с огрублением до 4 бит на канал — сглаженные края не дают своих цветов.
-      const key = ((d[o] >> 3) << 10) | ((d[o + 1] >> 3) << 5) | (d[o + 2] >> 3);
-      votes.set(key, (votes.get(key) ?? 0) + 1);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (const p of sp.parts) shape(ctx, p, true);
+  for (const p of sp.parts) {
+    shape(ctx, p, false);
+    if (p.glow) {
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = p.c;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
-    if (n < (SS * SS * PIXEL.weapon.alpha) / 255) continue;
-    let best = -1;
-    let bn = 0;
-    for (const [key, v] of votes) if (v > bn) { bn = v; best = key; }
-    grid.put(x, y, hex(((best >> 10) & 31) * 8 + 4, ((best >> 5) & 31) * 8 + 4, (best & 31) * 8 + 4));
   }
-  const loc = (p: [number, number]): [number, number] => [(p[0] - x0) * k, (p[1] - y0) * k];
-  const grip = loc(sp.grip);
-  const corners = [[0, 0], [W, 0], [0, H], [W, H]];
-  const reach = Math.max(...corners.map(([cx, cy]) => Math.hypot(cx - grip[0], cy - grip[1]))) + 1;
-  g = { grid, grip, fore: sp.fore ? loc(sp.fore) : null, muzzle: loc(sp.muzzle), reach };
-  guns.set(id, g);
+  g = { cv, ox: -x0 * q, oy: -y0 * q, k: q };
+  sprites.set(key, g);
   return g;
 }
 
-/** Точка ствола (пиксели сетки ствола) в координатах силуэта при рукояти в (hx, hy), повороте ang и отражении. */
-export function gunPoint(gun: PixelGun, p: [number, number], hx: number, hy: number, ang: number, flip: boolean): [number, number] {
-  const lx = p[0] - gun.grip[0];
-  const ly = (p[1] - gun.grip[1]) * (flip ? -1 : 1);
-  const c = Math.cos(ang);
-  const s = Math.sin(ang);
-  return [hx + lx * c - ly * s, hy + lx * s + ly * c];
+/**
+ * Ствол на экране: (x, y) — точка модели (0, 0) в координатах холста, ang — угол, flip — отражён (целится влево),
+ * k — px холста на пиксель силуэта. Поверх текущего преобразования холста (интерфейс масштабирован под экран) —
+ * вызывающий обрамляет save/restore.
+ */
+export function drawGun(ctx: CanvasRenderingContext2D, id: WeaponId, x: number, y: number, ang: number, flip: boolean, k: number): void {
+  const mk = GUN_FIG * k;
+  const img = gunSprite(id, mk);
+  const f = mk / img.k;
+  const c = Math.cos(ang) * f;
+  const s = Math.sin(ang) * f;
+  const fy = flip ? -1 : 1;
+  ctx.transform(c, s, -s * fy, c * fy, x, y);
+  ctx.drawImage(img.cv, -img.ox, -img.oy);
 }
 
-/** Впечатать ствол в сетку силуэта: рукоять — в (hx, hy), поворот ang, flip — отражён (целится влево). */
-export function stampGun(dst: Grid, gun: PixelGun, hx: number, hy: number, ang: number, flip: boolean): void {
+/** Точка модели (единицы WEAPON_SPRITES) в координатах силуэта при точке (0, 0) модели в (x, y), угле и отражении. */
+export function gunPoint(p: readonly [number, number], x: number, y: number, ang: number, flip: boolean): [number, number] {
+  const lx = p[0] * GUN_FIG;
+  const ly = p[1] * GUN_FIG * (flip ? -1 : 1);
   const c = Math.cos(ang);
   const s = Math.sin(ang);
-  const R = Math.ceil(gun.reach);
-  for (let fy = Math.floor(hy - R); fy <= Math.ceil(hy + R); fy++) {
-    for (let fx = Math.floor(hx - R); fx <= Math.ceil(hx + R); fx++) {
-      const dx = fx + 0.5 - hx;
-      const dy = fy + 0.5 - hy;
-      const lx = dx * c + dy * s;
-      let ly = -dx * s + dy * c;
-      if (flip) ly = -ly;
-      const col = gun.grid.px(Math.floor(gun.grip[0] + lx), Math.floor(gun.grip[1] + ly));
-      if (col) dst.set(fx, fy, col);
-    }
-  }
+  return [x + lx * c - ly * s, y + lx * s + ly * c];
 }

@@ -37,8 +37,9 @@ src/
                      meleeState (ближний бой персонажа: удар, серия, блок, нокаут), meleePose (кулаки и оружие в ударе
                      и блоке, вздрагивание от удара);
     pixel/           пиксельные пешки (меню «Пешки»): pawnStyle (выбор стиля), grid (пиксельная сетка, контур selout),
-                     pixelSpec (внешность из PawnLook), pixelBody (тело по позе), pixelWeapons (оружие игры в пикселях),
-                     pixelPawn (сборка кадра: руки к оружию и к делу, кэш спрайтов)
+                     pixelSpec (внешность из PawnLook), pixelBody (части тела: ноги, руки, корпус с головой),
+                     pixelWeapons (модель оружия игры тонким контуром), pixelSprites (сетка → ImageBitmap, кэш),
+                     pixelPawn (сборка кадра: тело одним спрайтом, руки к оружию и к делу, подскок, мимика)
   ai/                AStar, smoothing, PathService (очередь с бюджетом), Mover (движение/уступание),
                      yieldSearch (поиск «кармана»), StateMachine, Brain, facing, destinations,
                      Gunner (стрелок ИИ, угол обзора, тревога, гранаты, добивание), FireDiscipline (очередями, а не до гибели — позиционная перестрелка), Dodge (бегство от гранат),

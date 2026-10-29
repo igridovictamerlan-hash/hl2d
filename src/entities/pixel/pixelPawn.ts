@@ -1,40 +1,42 @@
 /**
- * Сборка пиксельной пешки на кадр: тело по позе (pixelBody), ствол из модели игры (pixelWeapons) с руками на
- * рукояти и цевье, руки к делу (ест, курит, жестикулирует, бьёт, бросает, перезаряжает — те же анимации poses.ts,
- * записанные «вместо рисования»), предметы в руках, контур. Готовый спрайт — в кэше холстов по ключу кадра.
+ * Сборка пиксельной пешки на кадр: тело — один спрайт (ноги, опущенные руки, корпус с головой; корпус со сдвигом
+ * присел / сидит / выдох — целыми пикселями силуэта), подскок в шаг и бег — всей пешкой, плавно, целыми экранными
+ * пикселями. Части тела (ноги и руки — общие у пешек в одинаковой одежде, корпус — свой у внешности и стороны) — в
+ * кэше сеток, кадры — в кэше спрайтов (pixelSprites). Руки к делу — те же анимации poses.ts (ест, курит,
+ * жестикулирует, бьёт, бросает, перезаряжает), записанные «вместо рисования», — отдельным спрайтом поверх. Ствол —
+ * модель игры тонким контуром (pixelWeapons), кисти — поверх. Моргание и речь — пиксели поверх лица.
  * Описание — docs/rendering.md «Пиксельные пешки».
  */
 import type { WeaponId } from '../../config/items';
 import { PAWN } from '../../config/pawns';
 import { WEAPON_POSE } from '../../config/weaponSprites';
 import { PIXEL } from '../../config/pixelPawns';
-import { LruCache } from '../../core/spriteCache';
-import { Grid, line, outline, part, rgb, shade } from './grid';
-import { ARM_A, ARM_B, paintBody, poseKey, shoulders, sleeveOf, upperOffset, type BodyDir, type BodyPose, type Legs } from './pixelBody';
+import { WEAPON_SPRITES } from '../../config/weaponSprites';
+import { Grid, line, outline, part, shade } from './grid';
+import { ARM_A, ARM_B, faceSpots, newGrid, paintArmE, paintArmsSN, paintBack, paintLegs, paintUpper, shoulders, sleeveOf, type BodyDir, type Legs } from './pixelBody';
 import { pixelSpecOf, type PixelSpec } from './pixelSpec';
-import { gunPoint, pixelGun, stampGun } from './pixelWeapons';
+import { drawGun, gunPoint } from './pixelWeapons';
+import { EMPTY, SpriteCache, type Sprite } from './pixelSprites';
+import { LruCache } from '../../core/spriteCache';
 import type { PawnDir, PawnLook } from '../PawnRenderer';
 import type { Character } from '../Character';
 import type { MeleeSwing } from '../meleePose';
 import { weaponPose } from '../weaponPose';
 
-/** Сетка сборки шире сетки тела: длинный ствол, вспышка, руки в стороны. */
-const CW = 80;
-const CH = 66;
-const COX = 28;
-const COY = 18;
-
 export interface Hand { x: number; y: number; color: string }
 export interface Stick { x0: number; y0: number; x1: number; y1: number; color: string }
 export interface Box { x: number; y: number; w: number; h: number; color: string }
-/** Ствол в руках: рукоять — в координатах силуэта, угол, отражён ли (целится влево). */
+/** Ствол в руках: точка (0, 0) модели — в координатах силуэта, угол, отражён ли (целится влево). */
 export interface GunHold { id: WeaponId; x: number; y: number; ang: number; flip: boolean }
 
-/** Кадр пешки: сторона, ноги, мимика, ствол, руки к делу и предметы (координаты силуэта). */
+/** Кадр пешки: сторона, ноги, сдвиг корпуса, мимика, ствол, руки к делу и предметы (координаты силуэта). */
 export interface PixelFrame {
   dir: PawnDir;
   legs: Legs;
   frame: number;
+  /** Корпус, руки и ствол над ногами: сдвиг в пикселях силуэта (дробный; x — вперёд по взгляду сбоку). */
+  bodyX: number;
+  bodyY: number;
   blink: boolean;
   talk: boolean;
   gun: GunHold | null;
@@ -48,7 +50,7 @@ export interface PixelFrame {
 }
 
 export function newFrame(): PixelFrame {
-  return { dir: 'S', legs: 'stand', frame: 0, blink: false, talk: false, gun: null, hands: [], sticks: [], boxes: [], reload: false, cut: null };
+  return { dir: 'S', legs: 'stand', frame: 0, bodyX: 0, bodyY: 0, blink: false, talk: false, gun: null, hands: [], sticks: [], boxes: [], reload: false, cut: null };
 }
 
 // ——— Перевод координат ———
@@ -150,24 +152,37 @@ export class HandRecorder {
   }
 }
 
-// ——— Сборка ———
-const bodies = new LruCache<Grid>(PIXEL.cache.bodies);
-function bodyGrid(sp: PixelSpec, dir: BodyDir, pose: BodyPose): Grid {
-  const key = `${sp.key}|${dir}|${poseKey(pose)}`;
-  let g = bodies.get(key);
-  if (!g) {
-    g = paintBody(sp, dir, pose);
-    bodies.set(key, g);
+// ——— Поза ———
+const OFF: [number, number] = [0, 0];
+/**
+ * Подскок пешки в шаг и в бег (пиксели силуэта, дробно — на экран целыми экранными пикселями, плавно): выше на
+ * проходе ноги (phase — доля цикла 0..1), на бегу — вынос вперёд. Один массив на все вызовы.
+ */
+export function bodyOffset(legs: Legs, phase: number): [number, number] {
+  const B = PIXEL.bob;
+  OFF[0] = 0;
+  OFF[1] = 0;
+  if (legs === 'walk' || legs === 'run') {
+    const run = legs === 'run';
+    OFF[1] = -(1 - Math.abs(Math.sin(phase * Math.PI * 2))) * (run ? B.run : B.walk);
+    OFF[0] = run ? B.lean : 0;
   }
-  return g;
+  return OFF;
+}
+/** Корпус и руки над ногами — целыми пикселями силуэта, в спрайте: присел +4, сидит +3, выдох стоя (кадр 1) +1. */
+export function upperShift(legs: Legs, frame: number): number {
+  return legs === 'crouch' ? 4 : legs === 'sit' ? 3 : legs === 'stand' && frame === 1 ? 1 : 0;
+}
+/** Стоя — на выдохе (своя фаза у каждого): кадр 1. */
+export function breathing(now: number, id: number): boolean {
+  return Math.sin((now / PAWN.anim.idle.breathePeriod) * Math.PI * 2 + id * 1.7) > PIXEL.breathe;
 }
 
-/** Плечо руки (верх-лево кисти 2×2) по стороне с учётом подъёма корпуса; W — зеркально E. */
-function shoulderOf(dir: PawnDir, arm: 'A' | 'B', ux: number, uy: number): [number, number] {
+/** Плечо руки (верх-лево кисти 2×2): S/N — левое и правое на экране, сбоку — ближнее (A) и дальнее (B); W — зеркально. */
+function shoulderOf(dir: PawnDir, arm: 'A' | 'B'): [number, number] {
   const [a, b] = shoulders(dir === 'W' ? 'E' : dir);
   const p = arm === 'A' ? a : b;
-  if (dir === 'W') return [2 * PIXEL.cx - p[0] - 1 - ux, p[1] + uy];
-  return [p[0] + ux, p[1] + uy];
+  return dir === 'W' ? [2 * PIXEL.cx - p[0] - 1, p[1]] : [p[0], p[1]];
 }
 
 function drawArm(g: Grid, sp: PixelSpec, from: [number, number], hand: Hand, far: boolean, marks: boolean): void {
@@ -190,251 +205,323 @@ interface ArmPlan {
   arms: number;
   gripH: Hand | null;
   foreH: Hand | null;
+  /** Кисть на цевье — дальняя (сбоку, не перезарядка): темнее. */
+  foreFar: boolean;
   work: { hand: Hand; arm: 'A' | 'B' }[];
 }
+const plan: ArmPlan = { arms: 3, gripH: null, foreH: null, foreFar: false, work: [] };
+const GRIP: Hand = { x: 0, y: 0, color: '' };
+const FORE: Hand = { x: 0, y: 0, color: '' };
 function planArms(sp: PixelSpec, f: PixelFrame): ArmPlan {
   const side = f.dir === 'E' || f.dir === 'W';
-  const plan: ArmPlan = { arms: ARM_A | ARM_B, gripH: null, foreH: null, work: [] };
-  const gun = f.gun ? pixelGun(f.gun.id) : null;
-  if (f.gun && gun) {
-    const [gx, gy] = gunPoint(gun, gun.grip, f.gun.x, f.gun.y, f.gun.ang, f.gun.flip);
-    plan.gripH = { x: gx, y: gy, color: sp.hand };
-    if (gun.fore) {
-      const [fx, fy] = gunPoint(gun, gun.fore, f.gun.x, f.gun.y, f.gun.ang, f.gun.flip);
-      plan.foreH = { x: fx, y: fy, color: sp.hand };
+  plan.arms = ARM_A | ARM_B;
+  plan.gripH = null;
+  plan.foreH = null;
+  plan.foreFar = false;
+  plan.work.length = 0;
+  if (f.gun) {
+    const sp0 = WEAPON_SPRITES[f.gun.id];
+    const [gx, gy] = gunPoint(sp0.grip, f.gun.x, f.gun.y, f.gun.ang, f.gun.flip);
+    GRIP.x = gx;
+    GRIP.y = gy;
+    GRIP.color = sp.hand;
+    plan.gripH = GRIP;
+    if (sp0.fore) {
+      const [fx, fy] = gunPoint(sp0.fore, f.gun.x, f.gun.y, f.gun.ang, f.gun.flip);
+      FORE.x = fx;
+      FORE.y = fy;
+      FORE.color = sp.hand;
+      plan.foreH = FORE;
+      plan.foreFar = side;
     }
-    if (f.reload && f.hands.length) plan.foreH = f.hands[f.hands.length - 1];
+    if (f.reload && f.hands.length) {
+      plan.foreH = f.hands[f.hands.length - 1];
+      plan.foreFar = false;
+    }
     plan.arms = plan.foreH ? 0 : ARM_B;
     return plan;
   }
-  for (const h of f.hands.slice(0, 2)) {
+  for (let i = 0; i < f.hands.length && i < 2; i++) {
+    const h = f.hands[i];
     let arm: 'A' | 'B' = side ? (plan.work.length ? 'B' : 'A') : h.x < PIXEL.cx ? 'A' : 'B';
-    if (plan.work.some((w) => w.arm === arm)) arm = arm === 'A' ? 'B' : 'A';
+    if (plan.work.length && plan.work[0].arm === arm) arm = arm === 'A' ? 'B' : 'A';
     plan.work.push({ hand: h, arm });
     plan.arms &= arm === 'A' ? ~ARM_A : ~ARM_B;
   }
   return plan;
 }
-function poseOf(f: PixelFrame, arms: number): BodyPose {
-  return { legs: f.legs, frame: f.frame, arms, blink: f.blink, talk: f.talk };
+
+/**
+ * Нарисованные части (ноги, руки, корпус, накидка) — в кэше сеток: кадр тела собирается из готовых частей (ноги и руки
+ * общие у одинаковой одежды, корпус — один на внешность и сторону), а не рисуется заново на каждый кадр шага.
+ */
+const parts = new LruCache<Grid>(PIXEL.cache.parts);
+const NONE = new Grid(1, 1);
+function partGrid(key: string, make: () => Grid | null): Grid | null {
+  let g = parts.get(key);
+  if (!g) {
+    g = make() ?? NONE;
+    parts.set(key, g);
+  }
+  return g === NONE ? null : g;
 }
 
-/** Тело кадра (опущенные руки — только свободные) с контуром; в траншее — по пояс. */
+/**
+ * Тело кадра одной сеткой: накидка, ноги, опущенные руки (только свободные), корпус с головой; корпус и руки — со
+ * сдвигом upperShift. Контур — общий. Запад — восток, отражённый при рисовании.
+ */
 function composeBody(sp: PixelSpec, f: PixelFrame, arms: number): Grid {
-  const bodyDir: BodyDir = f.dir === 'W' ? 'E' : f.dir;
-  let body = bodyGrid(sp, bodyDir, poseOf(f, arms));
-  if (f.dir === 'W') body = body.mirror();
-  const g = new Grid(PIXEL.grid.w + 2, PIXEL.grid.h + 2);
-  g.ox = PIXEL.grid.ox + 1;
-  g.oy = PIXEL.grid.oy + 1;
-  g.paste(body, 1, 1);
+  const bd: BodyDir = f.dir === 'W' ? 'E' : (f.dir as BodyDir);
+  // Стоя кадр 1 — выдох: ноги и руки те же, что в кадре 0.
+  const frame = f.legs === 'stand' ? 0 : f.frame;
+  const pose = { legs: f.legs, frame };
+  const lf = `${f.legs}${frame}`;
+  const uy = upperShift(f.legs, f.frame);
+  const g = newGrid();
+  const put = (layer: Grid | null, dy: number) => {
+    if (layer) g.paste(layer, 0, dy);
+  };
+  if (sp.cape) put(partGrid(`B|${sp.key}|${bd}`, () => paintBack(sp, bd)), uy);
+  put(partGrid(`L|${sp.legsKey}|${bd}|${lf}`, () => paintLegs(sp, bd, pose)), 0);
+  if (bd === 'E') {
+    if (arms & ARM_B) put(partGrid(`F|${sp.armsKey}|${lf}`, () => paintArmE(sp, pose, true)), uy);
+    put(partGrid(`U|${sp.key}|${bd}`, () => paintUpper(sp, bd)), uy);
+    if (arms & ARM_A) put(partGrid(`N|${sp.armsKey}|${lf}`, () => paintArmE(sp, pose, false)), uy);
+  } else {
+    if (arms) put(partGrid(`A|${sp.armsKey}|${bd}|${lf}|${arms}`, () => paintArmsSN(sp, bd, pose, arms)), uy);
+    put(partGrid(`U|${sp.key}|${bd}`, () => paintUpper(sp, bd)), uy);
+  }
   if (f.cut !== null) g.cutBelow(f.cut);
   return outline(g);
 }
 
 /**
- * Руки к оружию и к делу, ствол, предметы в руках — отдельным слоем с контуром (общим для пешек с одинаковыми
- * рукавами и кистями: кэш не зависит от лица и одежды). Спиной к нам — слой рисуется до тела (за ним).
+ * Руки к делу и к оружию (без ствола и без кистей на стволе — их рисует drawPixelFrame поверх ствола), предметы.
+ * Пусто — null. Координаты — без сдвига корпуса (он при рисовании).
  */
-function composeLayer(sp: PixelSpec, f: PixelFrame, plan: ArmPlan): Grid | null {
-  if (!plan.gripH && !plan.work.length && !f.sticks.length && !f.boxes.length) return null;
-  const bodyDir: BodyDir = f.dir === 'W' ? 'E' : f.dir;
-  const side = bodyDir === 'E';
-  const back = bodyDir === 'N';
-  if (back && !plan.gripH) return null;
-  const [ux0, uy] = upperOffset(bodyDir, poseOf(f, plan.arms));
-  const ux = f.dir === 'W' ? -ux0 : ux0;
-  const wide = !!f.gun;
-  const g = wide ? new Grid(CW, CH) : new Grid(PIXEL.grid.w + 8, PIXEL.grid.h + 2);
-  g.ox = wide ? COX : PIXEL.grid.ox + 4;
-  g.oy = wide ? COY : PIXEL.grid.oy + 1;
-  if (f.gun && plan.gripH) {
-    // Сбоку — рукоять ближней рукой, цевьё дальней; спереди и сзади — каждая к своей стороне.
-    const gun = pixelGun(f.gun.id);
-    const gArm: 'A' | 'B' = side ? 'A' : plan.gripH.x >= PIXEL.cx ? 'B' : 'A';
+function composeAction(sp: PixelSpec, f: PixelFrame, p: ArmPlan, cut: number | null): Grid | null {
+  if (!p.gripH && !p.work.length && !f.sticks.length && !f.boxes.length) return null;
+  const side = f.dir === 'E' || f.dir === 'W';
+  const back = f.dir === 'N';
+  const g = new Grid(PIXEL.grid.w + 16, PIXEL.grid.h + 8);
+  g.ox = PIXEL.grid.ox + 8;
+  g.oy = PIXEL.grid.oy + 4;
+  if (p.gripH) {
+    const gArm: 'A' | 'B' = side ? 'A' : p.gripH.x >= PIXEL.cx ? 'B' : 'A';
     const fArm: 'A' | 'B' = gArm === 'A' ? 'B' : 'A';
-    if (plan.foreH) drawArm(g, sp, shoulderOf(f.dir, fArm, ux, uy), plan.foreH, side, !side && fArm === 'A');
-    stampGun(g, gun, f.gun.x, f.gun.y, f.gun.ang, f.gun.flip);
-    if (f.reload && plan.foreH && f.boxes.length) boxes(g, f);
-    drawArm(g, sp, shoulderOf(f.dir, gArm, ux, uy), plan.gripH, false, side || gArm === 'A');
-    if (plan.foreH) drawHand(g, plan.foreH, side && !f.reload);
-    drawHand(g, plan.gripH, false);
+    if (p.foreH) drawArm(g, sp, shoulderOf(f.dir, fArm), p.foreH, p.foreFar, !side && fArm === 'A');
+    drawArm(g, sp, shoulderOf(f.dir, gArm), p.gripH, false, side || gArm === 'A');
+    if (f.reload) boxes(g, f);
   }
   if (!back) {
     for (const s of f.sticks) line(g, s.x0, s.y0, s.x1, s.y1, s.color, 1);
     if (!f.reload) boxes(g, f);
-    for (const w of plan.work) drawArm(g, sp, shoulderOf(f.dir, w.arm, ux, uy), w.hand, side && w.arm === 'B', w.arm === 'A');
-    for (const w of plan.work) drawHand(g, w.hand, side && w.arm === 'B');
+    for (const w of p.work) drawArm(g, sp, shoulderOf(f.dir, w.arm), w.hand, side && w.arm === 'B', w.arm === 'A');
+    for (const w of p.work) drawHand(g, w.hand, side && w.arm === 'B');
   }
-  if (f.cut !== null) g.cutBelow(f.cut);
+  if (cut !== null) g.cutBelow(cut);
   return outline(g);
-}
-
-/** Кадр целиком в одной сетке (тесты, листы): тело и слой рук. */
-export function composeFrame(sp: PixelSpec, f: PixelFrame): Grid {
-  const plan = planArms(sp, f);
-  const body = composeBody(sp, f, plan.arms);
-  const layer = composeLayer(sp, f, plan);
-  if (!layer) return body;
-  const g = new Grid(CW, CH);
-  g.ox = COX;
-  g.oy = COY;
-  const back = f.dir === 'N';
-  if (back) g.paste(layer, COX - layer.ox, COY - layer.oy);
-  g.paste(body, COX - body.ox, COY - body.oy);
-  if (!back) g.paste(layer, COX - layer.ox, COY - layer.oy);
-  return g;
 }
 function boxes(g: Grid, f: PixelFrame): void {
   for (const b of f.boxes) g.rect(Math.round(b.x), Math.round(b.y), Math.max(1, Math.round(b.w)), Math.max(1, Math.round(b.h)), b.color);
 }
 
-// ——— Холсты и кэш ———
-/** Счётчики кэша (замеры производительности, docs/rendering.md). */
-export const pixelStats = { hits: 0, misses: 0, composeMs: 0 };
+// ——— Кэш и ключи ———
+/**
+ * Счётчики кэша (замеры производительности, docs/rendering.md): попадания, промахи (собран новый спрайт), из них
+ * сразу холстом (sync), время сборки, показы прежнего кадра; onMiss — ключ промаха (разбор, какие кадры не в кэше).
+ */
+export const pixelStats = { hits: 0, misses: 0, sync: 0, composeMs: 0, fallbacks: 0, onMiss: null as ((key: string) => void) | null };
 // Для замеров в браузере (скилл playtest): window.__pixelStats.
 if (import.meta.env?.DEV && typeof window !== 'undefined') (window as unknown as { __pixelStats: typeof pixelStats }).__pixelStats = pixelStats;
 
-/** Спрайт: холст (свой или лист атласа), прямоугольник на нём, угол в координатах силуэта, множитель. */
-interface Sprite { cv: HTMLCanvasElement; sx: number; sy: number; sw: number; sh: number; x0: number; y0: number; q: number }
-
-/** Рамка рисунка сетки (занятые пиксели). */
-function bbox(g: Grid): [number, number, number, number] {
-  let x0 = g.w, y0 = g.h, x1 = -1, y1 = -1;
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
-    if (!g.c[y * g.w + x]) continue;
-    if (x < x0) x0 = x;
-    if (x > x1) x1 = x;
-    if (y < y0) y0 = y;
-    if (y > y1) y1 = y;
-  }
-  return x1 < 0 ? [0, 0, 0, 0] : [x0, y0, x1, y1];
+const bodies = new SpriteCache(PIXEL.cache.bodies);
+const actions = new SpriteCache(PIXEL.cache.actions);
+/**
+ * Последний показанный спрайт пешки (тело — по внешности, стороне и занятым рукам; руки к делу — по внешности,
+ * стороне и делу): им заменяется новый кадр, пока тот не готов.
+ */
+const last = new Map<string, Sprite>();
+let budgetUsed = 0;
+/** Кадр карты (между pixelFrameStart и pixelFrameEnd): новый кадр пешки можно показать с опозданием на кадр-другой. */
+let lazy = false;
+/** Начало кадра карты: бюджет сборки спрайтов заново (вызывает EntityRenderer.drawBodies). */
+export function pixelFrameStart(): void {
+  budgetUsed = 0;
+  lazy = true;
 }
-/** Пиксели рамки сетки — в буфер изображения с отступом (ox, oy), каждый пиксель — квадрат q×q. */
-function paintImage(d: Uint8ClampedArray, stride: number, g: Grid, x0: number, y0: number, w: number, h: number, q: number, ox: number, oy: number): void {
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const c = g.c[(y + y0) * g.w + x + x0];
-    if (!c) continue;
-    const [r, gg, b] = rgb(c);
-    for (let j = 0; j < q; j++) {
-      let o = ((oy + y * q + j) * stride + ox + x * q) * 4;
-      for (let i = 0; i < q; i++, o += 4) {
-        d[o] = r;
-        d[o + 1] = gg;
-        d[o + 2] = b;
-        d[o + 3] = 255;
-      }
+/** Конец кадра карты: дальше (интерфейс, листы) — каждый кадр сразу точно. */
+export function pixelFrameEnd(): void {
+  lazy = false;
+}
+const EMPTY_GRID = new Grid(1, 1);
+
+/** Прежний спрайт пешки по ключу, если ещё жив (не вытеснен). */
+function lastOf(lkey: string | null): Sprite | undefined {
+  const spr = lkey === null ? undefined : last.get(lkey);
+  return spr && !spr.dead ? spr : undefined;
+}
+
+/**
+ * Спрайт слоя: из кэша; промах — собрать сетку и заказать картинку (готовится асинхронно), а пока показать прежний
+ * спрайт этой пешки (lkey, иначе alt — например, тело той же пешки в другую сторону: повернётся на кадр позже).
+ * Сборка за кадр — в бюджете composeBudget: сверх него — тоже прежний. Прежнего нет или кадр не карты — сразу холстом.
+ */
+function layer(cache: SpriteCache, key: string, lkey: string, alt: string | null, make: () => Grid | null): Sprite {
+  let spr = cache.get(key);
+  if (spr) pixelStats.hits++;
+  else {
+    const prev = lazy ? lastOf(lkey) ?? lastOf(alt) : undefined;
+    if (prev && (cache.waiting(key) || budgetUsed > PIXEL.composeBudget)) {
+      pixelStats.fallbacks++;
+      return prev;
     }
+    const t = performance.now();
+    const g = make() ?? EMPTY_GRID;
+    spr = (prev && cache.request(key, g)) || prev;
+    if (!spr) {
+      spr = cache.now(key, g);
+      pixelStats.sync++;
+    }
+    const ms = performance.now() - t;
+    budgetUsed += ms;
+    pixelStats.misses++;
+    pixelStats.composeMs += ms;
+    pixelStats.onMiss?.(key);
   }
-}
-
-/** Сетка в холст: обрезка по рисунку, каждый пиксель — квадрат q×q. */
-function toSprite(g: Grid, q: number): Sprite {
-  const [x0, y0, x1, y1] = bbox(g);
-  const w = x1 - x0 + 1;
-  const h = y1 - y0 + 1;
-  const cv = document.createElement('canvas');
-  cv.width = w * q;
-  cv.height = h * q;
-  const ctx = cv.getContext('2d')!;
-  const img = ctx.createImageData(cv.width, cv.height);
-  paintImage(img.data, cv.width, g, x0, y0, w, h, q, 0, 0);
-  ctx.putImageData(img, 0, 0);
-  return { cv, sx: 0, sy: 0, sw: cv.width, sh: cv.height, x0: x0 - g.ox, y0: y0 - g.oy, q };
+  last.set(lkey, spr);
+  if (alt !== null) last.set(alt, spr);
+  if (last.size > PIXEL.cache.bodies) last.delete(last.keys().next().value as string);
+  return spr;
 }
 
 const r1 = (v: number) => Math.round(v);
-/** Тело на запад — то же, что на восток, отражённое при рисовании: в кэше одно на две стороны. */
-function bodyKey(sp: PixelSpec, f: PixelFrame, arms: number, q: number): string {
-  return `${sp.key}|${f.dir === 'W' ? 'E' : f.dir}|${f.legs}${f.frame}${f.blink ? 'b' : ''}${f.talk ? 't' : ''}|${arms}|${f.cut ?? ''}|${q}`;
-}
-/** Ключ слоя рук: рукава, кисти, повязка, сторона, подъём корпуса, ствол, руки к делу и предметы. */
-function layerKey(sp: PixelSpec, f: PixelFrame, plan: ArmPlan, q: number): string {
-  const bodyDir: BodyDir = f.dir === 'W' ? 'E' : f.dir;
-  const [ux, uy] = upperOffset(bodyDir, poseOf(f, plan.arms));
-  let k = `${sleeveOf(sp)}|${sp.hand}|${sp.band ?? ''}|${f.dir}|${ux},${uy}|${f.cut ?? ''}|${q}`;
-  if (f.gun) k += `|g${f.gun.id}:${r1(f.gun.x)},${r1(f.gun.y)}:${Math.round((f.gun.ang / (Math.PI * 2)) * PIXEL.weapon.angleSteps)}${f.gun.flip ? 'f' : ''}`;
-  if (f.reload) k += '|r';
-  for (const h of f.hands) k += `|h${r1(h.x)},${r1(h.y)}${h.color}`;
+function actionKey(sp: PixelSpec, f: PixelFrame, p: ArmPlan, cut: number | null): string {
+  let k = `X|${sleeveOf(sp)}|${sp.hand}|${sp.band ?? ''}|${f.dir}|${cut ?? ''}|${f.reload ? 'r' : ''}`;
+  if (p.gripH) k += `|g${r1(p.gripH.x)},${r1(p.gripH.y)}`;
+  if (p.foreH) k += `|f${r1(p.foreH.x)},${r1(p.foreH.y)}${p.foreFar ? 'd' : ''}`;
+  for (const w of p.work) k += `|h${w.arm}${r1(w.hand.x)},${r1(w.hand.y)}${w.hand.color}`;
   for (const s of f.sticks) k += `|s${r1(s.x0)},${r1(s.y0)},${r1(s.x1)},${r1(s.y1)}${s.color}`;
   for (const b of f.boxes) k += `|b${r1(b.x)},${r1(b.y)},${r1(b.w)},${r1(b.h)}${b.color}`;
   return k;
 }
 
+// ——— Рисование ———
 /**
- * Ствол в руках по позе оружия игры (weaponPose: рукоять, угол, отражение, отдача, перезарядка, удар): рукоять
- * переводится в координаты силуэта линейно (дуло там же, где вспышка) и поднимается к груди на PIXEL.gunLift.
+ * Спрайт на экран: (ox, oy) — экранная точка начала координат силуэта (целая, с подскоком), k — px экрана на пиксель
+ * силуэта, shift — сдвиг по высоте в пикселях силуэта (руки к делу и ствол — вместе с корпусом), mirror — запад (ось —
+ * между пикселями cx и cx + 1). Угол спрайта — точно на сетке силуэта (без округления): пиксель силуэта всегда
+ * ложится на одни и те же пиксели экрана, в каком бы кадре и слое он ни был (без дрожания при дробном масштабе).
  */
-export function gunHold(c: Character, reloading: boolean, ang: number, swing: MeleeSwing | null = null): GunHold | null {
-  if (!c.weapon) return null;
-  const p = weaponPose(c, reloading, ang, swing);
-  const [x, y] = worldToFigure(p.x - c.x, p.y - c.y);
-  return { id: c.weapon, x, y: y - PIXEL.gunLift, ang: p.ang, flip: p.flip };
-}
-
-/** Угол ствола — шагами (кэш), как в ключе. */
-export function quantizeAngle(a: number): number {
-  const n = PIXEL.weapon.angleSteps;
-  return (Math.round((a / (Math.PI * 2)) * n) / n) * Math.PI * 2;
-}
-
-function cached(cache: LruCache<Sprite>, key: string, make: () => Grid | null, q: number): Sprite | null {
-  let spr = cache.get(key);
-  if (spr) {
-    pixelStats.hits++;
-    return spr === EMPTY ? null : spr;
-  }
-  const t = performance.now();
-  const g = make();
-  spr = g ? toSprite(g, q) : EMPTY;
-  cache.set(key, spr);
-  pixelStats.misses++;
-  pixelStats.composeMs += performance.now() - t;
-  return spr === EMPTY ? null : spr;
-}
-const EMPTY: Sprite = { cv: null as unknown as HTMLCanvasElement, sx: 0, sy: 0, sw: 0, sh: 0, x0: 0, y0: 0, q: 1 };
-const layers = new LruCache<Sprite>(PIXEL.cache.layers);
-const bodySprites = new LruCache<Sprite>(PIXEL.cache.sprites);
-
-function blit(ctx: CanvasRenderingContext2D, spr: Sprite, sx: number, sy: number, s: number, k: number, mirror = false): void {
-  const w = (spr.sw / spr.q) * k;
-  const h = (spr.sh / spr.q) * k;
-  const y = Math.round(sy + PIXEL.footY * s + (spr.y0 - PIXEL.ground) * k);
+function blit(ctx: CanvasRenderingContext2D, spr: Sprite, ox: number, oy: number, k: number, shift: number, mirror: boolean): void {
+  if (spr === EMPTY) return;
+  const w = spr.w * k;
+  const h = spr.h * k;
+  const y = oy + (spr.y0 + shift) * k;
   if (!mirror) {
-    ctx.drawImage(spr.cv, spr.sx, spr.sy, spr.sw, spr.sh, Math.round(sx + (spr.x0 - PIXEL.cx) * k), y, w, h);
+    ctx.drawImage(spr.cv, 0, 0, spr.w, spr.h, ox + spr.x0 * k, y, w, h);
     return;
   }
-  // Отражение вокруг оси силуэта (между пикселями cx и cx + 1 — как Grid.mirror).
-  const left = Math.round(sx + (2 * PIXEL.cx + 1 - spr.x0 - PIXEL.cx) * k - w);
-  ctx.save();
-  ctx.translate(left + w, y);
+  const x = ox + (2 * PIXEL.cx + 1 - spr.x0 - spr.w) * k;
+  ctx.translate(x + w, y);
   ctx.scale(-1, 1);
-  ctx.drawImage(spr.cv, spr.sx, spr.sy, spr.sw, spr.sh, 0, 0, w, h);
-  ctx.restore();
+  ctx.drawImage(spr.cv, 0, 0, spr.w, spr.h, 0, 0, w, h);
+  ctx.scale(-1, 1);
+  ctx.translate(-(x + w), -y);
+}
+
+/** Кисть на стволе — поверх модели: квадрат цвета руки с тёмной каймой в экранный пиксель. */
+function handRect(ctx: CanvasRenderingContext2D, h: Hand, ox: number, oy: number, k: number, far: boolean): void {
+  const size = Math.round(PIXEL.arm.hand * k);
+  const x = Math.round(ox + h.x * k - size / 2);
+  const y = Math.round(oy + h.y * k - size / 2);
+  ctx.fillStyle = PIXEL.weapon.ink;
+  ctx.fillRect(x - 1, y - 1, size + 2, size + 2);
+  ctx.fillStyle = far ? shade(h.color, -0.25) : h.color;
+  ctx.fillRect(x, y, size, size);
+}
+
+/** Моргание и речь — пиксели поверх лица (shift — корпус ниже: присел, сидит, выдох), по той же сетке, что спрайт. */
+function faceOverlay(ctx: CanvasRenderingContext2D, sp: PixelSpec, f: PixelFrame, ox: number, oy: number, k: number, shift: number): void {
+  if (!f.blink && !f.talk) return;
+  const spots = faceSpots(sp, f.dir === 'W' ? 'E' : (f.dir as BodyDir));
+  if (!spots) return;
+  const west = f.dir === 'W';
+  const at = (x: number, y: number, c: string) => {
+    const fx = west ? 2 * PIXEL.cx - x : x;
+    const x0 = Math.round(ox + fx * k);
+    const y0 = Math.round(oy + (y + shift) * k);
+    ctx.fillStyle = c;
+    ctx.fillRect(x0, y0, Math.max(1, Math.round(ox + (fx + 1) * k) - x0), Math.max(1, Math.round(oy + (y + shift + 1) * k) - y0));
+  };
+  if (f.blink) for (const [x, y] of spots.eyes) at(x, y, shade(sp.skin, -0.35));
+  if (f.talk) {
+    const [x, y] = spots.mouth;
+    const wide = f.dir === 'S' ? 2 : 1;
+    for (let i = 0; i < wide; i++) {
+      at(x + i, y, PIXEL.color.mouth);
+      at(x + i, y + 1, shade(PIXEL.color.mouth, -0.3));
+    }
+  }
 }
 
 /**
- * Нарисовать кадр пешки: (sx, sy) — центр персонажа на экране, s — масштаб вида (px экрана на px мира).
- * Тело и слой рук — из своих кэшей; холсты — целым множителем (чёткие пиксели), на экран — с уменьшением до
- * точного масштаба.
+ * Нарисовать кадр пешки: (sx, sy) — центр персонажа на экране, s — масштаб вида (px экрана на px мира). Тело —
+ * одним спрайтом; руки к делу, ствол и кисти — поверх (спиной к нам — за телом); подскок в шаг (bodyX, bodyY) —
+ * всей пешкой, целыми экранными пикселями. Учитывает текущее преобразование холста (лежащие — повёрнуты вызывающим).
  */
 export function drawPixelFrame(ctx: CanvasRenderingContext2D, look: PawnLook, f: PixelFrame, sx: number, sy: number, s: number): void {
   const sp = pixelSpecOf(look);
   const k = s * PIXEL.unit;
-  const q = Math.max(1, Math.ceil(k - 0.04));
-  if (f.gun) f.gun.ang = quantizeAngle(f.gun.ang);
-  const plan = planArms(sp, f);
+  const p = planArms(sp, f);
   const west = f.dir === 'W';
-  const body = cached(bodySprites, bodyKey(sp, f, plan.arms, q), () => composeBody(sp, west ? { ...f, dir: 'E' } : f, plan.arms), q)!;
-  const busy = !!plan.gripH || plan.work.length > 0 || f.sticks.length > 0 || f.boxes.length > 0;
-  const layer = busy ? cached(layers, layerKey(sp, f, plan, q), () => composeLayer(sp, f, plan), q) : null;
-  const prev = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = q - k > 0.05;
-  const back = f.dir === 'N';
-  if (layer && back) blit(ctx, layer, sx, sy, s, k);
-  blit(ctx, body, sx, sy, s, k, west);
-  if (layer && !back) blit(ctx, layer, sx, sy, s, k);
-  ctx.imageSmoothingEnabled = prev;
+  const bd: BodyDir = west ? 'E' : (f.dir as BodyDir);
+  const ox = Math.round(sx - PIXEL.cx * k) + (bd === 'E' ? Math.round((west ? -f.bodyX : f.bodyX) * k) : 0);
+  const oy = Math.round(sy + PIXEL.footY * s - PIXEL.ground * k) + Math.round(f.bodyY * k);
+  const uy = upperShift(f.legs, f.frame);
+  // Тело и руки к делу — из кэша; нового кадра ещё нет — пока прежний кадр этой пешки (догонит через кадр-другой).
+  const cut = f.cut === null ? null : f.cut - uy;
+  const tail = `${p.arms}|${f.cut ?? ''}`;
+  const body = layer(bodies, `${sp.key}|${bd}|${f.legs}${f.frame}|${tail}`, `B|${sp.key}|${bd}|${tail}`, `T|${sp.key}|${tail}`, () => composeBody(sp, f, p.arms));
+  const busy = p.gripH || p.work.length || f.sticks.length || f.boxes.length;
+  const action = busy
+    ? layer(actions, actionKey(sp, f, p, cut), `A|${sp.key}|${f.dir}|${f.gun?.id ?? ''}|${p.work.length}|${f.reload ? 'r' : ''}`, null, () => composeAction(sp, f, p, cut))
+    : null;
+  // Крупнее пикселя — без сглаживания (чёткие пиксели); мельче (камера далеко) — со сглаживанием, чтобы не терять.
+  const prevSmooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = k < 1;
+  const behind = bd === 'N';
+  if (behind) drawHeld(ctx, f, p, action, ox, oy, k, uy);
+  blit(ctx, body, ox, oy, k, 0, west);
+  if (!behind) drawHeld(ctx, f, p, action, ox, oy, k, uy);
+  faceOverlay(ctx, sp, f, ox, oy, k, uy);
+  ctx.imageSmoothingEnabled = prevSmooth;
+}
+
+/** Руки к делу (слой), ствол (модель) и кисти на нём — со сдвигом корпуса uy. */
+function drawHeld(ctx: CanvasRenderingContext2D, f: PixelFrame, p: ArmPlan, action: Sprite | null, ox: number, oy: number, k: number, uy: number): void {
+  if (action) blit(ctx, action, ox, oy, k, uy, false);
+  if (!f.gun) return;
+  const sm = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  ctx.save();
+  drawGun(ctx, f.gun.id, ox + f.gun.x * k, oy + (f.gun.y + uy) * k, f.gun.ang, f.gun.flip, k);
+  ctx.restore();
+  ctx.imageSmoothingEnabled = sm;
+  const hy = oy + Math.round(uy * k);
+  if (p.foreH) handRect(ctx, p.foreH, ox, hy, k, p.foreFar);
+  if (p.gripH) handRect(ctx, p.gripH, ox, hy, k, false);
+}
+
+/**
+ * Ствол в руках по позе оружия игры (weaponPose: рукоять, угол, отражение, отдача, перезарядка, удар): точка модели
+ * переводится в координаты силуэта линейно (как у фасолин) и поднимается к груди на PIXEL.gunLift.
+ */
+export function gunHold(c: Character, reloading: boolean, ang: number, swing: MeleeSwing | null = null): GunHold | null {
+  if (!c.weapon) return null;
+  const pw = weaponPose(c, reloading, ang, swing);
+  const [x, y] = worldToFigure(pw.x - c.x, pw.y - c.y);
+  return { id: c.weapon, x, y: y - PIXEL.gunLift, ang: pw.ang, flip: pw.flip };
 }
 
 const still = newFrame();
@@ -448,8 +535,33 @@ export function drawPixelSprite(ctx: CanvasRenderingContext2D, look: PawnLook, x
   drawPixelFrame(ctx, look, still, x, y, ps / PAWN.scale);
 }
 
-/** Для тестов и листов: сетка кадра без DOM (без ствола). */
-export function frameGrid(look: PawnLook, f: PixelFrame): Grid {
-  return composeFrame(pixelSpecOf(look), { ...f, gun: null });
+/**
+ * Кадр целиком в одной сетке без DOM (тесты, листы): тело и руки к делу (без ствола — он модель, не пиксели),
+ * подскок — целыми пикселями силуэта.
+ */
+export function composeFrame(sp: PixelSpec, f: PixelFrame): Grid {
+  const ff = { ...f, gun: null };
+  const p = planArms(sp, ff);
+  const west = f.dir === 'W';
+  const uy = upperShift(f.legs, f.frame);
+  const cut = f.cut === null ? null : f.cut - uy;
+  const g = new Grid(PIXEL.grid.w + 16, PIXEL.grid.h + 8);
+  g.ox = PIXEL.grid.ox + 8;
+  g.oy = PIXEL.grid.oy + 4;
+  const bx = west ? -Math.round(f.bodyX) : Math.round(f.bodyX);
+  const by = Math.round(f.bodyY);
+  const put = (layer: Grid | null, dx: number, dy: number) => {
+    if (layer) g.paste(layer, g.ox - layer.ox + dx, g.oy - layer.oy + dy);
+  };
+  const body = composeBody(sp, ff, p.arms);
+  const action = composeAction(sp, ff, p, cut);
+  if (f.dir === 'N') put(action, bx, by + uy);
+  put(west ? body.mirror() : body, bx, by);
+  if (f.dir !== 'N') put(action, bx, by + uy);
+  return g;
 }
 
+/** Для тестов и листов: сетка кадра без DOM. */
+export function frameGrid(look: PawnLook, f: PixelFrame): Grid {
+  return composeFrame(pixelSpecOf(look), f);
+}

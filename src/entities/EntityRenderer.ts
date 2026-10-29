@@ -21,7 +21,7 @@ import { animOf, isTalking, drawActionHands, drawBlanket, drawDust, drawGestureH
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached, drawPawnSprite } from './PawnCache';
 import { isPixelStyle } from './pixel/pawnStyle';
-import { HandRecorder, drawPixelFrame, gunHold, newFrame } from './pixel/pixelPawn';
+import { HandRecorder, bodyOffset, breathing, drawPixelFrame, gunHold, newFrame, pixelFrameEnd, pixelFrameStart } from './pixel/pixelPawn';
 import { PIXEL } from '../config/pixelPawns';
 import type { PawnAnim } from './poses';
 import type { MeleeSwing } from './meleePose';
@@ -125,6 +125,7 @@ export class EntityRenderer {
     }
     shown.sort((a, b) => a.y - b.y);
     const W = PAWN.walk;
+    pixelFrameStart();
     for (const { c, x: gx, y: gy } of shown) {
       ctx.globalAlpha = c.visible ? 1 : 0.4;
       // Сторона — по походке (идёт — по ходу, боком — профилем; целится или стоит — куда смотрит).
@@ -293,16 +294,19 @@ export class EntityRenderer {
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
+    pixelFrameEnd();
     ctx.globalAlpha = 1;
   }
 
   private readonly rec = new HandRecorder();
   private readonly frame = newFrame();
+  /** Кто сейчас бежит (пиксельные пешки: порог бега с запасом). */
+  private readonly runners = new WeakMap<Character, boolean>();
 
   /**
    * Пиксельная пешка стоя (идёт, бежит, присела, сидит, в траншее): кадр — ноги по фазе шага, руки к оружию или к
    * делу (те же анимации poses.ts — записью вместо рисования), ствол по позе оружия. Лежит (спит, нокаут) — спрайт
-   * на боку. Смещения анимаций (выпад, отброс, дыхание, кивок) — целыми пикселями силуэта.
+   * на боку. Подскок в шаг и бег, выпад и отброс — всей пешкой, плавно (pixelPawn.bodyOffset); дыхание — кадром.
    */
   private pixelStanding(
     ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number,
@@ -325,17 +329,24 @@ export class EntityRenderer {
     f.gun = null;
     f.reload = false;
     f.dir = dir;
-    // Лица не видно (спиной) — без мимики; на ходу — без моргания и рта (меньше вариантов спрайта).
-    f.blink = dir !== 'N' && !walking && !!look.blink;
-    f.talk = dir !== 'N' && !walking && !!look.talk;
-    const run = walking && speed > CHARACTER.runSpeed * PIXEL.runFrom;
+    // Моргание и речь — пиксели поверх лица (спиной лица не видно — их и нет).
+    f.blink = !!look.blink;
+    f.talk = !!look.talk;
+    // Бег — с запасом в обе стороны (без мигания шаг/бег на пороге скорости).
+    const R0 = CHARACTER.runSpeed;
+    const was = this.runners.get(c) ?? false;
+    const run = walking && (was ? speed > R0 * PIXEL.runTo : speed > R0 * PIXEL.runFrom);
+    if (run !== was) this.runners.set(c, run);
     f.legs = c.crouch || an.kind === 'busy' ? 'crouch' : an.kind === 'sit' ? 'sit' : walking ? (run ? 'run' : 'walk') : 'stand';
+    // Цикл ног — по пройденному пути (два шага на цикл), бег — шире и реже.
     const n = f.legs === 'run' ? PIXEL.runFrames : PIXEL.walkFrames;
-    const cyc = (((c.stride / (2 * PAWN.walk.stride)) % 1) + 1) % 1;
-    // Стоит — дышит: на выдохе корпус на пиксель ниже (своя фаза у каждого).
-    const I = PAWN.anim.idle;
-    const breath = Math.sin((now / I.breathePeriod) * Math.PI * 2 + c.id * 1.7) > PIXEL.breathe;
-    f.frame = f.legs === 'walk' || f.legs === 'run' ? Math.floor(cyc * n) % n : f.legs === 'stand' && breath ? 1 : 0;
+    const len = f.legs === 'run' ? PIXEL.cycle.run : PIXEL.cycle.walk;
+    const phase = (((c.stride / len) % 1) + 1) % 1;
+    // Стоит — дышит: на выдохе корпус на пиксель ниже (кадр 1).
+    f.frame = f.legs === 'walk' || f.legs === 'run' ? Math.floor(phase * n) % n : f.legs === 'stand' && breathing(now, c.id) ? 1 : 0;
+    const [bx, by] = bodyOffset(f.legs, phase);
+    f.bodyX = bx;
+    f.bodyY = by;
     f.cut = c.trench ? PIXEL.trenchCut : null;
     const R = this.rec;
     R.reset();
@@ -349,10 +360,9 @@ export class EntityRenderer {
       f.gun = gunHold(c, reloading, hold, swing);
       f.reload = reloading;
     }
-    const k = s * PIXEL.unit;
-    const snap = (v: number) => Math.round(v / k) * k;
-    const sx = gx + snap(an.dx * ps + fl.dx * s);
-    const sy = gy + snap(an.dy * ps + fl.dy * s);
+    // Выпад, отброс от попадания, кивок — всей пешкой, плавно.
+    const sx = gx + an.dx * ps + fl.dx * s;
+    const sy = gy + an.dy * ps + fl.dy * s;
     drawPixelFrame(ctx, look, f, sx, sy, s);
     if (flash > 0) {
       ctx.globalCompositeOperation = 'lighter';

@@ -1,8 +1,9 @@
 /**
- * Пиксельный рисовальщик тела пешки (без DOM): ноги по позе (стоит, шаг, бег, присел, сидит), корпус с одеждой,
- * формой и бронёй, руки по бокам (машут в шаг), голова с лицом, причёской, убором и маской. Стороны S, E, N
- * (W — зеркало E). Руки к оружию и к делу рисует сборщик (pixelPawn) — здесь только «опущенные» руки по флагам.
- * Координаты — силуэта 24×36: центр x = 12, подошвы y = 34 (PIXEL.cx, PIXEL.ground).
+ * Пиксельный рисовальщик пешки (без DOM) — по слоям, каждый в своей сетке: ноги по позе (стоит, шаг, бег, присел,
+ * сидит), руки по бокам (машут в шаг), корпус с одеждой, формой, бронёй и головой (лицо, причёска, убор, маска),
+ * накидка за спиной. Слои собирает и двигает pixelPawn: корпус и руки поднимаются в шаг и дышат плавно (на экранные
+ * пиксели), ноги стоят на земле; ноги и руки одинаковой одежды — общие у разных пешек. Стороны S, E, N (W — зеркало E).
+ * Руки к оружию и к делу рисует сборщик. Координаты — силуэта 24×36: центр x = 12, подошвы y = 34.
  */
 import { PIXEL } from '../../config/pixelPawns';
 import { Grid, line, part, shade, type Pattern } from './grid';
@@ -11,15 +12,13 @@ import type { HeadGear, PixelSpec } from './pixelSpec';
 export type BodyDir = 'S' | 'E' | 'N';
 export type Legs = 'stand' | 'walk' | 'run' | 'crouch' | 'sit';
 
-export interface BodyPose {
+/** Поза ног: стоит, шаг или бег (кадр цикла), присел, сидит. */
+export interface LegPose {
   legs: Legs;
   /** Кадр шага или бега. */
   frame: number;
-  /** Руки по бокам: ARM_A — левая на экране (сбоку — ближняя), ARM_B — правая (сбоку — дальняя). */
-  arms: number;
-  blink: boolean;
-  talk: boolean;
 }
+/** Руки по бокам (флаги): ARM_A — левая на экране (сбоку — ближняя), ARM_B — правая (сбоку — дальняя). */
 export const ARM_A = 1;
 export const ARM_B = 2;
 
@@ -35,22 +34,11 @@ export function newGrid(): Grid {
 }
 
 /** Фаза шага по кадру: sin и cos. */
-function phase(pose: BodyPose): [number, number] {
+function phase(pose: LegPose): [number, number] {
   if (pose.legs !== 'walk' && pose.legs !== 'run') return [0, 0];
   const n = pose.legs === 'run' ? PIXEL.runFrames : PIXEL.walkFrames;
   const a = (2 * Math.PI * pose.frame) / n;
   return [Math.sin(a), Math.cos(a)];
-}
-
-/** Сдвиг корпуса (пиксели силуэта): выше на проходе ноги, на бегу — ещё и вперёд; присел и сел — ниже. */
-export function upperOffset(dir: BodyDir, pose: BodyPose): [number, number] {
-  if (pose.legs === 'crouch') return [0, 4];
-  if (pose.legs === 'sit') return [0, 3];
-  // Стоит: кадр 1 — выдох (корпус на пиксель ниже).
-  if (pose.legs === 'stand') return [0, pose.frame === 1 ? 1 : 0];
-  const [sw] = phase(pose);
-  const run = pose.legs === 'run';
-  return [run && dir === 'E' ? 1 : 0, -Math.round((1 - Math.abs(sw)) * (run ? 2 : 1))];
 }
 
 /** Плечи (откуда руки): S/N — левое и правое на экране; E — ближнее и дальнее. */
@@ -100,7 +88,7 @@ function lapels(sp: PixelSpec): boolean {
 }
 
 // ——— Ноги ———
-function legsSN(g: Grid, sp: PixelSpec, pose: BodyPose): void {
+function legsSN(g: Grid, sp: PixelSpec, pose: LegPose): void {
   const pat = camoOf(sp);
   const P = sp.pants;
   const B = sp.boots;
@@ -124,8 +112,9 @@ function legsSN(g: Grid, sp: PixelSpec, pose: BodyPose): void {
   const amp = pose.legs === 'run' ? PIXEL.stride.sideRunLift : PIXEL.stride.sideLift;
   const liftL = sw > 0 ? Math.round(sw * amp) : 0;
   const liftR = sw < 0 ? Math.round(-sw * amp) : 0;
-  part(g, 8, 22, 4, 9 - liftL, P, false, pat);
-  part(g, 12, 22, 4, 9 - liftR, P, false, pat);
+  // Ноги от строки 21 — под корпусом с запасом: корпус в шаг поднимается.
+  part(g, 8, 21, 4, 10 - liftL, P, false, pat);
+  part(g, 12, 21, 4, 10 - liftR, P, false, pat);
   part(g, 7, 31 - liftL, 5, 3, B, true);
   part(g, 12, 31 - liftR, 5, 3, B, true);
 }
@@ -133,18 +122,18 @@ function legsSN(g: Grid, sp: PixelSpec, pose: BodyPose): void {
 /** Нога сбоку: от бедра, ступня смещена на off (наклон по строкам), поднята на lift. */
 function legE(g: Grid, sp: PixelSpec, hip: number, off: number, lift: number, far: boolean, pat?: Pattern): void {
   const k = far ? PIXEL.shade.far : 0;
-  const rows = 9 - lift;
+  const rows = 10 - lift;
   for (let j = 0; j < rows; j++) {
-    const sh = Math.round((off * j) / 8);
+    const sh = Math.round((off * j) / 9);
     for (let i = 0; i < 4; i++) {
-      const base = pat?.(hip + sh + i, 22 + j) ?? sp.pants;
+      const base = pat?.(hip + sh + i, 21 + j) ?? sp.pants;
       const e = i === 0 ? 0.12 : i === 3 ? -0.2 : 0;
-      g.set(hip + sh + i, 22 + j, shade(base, Math.round((k + e) * 100) / 100));
+      g.set(hip + sh + i, 21 + j, shade(base, Math.round((k + e) * 100) / 100));
     }
   }
   part(g, hip + off, 31 - lift, 6, 3, shade(sp.boots, k), true);
 }
-function legsE(g: Grid, sp: PixelSpec, pose: BodyPose): void {
+function legsE(g: Grid, sp: PixelSpec, pose: LegPose): void {
   const pat = camoOf(sp);
   const far = (c: string) => shade(c, PIXEL.shade.far);
   if (pose.legs === 'crouch') {
@@ -179,20 +168,20 @@ function sleeveMarks(u: Grid, sp: PixelSpec, x: number, y: number, w: number, le
   if (sp.acc.has('chevrons')) { u.rect(x, y + 3, w, 1, sp.trim); u.rect(x, y + 5, w, 1, sp.trim); }
   if (!left && sp.acc.has('medic')) { u.rect(x, y + 2, w, 2, '#f2f2f2'); u.set(x + (w > 2 ? 1 : 0), y + 2, '#c93030'); }
 }
-function restArmsSN(u: Grid, sp: PixelSpec, pose: BodyPose, back: boolean): void {
+function restArmsSN(u: Grid, sp: PixelSpec, pose: LegPose, back: boolean, arms: number): void {
   const [sw] = phase(pose);
   const run = pose.legs === 'run';
   const a = Math.round(sw * (run ? 2 : 1));
   const base = run ? 7 : pose.legs === 'crouch' || pose.legs === 'sit' ? 7 : 9;
   const col = sleeveOf(sp);
   const pat = camoOf(sp);
-  if (pose.arms & ARM_A) {
+  if (arms & ARM_A) {
     const L = base - (back ? -a : a);
     part(u, 5, 14, 2, L, col, false, pat);
     sleeveMarks(u, sp, 5, 14, 2, !back);
     part(u, 5, 14 + L, 2, 2, sp.hand);
   }
-  if (pose.arms & ARM_B) {
+  if (arms & ARM_B) {
     const L = base + (back ? -a : a);
     part(u, 17, 14, 2, L, col, false, pat);
     sleeveMarks(u, sp, 17, 14, 2, back);
@@ -215,15 +204,15 @@ function armE(u: Grid, sp: PixelSpec, hx: number, len: number, far: boolean): vo
   if (!far) sleeveMarks(u, sp, 11, 14, 3, true);
   part(u, 11 + hx, 14 + len, 3, 2, shade(sp.hand, k));
 }
-function restArmsE(u: Grid, sp: PixelSpec, pose: BodyPose, far: boolean): void {
+function restArmsE(u: Grid, sp: PixelSpec, pose: LegPose, far: boolean): void {
   const [sw] = phase(pose);
   const run = pose.legs === 'run';
   const amp = run ? PIXEL.stride.run : PIXEL.stride.walk;
   const swing = Math.round(sw * amp * (run ? 0.9 : 0.6));
   const seated = pose.legs === 'crouch' || pose.legs === 'sit';
   const len = run ? 6 : seated ? 7 : 9;
-  if (far && pose.arms & ARM_B) armE(u, sp, seated ? 2 : swing, len, true);
-  if (!far && pose.arms & ARM_A) armE(u, sp, seated ? 2 : -swing, len, false);
+  if (far) armE(u, sp, seated ? 2 : swing, len, true);
+  else armE(u, sp, seated ? 2 : -swing, len, false);
 }
 
 // ——— Корпус ———
@@ -535,11 +524,9 @@ function extrasE(u: Grid, sp: PixelSpec): void {
 /** За спиной: накидка, ранец, баллон, длинные волосы (спереди и сбоку — то, что видно из-за корпуса). */
 function behind(g: Grid, sp: PixelSpec, dir: BodyDir): void {
   if (dir === 'S') {
-    if (sp.cape) part(g, 5, 13, 14, 15, shade(sp.cape, -0.1), true);
     if (sp.tank) part(g, 15, 9, 3, 5, sp.tank, true);
     if (sp.hairStyle === 'long' && sp.head !== 'hood') { part(g, 7, 7, 10, 7, shade(sp.hair, -0.1), true); }
   } else if (dir === 'E') {
-    if (sp.cape) part(g, 6, 13, 5, 15, shade(sp.cape, -0.1), true);
     if (sp.tank) part(g, 5, 11, 3, 11, sp.tank, true);
     if (sp.pack) { part(g, 5, 14, 5, 8, sp.pack, true); if (sp.acc.has('antenna')) line(g, 6, 13, 5, 6, '#16181b'); }
   }
@@ -556,18 +543,18 @@ function backGear(u: Grid, sp: PixelSpec): void {
 }
 
 // ——— Голова ———
-function faceS(u: Grid, sp: PixelSpec, pose: BodyPose): void {
+/** Лицо без мимики (моргание и рот — поверх, pixelPawn.faceOverlay). */
+function faceS(u: Grid, sp: PixelSpec): void {
   const sk = sp.skin;
   if (sp.stubble) { u.rect(9, 10, 6, 2, shade(sk, -0.12)); u.rect(10, 11, 4, 1, shade(sk, -0.18)); }
-  const eye = pose.blink ? shade(sk, -0.35) : INK;
-  u.set(10, 8, eye);
-  u.set(13, 8, eye);
-  if (!pose.blink) { u.set(10, 7, shade(sp.hair, 0.05)); u.set(13, 7, shade(sp.hair, 0.05)); }
+  u.set(10, 8, INK);
+  u.set(13, 8, INK);
+  u.set(10, 7, shade(sp.hair, 0.05));
+  u.set(13, 7, shade(sp.hair, 0.05));
   u.set(12, 9, shade(sk, -0.12));
   if (sp.wrinkles) { u.set(9, 9, shade(sk, -0.14)); u.set(14, 9, shade(sk, -0.14)); }
   if (sp.freckles) { u.set(10, 9, '#c08a6a'); u.set(13, 9, '#c08a6a'); }
-  if (pose.talk) { u.rect(11, 10, 2, 1, C.mouth); u.rect(11, 11, 2, 1, shade(C.mouth, -0.3)); }
-  else u.rect(11, 10, 2, 1, shade(sk, -0.3));
+  u.rect(11, 10, 2, 1, shade(sk, -0.3));
   if (sp.glasses) {
     u.rect(9, 8, 2, 1, '#9ab4cc');
     u.rect(13, 8, 2, 1, '#9ab4cc');
@@ -576,15 +563,14 @@ function faceS(u: Grid, sp: PixelSpec, pose: BodyPose): void {
     u.set(14, 8, '#2a2622');
   }
 }
-function faceE(u: Grid, sp: PixelSpec, pose: BodyPose): void {
+function faceE(u: Grid, sp: PixelSpec): void {
   const sk = sp.skin;
   u.set(16, 8, sk);
   u.set(16, 9, shade(sk, -0.12));
   if (sp.stubble) u.rect(13, 10, 3, 2, shade(sk, -0.12));
-  u.set(14, 8, pose.blink ? shade(sk, -0.35) : INK);
-  if (!pose.blink) u.set(14, 7, shade(sp.hair, 0.05));
-  if (pose.talk) { u.set(15, 10, C.mouth); u.set(15, 11, shade(C.mouth, -0.3)); }
-  else u.set(15, 10, shade(sk, -0.3));
+  u.set(14, 8, INK);
+  u.set(14, 7, shade(sp.hair, 0.05));
+  u.set(15, 10, shade(sk, -0.3));
   if (sp.wrinkles) u.set(13, 9, shade(sk, -0.14));
   u.set(11, 8, shade(sk, -0.16));
   if (sp.glasses) { u.rect(14, 8, 2, 1, '#9ab4cc'); u.rect(11, 8, 3, 1, '#2a2622'); }
@@ -828,12 +814,12 @@ function headgear(u: Grid, sp: PixelSpec, dir: BodyDir): void {
 }
 
 /** Голова целиком: волосы, лицо, маска, убор; ошейник и шея. */
-function headS(u: Grid, sp: PixelSpec, pose: BodyPose, back: boolean): void {
+function headS(u: Grid, sp: PixelSpec, back: boolean): void {
   const fullHelmet = sp.head === 'recon' || sp.head === 'marine';
   u.rect(10, 12, 4, 1, shade(sp.skin, -0.2));
   if (!fullHelmet) {
     part(u, 8, 5, 8, 7, sp.skin, true);
-    if (!back) faceS(u, sp, pose);
+    if (!back) faceS(u, sp);
     hairS(u, sp, back);
     maskS(u, sp, back);
   }
@@ -841,12 +827,12 @@ function headS(u: Grid, sp: PixelSpec, pose: BodyPose, back: boolean): void {
   headgear(u, sp, back ? 'N' : 'S');
   neckS(u, sp, back);
 }
-function headE(u: Grid, sp: PixelSpec, pose: BodyPose): void {
+function headE(u: Grid, sp: PixelSpec): void {
   const fullHelmet = sp.head === 'recon' || sp.head === 'marine';
   u.rect(10, 12, 3, 1, shade(sp.skin, -0.2));
   if (!fullHelmet) {
     part(u, 9, 5, 7, 7, sp.skin, true);
-    faceE(u, sp, pose);
+    faceE(u, sp);
     hairE(u, sp);
     maskE(u, sp);
   }
@@ -888,39 +874,60 @@ function neckE(u: Grid, sp: PixelSpec): void {
   if (sp.neck === 'shawl') part(u, 9, 13, 8, 3, c, true);
 }
 
-/**
- * Тело пешки на сторону (без контура — его даёт сборщик после рук и оружия). Ноги — в слое земли, корпус и
- * голова — в слое, который поднимается и опускается в шаг (upperOffset).
- */
-export function paintBody(sp: PixelSpec, dir: BodyDir, pose: BodyPose): Grid {
+/** Ноги на сторону и позу (без контура). */
+export function paintLegs(sp: PixelSpec, dir: BodyDir, pose: LegPose): Grid {
   const g = newGrid();
-  const u = g.blank();
-  const back = dir === 'N';
-  behind(g, sp, dir);
+  if (dir === 'E') legsE(g, sp, pose);
+  else legsSN(g, sp, pose);
+  return g;
+}
+
+/** Руки по бокам спереди или сзади (флаги ARM_A, ARM_B) — в позе ног (мах в шаг, короче присев и сидя). */
+export function paintArmsSN(sp: PixelSpec, dir: 'S' | 'N', pose: LegPose, arms: number): Grid {
+  const g = newGrid();
+  restArmsSN(g, sp, pose, dir === 'N', arms);
+  return g;
+}
+
+/** Рука сбоку: дальняя (за корпусом, темнее) или ближняя. */
+export function paintArmE(sp: PixelSpec, pose: LegPose, far: boolean): Grid {
+  const g = newGrid();
+  restArmsE(g, sp, pose, far);
+  return g;
+}
+
+/** Корпус и голова (без рук и ног): за спиной, одежда, броня, навесное, голова. */
+export function paintUpper(sp: PixelSpec, dir: BodyDir): Grid {
+  const u = newGrid();
+  behind(u, sp, dir);
   if (dir === 'E') {
-    legsE(g, sp, pose);
-    restArmsE(u, sp, pose, true);
     torsoE(u, sp);
     armorE(u, sp);
     extrasE(u, sp);
-    headE(u, sp, pose);
-    restArmsE(u, sp, pose, false);
+    headE(u, sp);
   } else {
-    legsSN(g, sp, pose);
-    restArmsSN(u, sp, pose, back);
+    const back = dir === 'N';
     torsoS(u, sp, back);
     armorS(u, sp, back);
     if (back) backGear(u, sp);
     extrasS(u, sp, back);
-    headS(u, sp, pose, back);
+    headS(u, sp, back);
   }
-  const [dx, dy] = upperOffset(dir, pose);
-  g.paste(u, dx, dy);
+  return u;
+}
+
+/** Накидка за спиной (позади рук и ног); сзади накидка — часть корпуса. Нет накидки — null. */
+export function paintBack(sp: PixelSpec, dir: BodyDir): Grid | null {
+  if (!sp.cape || dir === 'N') return null;
+  const g = newGrid();
+  if (dir === 'S') part(g, 5, 13, 14, 15, shade(sp.cape, -0.1), true);
+  else part(g, 6, 13, 5, 15, shade(sp.cape, -0.1), true);
   return g;
 }
 
-/** Ключ позы для кэша. */
-export function poseKey(pose: BodyPose): string {
-  return `${pose.legs}${pose.frame}${pose.arms}${pose.blink ? 'b' : ''}${pose.talk ? 't' : ''}`;
+/** Где на голове глаза и рот (моргание и речь поверх корпуса): спереди и сбоку; лица не видно — null. */
+export function faceSpots(sp: PixelSpec, dir: BodyDir): { eyes: [number, number][]; mouth: [number, number] } | null {
+  if (dir === 'N' || sp.head === 'recon' || sp.head === 'marine') return null;
+  if (sp.face && sp.face !== 'goggles') return null;
+  return dir === 'E' ? { eyes: sp.face ? [] : [[14, 8]], mouth: [15, 10] } : { eyes: sp.face ? [] : [[10, 8], [13, 8]], mouth: [11, 10] };
 }
-

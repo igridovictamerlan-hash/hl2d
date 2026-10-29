@@ -25,6 +25,9 @@ export type ArmorKind = 'vest' | 'flak' | 'recon' | 'marine' | 'plate' | 'chest'
 
 export interface PixelSpec {
   key: string;
+  /** Ключи общих слоёв: ноги (брюки, обувь, камуфляж) и руки (рукав, кисть, повязка, нашивки) — одинаковы у пешек в одной форме. */
+  legsKey: string;
+  armsKey: string;
   skin: string;
   hair: string;
   hairStyle: HairStyle;
@@ -113,6 +116,8 @@ function blank(look: PawnLook): PixelSpec {
   const short = style === 'bald' || style === 'short';
   return {
     key: '',
+    legsKey: '',
+    armsKey: '',
     skin: pick(PAWN.skins, kin, 3),
     hair: pick(PAWN.hairs, kin, 11),
     hairStyle: style,
@@ -481,6 +486,14 @@ export function pixelSpecOf(look: PawnLook): PixelSpec {
   return p;
 }
 
+/** Ключи общих слоёв ног и рук. */
+function layerKeys(p: PixelSpec): void {
+  const camo = p.camo?.join(',') ?? '';
+  const sleeve = p.topKind === 'undershirt' && !p.outer ? p.skin : p.sleeve;
+  p.legsKey = `${p.pants}|${p.boots}|${camo}`;
+  p.armsKey = `${sleeve}|${p.hand}|${p.band ?? ''}|${p.patch ?? ''}|${p.acc.has('chevrons') ? p.trim : ''}|${p.acc.has('medic') ? 1 : ''}|${camo}`;
+}
+
 /** Разбор без кэша (тесты, листы). */
 export function resolve(look: PawnLook): PixelSpec {
   const p = blank(look);
@@ -505,5 +518,6 @@ export function resolve(look: PawnLook): PixelSpec {
   if (p.head === 'hood' || p.head === 'kerchief' || p.head === 'ushanka' || p.head === 'beanie') {
     if (p.hairStyle === 'long' || p.hairStyle === 'bun') p.hairStyle = 'short';
   }
+  layerKeys(p);
   return p;
 }

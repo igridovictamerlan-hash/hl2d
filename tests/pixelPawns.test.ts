@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { lookCatalog } from '../src/dev/pixelLooks';
 import { resolve } from '../src/entities/pixel/pixelSpec';
-import { frameGrid, newFrame, unitX, unitY, HandRecorder, type PixelFrame } from '../src/entities/pixel/pixelPawn';
+import { bodyOffset, frameGrid, newFrame, unitX, unitY, upperShift, HandRecorder, type PixelFrame } from '../src/entities/pixel/pixelPawn';
 import { isPixelStyle, loadPawnStyle, pawnStyle, setPawnStyle } from '../src/entities/pixel/pawnStyle';
 import { PIXEL } from '../src/config/pixelPawns';
 import { drawHandProps } from '../src/entities/poses';
@@ -64,7 +64,10 @@ describe('пиксельные пешки', () => {
 
   it('присел — голова ниже; запад — зеркало востока; в траншее — по пояс', () => {
     const look = catalog.find((e) => e.title === 'Солдат')!.look;
+    expect(upperShift('crouch', 0)).toBe(4);
     expect(rows(frameGrid(look, frame('S', { legs: 'crouch' })))[0]).toBeGreaterThan(rows(frameGrid(look, frame('S')))[0]);
+    // Стоя на выдохе (кадр 1) — корпус на пиксель ниже.
+    expect(rows(frameGrid(look, frame('S', { frame: 1 })))[0]).toBe(rows(frameGrid(look, frame('S')))[0] + 1);
     const e = frameGrid(look, frame('E', { legs: 'walk', frame: 2 }));
     const w = frameGrid(look, frame('W', { legs: 'walk', frame: 2 }));
     const axis = 2 * (PIXEL.cx + e.ox);
@@ -79,12 +82,22 @@ describe('пиксельные пешки', () => {
     expect(rows(frameGrid(look, frame('S', { cut: PIXEL.trenchCut })))[1]).toBeLessThanOrEqual(PIXEL.trenchCut + 1);
   });
 
-  it('шаг: ноги в кадрах разные, на проходе ноги корпус выше', () => {
+  it('шаг: ноги в кадрах разные, подскок на проходе ноги — плавно, без скачков больше пикселя', () => {
     const look = catalog[0].look;
     const a = frameGrid(look, frame('E', { legs: 'walk', frame: 0 }));
     const b = frameGrid(look, frame('E', { legs: 'walk', frame: 2 }));
     expect(a.c.join()).not.toBe(b.c.join());
-    expect(rows(a)[0]).toBeLessThan(rows(b)[0]);
+    // Проход ноги (фаза 0) — корпус выше, чем на шаге (фаза ¼); бег — выше и с выносом вперёд.
+    expect(bodyOffset('walk', 0)[1]).toBeLessThan(bodyOffset('walk', 0.25)[1]);
+    expect(bodyOffset('run', 0)[1]).toBeLessThan(bodyOffset('walk', 0)[1]);
+    expect(bodyOffset('run', 0.3)[0]).toBeGreaterThan(0);
+    // Подъём меняется плавно: на 1/64 цикла — меньше десятой пикселя силуэта.
+    for (let t = 0; t < 1; t += 1 / 64) {
+      const d = Math.abs(bodyOffset('run', t + 1 / 64)[1] - bodyOffset('run', t)[1]);
+      expect(d).toBeLessThan(0.2);
+    }
+    // Кадров на цикл бега — не меньше, чем шага (ноги не прыгают через позы).
+    expect(PIXEL.runFrames).toBeGreaterThanOrEqual(PIXEL.walkFrames);
   });
 
   it('руки к делу: запись поз фасолины — сигарета у рта, рука от плеча', () => {
