@@ -9,6 +9,11 @@ import { ARBAT } from '../config/arbat';
 import { ZONE_NAMES } from '../config/names';
 import type { Poi } from './GameMap';
 import { rockRelief } from './relief';
+import { computeWindows, windowOn, type WindowSpot } from './windows';
+import { drawWindow, fillWindowGlass } from './WindowRenderer';
+import { LIGHTING } from '../config/lighting';
+import { HEIGHT_UNIT } from './shadows';
+import { ShadowRenderer, type SunState } from './ShadowRenderer';
 
 /** Дом в ряду вдоль улицы (POI facade) для отрисовки: цвет штукатурки и маркизы, вывеска. */
 interface FacadeLook {
@@ -91,6 +96,14 @@ export class MapRenderer {
   private readonly kiosks: readonly Poi[];
   /** Уступ скалы (world/relief.ts): 0 — подножие, выше — светлее; 255 — не скала. */
   private readonly relief: Uint8Array;
+  /** Окна (world/windows.ts) и окно на тайле стены (индекс в windows, -1 — нет); горящие ночью. */
+  readonly windows: WindowSpot[];
+  private readonly winAt: Int32Array;
+  private readonly litWindows: WindowSpot[];
+  /** Высота тайла для теней (этажи × HEIGHT_UNIT, world/ShadowRenderer.ts): дома, стены, укрытия; 0 — без тени. */
+  readonly heights: Uint8Array;
+  /** Тени от зданий по солнцу — запекаются в куски карты. */
+  private readonly shadows: ShadowRenderer;
 
   constructor(private readonly map: GameMap) {
     const { width: w, height: h } = map;
@@ -146,9 +159,52 @@ export class MapRenderer {
     this.floor = new Uint8Array(n);
     const seed = map.seed | 0;
     this.relief = rockRelief(map.tiles, w, h, seed);
+    this.windows = computeWindows(map);
+    this.winAt = new Int32Array(n).fill(-1);
+    this.windows.forEach((o, k) => (this.winAt[o.y * w + o.x] = k));
+    this.litWindows = this.windows.filter((o) => o.lit);
     this.placeChimneys(seed);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.computeTile(x, y);
     for (let i = 0; i < n; i++) if (map.tiles[i] === T.DOOR) this.doorTiles.push(i);
+    this.heights = new Uint8Array(n);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.heights[y * w + x] = this.heightOf(x, y);
+    this.shadows = new ShadowRenderer(map, this.heights);
+  }
+
+  /**
+   * Высота тайла в этажах × HEIGHT_UNIT (LIGHTING.storeys): дом в ряду вдоль улицы, стена жилой комнаты и глухая
+   * застройка — по полосе достатка, у каждого дома своя в пределах [от, до]; казённые здания, стена Протектората,
+   * руины, укрытия и прочее низкое. Скалы, вода, канализация — без тени.
+   */
+  private heightOf(x: number, y: number): number {
+    const map = this.map;
+    const i = y * map.width + x;
+    const H = LIGHTING.storeys;
+    const seed = map.seed | 0;
+    const range = (r: readonly [number, number], key: number) => r[0] + hash01(key, 211, seed) * (r[1] - r[0]);
+    let st = 0;
+    switch (map.tiles[i]) {
+      case T.WALL: {
+        const band = map.districtAt(x, y) ?? 'none';
+        const part = this.roofPart[i] & 7;
+        const fk = this.facadeOf[i];
+        if (fk >= 0) st = range(H.facade[band], fk);
+        else if (part === 4) st = range(H.house[band], this.parcel[i] >= 0 ? this.parcel[i] : i);
+        else if (part === 5) st = H.ruin;
+        else if ((H.civicZones as readonly string[]).includes(map.zoneAtTile(x, y)?.kind ?? '')) st = H.civic;
+        else st = range(H.block[band], this.parcel[i] >= 0 ? this.parcel[i] : i);
+        break;
+      }
+      case T.METAL: st = H.metal; break;
+      case T.BARRIER: {
+        const d = this.decor[i];
+        st = d === DECOR_KIOSK ? H.kiosk : d === DECOR_WOOD ? H.counter : d === DECOR_PLANTER ? H.planter : d === DECOR_PLAZA ? H.landmark : d === DECOR_FLOOR ? 0 : H.barrier;
+        break;
+      }
+      case T.HEDGE: st = H.hedge; break;
+      case T.DUGOUT_WALL: st = H.dugout; break;
+    }
+    return Math.min(255, Math.round(st * HEIGHT_UNIT));
   }
 
   private readonly roofColor = new Map<number, [number, number, number]>();
@@ -156,12 +212,17 @@ export class MapRenderer {
   /** Пересчитать тайл и соседей (игрок поставил/убрал блок). */
   refresh(tx: number, ty: number): void {
     for (let y = ty - 1; y <= ty + 1; y++) {
-      for (let x = tx - 1; x <= tx + 1; x++) if (this.map.inBounds(x, y)) this.computeTile(x, y);
+      for (let x = tx - 1; x <= tx + 1; x++) {
+        if (!this.map.inBounds(x, y)) continue;
+        this.computeTile(x, y);
+        this.heights[y * this.map.width + x] = this.heightOf(x, y);
+      }
     }
-    // Куски в кэше, которых касается изменение, — перерисовать.
+    // Куски в кэше, которых касается изменение (и куда достаёт его тень), — перерисовать.
     const n = RENDER.mapCache.chunk;
+    const r = this.shadows.reach + 1;
     for (const [key, c] of this.chunks) {
-      if (c.cx >= Math.floor((tx - 1) / n) && c.cx <= Math.floor((tx + 1) / n) && c.cy >= Math.floor((ty - 1) / n) && c.cy <= Math.floor((ty + 1) / n)) this.chunks.delete(key);
+      if (c.cx >= Math.floor((tx - r) / n) && c.cx <= Math.floor((tx + r) / n) && c.cy >= Math.floor((ty - r) / n) && c.cy <= Math.floor((ty + r) / n)) this.chunks.delete(key);
     }
   }
 
@@ -327,8 +388,10 @@ export class MapRenderer {
   }
 
 
-  /** Куски карты в кэше (LRU: порядок вставки в Map), ключ — кусок и уровень масштаба. */
+  /** Куски карты в кэше (LRU: порядок вставки в Map), ключ — кусок, уровень масштаба и солнце (SunState.key). */
   private readonly chunks = new Map<string, Chunk>();
+  /** Последний построенный ключ куска на уровне масштаба (`cx,cy,q`): пока новый не готов — показывается он. */
+  private readonly recent = new Map<string, string>();
   /** Все тайлы дверей — их состояние меняется, рисуются поверх кэша каждый кадр. */
   private readonly doorTiles: number[] = [];
 
@@ -338,9 +401,10 @@ export class MapRenderer {
    * тысячи заливок на кадр превращаются в пару десятков drawImage (при прицеле камера отъезжает,
    * тайлов на экране больше — раньше из-за этого кадр проседал). Не больше buildPerFrame новых
    * кусков за кадр: остальные этот кадр — растянутым куском другого уровня, если он есть, иначе
-   * напрямую. Двери — поверх, по состоянию.
+   * напрямую. Двери — поверх, по состоянию. f — доля суток для теней от солнца (null — без теней: канализация);
+   * солнце сдвинулось на шаг — куски строятся заново, до готовности виден прежний.
    */
-  draw(ctx: CanvasRenderingContext2D, v: View): void {
+  draw(ctx: CanvasRenderingContext2D, v: View, f: number | null = null): void {
     const map = this.map;
     const ts = map.tileSize;
     const s = v.scale;
@@ -363,6 +427,10 @@ export class MapRenderer {
     }
     const n = C.chunk;
     let budget: number = C.buildPerFrame;
+    // Солнце сдвинулось — прежний кусок ещё есть: обновлять понемногу (refreshPerFrame), пока виден прежний.
+    let refresh: number = C.refreshPerFrame;
+    const sun = f === null ? null : this.shadows.sunAt(f);
+    const sk = sun ? sun.key : -1;
     for (let cy = Math.floor(ty0 / n); cy <= Math.floor(ty1 / n); cy++) {
       for (let cx = Math.floor(tx0 / n); cx <= Math.floor(tx1 / n); cx++) {
         const ax = cx * n;
@@ -373,20 +441,26 @@ export class MapRenderer {
         const dy0 = Math.round((ay * ts - v.top) * s);
         const dx1 = Math.round((bx * ts - v.left) * s);
         const dy1 = Math.round((by * ts - v.top) * s);
-        const key = `${cx},${cy},${q}`;
+        const key = `${cx},${cy},${q},${sk}`;
         let c = this.chunks.get(key);
         if (c) {
           // LRU: свежий — в конец.
           this.chunks.delete(key);
           this.chunks.set(key, c);
-        } else if (budget > 0) {
-          budget--;
-          c = this.buildChunk(cx, cy, ax, ay, bx, by, q);
-          this.chunks.set(key, c);
-          if (this.chunks.size > C.max) this.chunks.delete(this.chunks.keys().next().value as string);
+        } else {
+          const prev = this.recent.get(`${cx},${cy},${q}`);
+          const stale = prev !== undefined && this.chunks.has(prev);
+          if (stale ? refresh > 0 : budget > 0) {
+            if (stale) refresh--;
+            else budget--;
+            c = this.buildChunk(cx, cy, ax, ay, bx, by, q, sun);
+            this.chunks.set(key, c);
+            this.recent.set(`${cx},${cy},${q}`, key);
+            if (this.chunks.size > C.max) this.chunks.delete(this.chunks.keys().next().value as string);
+          }
         }
-        // Нет в кэше и бюджет исчерпан — тот же кусок другого уровня (камера только что сменила
-        // масштаб: чуть мягче или резче один-два кадра лучше, чем рисовать десяток кусков напрямую).
+        // Нет в кэше и бюджет исчерпан — тот же кусок при прежнем солнце или другого уровня (камера только что
+        // сменила масштаб: чуть мягче или резче один-два кадра лучше, чем рисовать десяток кусков напрямую).
         c ??= this.fallback(cx, cy, q);
         if (c) ctx.drawImage(c.canvas, dx0, dy0, dx1 - dx0, dy1 - dy0);
         else this.paint(ctx, Math.max(ax, tx0), Math.max(ay, ty0), Math.min(bx - 1, tx1), Math.min(by - 1, ty1), v.left, v.top, s, false);
@@ -395,28 +469,55 @@ export class MapRenderer {
     this.drawDoors(ctx, v, tx0, ty0, tx1, ty1);
   }
 
-  /** Кусок (cx, cy) в кэше на любом уровне, кроме q: сперва ближайшие к q. */
+  /**
+   * Горящие окна ночью (после Lighting): стекло светится тёплым поверх затемнения. glow — 0..1 (свет ламп суток),
+   * f — доля суток (у каждого окна свой час отбоя — windowOn).
+   */
+  drawLitWindows(ctx: CanvasRenderingContext2D, v: View, glow: number, f: number): void {
+    const LW = LIGHTING.window;
+    const a = glow * LW.glow;
+    if (a <= 0.02) return;
+    const ts = this.map.tileSize;
+    const s = v.scale;
+    const tx0 = Math.floor(v.left / ts) - 1;
+    const ty0 = Math.floor(v.top / ts) - 1;
+    const tx1 = Math.ceil((v.left + v.width / s) / ts) + 1;
+    const ty1 = Math.ceil((v.top + v.height / s) / ts) + 1;
+    const X = (wx: number) => Math.round((wx - v.left) * s);
+    const Y = (wy: number) => Math.round((wy - v.top) * s);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = LW.glass;
+    for (const o of this.litWindows) {
+      if (o.x < tx0 || o.x > tx1 || o.y < ty0 || o.y > ty1 || !windowOn(o, f)) continue;
+      fillWindowGlass(ctx, o, X(o.x * ts), Y(o.y * ts), X((o.x + 1) * ts), Y((o.y + 1) * ts));
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** Последний построенный кусок (cx, cy): на уровне q (прежнее солнце), иначе на ближайшем к q уровне. */
   private fallback(cx: number, cy: number, q: number): Chunk | undefined {
     const L = RENDER.mapCache.levels;
     const i = L.indexOf(q);
-    for (let d = 1; d < L.length; d++) {
-      for (const j of [i + d, i - d]) {
+    for (let d = 0; d < L.length; d++) {
+      for (const j of d === 0 ? [i] : [i + d, i - d]) {
         if (j < 0 || j >= L.length) continue;
-        const c = this.chunks.get(`${cx},${cy},${L[j]}`);
+        const key = this.recent.get(`${cx},${cy},${L[j]}`);
+        const c = key === undefined ? undefined : this.chunks.get(key);
         if (c) return c;
       }
     }
     return undefined;
   }
 
-  /** Кусок карты в холст на масштабе q (двери — только основой, полотно рисуется поверх). */
-  private buildChunk(cx: number, cy: number, ax: number, ay: number, bx: number, by: number, q: number): Chunk {
+  /** Кусок карты в холст на масштабе q (двери — только основой, полотно рисуется поверх), с тенями от солнца sun. */
+  private buildChunk(cx: number, cy: number, ax: number, ay: number, bx: number, by: number, q: number, sun: SunState | null): Chunk {
     const ts = this.map.tileSize;
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round((bx - ax) * ts * q));
     canvas.height = Math.max(1, Math.round((by - ay) * ts * q));
     const g = canvas.getContext('2d')!;
     this.paint(g, ax, ay, bx - 1, by - 1, ax * ts, ay * ts, q, false);
+    if (sun) this.shadows.paint(g, ax, ay, bx, by, q, sun);
     return { canvas, cx, cy };
   }
 
@@ -847,12 +948,13 @@ export class MapRenderer {
             for (let k = 0; k < 4; k++) ctx.fillRect(x0 + ((cw * k) >> 2), y0 + ((ch * k) >> 2), cw >> 3, ch >> 2);
             break;
         }
-        // Тень от зданий (свет с северо-запада).
-        if (e & 31) {
+        // Контактная тень у подножия стен (с любой стороны; солнечные тени — ShadowRenderer).
+        if (e & 15) {
           ctx.fillStyle = P.shadow;
           if (e & 1) ctx.fillRect(x0, y0, cw, shadow);
-          if (e & 8) ctx.fillRect(x0, y0 + (e & 1 ? shadow : 0), shadow, ch - (e & 1 ? shadow : 0));
-          if (e & 16 && !(e & 1) && !(e & 8)) ctx.fillRect(x0, y0, shadow, shadow);
+          if (e & 4) ctx.fillRect(x0, y1 - shadow, cw, shadow);
+          if (e & 8) ctx.fillRect(x0, y0, shadow, ch);
+          if (e & 2) ctx.fillRect(x1 - shadow, y0, shadow, ch);
         }
       }
     }
@@ -860,7 +962,7 @@ export class MapRenderer {
     this.overlays(ctx, tx0, ty0, tx1, ty1, ox, oy, s);
   }
 
-  /** Стена дома вдоль улицы: контур, цоколь и окна (у лавок — витрина) по фасаду. */
+  /** Стена дома вдоль улицы: контур и цоколь по фасаду (окна и витрины — в overlays, world/windows.ts). */
   private facadeWall(ctx: CanvasRenderingContext2D, i: number, tx: number, ty: number, x0: number, y0: number, x1: number, y1: number, e: number, line: number, px: (w: number) => number): void {
     const F = RENDER.facade;
     const map = this.map;
@@ -886,31 +988,6 @@ export class MapRenderer {
     else if (dy < 0) ctx.fillRect(x0, y0, cw, pl);
     else if (dx > 0) ctx.fillRect(x1 - pl, y0, pl, ch);
     else ctx.fillRect(x0, y0, pl, ch);
-    // Рядом дверь или угол дома — без окна.
-    const [ax, ay] = [Math.abs(dy), Math.abs(dx)];
-    const side = (k: number) => map.tileAt(tx + ax * k, ty + ay * k);
-    if (side(-1) === T.DOOR || side(1) === T.DOOR || this.facadeOf[(ty + ay) * map.width + tx + ax] !== this.facadeOf[i] || this.facadeOf[(ty - ay) * map.width + tx - ax] !== this.facadeOf[i]) return;
-    const shop = b.p.use !== 'house';
-    const along = ax ? tx : ty;
-    if (!shop && along % F.windowEvery !== 0) return;
-    // Окно (витрина) у края к улице: вдоль фасада — ширина, вглубь — чуть меньше половины тайла.
-    const wl = shop ? 0.08 : 0.24;
-    const depth = shop ? 0.42 : 0.34;
-    const gap = 0.12;
-    const rx = (a: number, d: number, la: number, ld: number): [number, number, number, number] => {
-      // a — вдоль фасада (доля тайла), d — от края к улице вглубь стены.
-      if (dy !== 0) return [x0 + cw * a, dy > 0 ? y1 - ch * (d + ld) : y0 + ch * d, cw * la, ch * ld];
-      return [dx > 0 ? x1 - cw * (d + ld) : x0 + cw * d, y0 + ch * a, cw * ld, ch * la];
-    };
-    const [gx, gy, gw, gh] = rx(wl, gap, 1 - wl * 2, depth);
-    ctx.fillStyle = F.windowFrame;
-    ctx.fillRect(Math.round(gx) - line, Math.round(gy) - line, Math.round(gw) + line * 2, Math.round(gh) + line * 2);
-    ctx.fillStyle = shop ? F.vitrine : (this.noise[i] & 3) === 0 ? F.windowLit : F.window;
-    ctx.fillRect(Math.round(gx), Math.round(gy), Math.round(gw), Math.round(gh));
-    if (shop) {
-      ctx.fillStyle = F.vitrineGlint;
-      ctx.fillRect(Math.round(gx + gw * 0.15), Math.round(gy), Math.max(1, Math.round(gw * 0.12)), Math.round(gh));
-    }
   }
 
   /** Укрытие-мебель улицы и лавок: дерево прилавка и стола, ларёк, клумба. */
@@ -951,6 +1028,14 @@ export class MapRenderer {
     const X = (wx: number) => Math.round((wx - ox) * s);
     const Y = (wy: number) => Math.round((wy - oy) * s);
     const near = (p: Poi, m: number) => p.x - m <= tx1 && p.x + p.w! + m >= tx0 && p.y - m <= ty1 && p.y + p.h! + m >= ty0;
+    // Окна — поверх тайлов (подоконник, ящик с цветами и ставни выступают на улицу); соседи по краю куска — тоже.
+    const map = this.map;
+    for (let ty = Math.max(0, ty0 - 1); ty <= Math.min(map.height - 1, ty1 + 1); ty++) {
+      for (let tx = Math.max(0, tx0 - 1); tx <= Math.min(map.width - 1, tx1 + 1); tx++) {
+        const k = this.winAt[ty * map.width + tx];
+        if (k >= 0) drawWindow(ctx, this.windows[k], X(tx * ts), Y(ty * ts), X((tx + 1) * ts), Y((ty + 1) * ts));
+      }
+    }
     const text = (t: string, cx: number, cy: number, size: number, color: string) => {
       if (size < 5) return;
       ctx.font = `${F.signFont} ${Math.round(size)}px sans-serif`;

@@ -6,6 +6,7 @@ import type { CombatSystem } from '../systems/CombatSystem';
 import type { Barrel, Lamp } from '../systems/StreetLife';
 import { LIGHTING, type Rgb } from '../config/lighting';
 import { MEMORIALS } from '../config/memorials';
+import { SIDE_DX, SIDE_DY, windowOn, type WindowSpot } from './windows';
 
 /**
  * Источник света в мире: где, радиус (px мира), цвет, яркость; night — горит только в темноте
@@ -106,6 +107,29 @@ export function staticLights(
   return out;
 }
 
+/** Свет горящего окна: точка на мостовой перед окном (px мира), час отбоя и утреннего света (WindowSpot). */
+export interface WindowLight {
+  x: number;
+  y: number;
+  off: number;
+  wake: number;
+}
+
+/** Свет окон: по одному на горящее окно (у парного — на стыке половин), перед окном снаружи. */
+export function windowLights(windows: readonly WindowSpot[], tileSize: number): WindowLight[] {
+  const W = LIGHTING.window;
+  const out: WindowLight[] = [];
+  for (const o of windows) {
+    if (!o.lit || o.pair === 2) continue;
+    // Вдоль стены — середина окна (у парного — граница тайлов), поперёк — наружу от середины стены.
+    const along = o.pair === 1 ? 1 : 0.5;
+    const ax = SIDE_DY[o.out] !== 0 ? along : 0.5;
+    const ay = SIDE_DX[o.out] !== 0 ? along : 0.5;
+    out.push({ x: (o.x + ax + SIDE_DX[o.out] * W.spill) * tileSize, y: (o.y + ay + SIDE_DY[o.out] * W.spill) * tileSize, off: o.off, wake: o.wake });
+  }
+  return out;
+}
+
 const SPRITE = 64;
 
 /**
@@ -118,6 +142,7 @@ export class Lighting {
   /** Упрощённо (слабая машина): без свечения. */
   lite = false;
   private lights: Light[] = [];
+  private windows: WindowLight[] = [];
   /** Памятные места со свечами (Memorials.list — тот же массив): тёплое пятно света у каждого. */
   memorials: readonly { id: number; x: number; y: number; candles: number }[] = [];
   private lm: HTMLCanvasElement | null = null;
@@ -130,9 +155,10 @@ export class Lighting {
   private ambientKey = '';
   private ambientStyle = '';
 
-  /** Новая карта: собрать постоянные источники. */
-  setWorld(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[], dugouts: readonly { x: number; y: number; broken: boolean }[] = []): void {
+  /** Новая карта: собрать постоянные источники и свет окон. */
+  setWorld(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[], dugouts: readonly { x: number; y: number; broken: boolean }[] = [], windows: readonly WindowSpot[] = []): void {
     this.lights = staticLights(map, lamps, barrels, nodes, dugouts);
+    this.windows = windowLights(windows, map.tileSize);
   }
 
   /** Свет суток сейчас (для HUD и отрисовки уюта). */
@@ -226,6 +252,10 @@ export class Lighting {
       if (on <= L.lampsOn) continue;
       this.put(g, v, k, s.x, s.y, s.r, s.color, s.power * on * this.flick(s, time));
     }
+    // Окна: у каждого свой час отбоя.
+    const W = L.window;
+    const f = dayFraction(time);
+    if (lamps > L.lampsOn) for (const o of this.windows) if (windowOn(o, f)) this.put(g, v, k, o.x, o.y, W.radius, W.color, W.power * lamps);
     // Свечи на памятных местах: чем больше свечей, тем ярче; мерцают.
     const G = MEMORIALS.glow;
     for (const m of this.memorials) {

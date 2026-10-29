@@ -111,7 +111,7 @@ import type { CheckChoice } from '../ui/CheckPanel';
 import { DebugOverlay } from '../ui/DebugOverlay';
 import { Lighting, clockText, dayFraction } from '../world/Lighting';
 import { Ambience } from '../world/Ambience';
-import { COZY } from '../config/lighting';
+import { COZY, LIGHTING } from '../config/lighting';
 import { orgCrimes, orgOrder, orgStaff, orgSummary, orgWanted } from '../systems/CpOrg';
 import { ORG } from '../config/org';
 import { issuePassport } from '../systems/Passports';
@@ -538,7 +538,7 @@ export class Game {
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
     this.entityRenderer.senses = this.ai.senses;
-    this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes, this.war.dugouts.list);
+    this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes, this.war.dugouts.list, this.mapRenderer.windows);
     this.lighting.memorials = this.ai.memorials.list;
     this.ambience.setWorld(this.mapRenderer.chimneyPoints());
     this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
@@ -1415,7 +1415,8 @@ export class Game {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = RENDER.background;
     ctx.fillRect(0, 0, v.width, v.height);
-    this.mapRenderer.draw(ctx, v);
+    // Тени от зданий по солнцу (в кусках карты); без освещения солнце стоит, в канализации — без теней.
+    this.mapRenderer.draw(ctx, v, this.level === 'sewer' ? null : this.lighting.enabled ? dayFraction(this.time) : LIGHTING.sun.still);
     this.drawTerminal(v);
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
@@ -1444,6 +1445,7 @@ export class Game {
     this.ambience.drawSmoke(ctx, v);
     this.lighting.draw(ctx, v, this.time, this.player, this.combat, this.entities.list, sewer);
     this.lighting.drawBloom(ctx, v, this.time, sewer);
+    if (!sewer && this.lighting.enabled) this.mapRenderer.drawLitWindows(ctx, v, this.lighting.day(this.time).lamps, dayFraction(this.time));
     if (!sewer) this.arsenalView.drawGlow(ctx, v, this.ai.arsenal, this.law.now);
     if (!sewer) this.prisonView.drawGlow(ctx, v, this.ai.prison, this.law.now);
     if (!sewer) this.ambience.drawMotes(ctx, v, this.lighting.litLamps(), this.lighting.day(this.time).lamps, this.time);

@@ -121,16 +121,16 @@ export const RENDER = {
     ruinBrick: 'rgba(0,0,0,0.3)',
     ruinEdge: 'rgba(200,170,130,0.22)',
     speckle: 'rgba(0,0,0,0.18)',
-    /** Тень от зданий на пол (свет с северо-запада). */
-    shadow: 'rgba(0,0,0,0.38)',
-    shadowSize: 5,
+    /** Контактная тень на земле и полу у подножия стен (со всех сторон; тени от солнца — LIGHTING.sun). */
+    shadow: 'rgba(0,0,0,0.22)',
+    shadowSize: 2.5,
   },
   /**
    * Улица старого города (дома вдоль проспектов, лавки, ларьки — POI facade/kiosk/planter). У дома —
-   * свой цвет штукатурки из plaster (приглушённые пастели старой Европы), контур, окна по фасаду
-   * (window, раз в windowEvery тайлов), у лавок — витрина во всю ширину тайла и маркиза над входом
-   * (полосы awning, глубина awningDepth тайла над улицей) с вывеской; прилавки и столы — дерево.
-   * Проспект вымощен брусчаткой (cobble: камни cobbleW × cobbleH px со швами).
+   * свой цвет штукатурки из plaster (приглушённые пастели старой Европы), контур и цоколь по фасаду (окна и
+   * витрины — RENDER.windows), у лавок — маркиза над входом (полосы awning, глубина awningDepth тайла над
+   * улицей) с вывеской; прилавки и столы — дерево. Проспект вымощен брусчаткой (cobble: камни cobbleW × cobbleH
+   * px со швами).
    */
   facade: {
     plaster: [
@@ -140,12 +140,6 @@ export const RENDER = {
     noise: 1.5,
     line: 'rgba(40,28,20,0.6)',
     plinth: 'rgba(40,30,24,0.45)',
-    window: '#2b3440',
-    windowLit: '#6f5a3a',
-    windowFrame: 'rgba(255,248,235,0.75)',
-    windowEvery: 2,
-    vitrine: '#34414d',
-    vitrineGlint: 'rgba(210,230,255,0.35)',
     awning: [['#8a2f2a', '#e8dcc8'], ['#2f5d4a', '#e8dcc8'], ['#2c4a78', '#e8dcc8'], ['#7a5a26', '#efe2c4']] as readonly (readonly [string, string])[],
     awningDepth: 0.7,
     awningShade: 'rgba(0,0,0,0.25)',
@@ -175,6 +169,62 @@ export const RENDER = {
     },
     planter: { rim: '#8c8378', soil: '#4a3a2a', leaf: '#4f7a3a', leafDark: '#355a28', flowers: ['#d8594a', '#e8c14a', '#d98ab8', '#f2efe6'] as readonly string[] },
     cobble: { h: 30, s: 9, l: 31, noise: 2.5, joint: 'rgba(0,0,0,0.28)', w: 8, h2: 6 },
+  },
+  /**
+   * Окна (world/windows.ts — где, world/WindowRenderer.ts — рисунок): на стене между комнатой и улицей (переулок, двор,
+   * сад, площадь), не у угла и не у двери; только у домов, лавок и казённых зданий из zones. Вид — по полосе
+   * достатка: Слобода — маленькие в тёмной деревянной раме, ставни, заколоченные и битые; Старый город — светлая рама,
+   * каменный подоконник, шторы, ящики с цветами; Верхний город — широкие парные (два тайла) с переплётом. Лавки и кафе
+   * на улицу — витрины, столовая и штаб ТС — казённые в металлической раме.
+   * Размеры — px мира поперёк тайла (16): span — проём вдоль стены [от, до], glass — стекло поперёк стены [от внешней
+   * грани, до]; every — шаг окон по стене (тайлов), pair — окно на два тайла; looks — доли видов окна (по весу);
+   * lit — доля комнат, где ночью горит свет; sill — подоконник снаружи (null — нет).
+   */
+  windows: {
+    zones: ['residential', 'shop', 'canteen', 'cwu_hq'] as readonly string[],
+    style: {
+      slum: {
+        span: [3.5, 12.5], glass: [5.5, 10.5], every: 3, pair: false, frame: '#5b4230', pane: '#7f9aa3', sill: null,
+        looks: { plain: 0.4, shutters: 0.25, closed: 0.1, boarded: 0.15, broken: 0.1 }, lit: 0.5,
+      },
+      old: {
+        span: [2.5, 13.5], glass: [5, 11], every: 2, pair: false, frame: '#e6dcc6', pane: '#9dbccb', sill: '#a9a294',
+        looks: { curtains: 0.55, plain: 0.25, flowers: 0.15, closed: 0.05 }, lit: 0.65,
+      },
+      upper: {
+        span: [2.5, 13.5], glass: [5, 11], every: 3, pair: true, frame: '#f3efe4', pane: '#a6c6d6', sill: '#cfc7b6',
+        looks: { curtains: 0.6, flowers: 0.3, plain: 0.1 }, lit: 0.75,
+      },
+      shop: {
+        span: [1, 15], glass: [4, 12], every: 1, pair: false, frame: '#2e2b28', pane: '#4a6676', sill: null,
+        looks: { plain: 1 }, lit: 1,
+      },
+      civic: {
+        span: [2, 14], glass: [5, 11], every: 2, pair: false, frame: '#59626b', pane: '#93b0bf', sill: '#7d8389',
+        looks: { plain: 1 }, lit: 0.85,
+      },
+    },
+    /** Откосы проёма (тень в толще стены), блик на стекле, переплёт. */
+    reveal: 'rgba(0,0,0,0.26)',
+    glint: 'rgba(240,248,255,0.6)',
+    curtains: ['#9a3d3d', '#3e6e58', '#c4a55c', '#56598c', '#b06a88', '#dcd0b6', '#7a5235'] as readonly string[],
+    curtainFold: 'rgba(0,0,0,0.28)',
+    shutters: ['#4e6a48', '#55788a', '#6a4a30', '#7b3b2c', '#857e6c', '#3e4f6a'] as readonly string[],
+    shutterEdge: 'rgba(0,0,0,0.45)',
+    box: '#8b5234',
+    boxEdge: 'rgba(0,0,0,0.4)',
+    leaf: '#4f7a3a',
+    leafDark: '#355a28',
+    flowers: ['#d8594a', '#e8c14a', '#d98ab8', '#f2efe6', '#e07a3a'] as readonly string[],
+    plank: '#7c5c3c',
+    plankSeam: 'rgba(30,18,8,0.55)',
+    nail: '#2a2622',
+    broken: '#1e2428',
+    shard: 'rgba(215,232,242,0.8)',
+    /** Витрина: товар за стеклом (цветные пятна у внутренней грани). */
+    goods: ['#c9a25a', '#8c3b2e', '#4f6b3a', '#d8d0bc', '#5a6f8c'] as readonly string[],
+    /** Меньше этого (px экрана на тайл) — окно одной полосой стекла, без мелочей. */
+    detailMin: 9,
   },
   entity: {
     nameFont: '600 11px "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -432,9 +482,10 @@ export const RENDER = {
   /**
    * Кэш карты (world/MapRenderer): куски по chunk тайлов рисуются в холст на уровне масштаба —
    * ближайшем не меньшем из levels (пикселей холста на пиксель мира); в кэше не больше max кусков
-   * (старые уходят), новых — не больше buildPerFrame за кадр.
+   * (старые уходят), новых — не больше buildPerFrame за кадр; кусок с прежним солнцем (тени сдвинулись)
+   * обновляется не больше refreshPerFrame за кадр — до тех пор виден прежний.
    */
-  mapCache: { chunk: 16, levels: [0.35, 0.5, 0.71, 1, 1.41, 2, 2.83, 4] as readonly number[], max: 160, buildPerFrame: 6 },
+  mapCache: { chunk: 16, levels: [0.35, 0.5, 0.71, 1, 1.41, 2, 2.83, 4] as readonly number[], max: 160, buildPerFrame: 6, refreshPerFrame: 1 },
   crosshair: 'rgba(255,211,107,0.9)',
   /** Предел пикселей холста: на 4K/HiDPI рендерим в меньшем разрешении ради FPS. */
   maxCanvasPixels: 2560 * 1440,
