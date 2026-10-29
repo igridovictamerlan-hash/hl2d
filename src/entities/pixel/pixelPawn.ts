@@ -47,10 +47,12 @@ export interface PixelFrame {
   reload: boolean;
   /** В траншее — срезать ниже строки (координаты силуэта). */
   cut: number | null;
+  /** Крен, рад: поворот всей пешки вокруг подошв (по ходу, покачивание в шаг; плюс — по часовой). */
+  lean: number;
 }
 
 export function newFrame(): PixelFrame {
-  return { dir: 'S', legs: 'stand', frame: 0, bodyX: 0, bodyY: 0, blink: false, talk: false, gun: null, hands: [], sticks: [], boxes: [], reload: false, cut: null };
+  return { dir: 'S', legs: 'stand', frame: 0, bodyX: 0, bodyY: 0, blink: false, talk: false, gun: null, hands: [], sticks: [], boxes: [], reload: false, cut: null, lean: 0 };
 }
 
 // ——— Перевод координат ———
@@ -487,15 +489,26 @@ export function drawPixelFrame(ctx: CanvasRenderingContext2D, look: PawnLook, f:
   const action = busy
     ? layer(actions, actionKey(sp, f, p, cut), `A|${sp.key}|${f.dir}|${f.gun?.id ?? ''}|${p.work.length}|${f.reload ? 'r' : ''}`, null, () => composeAction(sp, f, p, cut))
     : null;
-  // Крупнее пикселя — без сглаживания (чёткие пиксели); мельче (камера далеко) — со сглаживанием, чтобы не терять.
+  // Крен — поворот всей пешки вокруг подошв. Крупнее пикселя без крена — без сглаживания (чёткие пиксели); мельче
+  // (камера далеко) и в крене — со сглаживанием (PIXEL.lean.smooth): иначе пиксели «шевелятся» при каждом угле.
+  const tilt = Math.abs(f.lean) > PIXEL.lean.min;
+  if (tilt) {
+    const fx = sx;
+    const fy = sy + PIXEL.footY * s;
+    ctx.save();
+    ctx.translate(fx, fy);
+    ctx.rotate(f.lean);
+    ctx.translate(-fx, -fy);
+  }
   const prevSmooth = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = k < 1;
+  ctx.imageSmoothingEnabled = k < 1 || (tilt && PIXEL.lean.smooth);
   const behind = bd === 'N';
   if (behind) drawHeld(ctx, f, p, action, ox, oy, k, uy);
   blit(ctx, body, ox, oy, k, 0, west);
   if (!behind) drawHeld(ctx, f, p, action, ox, oy, k, uy);
   faceOverlay(ctx, sp, f, ox, oy, k, uy);
   ctx.imageSmoothingEnabled = prevSmooth;
+  if (tilt) ctx.restore();
 }
 
 /** Руки к делу (слой), ствол (модель) и кисти на нём — со сдвигом корпуса uy. */

@@ -18,6 +18,8 @@ export interface PawnAnim {
   kind: PoseKind;
   /** Добавка к наклону, рад. */
   lean: number;
+  /** Из неё — покачивание стоя и сидя (вес с ноги на ногу), рад: пиксельные пешки его не берут (дышат кадром). */
+  sway: number;
   /** Множитель высоты (сжатие к ступням). */
   squash: number;
   /** Смещение вниз, px мира (сел, лёг). */
@@ -31,7 +33,7 @@ export interface PawnAnim {
   dy: number;
 }
 
-export const anim: PawnAnim = { kind: 'stand', lean: 0, squash: 1, drop: 0, lift: 0, feet: true, dx: 0, dy: 0 };
+export const anim: PawnAnim = { kind: 'stand', lean: 0, sway: 0, squash: 1, drop: 0, lift: 0, feet: true, dx: 0, dy: 0 };
 
 const TAU = Math.PI * 2;
 
@@ -55,6 +57,7 @@ export function animOf(c: Character, now: number, walking: boolean, aiming: bool
   const a = anim;
   a.kind = 'stand';
   a.lean = 0;
+  a.sway = 0;
   a.squash = 1;
   a.drop = 0;
   a.lift = 0;
@@ -90,14 +93,14 @@ export function animOf(c: Character, now: number, walking: boolean, aiming: bool
     a.kind = 'sit';
     a.squash = S.squash;
     a.drop = S.drop;
-    a.lean = Math.sin((now / S.period) * TAU + ph) * S.sway;
+    a.lean = a.sway = Math.sin((now / S.period) * TAU + ph) * S.sway;
     a.feet = false;
     if (isTalking(c, now)) a.lift = Math.max(0, Math.sin(now * A.talk.rate * 0.7 + ph)) * A.talk.bob;
     return impulses(c, now, a);
   }
   if (aiming || c.crouch) return impulses(c, now, a);
   const I = A.idle;
-  a.lean = Math.sin((now / I.period) * TAU + ph) * I.lean;
+  a.lean = a.sway = Math.sin((now / I.period) * TAU + ph) * I.lean;
   a.squash = 1 + I.breathe * Math.sin((now / I.breathePeriod) * TAU + ph * 0.7);
   a.lift = (0.5 + 0.5 * Math.sin((now / I.breathePeriod) * TAU + ph * 0.7)) * I.bob;
   if (isTalking(c, now)) a.lift += Math.max(0, Math.sin(now * A.talk.rate * 0.7 + ph)) * A.talk.bob;

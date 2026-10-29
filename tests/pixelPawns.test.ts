@@ -8,6 +8,9 @@ import { drawHandProps } from '../src/entities/poses';
 import type { Grid } from '../src/entities/pixel/grid';
 import type { Character } from '../src/entities/Character';
 import type { PawnDir } from '../src/entities/PawnRenderer';
+import { pixelLean } from '../src/entities/EntityRenderer';
+import { anim } from '../src/entities/poses';
+import { CHARACTER } from '../src/config/entities';
 
 /** Верхняя и нижняя занятые строки сетки (в координатах силуэта). */
 function rows(g: Grid): [number, number] {
@@ -98,6 +101,23 @@ describe('пиксельные пешки', () => {
     }
     // Кадров на цикл бега — не меньше, чем шага (ноги не прыгают через позы).
     expect(PIXEL.runFrames).toBeGreaterThanOrEqual(PIXEL.walkFrames);
+  });
+
+  it('крен: на бегу — вперёд по ходу, вверх/вниз — с ноги на ногу в такт шагу, стоя — ровно', () => {
+    const c = { gaitVx: CHARACTER.runSpeed, gaitVy: 0, limpUntil: 0 } as unknown as Character;
+    const still = { ...anim, lean: 0.02, sway: 0.02 };
+    // Стоит без дела — покачивание стоя не берёт: ровно (чёткие пиксели).
+    expect(pixelLean(c, still, 0, false, 0, 0, 0)).toBe(0);
+    // Бежит вправо — наклон вперёд (по часовой), влево — против.
+    expect(pixelLean(c, anim, 0, true, CHARACTER.runSpeed, 0, 0)).toBeGreaterThan(0.1);
+    const left = { ...c, gaitVx: -CHARACTER.runSpeed } as unknown as Character;
+    expect(pixelLean(left, anim, 0, true, CHARACTER.runSpeed, 0, 0)).toBeLessThan(-0.1);
+    // Идёт вниз — крен меняет знак на каждом шаге (четверть и три четверти цикла из двух шагов).
+    const down = { gaitVx: 0, gaitVy: CHARACTER.walkSpeed, limpUntil: 0 } as unknown as Character;
+    const a = pixelLean(down, anim, 0, true, CHARACTER.walkSpeed, 0.25, 0);
+    const b = pixelLean(down, anim, 0, true, CHARACTER.walkSpeed, 0.75, 0);
+    expect(a).toBeCloseTo(PIXEL.lean.sway);
+    expect(b).toBeCloseTo(-PIXEL.lean.sway);
   });
 
   it('руки к делу: запись поз фасолины — сигарета у рта, рука от плеча', () => {

@@ -200,7 +200,7 @@ export class EntityRenderer {
       const x = 0;
       let y = -footY - bob * ps;
       if (isPixelStyle()) {
-        // Пиксельная пешка: ноги, руки и оружие — в спрайте, без поворота (наклон и подъём — целыми пикселями).
+        // Пиксельная пешка: ноги, руки и оружие — в спрайте; крен — поворотом всей пешки у подошв.
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.pixelStanding(ctx, c, look, gx, gy, s, ps, now, an, fl, walking, lying, dir, hold, swing, fists, hand, armed, reloading, flash, marching ? sn : 0, speed);
         ctx.setTransform(1, 0, 0, 1, gx, gy + footY);
@@ -306,11 +306,13 @@ export class EntityRenderer {
   /**
    * Пиксельная пешка стоя (идёт, бежит, присела, сидит, в траншее): кадр — ноги по фазе шага, руки к оружию или к
    * делу (те же анимации poses.ts — записью вместо рисования), ствол по позе оружия. Лежит (спит, нокаут) — спрайт
-   * на боку. Подскок в шаг и бег, выпад и отброс — всей пешкой, плавно (pixelPawn.bodyOffset); дыхание — кадром.
+   * на боку. Подскок в шаг и бег, выпад и отброс — всей пешкой, плавно (pixelPawn.bodyOffset); дыхание — кадром;
+   * крен (pixelLean: по ходу на скорости, покачивание в такт пиксельным ногам, хромота, удары) — поворотом всей пешки у
+   * подошв.
    */
   private pixelStanding(
     ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, gx: number, gy: number, s: number, ps: number, now: number,
-    an: PawnAnim, fl: { dx: number; dy: number }, walking: boolean, lying: boolean, dir: PawnDir, hold: number,
+    an: PawnAnim, fl: { dx: number; dy: number; lean: number }, walking: boolean, lying: boolean, dir: PawnDir, hold: number,
     swing: MeleeSwing | null, fists: boolean, hand: string | null, armed: boolean, reloading: boolean, flash: number, sn: number, speed: number,
   ): void {
     if (lying) {
@@ -348,6 +350,7 @@ export class EntityRenderer {
     f.bodyX = bx;
     f.bodyY = by;
     f.cut = c.trench ? PIXEL.trenchCut : null;
+    f.lean = pixelLean(c, an, fl.lean, walking, speed, phase, now);
     const R = this.rec;
     R.reset();
     const busy = drawHandProps(R.ctx, c, look, 0, 0, 1, dir, now);
@@ -771,6 +774,25 @@ function scaleFont(font: string, dpr: number): string {
 }
 
 /** Гражданин-лоялист (не партизан в маскировке) — в светло-фиолетовой форме. */
+/**
+ * Крен пиксельной пешки, рад (PIXEL.lean): на ходу — вперёд по скорости (как у фасолины), покачивание с ноги на ногу
+ * в такт пиксельным ногам (phase — доля цикла из двух шагов): идёт вверх/вниз по экрану — сильнее (sway), боком —
+ * слегка (rock); хромает — сильнее на больную ногу. Удары, броски, попадания — тот же наклон, что у фасолины, без
+ * покачивания стоя и сидя (пиксельная дышит кадром и стоит ровно — чёткие пиксели).
+ */
+export function pixelLean(c: Character, an: PawnAnim, flinch: number, walking: boolean, speed: number, phase: number, now: number): number {
+  let lean = an.lean - an.sway + flinch;
+  if (!walking) return lean;
+  const L = PIXEL.lean;
+  const horiz = speed > 0 ? Math.abs(c.gaitVx) / speed : 0;
+  const amt = Math.min(1, speed / CHARACTER.walkSpeed);
+  const wave = Math.sin(phase * Math.PI * 2);
+  lean += Math.max(-L.forwardMax, Math.min(L.forwardMax, (c.gaitVx / CHARACTER.runSpeed) * L.forward));
+  lean += wave * amt * (L.sway * (1 - horiz) + L.rock * horiz);
+  if (c.limpUntil > now) lean += wave * PAWN.anim.limp.lean;
+  return lean;
+}
+
 export function isLoyalistUniform(c: Character): boolean {
   return c.faction === 'citizen' && !c.disguised && c.loyalty >= LOYALTY.uniform.min;
 }
