@@ -1285,14 +1285,16 @@ export class CitizenBrain implements Brain {
         let victim: Character | null = null;
         let bestD = Infinity;
         for (const o of ctx.entities.near(self.x, self.y, CRIME.npc.seek, near)) {
-          if (!ctx.crime.victimOk(self, o) || o.money < CRIME.npc.minMoney || o.profession === 'thief') continue;
+          if (!ctx.crime.pickpocketOk(self, o) || o.money < CRIME.npc.minMoney || o.profession === 'thief') continue;
           const d = Math.hypot(o.x - self.x, o.y - self.y);
           if (d < bestD) {
             bestD = d;
             victim = o;
           }
         }
-        return victim ? { kind: 'pickpocket', victim, left: CRIME.pickpocket.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0 } : null;
+        if (!victim) return null;
+        ctx.crime.stalk(self, victim);
+        return { kind: 'pickpocket', victim, left: CRIME.pickpocket.time, until: ctx.law.now + CRIME.npc.giveUp, repath: 0 };
       }
       case 'bandit': {
         // Тело ВС со стволом, не оцепленное и без ВС рядом, — обобрать (оружие Протектората дорогого стоит).
@@ -1998,6 +2000,7 @@ const WORK: State<CitizenBrain> = {
       if (job?.kind === 'haul' && !job.done) b.ctx.arsenal.abandon(b.self, job.task);
       if (job?.kind === 'armory' && !job.done) b.ctx.arsenal.abandonArmorer(b.self, job.task);
       if (job?.kind === 'supply') b.ctx.shops.releaseSupply(b.self);
+      if (job?.kind === 'pickpocket') b.ctx.crime.unstalk(b.self, job.victim);
       // Смена за прилавком или у котла окончена — перерыв.
       if (job?.kind === 'vend' || job?.kind === 'cookpot') {
         const S = ARBAT.staff;
@@ -2018,7 +2021,11 @@ const WORK: State<CitizenBrain> = {
       if (to) b.goToPoint(to);
       return;
     }
-    if (st === 'failed') return done();
+    if (st === 'failed') {
+      // К жертве не пройти — от неё вор отступается (к ней не сразу).
+      if (job.kind === 'pickpocket') b.ctx.crime.unstalk(b.self, job.victim, true);
+      return done();
+    }
     switch (job.kind) {
       case 'dispense': {
         if (!eco.open || (eco.dispenser && eco.dispenser !== b.self)) return done();
@@ -2348,11 +2355,17 @@ const WORK: State<CitizenBrain> = {
       case 'pickpocket': {
         const v = job.victim;
         const crime = b.ctx.crime;
-        if (!crime.victimOk(b.self, v) || b.ctx.law.now > job.until || b.cpInSight(200)) return done();
+        if (!crime.victimOk(b.self, v)) return done();
+        // Не вышло за отведённое время или рядом ВС — отступился: к этой жертве не сразу.
+        if (b.ctx.law.now > job.until || b.cpInSight(200)) {
+          crime.unstalk(b.self, v, true);
+          return done();
+        }
         // За спиной — тянется к карману, не отставая от идущей жертвы.
         if (crime.behind(b.self, v)) {
           if ((job.left -= dt) <= 0) {
             crime.pickpocket(b.self, v);
+            crime.unstalk(b.self, v);
             // Уходит быстрым шагом подальше.
             const away = b.goalAwayFrom(v.x, v.y);
             b.job = null;

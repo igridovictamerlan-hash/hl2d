@@ -470,7 +470,8 @@ describe('подполье группами', () => {
     // Исход боя трёх против четырёх SU.03 — дело случая (голова без шлема — смерть). Засаду перебили —
     // брошенный ящик берёт первый же партизан, дошедший до него.
     // (Экипаж мог и подобрать свои ящики после боя — тогда брать нечего.)
-    const crate = A.crates.find((c) => c.convoy);
+    // Брошенный — на земле вне склада и не ящик со стволами (их засада не берёт, Arsenal.lootConvoy).
+    const crate = A.looseOutside.find((c) => c.convoy);
     // (Всех партизан перебили — забирать некому.)
     const p = sim.entities.list.find((c) => c.alive && c.profession === 'partisan');
     if (sim.insurgency.stats.looted === 0 && crate && p) {

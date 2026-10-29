@@ -4,13 +4,14 @@ import type { Character } from '../../entities/Character';
 import { Mover } from '../Mover';
 import { faceMovement } from '../facing';
 import { dist } from '../../core/math';
+import { CHARACTER } from '../../config/entities';
 
 /**
  * Задержанный (NPC или игрок): идёт за конвоиром в наручниках, заходит в камеру, сидит,
  * после срока выходит за ворота Управы (из тюрьмы — за её ворота). Этапы задаёт LawSystem (law.phase).
  */
 export class PrisonerBrain implements Brain {
-  readonly mover = new Mover(95);
+  readonly mover = new Mover(CHARACTER.walkSpeed);
   /** Вышел за ворота после отсидки — LawSystem вернёт прежний мозг. */
   done = false;
   private repath = 0;

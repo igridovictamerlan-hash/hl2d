@@ -8,6 +8,7 @@ import { Gunner } from '../Gunner';
 import { faceMovement, turnTowards } from '../facing';
 import { poiWorld } from '../../systems/Population';
 import { LAW } from '../../config/law';
+import { CHARACTER } from '../../config/entities';
 import { Tactician } from '../Tactics';
 import { TACTICS } from '../../config/tactics';
 import { ARSENAL } from '../../config/arsenal';
@@ -23,7 +24,7 @@ export type OtaMode = 'reserve' | 'post' | 'home' | 'sortie';
  *    Dugouts закладывает заряд; бой по дороге — как обычно.
  */
 export class OtaBrain implements Brain {
-  readonly mover = new Mover(95);
+  readonly mover = new Mover(CHARACTER.walkSpeed);
   readonly gunner: Gunner;
   mode: OtaMode = 'reserve';
   front = -1;
@@ -108,7 +109,7 @@ export class OtaBrain implements Brain {
     }
     if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
       this.repath = 3;
-      this.mover.speed = 95;
+      this.mover.speed = CHARACTER.walkSpeed;
       const a = ctx.nav.nearestWalkable(p.x, p.y, 3);
       if (a >= 0) this.mover.goTo(self, ctx, a);
     }
@@ -130,7 +131,7 @@ export class OtaBrain implements Brain {
     } else if ((this.mode === 'post' && this.post) || (this.mode === 'sortie' && this.spot)) {
       const p = (this.mode === 'sortie' ? this.spot : this.post)!;
       const far = Math.hypot(p.x - self.x, p.y - self.y);
-      this.mover.speed = far > LAW.cpRunToPost ? LAW.cpRunSpeed : 95;
+      this.mover.speed = far > LAW.cpRunToPost ? LAW.cpRunSpeed : CHARACTER.walkSpeed;
       if (far < 14) {
         this.mover.stop();
         turnTowards(self, this.facing, dt, 3);
@@ -151,7 +152,7 @@ export class OtaBrain implements Brain {
         if (this.mode === 'home' && d < near + 30) this.mode = 'reserve';
         if (d > near && (this.repath <= 0 || st === 'idle' || st === 'failed')) {
           this.repath = 3;
-          this.mover.speed = 95;
+          this.mover.speed = CHARACTER.walkSpeed;
           const a = ctx.nav.nearestWalkable(g.x, g.y, 6);
           if (a >= 0) this.mover.goTo(self, ctx, a);
         } else if (d <= near && st === 'arrived') this.mover.stop();

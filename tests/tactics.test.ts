@@ -302,7 +302,10 @@ describe('тяжёлое ранение', () => {
     expect(r.law.handler).toBe(cp);
     expect(r.fit).toBe(true);
     expect(r.weapon).toBeNull();
+    // Сковал — и ведёт: в конвой переходит на своём следующем ходе (в том же тике мозг ещё в прежнем состоянии).
+    run(sim, 1, () => (cp.brain as CpBrain).fsm.current === 'escort');
     expect((cp.brain as CpBrain).fsm.current).toBe('escort');
+    expect(r.law.handler).toBe(cp);
     // Задержанного не обстреливают.
     expect(sim.combat.threat(cp, r)).toBe(false);
   });

@@ -6,6 +6,7 @@ import { CRIME } from '../config/crime';
 import { FACTIONS } from '../config/factions';
 import { CpBrain } from '../ai/brains/CpBrain';
 import { angleDiff, type Corpse } from './CombatSystem';
+import { T } from '../world/tiles';
 
 const near: Character[] = [];
 const DEG = Math.PI / 180;
@@ -19,7 +20,44 @@ export class CrimeSystem {
   /** Счётчики (тесты, отладка). */
   stats = { pickpockets: 0, robberies: 0, stolen: 0, hacks: 0, cries: 0, corpseLoots: 0 };
 
+  /** Кого пасёт вор: жертва → вор (одна жертва — один вор). */
+  private readonly stalkers = new Map<Character, Character>();
+  /** От кого вор отступился и до какого часа (время закона) к нему не вернётся. */
+  private readonly misses = new WeakMap<Character, { victim: Character; until: number }>();
+
   constructor(private readonly ctx: AiContext) {}
+
+  /**
+   * Карманнику подходит жертва: можно обокрасть, она на улице (в комнате за спину не зайти — воры топчутся у жертвы
+   * в тесном общежитии), её не пасёт другой вор (иначе несколько сбиваются в кучу в переулке) и от неё этот вор недавно
+   * не отступился (CRIME.npc.retry).
+   */
+  pickpocketOk(thief: Character, v: Character): boolean {
+    if (!this.victimOk(thief, v)) return false;
+    const map = this.ctx.map;
+    const tx = Math.floor(v.x / map.tileSize);
+    const ty = Math.floor(v.y / map.tileSize);
+    if (map.inBounds(tx, ty) && map.tiles[ty * map.width + tx] === T.INTERIOR) return false;
+    const miss = this.misses.get(thief);
+    if (miss && miss.victim === v && this.ctx.law.now < miss.until) return false;
+    const other = this.stalkers.get(v);
+    if (!other || other === thief) return true;
+    const job = (other.brain as { job?: { kind: string; victim?: Character } | null } | null)?.job;
+    if (other.alive && other.law.phase === 'none' && job?.kind === 'pickpocket' && job.victim === v) return false;
+    this.stalkers.delete(v);
+    return true;
+  }
+
+  /** Вор пошёл за жертвой. */
+  stalk(thief: Character, v: Character): void {
+    this.stalkers.set(v, thief);
+  }
+
+  /** Вор оставил жертву (украл или бросил); missed — не вышло: к ней не раньше CRIME.npc.retry с. */
+  unstalk(thief: Character, v: Character, missed = false): void {
+    if (this.stalkers.get(v) === thief) this.stalkers.delete(v);
+    if (missed) this.misses.set(thief, { victim: v, until: this.ctx.law.now + CRIME.npc.retry });
+  }
 
   /** Стоит ли вор за спиной у жертвы и рядом. */
   behind(thief: Character, victim: Character): boolean {

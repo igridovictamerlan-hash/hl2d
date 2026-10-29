@@ -1022,7 +1022,7 @@ export class RebelBrain implements Brain {
         const camp = poiWorld(ctx, 'rebel_camp');
         if (!camp) break;
         const inCamp = ctx.map.zoneAtWorld(self.x, self.y)?.kind === 'rebel_camp';
-        this.mover.speed = this.patrolling ? COMMAND.campPatrol.speed : inCamp ? 60 : CHARACTER.runSpeed * 0.6;
+        this.mover.speed = this.patrolling ? COMMAND.campPatrol.speed : inCamp ? COMMAND.campSpeed : CHARACTER.runSpeed * 0.6;
         // У костра — разговоры (наступление, погибшие, свои в тюрьме); пока говорят — стоят.
         if (inCamp && ctx.talk?.busy(self)) {
           this.mover.stop();

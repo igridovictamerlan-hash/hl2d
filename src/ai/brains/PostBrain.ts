@@ -4,10 +4,11 @@ import type { Character } from '../../entities/Character';
 import { Mover } from '../Mover';
 import { turnTowards } from '../facing';
 import type { Vec2 } from '../../core/math';
+import { CHARACTER } from '../../config/entities';
 
 /** Стоит на своём месте (Комендант в кабинете Управы). Отошёл/толкнули — возвращается. */
 export class PostBrain implements Brain {
-  readonly mover = new Mover(70);
+  readonly mover = new Mover(CHARACTER.npcWalkSpeed[0]);
   stateName = 'на посту';
   private retry = 0;
 

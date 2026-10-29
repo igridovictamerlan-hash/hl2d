@@ -1,11 +1,15 @@
-/** Параметры персонажей. Скорости — px/с. */
+/**
+ * Параметры персонажей. Скорости — px/с. Темп города: скорости шага (здесь, LAW.cpWalkSpeed, санитары, лагерь армии) —
+ * ×0,85 к прежним (игрок 95, NPC 62–84): спокойнее, меньше сутолоки в переулках. Бег (runSpeed, LAW.cpRunSpeed,
+ * перебежки армии) и граница «бега» для закона (LAW.runSpeed) — прежние: погони, бой и быстрый шаг не меняются.
+ */
 export const CHARACTER = {
   radius: 12,
-  walkSpeed: 95,
+  walkSpeed: 81,
   runSpeed: 170,
   /** Разгон/торможение, px/с². */
   accel: 1100,
-  npcWalkSpeed: [62, 84] as const,
+  npcWalkSpeed: [53, 71] as const,
   npcAccel: 600,
   maxHealth: 100,
   startMoney: 25,

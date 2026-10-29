@@ -26,7 +26,7 @@ export const PIXEL = {
    */
   walkFrames: 8,
   runFrames: 8,
-  cycle: { walk: 52, run: 76 },
+  cycle: { walk: 56, run: 84 },
   runFrom: 0.78,
   runTo: 0.62,
   /** Шаг: вынос ступни сбоку, подъём ступни; бег — шире и выше. */

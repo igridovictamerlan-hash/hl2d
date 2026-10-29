@@ -138,9 +138,10 @@ export const COMMAND = {
   /**
    * Жизнь лагеря между наступлениями: здоровый и снаряжённый боец со шансом chance вместо места у костра
    * идёт в обход вокруг лагеря — на dist[0]…dist[1] якорей от центра, шагом speed px/с, у точки обхода
-   * стоит pause с.
+   * стоит pause с. По лагерю (к костру, к палатке) — шагом campSpeed px/с.
    */
-  campPatrol: { chance: 0.5, dist: [9, 22] as const, speed: 80, pause: [1, 3] as const },
+  campPatrol: { chance: 0.5, dist: [9, 22] as const, speed: 68, pause: [1, 3] as const },
+  campSpeed: 51,
   /** HYDRA держится не дальше этого от главы (px). */
   escortRange: 90,
 } as const;
