@@ -179,7 +179,8 @@ describe('явки подполья', () => {
     expect(home.stash!.count('mp7')).toBe(1);
     expect(p.inventory.count('mp7')).toBe(ownGuns);
     // Ствол бандиту — из тайника.
-    const bandit = sim.entities.list.find((c) => c.profession === 'bandit' && c.brain instanceof CitizenBrain)!;
+    // Свободный бандит (не на проверке и не задержан — такому ствол не передают, armBandit).
+    const bandit = sim.entities.list.find((c) => c.profession === 'bandit' && c.alive && c.law.phase === 'none' && c.brain instanceof CitizenBrain)!;
     expect(sim.insurgency.armBandit(p, bandit)).toBe(true);
     expect(home.stash!.count('mp7')).toBe(0);
     expect(sim.insurgency.stats.fromStash).toBe(1);
