@@ -1,5 +1,16 @@
 import type { GameMap } from './GameMap';
 import type { Vec2 } from '../core/math';
+import { SOLID } from './tiles';
+
+/** Своя ссылка на таблицу: в горячих циклах — без обращения к импорту (в тестах он — через геттер). */
+const SOLID_T = SOLID;
+
+/** Непроходим ли тайл — то же, что GameMap.isSolid, без вызова (зовут десятки тысяч раз за тик). */
+function solidAt(map: GameMap, tx: number, ty: number): boolean {
+  if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return true;
+  const i = ty * map.width + tx;
+  return SOLID_T[map.tiles[i]] === 1 || map.doorLocked[i] === 1;
+}
 
 /**
  * Коллизии круг–тайлы. Ближайшая точка прямоугольника тайла к центру круга:
@@ -17,7 +28,7 @@ export function circleHitsSolid(map: GameMap, x: number, y: number, r: number): 
   const r2 = r * r;
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
-      if (!map.isSolid(tx, ty)) continue;
+      if (!solidAt(map, tx, ty)) continue;
       const cx = Math.max(tx * ts, Math.min(x, (tx + 1) * ts));
       const cy = Math.max(ty * ts, Math.min(y, (ty + 1) * ts));
       const dx = x - cx;
@@ -40,7 +51,7 @@ export function resolveCircleVsTiles(map: GameMap, pos: Vec2, r: number): boolea
     const y1 = Math.floor((pos.y + r) / ts);
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
-        if (!map.isSolid(tx, ty)) continue;
+        if (!solidAt(map, tx, ty)) continue;
         const rx = tx * ts;
         const ry = ty * ts;
         const cx = Math.max(rx, Math.min(pos.x, rx + ts));

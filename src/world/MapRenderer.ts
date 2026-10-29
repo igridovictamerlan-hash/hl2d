@@ -81,14 +81,14 @@ export class MapRenderer {
   /** Фонтаны и трибуны площади (рисуются поверх тайлов). */
   private landmarks: Poi[] = [];
   private machines: Poi[] = [];
-  private booths: Poi[] = [];
-  private borderGates: Poi[] = [];
-  private borderTables: Poi[] = [];
-  private borderNests: Poi[] = [];
-  private quays: Poi[] = [];
+  private booths: readonly Poi[] = [];
+  private borderGates: readonly Poi[] = [];
+  private borderTables: readonly Poi[] = [];
+  private borderNests: readonly Poi[] = [];
+  private quays: readonly Poi[] = [];
   private readonly decor: Uint8Array;
   private readonly cobble: Uint8Array;
-  private readonly kiosks: Poi[];
+  private readonly kiosks: readonly Poi[];
   /** Уступ скалы (world/relief.ts): 0 — подножие, выше — светлее; 255 — не скала. */
   private readonly relief: Uint8Array;
 

@@ -1,11 +1,48 @@
 import type { GameMap } from './GameMap';
+import { OPAQUE } from './tiles';
+
+/** Своя ссылка на таблицу: в горячем цикле — без обращения к импорту (в тестах он — через геттер). */
+const OPAQUE_T = OPAQUE;
 
 /**
  * Луч по сетке тайлов (DDA, Amanatides–Woo): расстояние до первого непрозрачного тайла
- * (стена, закрытая дверь) или maxDist. Стартовый тайл не проверяется.
+ * (стена, закрытая дверь) или maxDist. Стартовый тайл не проверяется. Проверка тайла — та же, что GameMap.isOpaque,
+ * но прямо в цикле: лучей обзора игрока сотни на тик, вызов функции на каждый тайл был заметной долей тика.
  */
 export function castRay(map: GameMap, ox: number, oy: number, dx: number, dy: number, maxDist: number): number {
-  return castRayWith(map, ox, oy, dx, dy, maxDist, (tx, ty) => map.isOpaque(tx, ty));
+  const ts = map.tileSize;
+  const W = map.width;
+  const H = map.height;
+  const tiles = map.tiles;
+  const closed = map.doorClosed;
+  const grate = map.grate;
+  const smoke = map.smoke;
+  let tx = Math.floor(ox / ts);
+  let ty = Math.floor(oy / ts);
+  const stepX = dx > 0 ? 1 : -1;
+  const stepY = dy > 0 ? 1 : -1;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+  let tMaxX = adx > 1e-9 ? (dx > 0 ? (tx + 1) * ts - ox : ox - tx * ts) / adx : Infinity;
+  let tMaxY = ady > 1e-9 ? (dy > 0 ? (ty + 1) * ts - oy : oy - ty * ts) / ady : Infinity;
+  const tDeltaX = adx > 1e-9 ? ts / adx : Infinity;
+  const tDeltaY = ady > 1e-9 ? ts / ady : Infinity;
+  for (;;) {
+    let t: number;
+    if (tMaxX < tMaxY) {
+      t = tMaxX;
+      tMaxX += tDeltaX;
+      tx += stepX;
+    } else {
+      t = tMaxY;
+      tMaxY += tDeltaY;
+      ty += stepY;
+    }
+    if (t >= maxDist) return maxDist;
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return t;
+    const i = ty * W + tx;
+    if (OPAQUE_T[tiles[i]] === 1 || (closed[i] === 1 && grate[i] === 0) || smoke[i] > 0) return t;
+  }
 }
 
 /** То же, но что останавливает луч, решает blocks(tx, ty, t) — например, пули и укрытия. */

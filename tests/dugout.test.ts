@@ -48,7 +48,7 @@ function mapOf(seed: number, type: CheckpointType): GameMap {
 type Rect = { x: number; y: number; w: number; h: number };
 // Оба КПП — у западной стены: порядок «Север», «Юг» (сверху вниз); зеркальным (пустошь с востока) был бы КПП с face 'E'.
 const cpRects = (map: GameMap): (Rect & { poi: Poi })[] =>
-  map.poisOf('checkpoint_type').sort((a, b) => a.y - b.y).map((p) => ({ x: p.x, y: p.y, w: p.w!, h: p.h!, poi: p }));
+  [...map.poisOf('checkpoint_type')].sort((a, b) => a.y - b.y).map((p) => ({ x: p.x, y: p.y, w: p.w!, h: p.h!, poi: p }));
 const inRect = (r: Rect) => (p: { x: number; y: number }) => p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
 
 /** Якоря 2×2, целиком лежащие на тайлах из набора kinds (центр якоря (ax, ay) — стык четырёх тайлов). */

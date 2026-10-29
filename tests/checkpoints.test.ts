@@ -42,7 +42,7 @@ function mapOf(seed: number, north: CheckpointType, south: CheckpointType = nort
 const SOLID_TEMPLATE_CHARS = new Set(['M', '#', 'B', 'Ж', '"', 'Σ']);
 
 /** Места КПП на карте: POI checkpoint_type (после пустоши координаты уже сдвинуты); оба у западной стены — порядок «Север», «Юг» (сверху вниз). */
-const cpPois = (map: GameMap): Poi[] => map.poisOf('checkpoint_type').sort((a, b) => a.y - b.y);
+const cpPois = (map: GameMap): Poi[] => [...map.poisOf('checkpoint_type')].sort((a, b) => a.y - b.y);
 
 /** Заливка якорей 2×2 внутри прямоугольника r от якоря (ax, ay), только по зонам из allowed (null — любым). */
 function floodIn(map: GameMap, r: { x: number; y: number; w: number; h: number }, from: [number, number], allowed: Set<number> | null): Uint8Array {

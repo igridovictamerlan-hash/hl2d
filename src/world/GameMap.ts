@@ -259,6 +259,8 @@ export interface HatchPair {
 }
 
 /** Карта города: сетка тайлов, сетка зон, точки интереса. Только данные и запросы. */
+const NO_POIS: readonly Poi[] = Object.freeze([]);
+
 export class GameMap {
   readonly worldWidth: number;
   readonly worldHeight: number;
@@ -379,11 +381,26 @@ export class GameMap {
     return this.zones.find((z) => z.kind === kind);
   }
 
-  poisOf(type: PoiType): Poi[] {
-    return this.pois.filter((p) => p.type === type);
+  private byType: Map<PoiType, Poi[]> | null = null;
+
+  /**
+   * POI одного типа в порядке карты — общий массив из кэша (POI после создания карты не меняются; зовут сотни раз за
+   * тик — фильтр всего списка на каждый вызов был заметной долей тика). Не менять.
+   */
+  poisOf(type: PoiType): readonly Poi[] {
+    if (!this.byType) {
+      const m = new Map<PoiType, Poi[]>();
+      for (const p of this.pois) {
+        const list = m.get(p.type);
+        if (list) list.push(p);
+        else m.set(p.type, [p]);
+      }
+      this.byType = m;
+    }
+    return this.byType.get(type) ?? NO_POIS;
   }
 
-  private districts: Poi[] | null = null;
+  private districts: readonly Poi[] | null = null;
 
   /** Полоса достатка тайла (по POI district), null — вне города или карта без полос. */
   districtAt(tx: number, ty: number): District | null {

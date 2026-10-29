@@ -1117,6 +1117,26 @@ export class Game {
     this.playerCtl.resolve(this.player, target, choice, this.ai);
   }
 
+  /** Где и когда (время боя) последний раз считали область видимости для тумана. */
+  private readonly sightAt = { x: NaN, y: NaN, r: 0, t: -1e9 };
+
+  /**
+   * Область видимости игрока для тумана (только отрисовка): пересчёт, когда игрок сдвинулся или сменился радиус, а стоит —
+   * раз в VISION.fogRefresh с (двери, дым). Кого видит игрок (Character.visible) — в тике логики, updateVisibility.
+   */
+  private refreshSight(): void {
+    const p = this.player;
+    const r = this.sightRadius;
+    const S = this.sightAt;
+    const now = this.combat.now;
+    if (p.x === S.x && p.y === S.y && r === S.r && now - S.t < VISION.fogRefresh && now >= S.t) return;
+    this.sight.compute(this.map, p.x, p.y, r, VISION.wallBleed);
+    S.x = p.x;
+    S.y = p.y;
+    S.r = r;
+    S.t = now;
+  }
+
   /** Кого видит игрок: прямая видимость до кружка в пределах дальности обзора. */
   /** Радиус обзора игрока: в канализации темно — видно меньше. */
   private get sightRadius(): number {
@@ -1126,7 +1146,6 @@ export class Game {
   private updateVisibility(): void {
     const p = this.player;
     const radius = this.sightRadius;
-    this.sight.compute(this.map, p.x, p.y, radius, VISION.wallBleed);
     const r2 = (radius + 20) ** 2;
     for (const c of this.entities.list) {
       if (c === p) {
@@ -1433,6 +1452,7 @@ export class Game {
     this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);
     this.effects.drawScanners(ctx, v, this.ai.scanners.list, alpha, this.law.now);
     this.aim.drawSwings(ctx, v, this.combat, alpha, showAll);
+    this.refreshSight();
     this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);
     this.particles.drawOver(ctx, v, this.combat);
     if (!sewer) this.arsenalView.drawShip(ctx, v, this.ai.arsenal, this.law.now);

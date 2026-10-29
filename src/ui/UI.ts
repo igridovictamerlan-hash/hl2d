@@ -161,6 +161,10 @@ export class UI {
     fit();
     window.addEventListener('resize', fit);
     this.dev.toggle(); // панель карты по умолчанию свёрнута — F2
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => this.placeLog(true)).observe(this.hud.el);
+      this.hudSized = true;
+    }
     bus.on('announce', ({ text }) => this.banner.show(text));
     bus.on('map:loaded', ({ source }) => {
       this.alert.reset();
@@ -174,10 +178,13 @@ export class UI {
    * Журнал — над HUD, какой бы высоты тот ни был; открыт чат — строка ввода там же, над ней вся
    * история журнала с прокруткой.
    */
-  private placeLog(): void {
-    const h = this.hud.el.offsetHeight;
+  private placeLog(resized = false): void {
     const chat = this.chat.isOpen;
     const touch = document.body.classList.contains('touch');
+    // Высоту HUD читаем, только когда что-то сменилось: чтение offsetHeight после правок DOM — перекладка страницы,
+    // на каждом тике это заметно (размер HUD отслеживает ResizeObserver).
+    if (!resized && this.hudSized && chat === this.chatShown && touch === this.touchShown) return;
+    const h = this.hud.el.offsetHeight;
     if (h === this.hudHeight && chat === this.chatShown && touch === this.touchShown) return;
     this.hudHeight = h;
     this.chatShown = chat;
@@ -197,6 +204,8 @@ export class UI {
 
   private chatShown = false;
   private touchShown = false;
+  /** Размер HUD отслеживается (ResizeObserver) — каждый тик его не читаем. */
+  private hudSized = false;
 
   setPaused(on: boolean): void {
     this.pauseEl.hidden = !on;

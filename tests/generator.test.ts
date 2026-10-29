@@ -231,7 +231,7 @@ describe('генератор переулочного города', () => {
         const ts = map.tileSize;
         // Город в полной карте сдвинут на ширину западных предгорий; проспекты кончаются у восточной стены.
         const xEnd = GENERATOR.wastes.west + WORLD.widthTiles - GENERATOR.border - 1;
-        const cps = map.poisOf('checkpoint_type').sort((a, b) => a.y - b.y);
+        const cps = [...map.poisOf('checkpoint_type')].sort((a, b) => a.y - b.y);
         expect(cps).toHaveLength(2);
         // Горизонтальные проспекты — зоны ZONE_NAMES.avenue[0] (главный) и [2] (второй), вертикальный — [1].
         const stats = (name: string) => {
