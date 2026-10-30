@@ -262,6 +262,227 @@ function drawLocal(g: Ctx, kind: FurnitureKind, a: number, b: number, v: number)
       g.strokeRect(5, 5, a - 10, b - 10);
       break;
     }
+    case 'coat_rack': {
+      // Стойка-вешалка: основание и пальто с шапкой на крючках.
+      g.beginPath();
+      g.arc(a / 2, b / 2, a / 2 - 0.8, 0, Math.PI * 2);
+      g.fillStyle = P.woodDark;
+      g.fill();
+      g.lineWidth = P.line;
+      g.strokeStyle = P.outline;
+      g.stroke();
+      for (let k = 0; k < 3; k++) {
+        const ang = (k / 3) * Math.PI * 2 + (v & 3);
+        g.beginPath();
+        g.ellipse(a / 2 + Math.cos(ang) * 2.4, b / 2 + Math.sin(ang) * 2.4, 2.4, 1.6, ang, 0, Math.PI * 2);
+        g.fillStyle = pick(P.blanket, v, k * 3);
+        g.fill();
+        g.lineWidth = 0.6;
+        g.stroke();
+      }
+      break;
+    }
+    case 'kitchen_counter': {
+      // Тумба: столешница, мойка с краном, разделочная доска.
+      box(g, 0, 0, a, b, P.porcelainShade, 1);
+      box(g, 0, 0, a, b - 2.5, P.porcelain, 1);
+      box(g, a * 0.12, 2, a * 0.36, b - 6.5, P.steel, 1.5);
+      g.fillStyle = P.water;
+      g.fillRect(a * 0.12 + 1.5, 3.5, a * 0.36 - 3, b - 9.5);
+      g.fillStyle = P.metalDark;
+      g.fillRect(a * 0.3 - 0.6, 0.6, 1.2, 2.6);
+      box(g, a * 0.6, 3, a * 0.28, b - 8, pick(P.wood, v), 0.8);
+      break;
+    }
+    case 'fridge': {
+      box(g, 0, 0, a, b, P.porcelain, 1.2);
+      g.fillStyle = P.porcelainShade;
+      g.fillRect(1.2, b * 0.38, a - 2.4, 0.8);
+      g.fillStyle = P.metalDark;
+      g.fillRect(a - 3.2, b * 0.48, 1, b * 0.3);
+      break;
+    }
+    case 'bathtub': {
+      box(g, 0, 0, a, b, P.porcelain, 4);
+      g.beginPath();
+      if (g.roundRect) g.roundRect(2, 2, a - 4, b - 4, 3.5);
+      else g.rect(2, 2, a - 4, b - 4);
+      g.fillStyle = P.water;
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      g.fillRect(4, 3.2, a * 0.4, 1);
+      g.fillStyle = P.steel;
+      g.fillRect(a - 4.5, b / 2 - 1, 3.2, 2);
+      break;
+    }
+    case 'toilet': {
+      box(g, 0.5, 0, a - 1, b * 0.36, P.porcelain, 1);
+      g.beginPath();
+      g.ellipse(a / 2, b * 0.66, a / 2 - 0.8, b * 0.32, 0, 0, Math.PI * 2);
+      g.fillStyle = P.porcelain;
+      g.fill();
+      g.lineWidth = P.line;
+      g.strokeStyle = P.outline;
+      g.stroke();
+      g.beginPath();
+      g.ellipse(a / 2, b * 0.68, a / 2 - 2.6, b * 0.18, 0, 0, Math.PI * 2);
+      g.fillStyle = P.porcelainShade;
+      g.fill();
+      break;
+    }
+    case 'sink': {
+      box(g, 0, 0, a, b, P.porcelain, 2);
+      g.beginPath();
+      g.ellipse(a / 2, b * 0.58, a / 2 - 2.2, b * 0.3, 0, 0, Math.PI * 2);
+      g.fillStyle = P.porcelainShade;
+      g.fill();
+      g.fillStyle = P.steel;
+      g.fillRect(a / 2 - 0.7, 0.6, 1.4, 2.6);
+      break;
+    }
+    case 'storage_rack': {
+      // Металлический стеллаж подсобки с коробками.
+      box(g, 0, 0, a, b, P.metalDark, 0.5);
+      g.fillStyle = P.metal;
+      g.fillRect(1, b / 2 - 0.4, a - 2, 0.8);
+      for (let k = 0; k < 4; k++) {
+        if ((v >> k) & 1) continue;
+        box(g, 2 + k * ((a - 4) / 4), 1.5, (a - 4) / 4 - 1.5, b / 2 - 2.5, pick(P.wood, v, k), 0.4);
+        box(g, 2 + k * ((a - 4) / 4), b / 2 + 1, (a - 4) / 4 - 1.5, b / 2 - 2.5, pick(P.wood, v, k + 4), 0.4);
+      }
+      break;
+    }
+    case 'register': {
+      box(g, 0, 0, a, b, P.register, 1);
+      g.fillStyle = P.registerKey;
+      for (let k = 0; k < 3; k++) g.fillRect(1.6 + k * 2.4, b * 0.55, 1.6, 1.4);
+      g.fillStyle = P.paper;
+      g.fillRect(a * 0.3, 0.8, a * 0.4, 2);
+      break;
+    }
+    case 'counter':
+    case 'bar': {
+      // Прилавок: стенка со стороны продавца, столешница, у бара — кофемашина и чашки.
+      const top = kind === 'bar' ? P.bar : wood;
+      box(g, 0, 0, a, b, P.woodDark, 1);
+      box(g, 0.8, 1.6, a - 1.6, b - 3, top, 1);
+      grain(g, 1, 2, a - 2, b - 4, true, v);
+      g.fillStyle = 'rgba(255,240,210,0.18)';
+      g.fillRect(1.5, b - 3.4, a - 3, 1);
+      if (kind === 'bar') {
+        box(g, 2, 2.5, 7, 5, P.steel, 1);
+        g.fillStyle = P.coffee;
+        g.fillRect(3.4, 4, 4, 2);
+        for (let k = 0; k < Math.min(4, Math.floor((a - 14) / 4)); k++) {
+          g.beginPath();
+          g.arc(13 + k * 4, b / 2, 1.4, 0, Math.PI * 2);
+          g.fillStyle = P.porcelain;
+          g.fill();
+          g.lineWidth = 0.5;
+          g.stroke();
+        }
+      }
+      break;
+    }
+    case 'glass_case': {
+      // Витрина со стеклом: рама, стекло (товар внутри дорисовывается по полкам лавки).
+      box(g, 0, 0, a, b, P.woodDark, 1);
+      g.fillStyle = P.shelfBoard;
+      g.fillRect(1.5, 1.5, a - 3, b - 3);
+      g.fillStyle = P.glass;
+      g.fillRect(2, 2, a - 4, b - 4);
+      g.strokeStyle = P.glassEdge;
+      g.lineWidth = 0.6;
+      g.strokeRect(2, 2, a - 4, b - 4);
+      g.fillStyle = 'rgba(255,255,255,0.45)';
+      g.fillRect(3, 2.6, a * 0.25, 0.8);
+      break;
+    }
+    case 'wall_shelf': {
+      box(g, 0, 0, a, b, P.shelfBack, 0.5);
+      g.fillStyle = P.shelfBoard;
+      g.fillRect(1, b * 0.45, a - 2, 1);
+      g.fillRect(1, b - 2.2, a - 2, 1.2);
+      break;
+    }
+    case 'gondola': {
+      // Островной стеллаж: две стороны полок, посередине — перегородка.
+      box(g, 0, 0, a, b, P.metal, 0.8);
+      g.fillStyle = P.metalDark;
+      g.fillRect(1, b / 2 - 0.6, a - 2, 1.2);
+      g.fillStyle = P.metalLight;
+      g.fillRect(1.5, 1.2, a - 3, 0.6);
+      g.fillRect(1.5, b - 1.8, a - 3, 0.6);
+      break;
+    }
+    case 'cooler': {
+      box(g, 0, 0, a, b, P.cooler, 1);
+      g.fillStyle = P.coolerTrim;
+      g.fillRect(0.8, 0.8, a - 1.6, 2);
+      g.fillStyle = P.glass;
+      g.fillRect(1.6, 3.6, a - 3.2, b - 5.4);
+      g.fillStyle = P.coolerTrim;
+      for (let x = a / 3; x < a - 1; x += a / 3) g.fillRect(x - 0.3, 3.6, 0.6, b - 5.4);
+      break;
+    }
+    case 'clothes_rail': {
+      // Вешалка: перекладина на двух стойках (одежда дорисовывается по полкам ателье).
+      g.fillStyle = P.rail;
+      g.fillRect(1.5, b / 2 - 0.6, a - 3, 1.2);
+      for (const x of [1, a - 3]) box(g, x, b / 2 - 2.5, 2, 5, P.rail, 0.5);
+      break;
+    }
+    case 'news_stand': {
+      box(g, 0, 0, a, b, pick(P.wood, v), 0.8);
+      g.fillStyle = P.woodDark;
+      for (let k = 1; k < 3; k++) g.fillRect(1, (b * k) / 3, a - 2, 0.7);
+      break;
+    }
+    case 'pegboard': {
+      box(g, 0, 0, a, b, P.pegboard, 0.5);
+      g.fillStyle = P.pegHole;
+      for (let x = 2.5; x < a - 1.5; x += 3) for (let y = 2; y < b - 1; y += 3) g.fillRect(x, y, 0.8, 0.8);
+      break;
+    }
+    case 'fitting_booth': {
+      // Примерочная: штанга у стены и задёрнутая шторка складками.
+      g.fillStyle = P.rail;
+      g.fillRect(0.5, 0.5, a - 1, 1.2);
+      const c = pick(P.curtain, v);
+      box(g, 0.8, 1.5, a - 1.6, b - 2.2, c, 1);
+      g.fillStyle = 'rgba(0,0,0,0.25)';
+      for (let x = 3; x < a - 2; x += 3) g.fillRect(x, 2, 0.6, b - 3.4);
+      break;
+    }
+    case 'mirror': {
+      box(g, 0, 0, a, b * 0.45, P.woodDark, 0.8);
+      g.fillStyle = P.mirror;
+      g.fillRect(1.6, 1, a - 3.2, b * 0.45 - 2);
+      g.fillStyle = 'rgba(255,255,255,0.6)';
+      g.fillRect(2.4, 1.4, 1, b * 0.45 - 2.8);
+      break;
+    }
+    case 'cafe_table': {
+      g.beginPath();
+      g.arc(a / 2, b / 2, Math.min(a, b) / 2 - 0.6, 0, Math.PI * 2);
+      g.fillStyle = wood;
+      g.fill();
+      g.lineWidth = P.line;
+      g.strokeStyle = P.outline;
+      g.stroke();
+      // Чашка и блюдце.
+      g.beginPath();
+      g.arc(a / 2 + 1.5, b / 2 - 1, 2, 0, Math.PI * 2);
+      g.fillStyle = P.porcelain;
+      g.fill();
+      g.lineWidth = 0.6;
+      g.stroke();
+      if (v & 1) {
+        g.fillStyle = P.paperStack;
+        g.fillRect(a / 2 - 4.5, b / 2 + 0.5, 4, 3);
+      }
+      break;
+    }
   }
 }
 

@@ -5,7 +5,21 @@ import { FURNITURE } from '../config/furniture';
 
 export type FurnitureKind =
   | 'bed' | 'bed_double' | 'cot' | 'nightstand' | 'bookshelf' | 'dresser' | 'stove' | 'crate' | 'plant'
-  | 'sofa' | 'armchair' | 'desk' | 'locker' | 'lamp' | 'chair' | 'wardrobe' | 'table' | 'card_table' | 'rug';
+  | 'sofa' | 'armchair' | 'desk' | 'locker' | 'lamp' | 'chair' | 'wardrobe' | 'table' | 'card_table' | 'rug'
+  | 'coat_rack' | 'kitchen_counter' | 'fridge' | 'bathtub' | 'toilet' | 'sink' | 'storage_rack' | 'register'
+  // Торговое оборудование (POI shop_fixture): прилавок, витрина со стеклом, барная стойка, стеллаж у стены, островной,
+  // холодильник-витрина, вешалка с одеждой, газетная стойка, перфопанель, примерочная, зеркало, столик кафе.
+  | 'counter' | 'glass_case' | 'bar' | 'wall_shelf' | 'gondola' | 'cooler' | 'clothes_rail' | 'news_stand' | 'pegboard'
+  | 'fitting_booth' | 'mirror' | 'cafe_table';
+
+/** Вид оборудования лавки (POI shop_fixture, sub) → предмет. */
+export const FIXTURE_FURNITURE: Record<string, FurnitureKind> = {
+  counter: 'counter', case: 'glass_case', bar: 'bar', shelf: 'wall_shelf', gondola: 'gondola', fridge: 'cooler',
+  rail: 'clothes_rail', stand: 'news_stand', pegboard: 'pegboard', booth: 'fitting_booth', mirror: 'mirror', table: 'cafe_table',
+};
+
+/** Сторона, куда обращено оборудование → сторона стены за ним (rot предмета: 0 — стена сверху). */
+const ROT_BEHIND: Record<string, 0 | 1 | 2 | 3> = { S: 0, W: 1, N: 2, E: 3 };
 
 /**
  * Предмет обстановки: прямоугольник в px мира (уже с поворотом) и сторона, к которой он
@@ -40,10 +54,29 @@ export function furnishMap(map: GameMap): Furniture[] {
   const out: Furniture[] = [];
   const ts = map.tileSize;
   const tables = map.poisOf('dorm_table');
+  const rooms = map.poisOf('room');
+  const fixtures = map.poisOf('shop_fixture');
+  const within = (q: Poi, p: Poi) => q.x >= p.x && q.y >= p.y && q.x + (q.w ?? 1) <= p.x + (p.w ?? 1) && q.y + (q.h ?? 1) <= p.y + (p.h ?? 1);
+  /** Рецепт по назначению и полосе достатка (kitchen_slum, …), иначе общий. */
+  const recipeOf = (kind: string, p: Poi) => {
+    const d = map.districtAt(p.x, p.y);
+    return d && FURNITURE.recipes[`${kind}_${d}`] ? `${kind}_${d}` : kind;
+  };
   for (const p of map.pois) {
     switch (p.type) {
       case 'home':
-        furnishRoom(map, p, p.kind === 'dorm' ? 'dorm' : p.kind === 'villa' ? 'villa' : 'home', out, []);
+        // Квартира и комната коммуналки обставлены по комнатам (POI room).
+        if (!p.kind && rooms.some((r) => within(r, p))) break;
+        furnishRoom(map, p, p.kind === 'dorm' ? 'dorm' : p.kind === 'villa' ? 'villa' : recipeOf('studio', p), out, []);
+        break;
+      case 'room': {
+        // Оборудование лавки уже стоит — вокруг него не загромождать.
+        const pre = fixtures.filter((f) => within(f, p)).map((f) => ({ x: f.x * ts, y: f.y * ts, w: (f.w ?? 1) * ts, h: (f.h ?? 1) * ts }));
+        furnishRoom(map, p, recipeOf(p.sub ?? 'room', p), out, pre);
+        break;
+      }
+      case 'shop_fixture':
+        fixtureItems(map, p, out);
         break;
       case 'dorm_common': {
         // Стол для карт уже стоит — вокруг него не загромождать.
@@ -115,6 +148,55 @@ export function furnishMap(map: GameMap): Furniture[] {
   return out;
 }
 
+/**
+ * Торговое оборудование: предмет во весь прямоугольник клеток (спиной к стене или к продавцу); у столика кафе —
+ * стулья с открытых сторон (до двух — друг напротив друга, если можно), на прилавке у места покупателя — касса.
+ */
+function fixtureItems(map: GameMap, p: Poi, out: Furniture[]): void {
+  const ts = map.tileSize;
+  const F = FURNITURE;
+  const kind = FIXTURE_FURNITURE[p.sub ?? ''];
+  if (!kind) return;
+  const pad = F.fixtures.inset;
+  const w = (p.w ?? 1) * ts;
+  const h = (p.h ?? 1) * ts;
+  const v = hash2(p.x, p.y, 23);
+  // Островное — по длинной стороне; у стены и прилавок — спиной к стене (продавцу).
+  const island = kind === 'gondola' || kind === 'cafe_table' || (kind === 'clothes_rail' && !map.isSolid(p.x - 1, p.y) && !map.isSolid(p.x + (p.w ?? 1), p.y));
+  const rot: 0 | 1 | 2 | 3 = island ? (w >= h ? 0 : 1) : ROT_BEHIND[p.face ?? 'S'] ?? 0;
+  if (kind === 'cafe_table') {
+    const s = Math.min(w, h) - 3;
+    const cx = p.x * ts + w / 2;
+    const cy = p.y * ts + h / 2;
+    out.push({ kind, x: cx - s / 2, y: cy - s / 2, w: s, h: s, rot: 0, variant: v });
+    const C = F.sizes.chair;
+    const open = ([[0, -1, 0], [0, 1, 2], [-1, 0, 3], [1, 0, 1]] as const).filter(([dx, dy]) => map.tileAt(p.x + dx, p.y + dy) === T.INTERIOR);
+    // Друг напротив друга, если можно; иначе — первые свободные стороны.
+    const pairs = open.filter(([dx, dy]) => open.some(([ex, ey]) => ex === -dx && ey === -dy));
+    for (const [dx, dy, r] of (pairs.length >= 2 ? pairs : open).slice(0, 2)) {
+      const x = cx + dx * (s / 2 + C[0] / 2 + 1) - C[0] / 2;
+      const y = cy + dy * (s / 2 + C[1] / 2 + 1) - C[1] / 2;
+      // Спинкой от стола (rot — сторона спинки).
+      out.push({ kind: 'chair', x, y, w: C[0], h: C[1], rot: r, variant: 0 });
+    }
+    return;
+  }
+  out.push({ kind, x: p.x * ts + pad, y: p.y * ts + pad, w: w - pad * 2, h: h - pad * 2, rot, variant: v });
+  if (kind === 'counter' || kind === 'glass_case' || kind === 'bar') {
+    // Касса — на клетке прилавка у места покупателя.
+    const front = map.poisOf('shop_front').find((q) => q.id === p.id);
+    if (!front) return;
+    for (let y = p.y; y < p.y + (p.h ?? 1); y++) {
+      for (let x = p.x; x < p.x + (p.w ?? 1); x++) {
+        if (Math.abs(x - front.x) + Math.abs(y - front.y) !== 1) continue;
+        const [a, b] = F.sizes.register;
+        out.push({ kind: 'register', x: (x + 0.5) * ts - a / 2, y: (y + 0.5) * ts - b / 2, w: a, h: b, rot: ROT_BEHIND[p.face ?? 'S'] ?? 0, variant: v });
+        return;
+      }
+    }
+  }
+}
+
 /** Расставить рецепт вдоль стен комнаты (пол — прямоугольник p в тайлах). */
 function furnishRoom(map: GameMap, p: Poi, recipe: string, out: Furniture[], pre: Box[]): void {
   const F = FURNITURE;
@@ -167,7 +249,7 @@ function furnishRoom(map: GameMap, p: Poi, recipe: string, out: Furniture[], pre
   // Стол со стульями посередине большой комнаты (в гостиной особняка — и ковёр).
   let k = 0;
   const T0 = F.table;
-  const withTable = (recipe === 'home' || recipe === 'villa_living' || recipe === 'dorm' || recipe === 'cwu_lounge') && (p.w ?? 1) >= T0.min[0] && (p.h ?? 1) >= T0.min[1];
+  const withTable = /^(home|villa_living|dorm|cwu_lounge|kitchen|living|room|studio)/.test(recipe) && (p.w ?? 1) >= T0.min[0] && (p.h ?? 1) >= T0.min[1];
   if (recipe === 'cwu_canteen') {
     // Столовая: ряд столов посередине, у каждого — стулья сверху и снизу.
     const C = F.sizes.chair;
@@ -186,7 +268,7 @@ function furnishRoom(map: GameMap, p: Poi, recipe: string, out: Furniture[], pre
       }
     }
   }
-  if (recipe === 'villa_living' || (recipe === 'home' && (p.w ?? 1) >= 6 && (p.h ?? 1) >= 4)) {
+  if (recipe === 'villa_living' || /^living|bedroom_upper/.test(recipe) || (/^(home|studio)/.test(recipe) && !recipe.endsWith('_slum') && (p.w ?? 1) >= 6 && (p.h ?? 1) >= 4)) {
     const rw = Math.min(R.w - 20, 64);
     const rh = Math.min(R.h - 20, 44);
     if (rw > 20 && rh > 16) out.push({ kind: 'rug', x: R.x + (R.w - rw) / 2, y: R.y + (R.h - rh) / 2, w: rw, h: rh, rot: 0, variant: hash2(seed, 1, 13) });

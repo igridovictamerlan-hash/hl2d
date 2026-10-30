@@ -483,12 +483,20 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     ...(layout.vAvenue ? avenueFrontages(layout.vAvenue, false) : []),
     ...arteryRects.flatMap((rects, k) => arteryFrontages(rects, streets.arteries[k].width)),
   ];
+  // Полоса достатка тайла — для планировки квартир (generator/interiors.ts). Перегородки и оборудование по планировке
+  // ставятся после связности (later): детали застройки, городок и тоннели читают тайлы, и перегородка внутри дома
+  // меняла бы город вокруг.
+  const districtAt = (x: number) => districtOfX(layout, x);
+  const later: (() => void)[] = [];
   buildFacades(g, rng.fork(12), {
     frontages,
     plazaCenter: pc,
     addZone: (kind, name) => (kind === 'shop' && name === ZONE_NAMES.shop ? zShop : addZone(kind, name, null)),
     pois,
     upperX: layout.upperX + G.wealth.wall,
+    district: districtAt,
+    seed: seed + attempt,
+    later,
   });
   const decor = rng.fork(13);
   // От проходных западных КПП до восточного конца проспектов.
@@ -508,11 +516,13 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
   });
 
   // 5б. Городок: часть участков застройки у переулков — жилые дома с комнатой и дверью.
-  addHomes(g, rng.fork(10), seed + attempt, (x, y) => zoneKindAt(x, y) === 'residential', pois);
+  addHomes(g, rng.fork(10), seed + attempt, (x, y) => zoneKindAt(x, y) === 'residential', pois, districtAt, later);
 
   // 6. Связность.
   const center = pois.find((p) => p.type === 'plaza_center')!;
   const conn = ensureConnectivity(g, center.x, center.y, G.connectivity);
+  // 6б. Планировка помещений: перегородки, двери между комнатами, прилавки и стеллажи (план проходим сам по себе).
+  for (const f of later) f();
 
   const stats: MapStats = {
     seed,

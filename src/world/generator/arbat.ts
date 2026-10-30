@@ -3,8 +3,10 @@ import type { Rect } from '../../core/math';
 import { GENERATOR } from '../../config/generator';
 import { ARBAT } from '../../config/arbat';
 import { T, SOLID } from '../tiles';
-import type { FacadeUse, Poi, ZoneKind } from '../GameMap';
+import type { District, FacadeUse, Poi, ZoneKind } from '../GameMap';
 import type { GenGrid } from './GenGrid';
+import { hash2 } from '../../core/rng';
+import { CELL, planHome, planShop, sideStep, type Plan, type Side } from './interiors';
 import { avenueSegAt, type Avenue } from './layout';
 import type { Lattice } from './lattice';
 
@@ -159,6 +161,15 @@ export interface FacadeOptions {
   pois: Poi[];
   /** Где начинается Верхний город (тайлы, за стеной): там — лавки ARBAT.upperShops; нет — не ставятся. */
   upperX?: number;
+  /** Полоса достатка тайла (планировка квартир) и зерно планировок (без него — дом в одну комнату, как прежде). */
+  district?: (x: number, y: number) => District | null;
+  seed?: number;
+  /**
+   * Куда отложить перегородки и оборудование по планировке (генератор вызовет после связности); нет — сразу. До того
+   * в тайлах дом как без планировки: детали застройки, городок и тоннели читают тайлы, и перегородка внутри дома
+   * меняла бы город вокруг.
+   */
+  later?: (() => void)[];
 }
 
 /**
@@ -422,9 +433,8 @@ function finish(g: GenGrid, rng: Rng, b: FacadeBuilding, o: FacadeOptions): void
     const p = cell(c, k);
     g.set(p.x, p.y, T.BARRIER, true);
   };
-  /** Прилавок в ряду k во всю ширину, кроме прохода в 2 тайла у одного края. */
-  const counter = (k: number) => {
-    const gapLeft = rng.chance(0.5);
+  /** Прилавок в ряду k во всю ширину, кроме прохода в 2 тайла у одного края (gapLeft — слева). */
+  const counter = (k: number, gapLeft = rng.chance(0.5)) => {
     for (let c = 0; c < iw; c++) if (gapLeft ? c >= 2 : c < iw - 2) barrier(c, k);
   };
   const tileRect = (c0: number, k0: number, c1: number, k1: number): Rect => {
@@ -433,15 +443,80 @@ function finish(g: GenGrid, rng: Rng, b: FacadeBuilding, o: FacadeOptions): void
     return { x: Math.min(p.x, q.x), y: Math.min(p.y, q.y), w: Math.abs(q.x - p.x) + 1, h: Math.abs(q.y - p.y) + 1 };
   };
   const cm = iw >> 1;
+  // Планировка (generator/interiors.ts): план — в тайлы дома, комнаты — POI room, оборудование — POI shop_fixture.
+  const door0 = doors[0] - b.ua - 1;
+  const hp = hash2(o.seed ?? 0, b.rect.x, b.rect.y);
+  const rectOf = (q: { c0: number; r0: number; c1: number; r1: number }) => tileRect(q.c0, q.r0, q.c1, q.r1);
+  /** Сторона плана → сторона света на карте. */
+  const faceOf = (sd: Side): Face => {
+    const [dc, dr] = sideStep(sd);
+    const p = cell(0, 0);
+    const q = cell(dc, dr);
+    return q.x > p.x ? 'E' : q.x < p.x ? 'W' : q.y > p.y ? 'S' : 'N';
+  };
+  const stamp = (plan: Plan) => {
+    const tiles = () => {
+      for (let r = 0; r < plan.D; r++) {
+        for (let c = 0; c < plan.W; c++) {
+          const v = plan.cells[r * plan.W + c];
+          const p = cell(c, r);
+          g.set(p.x, p.y, v === CELL.WALL ? T.WALL : v === CELL.DOOR ? T.DOOR : v === CELL.FIX ? T.BARRIER : T.INTERIOR, true);
+        }
+      }
+    };
+    if (o.later) o.later.push(tiles);
+    else tiles();
+    if (plan.rooms.length > 1 || plan.rooms[0].kind !== 'studio') for (const rm of plan.rooms) o.pois.push({ type: 'room', ...rectOf(rm), sub: rm.kind, id: b.id });
+  };
+  /** Лавка или кафе по плану: место покупателя и продавца — клетки якорей у самого прилавка. */
+  const shopPlan = (plan: Plan) => {
+    stamp(plan);
+    const desk = plan.fixtures[0];
+    const touch = (sp: { c: number; r: number }) => {
+      for (const [c, r] of [[sp.c, sp.r], [sp.c + 1, sp.r], [sp.c, sp.r + 1], [sp.c + 1, sp.r + 1]]) {
+        for (let k = 0; k < 4; k++) {
+          const [dc, dr] = sideStep(k as Side);
+          if (c + dc >= desk.c0 && c + dc <= desk.c1 && r + dr >= desk.r0 && r + dr <= desk.r1) return cell(c, r);
+        }
+      }
+      return cell(sp.c, sp.r);
+    };
+    const front = touch(plan.front!);
+    o.pois.push({ type: 'shop_front', ...front, id: b.id, sub: b.sub });
+    o.pois.push({ type: 'vendor_spot', ...touch(plan.vendor!), id: b.id, sub: b.sub });
+    if (b.sub === 'cwu') o.pois.push({ type: 'shop_counter', ...front });
+    for (const f of plan.fixtures) {
+      o.pois.push({ type: 'shop_fixture', ...rectOf(f), sub: f.kind, face: faceOf(f.face), id: b.id });
+      if (f.kind === 'table') o.pois.push({ type: 'cafe_table', ...rectOf(f), id: b.id });
+    }
+  };
   switch (b.use) {
-    case 'house':
-      o.pois.push({ type: 'home', ...b.interior });
+    case 'house': {
+      if (o.seed === undefined) {
+        o.pois.push({ type: 'home', ...b.interior });
+        break;
+      }
+      const mid = cell(iw >> 1, id >> 1);
+      const plan = planHome(iw, id, door0, o.district?.(mid.x, mid.y) ?? null, hp);
+      stamp(plan);
+      // Коммуналка — по жилью на комнату, иначе всё помещение — одно жильё.
+      const own = plan.rooms.length > 1 ? plan.rooms.filter((rm) => rm.dwelling) : [];
+      if (own.length) for (const rm of own) o.pois.push({ type: 'home', ...rectOf(rm) });
+      else o.pois.push({ type: 'home', ...b.interior });
       break;
+    }
     case 'shop': {
       const d = def([...ARBAT.shops, ...ARBAT.upperShops]);
       zoneOver(o.addZone('shop', d?.name ?? 'Лавка'));
+      // Прилавок поперёк — и под планировкой: она ляжет поверх (o.later), а до того город вокруг строится как прежде.
       const k = F.counterRow;
-      counter(k);
+      const gapLeft = rng.chance(0.5);
+      counter(k, gapLeft);
+      const plan = o.seed === undefined ? null : planShop(iw, id, door0, b.sub ?? '', gapLeft, hp);
+      if (plan) {
+        shopPlan(plan);
+        break;
+      }
       const front = pt(cm, k - 1);
       o.pois.push({ type: 'shop_front', ...front, id: b.id, sub: b.sub });
       o.pois.push({ type: 'vendor_spot', ...pt(cm, k + 1), id: b.id, sub: b.sub });
@@ -452,7 +527,13 @@ function finish(g: GenGrid, rng: Rng, b: FacadeBuilding, o: FacadeOptions): void
       const d = def(ARBAT.cafes);
       zoneOver(o.addZone('shop', d?.name ?? 'Кафе'));
       const k = id - 3;
-      counter(k);
+      const gapLeft = rng.chance(0.5);
+      counter(k, gapLeft);
+      const plan = o.seed === undefined ? null : planShop(iw, id, door0, b.sub ?? 'cafe', gapLeft, hp);
+      if (plan) {
+        shopPlan(plan);
+        break;
+      }
       o.pois.push({ type: 'shop_front', ...pt(cm, k - 1), id: b.id, sub: b.sub });
       o.pois.push({ type: 'vendor_spot', ...pt(cm, k + 1), id: b.id, sub: b.sub });
       // Столики — в зале посетителей, не напротив двери.

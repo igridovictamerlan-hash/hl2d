@@ -1425,8 +1425,9 @@ export class Game {
     this.academyView.drawGround(ctx, v, this.ai.academy, this.map, this.law.now);
     this.dugoutView.drawGround(ctx, v, this.war.dugouts, this.map);
     this.portView.drawGround(ctx, v, this.port, this.map.tileSize);
-    this.portView.drawCargo(ctx, v, this.ai.supply, this.ai.shops.shops);
+    this.portView.drawCargo(ctx, v, this.ai.supply);
     drawFurnitureList(ctx, v, this.furnishings);
+    this.portView.drawShopGoods(ctx, v, this.ai.shops.shops);
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);
     this.effects.drawBarrels(ctx, v, this.ai.street.barrels, this.law.now);

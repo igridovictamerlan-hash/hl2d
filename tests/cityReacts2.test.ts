@@ -9,6 +9,7 @@ import { Mover } from '../src/ai/Mover';
 import type { Brain } from '../src/ai/Brain';
 import { CP_UNIT, cpUnit } from '../src/config/factions';
 import { ESCALATION } from '../src/config/escalation';
+import { LAW } from '../src/config/law';
 import { LOYALTY } from '../src/config/loyalty';
 import { MEMORIALS } from '../src/config/memorials';
 import { ZONE_NAMES } from '../src/config/names';
@@ -324,31 +325,39 @@ describe('Город реагирует 2.0', () => {
   });
 
   test('сначала предупреждение: окрик, штраф — не раньше ESCALATION.warn.grace', { timeout: 60_000 }, () => {
-    const sim = setup();
-    const E = sim.ctx.escalation;
-    const W = ESCALATION.warn;
-    const q = quarter(sim);
-    postCop(sim, q.cop, q.at);
-    // Застывший на улице житель: мозг не ведёт его домой (в укрытие не уходит), сам он стоит.
-    const c = citizen(sim, q.at);
-    c.brain = still();
-    heat(sim, q.zone, 200);
-    run(sim, 2);
-    expect(E.tier[q.zone]).toBe(3);
-    // Сперва — окрик (после отсрочки на дорогу домой).
-    let tWarn = -1;
-    expect(run(sim, 120, () => {
-      if (E.stats.warns > 0) tWarn = sim.law.now;
-      return E.stats.warns > 0;
-    })).toBe(true);
-    expect(E.stats.warns).toBeGreaterThanOrEqual(1);
-    // Штраф — не раньше чем через grace после окрика. Окно побольше: между проверками CID есть перерыв (recheck).
-    let tFine = -1;
-    expect(run(sim, 240, () => {
-      if (zoneLog(sim, c.cid, 'оштрафовал') > 0) tFine = sim.law.now;
-      return zoneLog(sim, c.cid, 'оштрафовал') > 0;
-    })).toBe(true);
-    expect(tFine - tWarn).toBeGreaterThanOrEqual(W.grace);
+    // Застывший не бежит от ВС: «беглеца», который стоит на месте, взяли бы за неподчинение, и до штрафа не дошло бы —
+    // а шанс побега спокойного (LAW.npc.fleeCalm) — бросок общей случайности, не этот сценарий.
+    const flee = LAW.npc.fleeCalm.citizen;
+    LAW.npc.fleeCalm.citizen = 0;
+    try {
+      const sim = setup();
+      const E = sim.ctx.escalation;
+      const W = ESCALATION.warn;
+      const q = quarter(sim);
+      postCop(sim, q.cop, q.at);
+      // Застывший на улице житель: мозг не ведёт его домой (в укрытие не уходит), сам он стоит.
+      const c = citizen(sim, q.at);
+      c.brain = still();
+      heat(sim, q.zone, 200);
+      run(sim, 2);
+      expect(E.tier[q.zone]).toBe(3);
+      // Сперва — окрик (после отсрочки на дорогу домой).
+      let tWarn = -1;
+      expect(run(sim, 120, () => {
+        if (E.stats.warns > 0) tWarn = sim.law.now;
+        return E.stats.warns > 0;
+      })).toBe(true);
+      expect(E.stats.warns).toBeGreaterThanOrEqual(1);
+      // Штраф — не раньше чем через grace после окрика. Окно побольше: между проверками CID есть перерыв (recheck).
+      let tFine = -1;
+      expect(run(sim, 240, () => {
+        if (zoneLog(sim, c.cid, 'оштрафовал') > 0) tFine = sim.law.now;
+        return zoneLog(sim, c.cid, 'оштрафовал') > 0;
+      })).toBe(true);
+      expect(tFine - tWarn).toBeGreaterThanOrEqual(W.grace);
+    } finally {
+      LAW.npc.fleeCalm.citizen = flee;
+    }
   });
 
   test('поквартирный обход: после известного убийства ВС стучит в дома рядом, в том числе к молчащему свидетелю', { timeout: 120_000 }, () => {

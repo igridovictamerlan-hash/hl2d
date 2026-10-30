@@ -23,6 +23,16 @@ export const FURNITURE = {
     lamp: [9, 9],
     chair: [11, 11],
     wardrobe: [24, 13],
+    // Квартиры: вешалка в прихожей, кухонная тумба с мойкой, холодильник, ванна, унитаз, раковина; стеллаж подсобки.
+    coat_rack: [10, 10],
+    kitchen_counter: [30, 13],
+    fridge: [14, 13],
+    bathtub: [30, 15],
+    toilet: [10, 12],
+    sink: [12, 9],
+    storage_rack: [30, 12],
+    // Касса на прилавке лавки, стул у столика кафе — по клеткам оборудования.
+    register: [10, 8],
   } as Record<string, readonly [number, number]>,
   /** Стол со стульями посередине — если комната не меньше tableMin тайлов; размер стола. */
   table: { min: [4, 3] as const, w: 28, h: 18 },
@@ -43,7 +53,37 @@ export const FURNITURE = {
     cwu_office: ['bookshelf', 'bookshelf', 'wardrobe', 'plant', 'lamp', 'plant'],
     cwu_lobby: ['armchair', 'armchair', 'plant', 'bookshelf', 'plant', 'armchair'],
     cwu_production: ['crate', 'crate', 'crate', 'crate', 'crate', 'crate', 'crate'],
+    /**
+     * Комнаты квартир и лавок (POI room, generator/interiors.ts) — по назначению; вариант по полосе достатка —
+     * «назначение_полоса» (slum / old / upper), иначе общий. Кухня, гостиная и комната коммуналки — и стол со стульями.
+     */
+    hall: ['coat_rack', 'nightstand', 'plant'],
+    hall_slum: ['coat_rack', 'crate'],
+    hall_upper: ['coat_rack', 'dresser', 'plant', 'lamp'],
+    corridor: ['coat_rack', 'crate'],
+    kitchen: ['stove', 'kitchen_counter', 'fridge', 'crate', 'plant'],
+    kitchen_slum: ['stove', 'kitchen_counter', 'crate', 'crate'],
+    kitchen_upper: ['stove', 'kitchen_counter', 'fridge', 'kitchen_counter', 'plant'],
+    bath: ['bathtub', 'toilet', 'sink'],
+    bedroom: ['bed', 'nightstand', 'wardrobe', 'bookshelf', 'dresser', 'plant'],
+    bedroom_slum: ['bed', 'crate', 'nightstand', 'crate'],
+    bedroom_upper: ['bed_double', 'nightstand', 'nightstand', 'wardrobe', 'bookshelf', 'dresser', 'plant', 'lamp'],
+    living: ['sofa', 'bookshelf', 'armchair', 'plant', 'lamp', 'bookshelf'],
+    living_upper: ['sofa', 'bookshelf', 'bookshelf', 'armchair', 'armchair', 'plant', 'lamp', 'plant'],
+    room: ['bed', 'nightstand', 'crate', 'wardrobe', 'crate'],
+    studio: ['bed', 'nightstand', 'bookshelf', 'dresser', 'stove', 'crate', 'plant', 'wardrobe', 'bookshelf', 'crate'],
+    studio_slum: ['bed', 'stove', 'crate', 'nightstand', 'crate', 'wardrobe'],
+    studio_upper: ['bed_double', 'nightstand', 'bookshelf', 'dresser', 'stove', 'plant', 'wardrobe', 'lamp', 'plant'],
+    sales: ['plant', 'crate'],
+    backroom: ['storage_rack', 'crate', 'crate', 'storage_rack', 'crate'],
+    cafe: ['plant', 'plant'],
+    cafe_kitchen: ['stove', 'stove', 'kitchen_counter', 'fridge', 'crate'],
   } as Record<string, readonly string[]>,
+  /**
+   * Торговое оборудование (POI shop_fixture) — предмет во весь прямоугольник клеток с отступом inset px; в зале кафе
+   * у столика — стулья с открытых сторон; на прилавке у места покупателя — касса.
+   */
+  fixtures: { inset: 1.5 },
   /** Проход у двери: полоса шириной в дверь и глубиной doorClear px от стены — туда ничего не ставим. */
   doorClear: 20,
   /** Для кровати в тесной комнате — только сам проём. */
@@ -83,5 +123,25 @@ export const FURNITURE = {
     card: '#f2eee4',
     cardRed: '#b03030',
     felt: '#2f5a3a',
+    // Сантехника и кухня, торговое оборудование.
+    porcelain: '#eef0ec',
+    porcelainShade: '#c9cec8',
+    water: '#8fb8cc',
+    steel: '#b7bdc2',
+    glass: 'rgba(170,215,235,0.55)',
+    glassEdge: '#5d7f8f',
+    shelfBoard: '#c8a57a',
+    cooler: '#dfe8ee',
+    coolerTrim: '#3f6f8f',
+    rail: '#4a4f55',
+    pegboard: '#b89a6a',
+    pegHole: 'rgba(60,40,20,0.45)',
+    curtain: ['#7a2f3f', '#2f4f6f', '#5a4a2a'] as readonly string[],
+    mirror: '#c8dde6',
+    register: '#3a3f44',
+    registerKey: '#d9d2c0',
+    paperStack: '#d8d0bc',
+    bar: '#5a3a24',
+    coffee: '#2a2a2a',
   },
 } as const;

@@ -29,7 +29,17 @@ function run(sim: Sim, seconds: number, until?: () => boolean): number {
 
 function spotNear(sim: Sim, p: { x: number; y: number }, r0: number, r1: number) {
   const a = randomAnchorAround(p, sim.ctx, r0, r1, new Set());
+  expect(a, 'нет свободного места рядом').toBeGreaterThanOrEqual(0);
   return { x: sim.nav.worldX(a), y: sim.nav.worldY(a) };
+}
+
+/** Точка на улице (под открытым небом, не в комнате дома) в кольце r0..r1 тайлов вокруг p. */
+function streetNear(sim: Sim, p: { x: number; y: number }, r0: number, r1: number) {
+  for (let k = 0; k < 50; k++) {
+    const q = spotNear(sim, p, r0, r1);
+    if (sim.ctx.war.outdoors(q as Character)) return q;
+  }
+  throw new Error('нет места на улице');
 }
 
 describe('коды тревоги', () => {
@@ -414,12 +424,11 @@ describe('место преступления', () => {
     spawnRole(sim.ctx, { kind: 'tech', faction: 'cp', profession: null, division: cpUnit(CP_UNIT.su2).group, rank: CP_UNIT.su2, kit: cpUnit(CP_UNIT.su2).kit }, spotNear(sim, plaza, 3, 6));
     const s1 = sim.war.scenes.open(body(spotNear(sim, plaza, 0, 3)), 'civil')!;
     expect(s1.medic?.rank).toBe(CP_UNIT.su2);
-    // Второе происшествие — далеко от первого (иначе одна зона): медик ТС сейчас не у площади.
-    if (Math.hypot(medic.x - plaza.x, medic.y - plaza.y) < CRIME.scene.merge * 3) {
-      const away = spotNear(sim, plaza, 30, 45);
-      medic.x = medic.prevX = away.x;
-      medic.y = medic.prevY = away.y;
-    }
+    // Второе происшествие — далеко от первого (иначе одна зона): медик ТС на улице не у площади (не дома — в тесной
+    // комнате рядом может не найтись места для тела).
+    const away = streetNear(sim, plaza, 30, 45);
+    medic.x = medic.prevX = away.x;
+    medic.y = medic.prevY = away.y;
     const s2 = sim.war.scenes.open(body(spotNear(sim, medic, 4, 8)), 'civil')!;
     expect(s2).toBeTruthy();
     expect(s2.medic?.profession).toBe('cwu_medic');

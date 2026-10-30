@@ -8,6 +8,8 @@ import { UndergroundBrain } from '../src/ai/brains/UndergroundBrain';
 import { goodsOf } from '../src/systems/StreetShops';
 import { ZONE_NAMES } from '../src/config/names';
 import { createCharacter } from '../src/entities/factory';
+import { T } from '../src/world/tiles';
+import type { GameMap } from '../src/world/GameMap';
 
 describe('штаб ТС на проспекте', () => {
   for (const seed of [12345, 777, 3]) {
@@ -31,6 +33,25 @@ describe('штаб ТС на проспекте', () => {
   }
 });
 
+/** Дом комнаты (номер его тайла с наименьшим индексом): пол и двери от комнаты до порога — за порогом улица. */
+function houseOf(map: GameMap, room: { x: number; y: number }): number {
+  const W = map.width;
+  const start = room.y * W + room.x;
+  const seen = new Set([start]);
+  const stack = [start];
+  let min = start;
+  while (stack.length) {
+    const i = stack.pop()!;
+    min = Math.min(min, i);
+    for (const j of [i - 1, i + 1, i - W, i + W]) {
+      if (seen.has(j) || (map.tiles[j] !== T.INTERIOR && map.tiles[j] !== T.DOOR)) continue;
+      seen.add(j);
+      stack.push(j);
+    }
+  }
+  return min;
+}
+
 describe('свой дом у каждого', () => {
   test('жители, ТС, поднадзорные и подполье — с домом; Арбат заселён; возрождение — дома', { timeout: 120_000 }, () => {
     const sim = makeSim(12345);
@@ -43,10 +64,15 @@ describe('свой дом у каждого', () => {
     // Дома на Арбате (главный проспект, площадь) — заселяются первыми.
     const arbat = H.dwellings.filter((d) => d.kind === 'arbat');
     expect(arbat.length).toBeGreaterThanOrEqual(10);
-    // Город большой — домов на Арбате больше, чем желающих, но заселён он плотнее кварталов.
+    // Город большой — домов на Арбате больше, чем желающих, но заселён он плотнее кварталов. Доля — по домам, а не по
+    // жилищам: в коммуналке (Слобода) каждая комната — своё жилище, и полупустая коммуналка — всё же заселённый дом.
     const share = (k: string) => {
-      const list = H.dwellings.filter((d) => d.kind === k);
-      return list.filter((d) => d.households > 0).length / Math.max(1, list.length);
+      const houses = new Map<number, boolean>();
+      for (const d of H.dwellings.filter((q) => q.kind === k)) {
+        const id = houseOf(sim.map, d.room);
+        houses.set(id, (houses.get(id) ?? false) || d.households > 0);
+      }
+      return [...houses.values()].filter(Boolean).length / Math.max(1, houses.size);
     };
     expect(share('arbat')).toBeGreaterThan(0.5);
     expect(share('arbat')).toBeGreaterThan(share('house') * 2);

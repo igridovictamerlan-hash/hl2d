@@ -36,6 +36,26 @@ export const RENDER = {
     tileFloor: { h: 210, s: 4, l: 38, noise: 1.2 },
     tileFloorLine: 'rgba(0,0,0,0.28)',
     tileFloorCrack: 'rgba(0,0,0,0.22)',
+    /**
+     * Полы по назначению комнаты (POI room, generator/interiors.ts; MapRenderer.floorOf): шахматка кухни, кафе и
+     * булочной, белая плитка санузла и аптеки, паркет «ёлочкой» (Верхний город, салон), бетон подсобки и хозтоваров,
+     * щелястые доски Слободы. roomFloor — пол по назначению, district — замена по полосе достатка, shopFloor — зал лавки.
+     */
+    checkerFloor: [{ h: 36, s: 9, l: 56, noise: 1 }, { h: 30, s: 8, l: 36, noise: 1 }] as const,
+    whiteFloor: { h: 200, s: 6, l: 66, noise: 1 },
+    whiteFloorLine: 'rgba(60,70,80,0.3)',
+    parquet: { h: 30, s: 44, l: 34, noise: 1 },
+    parquetLine: 'rgba(50,25,8,0.5)',
+    concreteFloor: { h: 40, s: 4, l: 36, noise: 2.5 },
+    concreteSeam: 'rgba(0,0,0,0.22)',
+    planks: { h: 26, s: 24, l: 23, noise: 2.5 },
+    planksGap: 'rgba(12,6,2,0.65)',
+    roomFloor: {
+      hall: 'wood', corridor: 'planks', kitchen: 'checker', bath: 'white', living: 'wood', bedroom: 'wood', studio: 'wood',
+      room: 'planks', backroom: 'concrete', cafe: 'checker', cafe_kitchen: 'white',
+    } as Record<string, string>,
+    districtFloor: { slum: { wood: 'planks', checker: 'planks' }, upper: { wood: 'parquet' } } as Record<string, Record<string, string>>,
+    shopFloor: { cwu: 'tile', tobacco: 'wood', pharmacy: 'white', bakery: 'checker', hardware: 'concrete', tailor: 'parquet', tailor_up: 'parquet' } as Record<string, string>,
     courtyard: { h: 75, s: 12, l: 24, noise: 2.5 },
     arch: { h: 35, s: 6, l: 24, noise: 1.5 },
     archRoof: 'rgba(0,0,0,0.35)',

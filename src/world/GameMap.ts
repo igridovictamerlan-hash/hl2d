@@ -148,6 +148,14 @@ export type PoiType =
   | 'canteen_cook'
   | 'canteen_serve'
   | 'cafe_table'
+  /**
+   * Комната помещения (x, y, w, h — пол; sub — назначение: hall, kitchen, living, bedroom, bath, studio, room, corridor,
+   * sales, backroom, cafe, cafe_kitchen — generator/interiors.ts) и торговое оборудование лавки (прямоугольник; sub —
+   * вид: counter, case, bar, shelf, gondola, fridge, rail, stand, pegboard, booth, mirror, table; face — к покупателю;
+   * id — дом, POI facade).
+   */
+  | 'room'
+  | 'shop_fixture'
   | 'kiosk'
   | 'planter'
   /** Трибуна Коменданта на площади (помост; face — куда смотрит), фонтан посередине площади. */

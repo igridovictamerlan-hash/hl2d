@@ -35,10 +35,28 @@ export interface StreetShop {
   /** Стеллаж у задней стены (центры тайлов, px) и направление к стене — для отрисовки товара. */
   rack: Vec2[];
   rackDir: Vec2;
+  /** Торговое оборудование зала с товаром (POI shop_fixture) — для отрисовки: товара на нём по заполненности полок. */
+  displays: ShopDisplay[];
   /** Продавец этой лавки и курьер, который несёт сюда коробку. */
   vendor: Character | null;
   supplier: Character | null;
 }
+
+/**
+ * Оборудование лавки с товаром на виду: прямоугольник (px мира), вид (стеллаж, островной, витрина, холодильник,
+ * вешалка, газетная стойка, перфопанель) и сторона к покупателю (единичный вектор).
+ */
+export interface ShopDisplay {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  kind: string;
+  face: Vec2;
+}
+
+/** Виды оборудования, на котором видно товар. */
+const DISPLAY_KINDS = new Set(['shelf', 'gondola', 'case', 'fridge', 'rail', 'stand', 'pegboard']);
 
 /** Место за столом общей столовой: где сидеть и куда смотреть (на стол). */
 export interface CanteenSeat {
@@ -115,6 +133,12 @@ export class StreetShops {
         cap: per * stock.length,
         rack: rack.tiles,
         rackDir: rack.dir,
+        displays: map.poisOf('shop_fixture')
+          .filter((d) => d.id === p.id && DISPLAY_KINDS.has(d.sub ?? ''))
+          .map((d) => ({
+            x: d.x * ts, y: d.y * ts, w: (d.w ?? 1) * ts, h: (d.h ?? 1) * ts, kind: d.sub!,
+            face: { x: d.face === 'E' ? 1 : d.face === 'W' ? -1 : 0, y: d.face === 'S' ? 1 : d.face === 'N' ? -1 : 0 },
+          })),
         vendor: null,
         supplier: null,
       });
@@ -130,7 +154,7 @@ export class StreetShops {
       const stock = ARBAT.stock[k.sub ?? ''] ?? [];
       this.shops.push({
         id: -1, sub: k.sub ?? '', name: names.get(k.sub ?? '') ?? 'Ларёк', kind: 'kiosk', front: f, look: { x: cx, y: cy }, vendorSpot: null, stock,
-        shelf: shelfOf(stock, S.kioskPerItem), perItem: S.kioskPerItem, cap: S.kioskPerItem * stock.length, rack: [], rackDir: { x: -dx, y: -dy }, vendor: null, supplier: null,
+        shelf: shelfOf(stock, S.kioskPerItem), perItem: S.kioskPerItem, cap: S.kioskPerItem * stock.length, rack: [], rackDir: { x: -dx, y: -dy }, displays: [], vendor: null, supplier: null,
       });
     }
     // Места за столами столовой: вдоль длинных сторон стола через тайл-якорь (2 тайла).

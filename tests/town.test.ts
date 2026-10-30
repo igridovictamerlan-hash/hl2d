@@ -22,7 +22,7 @@ const run = (sim: Sim, secs: number, until?: () => boolean) => {
 };
 
 describe('городок с домиками', () => {
-  test('застройка нарезана на дома; жилые дома — комната со стенами и дверью на переулок', () => {
+  test('застройка нарезана на дома; жилые дома — комнаты со стенами и дверью на переулок', () => {
     const sim = makeSim(12345);
     const { map, nav } = sim;
     const { lots } = computeLots(map.width, map.height, map.tiles, map.seed);
@@ -30,8 +30,10 @@ describe('городок с домиками', () => {
     const homes = map.poisOf('home');
     expect(homes.length).toBeGreaterThan(30);
     for (const h of homes) {
-      // Пол комнаты, вокруг — стены, в стене — дверь, из комнаты можно выйти (якорь в комнате доступен).
-      for (let y = h.y; y < h.y + h.h!; y++) for (let x = h.x; x < h.x + h.w!; x++) expect(map.tileAt(x, y)).toBe(T.INTERIOR);
+      // Пол комнат (в квартире — ещё стены и двери между ними), вокруг — стены, в стене — дверь, из жилья можно
+      // выйти (якорь в нём доступен).
+      for (let y = h.y; y < h.y + h.h!; y++) for (let x = h.x; x < h.x + h.w!; x++) expect([T.INTERIOR, T.WALL, T.DOOR]).toContain(map.tileAt(x, y));
+      expect(map.tileAt(h.x, h.y)).toBe(T.INTERIOR);
       let doors = 0;
       for (let x = h.x - 1; x <= h.x + h.w!; x++) for (const y of [h.y - 1, h.y + h.h!]) if (map.tileAt(x, y) === T.DOOR) doors++;
       for (let y = h.y; y < h.y + h.h!; y++) for (const x of [h.x - 1, h.x + h.w!]) if (map.tileAt(x, y) === T.DOOR) doors++;
@@ -290,12 +292,15 @@ describe('убранство комнат', () => {
     const homes = map.poisOf('home');
     let beds = 0;
     let shelves = 0;
+    let richer = 0;
     for (const h of homes) {
+      const poor = map.districtAt(h.x, h.y) === 'slum';
+      if (!poor) richer++;
       const R = { x: h.x * ts, y: h.y * ts, w: h.w! * ts, h: h.h! * ts };
       const inside = items.filter((f) => f.x >= R.x && f.y >= R.y && f.x + f.w <= R.x + R.w && f.y + f.h <= R.y + R.h);
       const bed = inside.find((f) => f.kind === 'bed' || f.kind === 'bed_double');
       if (bed) beds++;
-      if (inside.some((f) => f.kind === 'bookshelf')) shelves++;
+      if (!poor && inside.some((f) => f.kind === 'bookshelf')) shelves++;
       // Двери не загорожены: у каждого проёма свободен проход 2×2 тайла внутри.
       for (let x = h.x; x < h.x + h.w!; x++) {
         for (const [ty, dy] of [[h.y - 1, 1], [h.y + h.h!, -1]] as const) {
@@ -306,9 +311,9 @@ describe('убранство комнат', () => {
         }
       }
     }
-    // Кровать почти в каждой комнате (кроме совсем крохотных), полки — во многих.
+    // Кровать почти в каждом жилье (кроме совсем крохотных), книжные полки — во многих вне Слободы (там беднее).
     expect(beds).toBeGreaterThan(homes.length * 0.8);
-    expect(shelves).toBeGreaterThan(homes.length * 0.4);
+    expect(shelves).toBeGreaterThan(richer * 0.4);
     const bed = items.find((f) => f.kind === 'bed')!;
     expect(Math.min(bed.w, bed.h)).toBeGreaterThanOrEqual(20);
     // Пешка ≈ 16×28 px — кровать длиннее пешки.

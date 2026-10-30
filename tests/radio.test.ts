@@ -28,9 +28,9 @@ function city(seed = 12345): Sim {
   return sim;
 }
 
-/** Свободный патрульный в городе. */
-function freeUnit(sim: Sim): Character {
-  const u = sim.entities.list.find((c) => c.faction === 'cp' && c.alive && c.brain instanceof CpBrain && c.brain.canRespond(3) && sim.map.levelAt(c.x, c.y) === 'city');
+/** Свободный патрульный в городе (where — ещё условие на юнита). */
+function freeUnit(sim: Sim, where: (c: Character) => boolean = () => true): Character {
+  const u = sim.entities.list.find((c) => c.faction === 'cp' && c.alive && c.brain instanceof CpBrain && c.brain.canRespond(3) && sim.map.levelAt(c.x, c.y) === 'city' && where(c));
   expect(u).toBeTruthy();
   return u!;
 }
@@ -281,7 +281,8 @@ describe('рация: эфир и плановое', () => {
     // Без воров и бандитов: юнит по дороге не должен отвлекаться на погоню (сценарий — о вызове, не о нарушителях).
     for (const c of [...sim.entities.list]) if (c.profession === 'bandit' || c.profession === 'thief') sim.entities.remove(c);
     run(sim, 2);
-    const u = freeUnit(sim);
+    // Юнит — на улицах города: с ГЭС путь к ним — кругом через ворота, и «ближе» он станет не за полминуты.
+    const u = freeUnit(sim, (c) => sim.map.zoneAtWorld(c.x, c.y)?.kind !== 'ges');
     const b = u.brain as CpBrain;
     const p = spotFrom(sim, u, 800);
     b.call = { id: 999, x: p.x, y: p.y, until: sim.law.now + 60, urgent: true, prio: 2 };

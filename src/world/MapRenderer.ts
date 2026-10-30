@@ -31,6 +31,8 @@ const DECOR_PLANTER = 3;
 const DECOR_FLOOR = 4;
 /** Трибуна и фонтан площади (BARRIER): под ними — плиты площади, сами рисуются поверх (overlays). */
 const DECOR_PLAZA = 5;
+/** Пол помещения (MapRenderer.floor): доска, плитка, шахматка, белая плитка, паркет, бетон, щелястые доски. */
+const FLOOR_CODE: Record<string, number> = { wood: 1, tile: 2, checker: 3, white: 4, parquet: 5, concrete: 6, planks: 7 };
 const PRISON_FURNITURE = [
   'prison_rack', 'prison_ammo', 'prison_cot', 'prison_table', 'prison_locker', 'prison_counter', 'prison_bench', 'prison_itable', 'prison_desk', 'prison_shelf',
   // Академия ВС: рубеж тира, парты, койки, шкафчики, столы, ограждение и стойка вахты, стол начальника (AcademyRenderer).
@@ -76,8 +78,12 @@ export class MapRenderer {
   /** Трубы на крышах (тайлы). */
   private readonly chimney: Uint8Array;
   private readonly noise: Uint32Array;
-  /** Пол помещения: 1 — доска (жилые), 2 — плитка (Управа, КПЗ, магазин, казённое). */
+  /** Пол помещения (FLOOR_CODE): 1 — доска, 2 — плитка (Управа, КПЗ, казённое), 3 — шахматка, 4 — белая плитка, 5 — паркет, 6 — бетон, 7 — щелястые доски. */
   private readonly floor: Uint8Array;
+  /** Пол по комнате (POI room) и лавке, 0 — по зоне и полосе достатка. */
+  private readonly floorPlan: Uint8Array;
+  /** Тёмные клетки шахматки (строка цвета — один раз). */
+  private readonly checkerDark: string;
   private xs = new Float64Array(0);
   private ys = new Float64Array(0);
   /** Дом вдоль улицы на тайл (индекс в facades, -1 — нет), укрытие-мебель, брусчатка проспекта. */
@@ -129,6 +135,10 @@ export class MapRenderer {
         }
       }
     }
+    // Торговое оборудование (укрытие) — предмет мебели поверх пола (FurnitureRenderer), под ним — пол комнаты.
+    for (const p of map.poisOf('shop_fixture')) {
+      for (let y = p.y; y < p.y + (p.h ?? 1); y++) for (let x = p.x; x < p.x + (p.w ?? 1); x++) if (map.tiles[y * w + x] === T.BARRIER) this.decor[y * w + x] = DECOR_FLOOR;
+    }
     this.kiosks = map.poisOf('kiosk');
     for (const t of PRISON_FURNITURE) {
       for (const p of map.poisOf(t)) {
@@ -157,6 +167,15 @@ export class MapRenderer {
     this.chimney = new Uint8Array(n);
     this.noise = new Uint32Array(n);
     this.floor = new Uint8Array(n);
+    // Пол по назначению комнаты и залу лавки (RENDER.tiles.roomFloor / shopFloor), с заменой по полосе достатка.
+    this.floorPlan = new Uint8Array(n);
+    const subOf = new Map(map.poisOf('facade').map((f) => [f.id, f.sub]));
+    for (const r of map.poisOf('room')) {
+      const st = this.floorStyle(r.sub ?? '', map.districtAt(r.x, r.y), r.sub === 'sales' ? subOf.get(r.id) : undefined);
+      for (let y = r.y; y < r.y + (r.h ?? 1); y++) for (let x = r.x; x < r.x + (r.w ?? 1); x++) this.floorPlan[y * w + x] = st;
+    }
+    const CF = RENDER.tiles.checkerFloor[1];
+    this.checkerDark = hsl(CF.h, CF.s, CF.l);
     const seed = map.seed | 0;
     this.relief = rockRelief(map.tiles, w, h, seed);
     this.windows = computeWindows(map);
@@ -188,7 +207,11 @@ export class MapRenderer {
         const band = map.districtAt(x, y) ?? 'none';
         const part = this.roofPart[i] & 7;
         const fk = this.facadeOf[i];
-        if (fk >= 0) st = range(H.facade[band], fk);
+        // Внутренняя стена (с обеих сторон — помещение): в разрезе по потолок, тень короткая.
+        const room = (t: number) => t === T.INTERIOR || t === T.DOOR || t === T.BARRIER;
+        const inner = (room(map.tileAt(x - 1, y)) && room(map.tileAt(x + 1, y))) || (room(map.tileAt(x, y - 1)) && room(map.tileAt(x, y + 1)));
+        if (inner) st = H.internal;
+        else if (fk >= 0) st = range(H.facade[band], fk);
         else if (part === 4) st = range(H.house[band], this.parcel[i] >= 0 ? this.parcel[i] : i);
         else if (part === 5) st = H.ruin;
         else if ((H.civicZones as readonly string[]).includes(map.zoneAtTile(x, y)?.kind ?? '')) st = H.civic;
@@ -205,6 +228,97 @@ export class MapRenderer {
       case T.DUGOUT_WALL: st = H.dugout; break;
     }
     return Math.min(255, Math.round(st * HEIGHT_UNIT));
+  }
+
+  /** Пол по назначению комнаты (или залу лавки shop), с заменой по полосе достатка — код FLOOR_CODE. */
+  private floorStyle(kind: string, district: string | null, shop?: string): number {
+    const P = RENDER.tiles;
+    let name = shop ? P.shopFloor[shop] ?? 'tile' : P.roomFloor[kind] ?? 'wood';
+    if (district) name = P.districtFloor[district]?.[name] ?? name;
+    return FLOOR_CODE[name] ?? 1;
+  }
+
+  /** Цвет пола st на тайле (x, y): доски одной полосы — один тон (полоса = ряд тайлов), плитка — чуть разная. */
+  private floorColor(st: number, y: number, jit: number): string {
+    const P = RENDER.tiles;
+    const seed = this.map.seed | 0;
+    const row = ((hash2(0, y, seed) & 7) - 3.5) * 0.5;
+    const tone = (c: { h: number; s: number; l: number; noise: number }) => hsl(c.h, c.s, c.l + jit * c.noise);
+    switch (st) {
+      case 1: return hsl(P.woodFloor.h, P.woodFloor.s, P.woodFloor.l + row + jit * P.woodFloor.noise);
+      case 3: return tone(P.checkerFloor[0]);
+      case 4: return tone(P.whiteFloor);
+      case 5: return hsl(P.parquet.h, P.parquet.s, P.parquet.l + row * 0.6 + jit * P.parquet.noise);
+      case 6: return tone(P.concreteFloor);
+      case 7: return hsl(P.planks.h, P.planks.s, P.planks.l + row * 1.4 + jit * P.planks.noise);
+      default: return tone(P.tileFloor);
+    }
+  }
+
+  /** Рисунок пола тайла: доски, швы плитки, клетки шахматки, «ёлочка» паркета, швы бетона, щели между досками. */
+  private floorDetail(ctx: CanvasRenderingContext2D, i: number, tx: number, ty: number, x0: number, y0: number, cw: number, ch: number, hv: number, line: number, px: (w: number) => number): void {
+    const P = RENDER.tiles;
+    switch (this.floor[i]) {
+      case 1:
+      case 7: {
+        // Доски вдоль x: две доски на тайл, стыки вразбежку; в Слободе — тёмные щели и выбитая доска.
+        const slum = this.floor[i] === 7;
+        ctx.fillStyle = slum ? P.planksGap : P.woodFloorLine;
+        const gap = slum ? Math.max(line, px(1.5)) : line;
+        ctx.fillRect(x0, y0, cw, gap);
+        ctx.fillRect(x0, y0 + (ch >> 1), cw, gap);
+        ctx.fillRect(x0 + ((hv & 3) * cw) / 4, y0, line, ch >> 1);
+        ctx.fillRect(x0 + (((hv >> 2) & 3) * cw) / 4, y0 + (ch >> 1), line, ch >> 1);
+        if (slum && (hv & 15) === 3) ctx.fillRect(x0 + px((hv >> 4) & 7), y0 + (hv & 16 ? ch >> 1 : 0) + gap, px(6), (ch >> 1) - gap);
+        if ((hv & 31) === 5) {
+          ctx.fillStyle = P.woodFloorKnot;
+          ctx.fillRect(x0 + px((hv >> 5) & 11) + px(2), y0 + px((hv >> 9) & 5) + px(2), px(2), px(1.5));
+        }
+        return;
+      }
+      case 3:
+        // Шахматка: по четыре клетки на тайл.
+        ctx.fillStyle = this.checkerDark;
+        ctx.fillRect(x0, y0, cw >> 1, ch >> 1);
+        ctx.fillRect(x0 + (cw >> 1), y0 + (ch >> 1), cw - (cw >> 1), ch - (ch >> 1));
+        return;
+      case 4:
+        ctx.fillStyle = P.whiteFloorLine;
+        ctx.fillRect(x0, y0, cw, line);
+        ctx.fillRect(x0, y0, line, ch);
+        ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
+        ctx.fillRect(x0 + (cw >> 1), y0, line, ch);
+        return;
+      case 5: {
+        // Паркет «ёлочкой»: соседние тайлы — планки вдоль и поперёк.
+        ctx.fillStyle = P.parquetLine;
+        if ((tx + ty) & 1) {
+          for (const k of [0, 1, 2]) ctx.fillRect(x0, y0 + Math.round((ch * k) / 3), cw, line);
+          ctx.fillRect(x0 + ((hv & 1) ? cw >> 1 : 0), y0, line, ch);
+        } else {
+          for (const k of [0, 1, 2]) ctx.fillRect(x0 + Math.round((cw * k) / 3), y0, line, ch);
+          ctx.fillRect(x0, y0 + ((hv & 1) ? ch >> 1 : 0), cw, line);
+        }
+        return;
+      }
+      case 6:
+        ctx.fillStyle = P.concreteSeam;
+        if ((tx & 1) === 0) ctx.fillRect(x0, y0, line, ch);
+        if ((ty & 1) === 0) ctx.fillRect(x0, y0, cw, line);
+        ctx.fillStyle = P.speckle;
+        ctx.fillRect(x0 + px((hv & 15) * 0.8), y0 + px(((hv >> 4) & 15) * 0.8), px(2), px(1));
+        return;
+      default:
+        // Плитка: шов по краю тайла, изредка трещина.
+        ctx.fillStyle = P.tileFloorLine;
+        ctx.fillRect(x0, y0, cw, line);
+        ctx.fillRect(x0, y0, line, ch);
+        if ((hv & 63) === 7) {
+          ctx.fillStyle = P.tileFloorCrack;
+          ctx.fillRect(x0 + px(3), y0 + px(5), px(7), line);
+          ctx.fillRect(x0 + px(9), y0 + px(5), line, px(5));
+        }
+    }
   }
 
   private readonly roofColor = new Map<number, [number, number, number]>();
@@ -311,10 +425,10 @@ export class MapRenderer {
       case T.STREET: this.color[i] = this.cobble[i] ? tone(RENDER.facade.cobble) : tone(P.street); break;
       case T.PLAZA: this.color[i] = tone(P.plaza); break;
       case T.INTERIOR: {
-        const wood = map.zoneAtTile(x, y)?.kind === 'residential';
-        this.floor[i] = wood ? 1 : 2;
-        // Доски одной полосы — один тон (полоса = ряд тайлов), плитка — чуть разная.
-        this.color[i] = wood ? hsl(P.woodFloor.h, P.woodFloor.s, P.woodFloor.l + ((hash2(0, y, seed) & 7) - 3.5) * 0.5 + jit * P.woodFloor.noise) : tone(P.tileFloor);
+        // По комнате (floorPlan), иначе жилое — доска (по полосе достатка), казённое — плитка.
+        const st = this.floorPlan[i] || (map.zoneAtTile(x, y)?.kind === 'residential' ? this.floorStyle('studio', map.districtAt(x, y)) : FLOOR_CODE.tile);
+        this.floor[i] = st;
+        this.color[i] = this.floorColor(st, y, jit);
         break;
       }
       case T.COURTYARD: this.color[i] = tone(P.courtyard); break;
@@ -326,7 +440,13 @@ export class MapRenderer {
       case T.BARRIER: {
         const d = this.decor[i];
         const F = RENDER.facade;
-        this.color[i] = d === DECOR_WOOD ? F.wood : d === DECOR_KIOSK ? F.kiosk.body : d === DECOR_PLANTER ? F.planter.rim : d === DECOR_FLOOR ? tone(P.tileFloor) : d === DECOR_PLAZA ? tone(P.plaza) : P.barrier;
+        if (d === DECOR_FLOOR) {
+          // Под мебелью тюрьмы, академии и оборудованием лавок — пол комнаты.
+          this.floor[i] = this.floorPlan[i] || FLOOR_CODE.tile;
+          this.color[i] = this.floorColor(this.floor[i], y, jit);
+          break;
+        }
+        this.color[i] = d === DECOR_WOOD ? F.wood : d === DECOR_KIOSK ? F.kiosk.body : d === DECOR_PLANTER ? F.planter.rim : d === DECOR_PLAZA ? tone(P.plaza) : P.barrier;
         break;
       }
       case T.SEWER: this.color[i] = tone(P.sewer); break;
@@ -678,6 +798,10 @@ export class MapRenderer {
             if (e & 2) ctx.fillRect(x1 - line * 2, y0, line * 2, ch);
             continue;
           case T.BARRIER: {
+            if (this.decor[i] === DECOR_FLOOR) {
+              this.floorDetail(ctx, i, tx, ty, x0, y0, cw, ch, hv, line, px);
+              continue;
+            }
             if (this.decor[i]) {
               this.decorTile(ctx, i, x0, y0, cw, ch, hv, line, px);
               continue;
@@ -912,28 +1036,7 @@ export class MapRenderer {
             ctx.fillRect(x0, y0, line, ch);
             break;
           case T.INTERIOR:
-            if (this.floor[i] === 1) {
-              // Доски вдоль x: две доски на тайл, стыки вразбежку.
-              ctx.fillStyle = P.woodFloorLine;
-              ctx.fillRect(x0, y0, cw, line);
-              ctx.fillRect(x0, y0 + (ch >> 1), cw, line);
-              ctx.fillRect(x0 + ((hv & 3) * cw) / 4, y0, line, ch >> 1);
-              ctx.fillRect(x0 + (((hv >> 2) & 3) * cw) / 4, y0 + (ch >> 1), line, ch >> 1);
-              if ((hv & 31) === 5) {
-                ctx.fillStyle = P.woodFloorKnot;
-                ctx.fillRect(x0 + px((hv >> 5) & 11) + px(2), y0 + px((hv >> 9) & 5) + px(2), px(2), px(1.5));
-              }
-            } else {
-              // Плитка: шов по краю тайла, изредка трещина.
-              ctx.fillStyle = P.tileFloorLine;
-              ctx.fillRect(x0, y0, cw, line);
-              ctx.fillRect(x0, y0, line, ch);
-              if ((hv & 63) === 7) {
-                ctx.fillStyle = P.tileFloorCrack;
-                ctx.fillRect(x0 + px(3), y0 + px(5), px(7), line);
-                ctx.fillRect(x0 + px(9), y0 + px(5), line, px(5));
-              }
-            }
+            this.floorDetail(ctx, i, tx, ty, x0, y0, cw, ch, hv, line, px);
             break;
           case T.ARCH:
             ctx.fillStyle = P.archRoof;

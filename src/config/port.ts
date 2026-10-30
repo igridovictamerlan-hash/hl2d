@@ -98,4 +98,9 @@ export const SUPPLY_LOOK = {
   } as Partial<Record<ItemId, [string, 'loaf' | 'bottle' | 'can' | 'box' | 'roll' | 'paper' | 'bunch' | 'cloth']>>,
   /** Масштаб значка штуки товара (на тайле стеллажа — ARBAT.supply.perTile штук, два ряда по три). */
   glyph: 1.35,
+  /**
+   * Оборудование зала лавки (POI shop_fixture): мест под товар на клетку по виду — стеллаж у стены, островной (с двух
+   * сторон), витрина, холодильник, вешалка, газетная стойка, перфопанель; занято — по заполненности полок лавки.
+   */
+  display: { shelf: 3, gondola: 6, case: 2, fridge: 3, rail: 4, stand: 3, pegboard: 2 } as Record<string, number>,
 };

@@ -73,9 +73,9 @@ export class PortRenderer {
 
   /**
    * Груз (только отрисовка): штабели ящиков у пирсов, стеллажи склада штаба ТС с ящиками по запасу (по 10 на
-   * стеллаж, этикетка — цветом товара), полки лавок у задней стены и окошки ларьков — товар поштучно.
+   * стеллаж, этикетка — цветом товара).
    */
-  drawCargo(ctx: CanvasRenderingContext2D, v: View, supply: SupplySystem, shops: readonly StreetShop[]): void {
+  drawCargo(ctx: CanvasRenderingContext2D, v: View, supply: SupplySystem): void {
     const s = v.scale;
     const on = (x: number, y: number, m: number) => x > -m && y > -m && x < v.width + m && y < v.height + m;
     const sx = (x: number) => (x - v.left) * s;
@@ -116,8 +116,22 @@ export class PortRenderer {
         }
       }
     }
+  }
+
+  /**
+   * Товар лавок (поверх мебели): полки у задней стены за продавцом и окошки ларьков — поштучно по запасу; стеллажи,
+   * витрины, холодильники, вешалки и стойки зала — по заполненности полок лавки (SHOP_GOODS: сколько мест на клетку).
+   */
+  drawShopGoods(ctx: CanvasRenderingContext2D, v: View, shops: readonly StreetShop[]): void {
+    const s = v.scale;
+    const on = (x: number, y: number, m: number) => x > -m && y > -m && x < v.width + m && y < v.height + m;
+    const sx = (x: number) => (x - v.left) * s;
+    const sy = (y: number) => (y - v.top) * s;
+    ctx.lineWidth = Math.max(1, 1.1 * s);
+    ctx.strokeStyle = G.outline;
     for (const sh of shops) {
       if (!sh.stock.length) continue;
+      if (sh.displays.length && on(sx(sh.front.x), sy(sh.front.y), 260 * s)) displayGoods(ctx, sh, sx, sy, s);
       if (sh.rack.length) {
         const t0 = sh.rack[0];
         if (!on(sx(t0.x), sy(t0.y), 160 * s)) continue;
@@ -158,6 +172,55 @@ export class PortRenderer {
           for (let i = 0; i < qty; i++, k++) good(ctx, x + (k - 3) * 4 * s * along, y + (k - 3) * 4 * s * (1 - along), s, id);
         }
       }
+    }
+  }
+}
+
+/**
+ * Товар на оборудовании зала: мест на клетку — G.display[вид], занято — по заполненности полок лавки; штуки — по
+ * кругу из товара, который есть. Стеллаж и витрина — ряд у стороны к покупателю, островной — с двух сторон,
+ * вешалка — одежда поперёк перекладины.
+ */
+function displayGoods(ctx: CanvasRenderingContext2D, sh: StreetShop, sx: (x: number) => number, sy: (y: number) => number, s: number): void {
+  let total = 0;
+  for (const id of sh.stock) total += sh.shelf.get(id) ?? 0;
+  if (total <= 0 || sh.cap <= 0) return;
+  const have = sh.stock.filter((id) => (sh.shelf.get(id) ?? 0) > 0);
+  const fill = Math.min(1, total / sh.cap);
+  let k = 0;
+  for (const d of sh.displays) {
+    const horiz = d.w >= d.h;
+    const len = horiz ? d.w : d.h;
+    const tiles = Math.max(1, Math.round(len / 16));
+    const per = G.display[d.kind] ?? 3;
+    const slots = tiles * per;
+    const n = Math.round(slots * fill);
+    // Ряды: у стороны к покупателю (у островного — с обеих сторон).
+    const rows: number[] = d.kind === 'gondola' ? [-0.28, 0.28] : d.kind === 'rail' || d.kind === 'case' ? [0] : [0.22];
+    const across = horiz ? d.h : d.w;
+    const fdir = horiz ? d.face.y || 1 : d.face.x || 1;
+    for (let i = 0; i < n; i++) {
+      const row = rows[i % rows.length];
+      const slot = Math.floor(i / rows.length);
+      const t = (slot + 0.5) / Math.ceil(slots / rows.length);
+      const along = (horiz ? d.x : d.y) + len * t;
+      const off = (horiz ? d.y : d.x) + across / 2 + across * row * fdir;
+      const x = horiz ? along : off;
+      const y = horiz ? off : along;
+      const id = have[k++ % have.length];
+      if (d.kind === 'rail') {
+        // Одежда на вешалке — прямоугольник поперёк перекладины цветом вещи.
+        const c = G.goods[id]?.[0] ?? clothGood(id)?.[0] ?? G.crate;
+        ctx.fillStyle = c;
+        const a = 1.6 * s * G.glyph;
+        const b = 4.6 * s * G.glyph;
+        const w = horiz ? a : b;
+        const h = horiz ? b : a;
+        ctx.fillRect(sx(x) - w / 2, sy(y) - h / 2, w, h);
+        ctx.strokeRect(sx(x) - w / 2, sy(y) - h / 2, w, h);
+        continue;
+      }
+      good(ctx, sx(x), sy(y), s, id);
     }
   }
 }
