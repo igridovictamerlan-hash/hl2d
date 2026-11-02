@@ -132,44 +132,108 @@ export function windowLights(windows: readonly WindowSpot[], tileSize: number): 
 }
 
 const SPRITE = 64;
+/** Ячейка сетки источников (px мира) и запас на радиус: в кадре перебираются только ячейки у экрана. */
+const CELL = 512;
+const REACH = 220;
+
+/** Тайлящийся мягкий шум (облака): сумма октав сглаженного значения на решётке с переносом краёв. */
+function cloudNoise(n: number, octaves: number, seed: number): Float32Array {
+  const out = new Float32Array(n * n);
+  let amp = 1;
+  let total = 0;
+  for (let o = 0; o < octaves; o++) {
+    const g = 4 << o;
+    const val = new Float32Array(g * g);
+    let h = (seed + o * 0x9e3779b1) >>> 0;
+    for (let i = 0; i < g * g; i++) {
+      h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
+      h = (h ^ Math.imul(h ^ (h >>> 12), 0x297a2d39)) >>> 0;
+      val[i] = (h >>> 8) / 16777216;
+    }
+    for (let y = 0; y < n; y++) {
+      const fy = (y / n) * g;
+      const y0 = Math.floor(fy);
+      const ty = fy - y0;
+      const sy = ty * ty * (3 - 2 * ty);
+      for (let x = 0; x < n; x++) {
+        const fx = (x / n) * g;
+        const x0 = Math.floor(fx);
+        const tx = fx - x0;
+        const sx = tx * tx * (3 - 2 * tx);
+        const a = val[(y0 % g) * g + (x0 % g)];
+        const b = val[(y0 % g) * g + ((x0 + 1) % g)];
+        const c = val[((y0 + 1) % g) * g + (x0 % g)];
+        const d = val[((y0 + 1) % g) * g + ((x0 + 1) % g)];
+        out[y * n + x] += amp * (a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy);
+      }
+    }
+    total += amp;
+    amp *= 0.5;
+  }
+  for (let i = 0; i < out.length; i++) out[i] /= total;
+  return out;
+}
 
 /**
- * Освещение: карта света в LIGHTING.lightmapScale от экрана — заливка светом суток, поверх
- * источники сложением (мягкие пятна-спрайты, по спрайту на цвет), затем умножение на картинку.
- * Свечение (bloom) плафонов и огня — сложением поверх. Спрайты и строки цвета — один раз.
+ * Освещение: карта света в доле scale от экрана — заливка светом суток (с подъёмом ночи по настройке), тени облаков,
+ * поверх источники сложением (мягкие пятна-спрайты с тёплым ядром), виньетка — и умножение на картинку одним
+ * проходом. Свечение (плафоны, огонь, тёплая дымка вокруг света, ореолы окон и фонарей фасадов) — в мелком буфере,
+ * на экран — одним проходом сложения. Источники — в сетке: в кадре только ближние к экрану.
  */
 export class Lighting {
   enabled = true;
-  /** Упрощённо (слабая машина): без свечения. */
-  lite = false;
+  /** Разрешение карты света (доля экрана) — по качеству атмосферы (ATMOSPHERE.presets). */
+  scale: number = LIGHTING.lightmapScale;
+  /** Свечение плафонов, огня, окон; тёплая дымка вокруг ночного света; тени облаков; виньетка в карте света. */
+  glow = true;
+  haze = true;
+  clouds = true;
+  vignette = true;
+  /** Подъём ночи (ATMOSPHERE.night): больше 0 — светлее, меньше — темнее. */
+  nightLift = 0;
   private lights: Light[] = [];
+  private grid = new Map<number, Light[]>();
   private windows: WindowLight[] = [];
+  private winGrid = new Map<number, WindowLight[]>();
+  private gridW = 1;
+  /** Памятные места со свечами (Memorials.list — тот же массив): тёплое пятно света у каждого. */
+  memorials: readonly { id: number; x: number; y: number; candles: number }[] = [];
   /**
    * Свет горящих окон фасадов и фонарей у дверей на мостовую (world/RoofLayer.ts → forEachLight): fn(x, y, сила)
    * в пикселях мира; f — доля суток. null — нет фасадов.
    */
   facadeLights: ((v: View, f: number, fn: (x: number, y: number, power: number) => void) => void) | null = null;
+  /** Ореолы горящих окон и фонарей фасадов — в буфер свечения (RoofLayer.forEachGlow): fn(x, y, радиус, сила). */
+  facadeGlows: ((v: View, f: number, fn: (x: number, y: number, r: number, power: number) => void) => void) | null = null;
   /**
    * Насколько точку закрывает крыша (world/RoofLayer.roofAlpha): лампы комнат под крышей на улицу не светят и не
    * сияют сквозь неё (их свет наружу — окна фасадов), у дома в разрезе — светят. null — крыш нет.
    */
   covered: ((x: number, y: number) => number) | null = null;
-  /** Памятные места со свечами (Memorials.list — тот же массив): тёплое пятно света у каждого. */
-  memorials: readonly { id: number; x: number; y: number; candles: number }[] = [];
   private lm: HTMLCanvasElement | null = null;
   private g: CanvasRenderingContext2D | null = null;
   /** Буфер свечения (как карта света, мелкий): пятна складываются в нём, на экран — одним проходом. */
   private bl: HTMLCanvasElement | null = null;
   private bg: CanvasRenderingContext2D | null = null;
+  private vig: HTMLCanvasElement | null = null;
+  private cloudPattern: CanvasPattern | null = null;
+  /** Те же облака для дня — тень с прозрачностью (обычным наложением, без карты света). */
+  private cloudShade: CanvasPattern | null = null;
   private readonly sprites = new Map<string, HTMLCanvasElement>();
   private readonly state: DayState = { ambient: [0, 0, 0], lamps: 0, name: '' };
+  private readonly amb: [number, number, number] = [0, 0, 0];
   private ambientKey = '';
   private ambientStyle = '';
+  private readonly near: Light[] = [];
+  private readonly nearWin: WindowLight[] = [];
 
-  /** Новая карта: собрать постоянные источники и свет окон. */
+  /** Новая карта: собрать постоянные источники и свет окон (в сетку по ячейкам). */
   setWorld(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[], dugouts: readonly { x: number; y: number; broken: boolean }[] = [], windows: readonly WindowSpot[] = []): void {
     this.lights = staticLights(map, lamps, barrels, nodes, dugouts);
     this.windows = windowLights(windows, map.tileSize);
+    this.gridW = Math.ceil((map.width * map.tileSize) / CELL) + 1;
+    this.grid = bucket(this.lights, this.gridW);
+    this.winGrid = bucket(this.windows, this.gridW);
   }
 
   /** Свет суток сейчас (для HUD и отрисовки уюта). */
@@ -183,6 +247,16 @@ export class Lighting {
     return Math.max(0, Math.min(1, 1 - (a[0] + a[1] + a[2]) / (3 * 255)));
   }
 
+  /** Свет суток с подъёмом ночи (nightLift): ночью — к белому или темнее, днём — как есть. */
+  private ambientOf(src: readonly number[]): [number, number, number] {
+    const a = this.amb;
+    const lum = (src[0] * 0.3 + src[1] * 0.59 + src[2] * 0.11) / 255;
+    const dark = Math.max(0, Math.min(1, (0.78 - lum) / 0.36));
+    const lift = this.nightLift * dark;
+    for (let k = 0; k < 3; k++) a[k] = lift >= 0 ? src[k] + (255 - src[k]) * lift : src[k] * (1 + lift);
+    return a;
+  }
+
   private sprite(c: Rgb): HTMLCanvasElement {
     const key = `${c[0]},${c[1]},${c[2]}`;
     let s = this.sprites.get(key);
@@ -192,12 +266,14 @@ export class Lighting {
     const g = s.getContext('2d')!;
     const r = SPRITE / 2;
     const grad = g.createRadialGradient(r, r, 0, r, r, r);
-    // Мягкий спад: яркое ядро, долгий тёплый край.
-    grad.addColorStop(0, `rgba(${key},1)`);
-    grad.addColorStop(0.25, `rgba(${key},0.78)`);
-    grad.addColorStop(0.5, `rgba(${key},0.4)`);
-    grad.addColorStop(0.75, `rgba(${key},0.13)`);
-    grad.addColorStop(1, `rgba(${key},0)`);
+    // Тёплое ядро светлее (как лампа под абажуром), мягкий долгий спад.
+    const F = LIGHTING.falloff;
+    const core = c.map((v) => Math.round(v + (255 - v) * F.core));
+    for (const [t, a] of F.stops) {
+      const m = Math.max(0, Math.min(1, (t - 0.12) / 0.2));
+      const rgb = core.map((v, i) => Math.round(v + (c[i] - v) * m));
+      grad.addColorStop(t, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`);
+    }
     g.fillStyle = grad;
     g.fillRect(0, 0, SPRITE, SPRITE);
     this.sprites.set(key, s);
@@ -221,25 +297,121 @@ export class Lighting {
     return true;
   }
 
+  /** Источники в ячейках у экрана (с запасом на радиус) — в общий массив out. */
+  private inView<T extends { x: number; y: number }>(grid: Map<number, T[]>, v: View, out: T[]): T[] {
+    out.length = 0;
+    const x0 = Math.floor((v.left - REACH) / CELL);
+    const y0 = Math.floor((v.top - REACH) / CELL);
+    const x1 = Math.floor((v.left + v.width / v.scale + REACH) / CELL);
+    const y1 = Math.floor((v.top + v.height / v.scale + REACH) / CELL);
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+      const list = grid.get(cy * this.gridW + cx);
+      if (list) for (const o of list) out.push(o);
+    }
+    return out;
+  }
+
+  private canvasOf(c: HTMLCanvasElement | null, w: number, h: number): HTMLCanvasElement {
+    if (c && c.width === w && c.height === h) return c;
+    const n = document.createElement('canvas');
+    n.width = w;
+    n.height = h;
+    return n;
+  }
+
   /**
-   * Карта света и умножение на картинку. sewer — игрок в канализации (там свои сумерки).
-   * Динамические источники: пламя, взрывы, вспышки выстрелов, горящие, свой свет игрока.
+   * Тени облаков — тайл шума, повтор узором: shade false — серый для умножения (белое — ясно, темнее — облако),
+   * true — цвет тени облака с прозрачностью (днём — обычным наложением, без прохода карты света).
    */
-  draw(ctx: CanvasRenderingContext2D, v: View, time: number, player: Character, combat: CombatSystem, entities: readonly Character[], sewer: boolean): void {
-    if (!this.enabled) return;
+  private cloudsPattern(g: CanvasRenderingContext2D, shade = false): CanvasPattern | null {
+    const have = shade ? this.cloudShade : this.cloudPattern;
+    if (have) return have;
+    const C = LIGHTING.clouds;
+    const n = C.texture;
+    const noise = cloudNoise(n, C.octaves, C.seed);
+    const c = document.createElement('canvas');
+    c.width = c.height = n;
+    const cg = c.getContext('2d')!;
+    const img = cg.createImageData(n, n);
+    for (let i = 0; i < noise.length; i++) {
+      const t = Math.max(0, Math.min(1, (noise[i] - 0.42) / 0.3));
+      const cover = t * t * (3 - 2 * t);
+      if (shade) {
+        img.data[i * 4] = C.shade[0];
+        img.data[i * 4 + 1] = C.shade[1];
+        img.data[i * 4 + 2] = C.shade[2];
+        img.data[i * 4 + 3] = Math.round(255 * cover);
+      } else {
+        const v = Math.round(255 * (1 - cover));
+        img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
+        img.data[i * 4 + 3] = 255;
+      }
+    }
+    cg.putImageData(img, 0, 0);
+    const p = g.createPattern(c, 'repeat');
+    if (shade) this.cloudShade = p;
+    else this.cloudPattern = p;
+    return p;
+  }
+
+  /** Узор облаков в точку мира: плывут по ветру над картой (привязаны к миру), k — масштаб холста к экрану. */
+  private placeClouds(p: CanvasPattern, v: View, k: number, time: number): void {
+    const C = LIGHTING.clouds;
+    const s = v.scale * k;
+    const t = C.size / C.texture;
+    const ox = (-(v.left + time * C.speed[0]) % C.size) * s;
+    const oy = (-(v.top + time * C.speed[1]) % C.size) * s;
+    p.setTransform(new DOMMatrix([t * s, 0, 0, t * s, ox, oy]));
+  }
+
+  /** Виньетка размером с карту света: в середине белое, к краю — тёплое темнее (умножение). */
+  private vignetteOf(w: number, h: number): HTMLCanvasElement {
+    if (this.vig && this.vig.width === w && this.vig.height === h) return this.vig;
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const g = c.getContext('2d')!;
+    const V = LIGHTING.vignette;
+    const grad = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * V.inner, w / 2, h / 2, Math.hypot(w, h) / 2);
+    grad.addColorStop(0, 'rgb(255,255,255)');
+    grad.addColorStop(1, `rgb(${V.edge[0]},${V.edge[1]},${V.edge[2]})`);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, h);
+    this.vig = c;
+    return c;
+  }
+
+  /**
+   * Карта света и умножение на картинку. sewer — игрок в канализации (там свои сумерки). Динамические источники:
+   * пламя, взрывы, вспышки выстрелов, горящие, свой свет игрока. true — виньетка уже наложена (в карте света).
+   */
+  draw(ctx: CanvasRenderingContext2D, v: View, time: number, player: Character, combat: CombatSystem, entities: readonly Character[], sewer: boolean): boolean {
+    if (!this.enabled) return false;
     const st = this.day(time);
-    const amb = sewer ? LIGHTING.sewer : st.ambient;
+    const amb = this.ambientOf(sewer ? LIGHTING.sewer : st.ambient);
     const lamps = sewer ? 1 : st.lamps;
-    // Ясный день, лампы погашены — умножать не на что (проход на весь экран не нужен).
-    if (!sewer && lamps <= LIGHTING.lampsOn && amb[0] >= LIGHTING.skipDay && amb[1] >= LIGHTING.skipDay && amb[2] >= LIGHTING.skipDay - 20) return;
-    const k = LIGHTING.lightmapScale;
+    const clouds = this.clouds && !sewer;
+    // Ясный день, лампы погашены — умножать не на что (проход на весь экран не нужен): облака — тенью обычным
+    // наложением, виньетку Game кладёт своим слоем (оба дешевле умножения на весь экран).
+    if (!sewer && lamps <= LIGHTING.lampsOn && amb[0] >= LIGHTING.skipDay && amb[1] >= LIGHTING.skipDay && amb[2] >= LIGHTING.skipDay - 20) {
+      if (clouds) {
+        const pat = this.cloudsPattern(ctx, true);
+        if (pat) {
+          this.placeClouds(pat, v, 1, time);
+          ctx.globalAlpha = LIGHTING.clouds.day;
+          ctx.fillStyle = pat;
+          ctx.fillRect(0, 0, v.width, v.height);
+          ctx.globalAlpha = 1;
+        }
+      }
+      return false;
+    }
+    const k = this.scale;
     const w = Math.max(1, Math.ceil(v.width * k));
     const h = Math.max(1, Math.ceil(v.height * k));
     if (!this.lm || this.lm.width !== w || this.lm.height !== h) {
-      this.lm = document.createElement('canvas');
-      this.lm.width = w;
-      this.lm.height = h;
-      this.g = this.lm.getContext('2d')!;
+      this.lm = this.canvasOf(this.lm, w, h);
+      this.g = this.lm.getContext('2d', { alpha: false })!;
     }
     const g = this.g!;
     // Строка цвета — только когда свет суток заметно сменился.
@@ -255,10 +427,24 @@ export class Lighting {
     g.globalAlpha = 1;
     g.fillStyle = this.ambientStyle;
     g.fillRect(0, 0, w, h);
-    g.globalCompositeOperation = 'lighter';
     const L = LIGHTING;
+    // Тени облаков: плывут по ветру над картой (привязаны к миру), затеняют свет суток — не лампы.
+    if (clouds) {
+      const pat = this.cloudsPattern(g);
+      if (pat) {
+        const C = L.clouds;
+        const dark = Math.max(0, Math.min(1, 1 - (amb[0] + amb[1] + amb[2]) / (3 * 255)));
+        this.placeClouds(pat, v, k, time);
+        g.globalCompositeOperation = 'multiply';
+        g.globalAlpha = C.day + (C.night - C.day) * dark;
+        g.fillStyle = pat;
+        g.fillRect(0, 0, w, h);
+        g.globalAlpha = 1;
+      }
+    }
+    g.globalCompositeOperation = 'lighter';
     const cov = this.covered;
-    for (const s of this.lights) {
+    for (const s of this.inView(this.grid, v, this.near)) {
       if (s.off?.broken) continue;
       const on = s.night ? lamps : 1;
       if (on <= L.lampsOn) continue;
@@ -270,7 +456,7 @@ export class Lighting {
     const W = L.window;
     const f = dayFraction(time);
     if (lamps > L.lampsOn) {
-      for (const o of this.windows) if (windowOn(o, f)) this.put(g, v, k, o.x, o.y, W.radius, W.color, W.power * lamps);
+      for (const o of this.inView(this.winGrid, v, this.nearWin)) if (windowOn(o, f)) this.put(g, v, k, o.x, o.y, W.radius, W.color, W.power * lamps);
       const R = FACADES.night.spillR;
       this.facadeLights?.(v, f, (x, y, p) => this.put(g, v, k, x, y, R, W.color, W.power * FACADES.night.spillPower * p * lamps));
     }
@@ -282,7 +468,7 @@ export class Lighting {
       this.put(g, v, k, m.x, m.y, G.radius, G.color, Math.min(G.max, G.power + G.perCandle * (m.candles - 1)) * fl);
     }
     // Пламя, взрывы, горящие, вспышки выстрелов.
-    for (const f of combat.fires) this.put(g, v, k, f.x, f.y, f.r * L.fire.radiusMul, L.fire.color, L.fire.power * (1 - L.fire.flicker * 0.5 * (1 + Math.sin(time * 13 + f.x))));
+    for (const fr of combat.fires) this.put(g, v, k, fr.x, fr.y, fr.r * L.fire.radiusMul, L.fire.color, L.fire.power * (1 - L.fire.flicker * 0.5 * (1 + Math.sin(time * 13 + fr.x))));
     for (const bl of combat.blasts) this.put(g, v, k, bl.x, bl.y, bl.r * L.blast.radiusMul, L.blast.color, L.blast.power * (bl.t / bl.life));
     // Вспышки выстрелов: эффекты по времени, свежие — в конце списка.
     const fx = combat.fx;
@@ -295,6 +481,12 @@ export class Lighting {
     for (const c of entities) if (c.alive && c.burnUntil > combat.now) this.put(g, v, k, c.x, c.y, L.burning.radius, L.burning.color, L.burning.power);
     // Свой свет вокруг игрока (видеть себя и шаг вокруг ночью).
     if (player.alive) this.put(g, v, k, player.x, player.y, L.player.radius, L.player.color, L.player.power);
+    // Виньетка — тем же проходом: края темнее и теплее.
+    if (this.vignette) {
+      g.globalCompositeOperation = 'multiply';
+      g.globalAlpha = 1;
+      g.drawImage(this.vignetteOf(w, h), 0, 0);
+    }
     g.globalCompositeOperation = 'source-over';
     g.globalAlpha = 1;
     ctx.globalCompositeOperation = 'multiply';
@@ -302,27 +494,27 @@ export class Lighting {
     ctx.imageSmoothingQuality = 'low';
     ctx.drawImage(this.lm, 0, 0, v.width, v.height);
     ctx.globalCompositeOperation = 'source-over';
+    return this.vignette;
   }
 
   /**
-   * Свечение самих источников (плафоны, окна, огонь) — тем ярче, чем темнее вокруг. Пятна
-   * складываются в мелком буфере, на экран — одним проходом сложения (сотня пятен на полном экране
-   * по отдельности — дорого).
+   * Свечение (тем ярче, чем темнее вокруг): плафоны и огонь, тёплая дымка вокруг каждого ночного источника (haze),
+   * ореолы горящих окон и фонарей фасадов. Пятна складываются в мелком буфере, на экран — одним проходом сложения.
    */
   drawBloom(ctx: CanvasRenderingContext2D, v: View, time: number, sewer: boolean): void {
-    if (!this.enabled || this.lite) return;
+    if (!this.enabled || !this.glow) return;
     const B = LIGHTING.bloom;
+    const H = LIGHTING.haze;
     const dark = sewer ? 0.7 : this.darkness(time);
     const lamps = sewer ? 1 : this.state.lamps;
     const a = B.alpha * (0.25 + 0.75 * dark);
     if (a < 0.02) return;
-    const k = LIGHTING.lightmapScale;
+    // Свечение мягкое — его буфер мельче карты света (дешевле, разницы не видно).
+    const k = Math.max(0.1, this.scale * LIGHTING.glowScale);
     const w = Math.max(1, Math.ceil(v.width * k));
     const h = Math.max(1, Math.ceil(v.height * k));
     if (!this.bl || this.bl.width !== w || this.bl.height !== h) {
-      this.bl = document.createElement('canvas');
-      this.bl.width = w;
-      this.bl.height = h;
+      this.bl = this.canvasOf(this.bl, w, h);
       this.bg = this.bl.getContext('2d')!;
     }
     const g = this.bg!;
@@ -331,18 +523,29 @@ export class Lighting {
     g.globalCompositeOperation = 'lighter';
     let any = false;
     const cov = this.covered;
-    for (const L of this.lights) {
-      if (!L.bloom || L.off?.broken) continue;
+    const haze = this.haze && dark > 0.15 ? H.alpha * dark : 0;
+    for (const L of this.inView(this.grid, v, this.near)) {
+      if (L.off?.broken) continue;
       const on = L.night ? lamps : 1;
       if (on <= LIGHTING.lampsOn) continue;
       const open = cov ? 1 - cov(L.x, L.y) : 1;
       if (open <= 0.01) continue;
-      if (this.put(g, v, k, L.x, L.y, L.r * B.radius, L.color, a * on * L.power * open * this.flick(L, time))) any = true;
+      const fl = this.flick(L, time);
+      if (L.bloom && this.put(g, v, k, L.x, L.y, L.r * B.radius, L.color, a * on * L.power * open * fl)) any = true;
+      if (haze > 0 && this.put(g, v, k, L.x, L.y, L.r * H.radius, L.color, haze * on * L.power * open * fl)) any = true;
+    }
+    // Ореолы окон и фонарей фасадов: тёплые, тем ярче, чем темнее.
+    if (lamps > LIGHTING.lampsOn && this.facadeGlows) {
+      const W = LIGHTING.window.color;
+      this.facadeGlows(v, dayFraction(time), (x, y, r, p) => {
+        if (this.put(g, v, k, x, y, r, W, p * lamps * (0.4 + 0.6 * dark))) any = true;
+      });
     }
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
     if (!any) return;
     ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.bl, 0, 0, v.width, v.height);
     ctx.globalCompositeOperation = 'source-over';
   }
@@ -351,4 +554,21 @@ export class Lighting {
   litLamps(): readonly Light[] {
     return this.lights;
   }
+
+  /** Источники у экрана (для пылинок): из сетки. */
+  lightsNear(v: View): readonly Light[] {
+    return this.inView(this.grid, v, this.near);
+  }
+}
+
+/** Разложить по ячейкам сетки (CELL px мира) по центру. */
+function bucket<T extends { x: number; y: number }>(list: readonly T[], gw: number): Map<number, T[]> {
+  const out = new Map<number, T[]>();
+  for (const o of list) {
+    const key = Math.floor(o.y / CELL) * gw + Math.floor(o.x / CELL);
+    let a = out.get(key);
+    if (!a) out.set(key, (a = []));
+    a.push(o);
+  }
+  return out;
 }

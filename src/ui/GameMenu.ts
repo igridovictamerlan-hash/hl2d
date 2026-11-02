@@ -1,3 +1,4 @@
+import { cycleNight, cycleQuality, toggle as toggleAtmo, type AtmoSettings } from '../world/atmosphere';
 import { CONTROLS_GROUPS } from './HelpBar';
 import { TOUCH_HELP } from '../config/touch';
 import { ID_CARD, INTRO } from '../config/menus';
@@ -49,11 +50,9 @@ export interface GameMenuHost {
   changeRole(): void;
   toggleSound(): boolean;
   readonly soundMuted: boolean;
-  /** Атмосфера: свет и время суток, дымок, зерно. */
-  toggleLighting(): boolean;
-  readonly lightingOn: boolean;
-  /** Упрощена под слабую машину. */
-  readonly lightingLite: boolean;
+  /** Атмосфера: свет и сутки, свечение, облака, тени, дымок, плёнка (world/atmosphere.ts) — сразу видно в игре. */
+  readonly atmosphere: AtmoSettings;
+  setAtmosphere(s: AtmoSettings): void;
   /** Стиль пешек: пиксельные или прежние фасолины (меню «Пешки»). */
   togglePawnStyle(): void;
   readonly pawnsPixel: boolean;
@@ -68,7 +67,7 @@ export interface GameMenuHost {
   idCard(): IdCardInfo | null;
 }
 
-type Screen = 'buttons' | 'controls' | 'confirmNew' | 'arena' | 'lore';
+type Screen = 'buttons' | 'controls' | 'confirmNew' | 'arena' | 'lore' | 'atmo';
 type StampKind = keyof typeof ID_CARD.stamps;
 
 interface Item {
@@ -78,6 +77,10 @@ interface Item {
   /** Переключатель: отмечен ли и подпись значения. */
   on?: boolean;
   value?: string;
+  /** Бледный (не действует, пока выключено главное). */
+  dim?: boolean;
+  /** Значение по кругу (не «вкл/выкл»). */
+  cycle?: boolean;
 }
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!);
@@ -225,8 +228,24 @@ export class GameMenu {
       case 'sound':
         h.toggleSound();
         break;
-      case 'light':
-        h.toggleLighting();
+      case 'atmo':
+        this.screen = 'atmo';
+        break;
+      case 'atmoOn':
+      case 'atmoGlow':
+      case 'atmoClouds':
+      case 'atmoShadows':
+      case 'atmoLife':
+      case 'atmoFilm': {
+        const key = ({ atmoOn: 'on', atmoGlow: 'glow', atmoClouds: 'clouds', atmoShadows: 'shadows', atmoLife: 'life', atmoFilm: 'film' } as const)[a];
+        h.setAtmosphere(toggleAtmo(h.atmosphere, key));
+        break;
+      }
+      case 'atmoQuality':
+        h.setAtmosphere(cycleQuality(h.atmosphere));
+        break;
+      case 'atmoNight':
+        h.setAtmosphere(cycleNight(h.atmosphere));
         break;
       case 'pawns':
         h.togglePawnStyle();
@@ -349,9 +368,29 @@ export class GameMenu {
       text = ID_CARD.arenaText;
       heading = 'НАПРАВЛЕНИЕ НА УЧЕНИЯ';
       items = [{ act: 'arenaRebel', label: L.arenaRebel, primary: true }, { act: 'arenaCombine', label: L.arenaCombine }, { act: 'back', label: L.back }];
+    } else if (this.screen === 'atmo') {
+      // Атмосфера: общий выключатель, качество (пресет эффектов), ночь, эффекты по отдельности.
+      const A = h.atmosphere;
+      const T = ID_CARD.atmo;
+      const onoff = (b: boolean) => (b ? 'ВКЛ' : 'ВЫКЛ');
+      const off = !A.on;
+      heading = T.heading;
+      text = off ? T.offText : T.text;
+      items = [
+        { act: 'atmoOn', label: T.on, on: A.on, value: onoff(A.on) },
+        { act: 'atmoQuality', label: T.quality, value: `${T.qualities[A.quality]}${A.auto ? ` · ${T.auto}` : ''}`, dim: off, cycle: true },
+        { act: 'atmoNight', label: T.night, value: T.nights[A.night], dim: off, cycle: true },
+        { act: 'atmoGlow', label: T.glow, on: A.glow, value: onoff(A.glow), dim: off },
+        { act: 'atmoClouds', label: T.clouds, on: A.clouds, value: onoff(A.clouds), dim: off },
+        { act: 'atmoShadows', label: T.shadows, on: A.shadows, value: onoff(A.shadows) },
+        { act: 'atmoLife', label: T.life, on: A.life, value: onoff(A.life), dim: off },
+        { act: 'atmoFilm', label: T.film, on: A.film, value: onoff(A.film), dim: off },
+        { act: 'back', label: L.back, primary: true },
+      ];
     } else {
       const sound: Item = { act: 'sound', label: L.sound, on: !h.soundMuted, value: h.soundMuted ? 'ВЫКЛ' : 'ВКЛ' };
-      const light: Item = { act: 'light', label: L.light, on: h.lightingOn, value: h.lightingOn ? (h.lightingLite ? L.lightLite.toUpperCase() : 'ВКЛ') : 'ВЫКЛ' };
+      const A = h.atmosphere;
+      const light: Item = { act: 'atmo', label: L.light, on: A.on, value: A.on ? ID_CARD.atmo.qualities[A.quality] : 'ВЫКЛ' };
       const people: Item = { act: 'population', label: L.population, value: h.populationLabel };
       const pawns: Item = { act: 'pawns', label: L.pawns, value: h.pawnsPixel ? L.pawnsPixel : L.pawnsBean };
       items = main
@@ -382,7 +421,7 @@ export class GameMenu {
     }
     const nav = sheet
       ? `<p class="idc-text">Листок лежит поверх удостоверения. Esc или пункт на листке — вернуться.</p>`
-      : `<nav class="idc-menu">${items.map((it, i) => `<button type="button" class="idc-item${it.primary ? ' primary' : ''}${it.on ? ' on' : ''}" data-act="${it.act}"${it.on !== undefined ? ` aria-pressed="${it.on}"` : ''}><span class="box"></span><span class="lbl">${esc(it.label)}</span>${it.value ? `<span class="val">${esc(it.value)}</span>` : ''}<kbd>${i + 1}</kbd></button>`).join('')}</nav>`;
+      : `<nav class="idc-menu${this.screen === 'atmo' ? ' idc-atmo' : ''}">${items.map((it, i) => `<button type="button" class="idc-item${it.primary ? ' primary' : ''}${it.on ? ' on' : ''}${it.dim ? ' dim' : ''}${it.cycle ? ' cycle' : ''}" data-act="${it.act}"${it.on !== undefined ? ` aria-pressed="${it.on}"` : ''}><span class="box"></span><span class="lbl">${esc(it.label)}</span>${it.value ? `<span class="val">${esc(it.value)}</span>` : ''}<kbd>${i + 1}</kbd></button>`).join('')}</nav>`;
     const note = this.note ? `<div class="idc-note ${this.noteOk ? 'ok' : 'err'}">${esc(this.note)}</div>` : '<div class="idc-note"></div>';
     right.innerHTML = `${head}<div class="idc-heading">${heading}</div>${text ? `<p class="idc-text">${esc(text)}</p>` : ''}${nav}${note}
       <footer class="idc-warn">${ID_CARD.warning}<br><span>${main ? ID_CARD.foot : ID_CARD.pauseFoot}</span></footer>`;

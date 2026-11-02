@@ -1,7 +1,7 @@
 /** Описание системы — docs/rendering.md («Окна и тени»). */
 import type { GameMap } from './GameMap';
 import { LIGHTING } from '../config/lighting';
-import { HEIGHT_UNIT, sunAlpha, sunOffset } from './shadows';
+import { HEIGHT_UNIT, sunAlpha, sunOffset, sunTint } from './shadows';
 
 /** Солнце для кусков карты: шаг положения, прозрачность теней (ступенькой) и ключ кэша (шаг и прозрачность). */
 export interface SunState {
@@ -23,6 +23,7 @@ export class ShadowRenderer {
   /** Самая длинная тень (тайлов): на столько кусок берёт отбрасывающих снаружи и столько задевает правка тайла. */
   readonly reach: number;
   private mask: HTMLCanvasElement | null = null;
+  private fill = '#000';
 
   constructor(
     private readonly map: GameMap,
@@ -65,6 +66,9 @@ export class ShadowRenderer {
     m.clearRect(0, 0, w, h);
     m.setTransform(res, 0, 0, res, -ax * ts * res, -ay * ts * res);
     const { dx, dy } = sunOffset(sun.step / S.steps);
+    // Тень не чёрная: холодная синяя днём, сиреневая на восходе и закате.
+    const tint = sunTint(sun.step / S.steps);
+    this.fill = `rgb(${tint[0]},${tint[1]},${tint[2]})`;
     const r = this.reach;
     const low = LIGHTING.storeys.low * HEIGHT_UNIT;
     const x0 = Math.max(0, ax - r);
@@ -96,7 +100,7 @@ export class ShadowRenderer {
     const ts = this.map.tileSize;
     const w = this.map.width;
     const H = this.heights;
-    g.fillStyle = '#000';
+    g.fillStyle = this.fill;
     for (const pass of [0, 1]) {
       const m = pass === 0 ? LIGHTING.sun.penumbra : 1;
       g.globalAlpha = pass === 0 ? 0.5 : 1;

@@ -955,22 +955,25 @@ function lowFacade(ctx: Ctx, k: FacadeKit, s: FacadeSpec, h: number, seed: numbe
  * Горящее: окна, витрины, фрамуги, слуховые окна — по своему часу отбоя (litAt), фонари у дверей — когда темно
  * (lamps > 0). Стекло ярко-тёплое со шторами и переплётом, вокруг — ореол сложением цвета. После затемнения.
  */
-export function drawLit(ctx: Ctx, rec: FacadeRecord, night: number, lamps: number): void {
+export function drawLit(ctx: Ctx, rec: FacadeRecord, night: number, lamps: number, halos = true): void {
   const F = FACADES;
   const N = F.night;
   if (lamps <= 0.02) return;
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = Math.min(1, lamps);
-  const halo = haloSprite(N.halo);
-  for (const w of rec.windows) {
-    if (!litAt(night, w.seed, w.key, w.share)) continue;
-    const r = Math.max(w.w, w.h) * N.haloR * 0.5;
-    ctx.drawImage(halo, w.x + w.w / 2 - r, w.y + w.h / 2 - r, r * 2, r * 2);
+  // Ореолы — здесь (лист ассетов) или в общем буфере свечения (игра: Lighting.facadeGlows ← RoofLayer.forEachGlow).
+  if (halos) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, lamps);
+    const halo = haloSprite(N.halo);
+    for (const w of rec.windows) {
+      if (!litAt(night, w.seed, w.key, w.share)) continue;
+      const r = Math.max(w.w, w.h) * N.haloR * 0.5;
+      ctx.drawImage(halo, w.x + w.w / 2 - r, w.y + w.h / 2 - r, r * 2, r * 2);
+    }
+    const lamp = haloSprite(N.lampHalo);
+    for (const l of rec.lamps) ctx.drawImage(lamp, l.x - N.lampR, l.y - N.lampR, N.lampR * 2, N.lampR * 2);
+    ctx.restore();
   }
-  const lamp = haloSprite(N.lampHalo);
-  for (const l of rec.lamps) ctx.drawImage(lamp, l.x - N.lampR, l.y - N.lampR, N.lampR * 2, N.lampR * 2);
-  ctx.restore();
   ctx.save();
   ctx.globalAlpha = Math.min(1, 0.35 + lamps);
   for (const w of rec.windows) {

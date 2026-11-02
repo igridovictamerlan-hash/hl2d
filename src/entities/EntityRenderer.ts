@@ -28,6 +28,7 @@ import type { MeleeSwing } from './meleePose';
 import type { PawnDir } from './PawnRenderer';
 import { clothesOf } from '../systems/Gear';
 import { PAWN } from '../config/pawns';
+import { LIGHTING } from '../config/lighting';
 import { apparentFaction, displayName } from './cover';
 import { CROUCH, DOWNED, TRENCH } from '../config/tactics';
 import type { PawnLook } from './PawnRenderer';
@@ -116,6 +117,41 @@ export class EntityRenderer {
     const dressed = op ? op.clothes : worn ? c.clothes ?? clothesOf(c.gear, true) ?? null : c.clothes && faction === 'citizen' ? c.clothes : null;
     const band = gang?.def.color ?? (dressed && loyalist ? LOYALTY.uniform.color : fam?.color);
     return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, kit, clothesKey: op ? op.key : dressed || worn ? c.clothesKey : undefined };
+  }
+
+  /**
+   * Тени людей от солнца (днём, до пешек): вытянутый эллипс от ног по направлению тени, длина — по высоте солнца;
+   * все одним путём и одной заливкой (перекрытия не темнее). sun — смещение тени человека (px мира), цвет, прозрачность.
+   * Под крышей, лежащие и спящие — без тени.
+   */
+  drawSunShadows(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, sun: { dx: number; dy: number; color: string; alpha: number }): void {
+    const len = Math.hypot(sun.dx, sun.dy);
+    if (len < 1 || sun.alpha <= 0.01) return;
+    const s = v.scale;
+    const rot = Math.atan2(sun.dy, sun.dx);
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    const W = LIGHTING.pawnShadow.width;
+    const rx = (len * 0.5 + W * 0.6) * s;
+    const ry = W * s;
+    const foot = PAWN.shadow.y * PAWN.scale;
+    const m = rx + 4;
+    ctx.beginPath();
+    let any = false;
+    for (const c of list) {
+      if (!c.alive || c.downed || c.asleep || (!c.visible && !showAll) || this.covered(c) >= 1) continue;
+      const cx = (lerp(c.prevX, c.x, alpha) + sun.dx * 0.5 - v.left) * s;
+      const cy = (lerp(c.prevY, c.y, alpha) + foot + sun.dy * 0.5 - v.top) * s;
+      if (cx < -m || cy < -m || cx > v.width + m || cy > v.height + m) continue;
+      ctx.moveTo(cx + rx * cos, cy + rx * sin);
+      ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+      any = true;
+    }
+    if (!any) return;
+    ctx.globalAlpha = sun.alpha;
+    ctx.fillStyle = sun.color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
   /**

@@ -232,7 +232,7 @@ function scene(f: Frag, mode: Mode, night: number | null = null): HTMLCanvasElem
         ctx.fillRect((x - v.left - N.spillR) * k, (y - v.top - N.spillR) * k, N.spillR * 2 * k, N.spillR * 2 * k);
       });
       ctx.restore();
-      roofs.drawLit(ctx, v, night, 1);
+      roofs.drawLit(ctx, v, night, 1, true);
       const home = mode === 'cut' ? f.home : null;
       if (home) {
         // Свой дом ночью — лампа внутри.

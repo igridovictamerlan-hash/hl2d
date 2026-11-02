@@ -76,7 +76,7 @@ export const FACADES = {
    * в карте света: на spill px от фасада, радиус spillR, сила; окна выше первого этажа светят слабее — upper).
    * Фонарь у двери — ореол lampR.
    */
-  night: { halo: 'rgba(255,190,105,0.34)', haloR: 1.8, spill: 14, spillR: 46, spillPower: 1.25, upper: 0.55, lampHalo: 'rgba(255,205,120,0.6)', lampR: 14, lampSpill: 30, lampPower: 1.1 },
+  night: { halo: 'rgba(255,190,105,0.34)', haloR: 1.8, haloPower: 0.6, spill: 16, spillR: 58, spillPower: 1.5, upper: 0.65, lampHalo: 'rgba(255,205,120,0.6)', lampR: 14, lampGlow: 0.85, lampSpill: 30, lampPower: 1.1 },
   /**
    * Слой крыш в игре (world/RoofLayer.ts): каждый дом рисуется один раз в свой холст (кэш до maxPixels пикселей,
    * давно не видные — вон); за кадр строится не дольше budget мс (дом без холста — заглушка цветом крыши), на margin

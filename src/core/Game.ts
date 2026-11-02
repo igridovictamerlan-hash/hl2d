@@ -113,7 +113,9 @@ import type { CheckChoice } from '../ui/CheckPanel';
 import { DebugOverlay } from '../ui/DebugOverlay';
 import { Lighting, clockText, dayFraction } from '../world/Lighting';
 import { Ambience } from '../world/Ambience';
-import { COZY, LIGHTING } from '../config/lighting';
+import { ATMOSPHERE, COZY, LIGHTING } from '../config/lighting';
+import { effective, parseAtmo, serializeAtmo, simplify, type AtmoEffective, type AtmoSettings } from '../world/atmosphere';
+import { sunAlpha, sunOffset, sunPhase, sunTint } from '../world/shadows';
 import { orgCrimes, orgOrder, orgStaff, orgSummary, orgWanted } from '../systems/CpOrg';
 import { ORG } from '../config/org';
 import { issuePassport } from '../systems/Passports';
@@ -188,6 +190,12 @@ export class Game {
   /** Свет и время суток, дымок из труб, пылинки, зерно (только картинка). */
   private readonly lighting = new Lighting();
   private readonly ambience = new Ambience();
+  /** Настройки атмосферы (меню «Атмосфера: свет и сутки») и что из них рисуется на деле. */
+  private atmo: AtmoSettings = parseAtmo(null);
+  private fx: AtmoEffective = effective(this.atmo);
+  /** Цвет тумана войны по времени суток (строка — когда стемнело на шаг). */
+  private fogKey = -1;
+  private fogStyle = '';
   private readonly arsenalView = new ArsenalRenderer();
   private readonly portView = new PortRenderer();
   /** Баржи речного порта (картинка). */
@@ -225,13 +233,9 @@ export class Game {
     uiRoot: HTMLElement,
     private readonly opts: GameOptions,
   ) {
-    // Атмосфера (свет, дымок, зерно) — как выбрал игрок в прошлый раз.
-    try {
-      const on = localStorage.getItem(COZY.storageKey) !== '0';
-      this.lighting.enabled = this.ambience.enabled = on;
-    } catch {
-      /* по умолчанию включена */
-    }
+    // Атмосфера (свет и сутки, свечение, облака, тени, дымок, плёнка) — как настроил игрок в прошлый раз.
+    this.atmo = Game.loadAtmo();
+    this.applyAtmo(false);
     this.popLevel = Game.loadPopulation();
     loadPawnStyle();
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -560,6 +564,8 @@ export class Game {
     const roofsOn = this.roofs.enabled;
     this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes, this.war.dugouts.list, roofsOn ? this.mapRenderer.windows.filter((o) => o.out !== 2) : this.mapRenderer.windows);
     this.lighting.facadeLights = roofsOn ? (v, f, fn) => this.roofs.forEachLight(v, f, fn) : null;
+    this.lighting.facadeGlows = roofsOn ? (v, f, fn) => this.roofs.forEachGlow(v, f, fn) : null;
+    this.ambience.setGreens(greensOf(map, this.trees));
     this.lighting.covered = roofsOn ? (x, y) => (this.level === 'sewer' ? 0 : this.roofs.roofAlpha(x, y)) : null;
     this.lighting.memorials = this.ai.memorials.list;
     this.ambience.setWorld(roofsOn ? this.roofs.chimneyPoints() : this.mapRenderer.chimneyPoints());
@@ -765,31 +771,92 @@ export class Game {
     return this.ui.audio.toggle();
   }
 
-  /** Кадров мало (слабая машина) — сколько секунд подряд; атмосфера упрощается (COZY.autoLite). */
+  /** Кадров мало (слабая машина) — сколько секунд подряд; качество атмосферы — на ступень ниже (ATMOSPHERE.autoLite). */
   private slowFor = 0;
 
   private autoLite(dt: number): void {
-    if (!this.lighting.enabled || this.lighting.lite) return;
-    const A = COZY.autoLite;
+    if (!this.atmo.on) return;
+    const A = ATMOSPHERE.autoLite;
     this.slowFor = this.fps > 0 && this.fps < A.fps ? this.slowFor + dt : 0;
     if (this.slowFor < A.after) return;
-    this.lighting.lite = this.ambience.lite = true;
-    this.bus.emit('log', { text: 'Атмосфера упрощена под эту машину (без зерна и свечения). Полная или выкл — Esc → «Атмосфера».', kind: 'system' });
+    this.slowFor = 0;
+    const next = simplify(this.atmo);
+    if (!next) return;
+    this.setAtmosphere(next);
+    this.bus.emit('log', { text: `Атмосфера упрощена под эту машину: качество «${ATMO_QUALITY[next.quality]}». Вернуть — Esc → «Атмосфера: свет и сутки».`, kind: 'system' });
   }
 
-  /** Атмосфера (свет и время суток, дымок, зерно): вкл/выкл — для слабых машин; помнится в браузере. */
-  toggleLighting(): boolean {
-    const on = !this.lighting.enabled;
-    this.lighting.enabled = this.ambience.enabled = on;
-    // Снова включили — снова полная (упростится сама, если не тянет).
-    this.lighting.lite = this.ambience.lite = false;
-    this.slowFor = 0;
+  /** Настройки атмосферы из браузера (прежний ключ «вкл/выкл» — тоже). */
+  private static loadAtmo(): AtmoSettings {
     try {
-      localStorage.setItem(COZY.storageKey, on ? '1' : '0');
+      return parseAtmo(localStorage.getItem(ATMOSPHERE.storageKey), localStorage.getItem(ATMOSPHERE.legacyKey));
+    } catch {
+      return parseAtmo(null);
+    }
+  }
+
+  /** Применить настройки атмосферы к свету, тени и частицам; save — запомнить в браузере. */
+  private applyAtmo(save = true): void {
+    const e = (this.fx = effective(this.atmo));
+    const L = this.lighting;
+    L.enabled = e.lighting;
+    L.scale = e.lightScale;
+    L.glow = e.glow;
+    L.haze = e.haze;
+    L.clouds = e.clouds;
+    L.vignette = e.vignette;
+    L.nightLift = e.nightLift;
+    const A = this.ambience;
+    A.enabled = e.lighting;
+    A.smoke = e.smoke;
+    A.motes = e.motes;
+    A.fireflies = e.fireflies;
+    A.grain = e.grain;
+    this.slowFor = 0;
+    this.fogKey = -1;
+    if (!save) return;
+    try {
+      localStorage.setItem(ATMOSPHERE.storageKey, serializeAtmo(this.atmo));
     } catch {
       /* не запомним — не страшно */
     }
-    return on;
+  }
+
+  /** Атмосфера (меню): текущие настройки и новые (сразу видно в игре, помнится в браузере). */
+  get atmosphere(): AtmoSettings {
+    return this.atmo;
+  }
+
+  setAtmosphere(s: AtmoSettings): void {
+    this.atmo = s;
+    this.applyAtmo();
+  }
+
+  /** Туман войны по времени суток: днём — тёмный нейтральный, ночью — синий (LIGHTING.fog); строка — по шагам. */
+  private fogColor(sewer: boolean): string {
+    if (sewer) return VISION.sewerFogColor;
+    if (!this.lighting.enabled) return VISION.fogColor;
+    const d = Math.round(this.lighting.darkness(this.time) * 20) / 20;
+    if (d !== this.fogKey) {
+      const F = LIGHTING.fog;
+      const t = Math.min(1, d / 0.55);
+      const c = F.day.map((v, i) => v + (F.night[i] - v) * t);
+      this.fogStyle = `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${c[3].toFixed(3)})`;
+      this.fogKey = d;
+    }
+    return this.fogStyle;
+  }
+
+  /** Тень человека от солнца сейчас (смещение px мира, цвет, прозрачность) или null — ночь, выключено, канализация. */
+  private pawnSun(): { dx: number; dy: number; color: string; alpha: number } | null {
+    if (!this.fx.pawnShadows || !this.lighting.enabled || this.level === 'sewer') return null;
+    const f = dayFraction(this.time);
+    const p = sunPhase(f);
+    if (p === null) return null;
+    const P = LIGHTING.pawnShadow;
+    const o = sunOffset(p);
+    const t = sunTint(p);
+    return { dx: o.dx * P.len, dy: o.dy * P.len, color: `rgb(${t[0]},${t[1]},${t[2]})`, alpha: (sunAlpha(f) / LIGHTING.sun.alpha) * P.alpha };
   }
 
   /** Стиль пешек: пиксельные или прежние фасолины (меню «Пешки»); помнится в браузере. */
@@ -801,13 +868,6 @@ export class Game {
     return isPixelStyle();
   }
 
-  get lightingOn(): boolean {
-    return this.lighting.enabled;
-  }
-
-  get lightingLite(): boolean {
-    return this.lighting.lite;
-  }
 
   /** Где горит огонь (бочки, костёр лагеря, светильники убежища) — треск рядом в звуковом фоне. */
   fireSpots: { x: number; y: number }[] = [];
@@ -1466,7 +1526,7 @@ export class Game {
     ctx.fillStyle = RENDER.background;
     ctx.fillRect(0, 0, v.width, v.height);
     // Тени от зданий по солнцу (в кусках карты); без освещения солнце стоит, в канализации — без теней.
-    this.mapRenderer.draw(ctx, v, this.level === 'sewer' ? null : this.lighting.enabled ? dayFraction(this.time) : LIGHTING.sun.still);
+    this.mapRenderer.draw(ctx, v, this.level === 'sewer' || !this.fx.sunShadows ? null : this.lighting.enabled ? dayFraction(this.time) : LIGHTING.sun.still);
     this.drawTerminal(v);
     this.effects.drawGround(ctx, v, this.combat, this.economy, this.law.now, this.map, this.insurgency.cache);
     this.effects.drawLabor(ctx, v, this.labor, this.economy.rationStock, this.law.now);
@@ -1488,6 +1548,9 @@ export class Game {
     // Крыши и фасады (вид ¾): кто в домах — под ними, кто на улице и в доме игрока (разрез) — поверх.
     const sewer = this.level === 'sewer';
     const roofs = this.roofs.enabled && !sewer;
+    // Тени людей от солнца — на земле, до пешек (под крышей их закроет крыша).
+    const sun = this.pawnSun();
+    if (sun) this.entityRenderer.drawSunShadows(ctx, v, this.entities.list, alpha, showAll, sun);
     if (roofs) {
       this.updateRoofs();
       this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now, 'under');
@@ -1504,7 +1567,7 @@ export class Game {
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     // Дымок из труб, затем свет суток и источников (умножение), свечение ламп и огня, пылинки.
     this.ambience.drawSmoke(ctx, v);
-    this.lighting.draw(ctx, v, this.time, this.player, this.combat, this.entities.list, sewer);
+    const vignetted = this.lighting.draw(ctx, v, this.time, this.player, this.combat, this.entities.list, sewer);
     this.lighting.drawBloom(ctx, v, this.time, sewer);
     if (!sewer && this.lighting.enabled) {
       const lamps = this.lighting.day(this.time).lamps;
@@ -1516,14 +1579,17 @@ export class Game {
     }
     if (!sewer) this.arsenalView.drawGlow(ctx, v, this.ai.arsenal, this.law.now);
     if (!sewer) this.prisonView.drawGlow(ctx, v, this.ai.prison, this.law.now);
-    if (!sewer) this.ambience.drawMotes(ctx, v, this.lighting.litLamps(), this.lighting.day(this.time).lamps, this.time);
+    if (!sewer) {
+      this.ambience.drawMotes(ctx, v, this.lighting.lightsNear(v), this.lighting.day(this.time).lamps, this.time);
+      this.ambience.drawFireflies(ctx, v, this.lighting.darkness(this.time), this.time);
+    }
     this.particles.draw(ctx, v);
     this.effects.drawShots(ctx, v, this.combat);
     this.effects.drawFire(ctx, v, this.combat, this.entities.list, alpha, this.combat.now);
     this.effects.drawScanners(ctx, v, this.ai.scanners.list, alpha, this.law.now);
     this.aim.drawSwings(ctx, v, this.combat, alpha, showAll);
     this.refreshSight();
-    this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor, roofs ? (c) => this.roofs.fogHoles(c, v) : null);
+    this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, this.fogColor(sewer), roofs ? (c) => this.roofs.fogHoles(c, v) : null);
     this.particles.drawOver(ctx, v, this.combat);
     if (!sewer) this.arsenalView.drawShip(ctx, v, this.ai.arsenal, this.law.now);
     this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);
@@ -1535,7 +1601,8 @@ export class Game {
     const hy = hover ? this.input.mouseY * dpr : insp ? (insp.y - v.top) * v.scale : null;
     this.entityRenderer.drawLabels(ctx, v, this.entities.list, alpha, dpr, this.law.now, showAll, this.player, hx, hy);
     this.debug.draw(ctx, v, this.entities.list, this.nav, this.player, alpha, dpr);
-    if (this.vignette) {
+    // Виньетка — в карте света; без прохода света (ясный день, атмосфера выключена) — своим слоем.
+    if (this.vignette && this.fx.vignette && !vignetted) {
       ctx.fillStyle = this.vignette;
       ctx.fillRect(0, 0, v.width, v.height);
     }
@@ -1681,4 +1748,21 @@ export class Game {
     ctx.moveTo(x, y + a); ctx.lineTo(x, y + b);
     ctx.stroke();
   }
+}
+
+/** Названия качества атмосферы (журнал, меню). */
+export const ATMO_QUALITY: Record<AtmoSettings['quality'], string> = { high: 'высокое', medium: 'среднее', low: 'низкое' };
+
+/** Где светлячки: деревья, сады и живые изгороди (точки px мира; сады — через несколько тайлов). */
+function greensOf(map: GameMap, trees: readonly { x: number; y: number }[]): { x: number; y: number }[] {
+  const ts = map.tileSize;
+  const out = trees.map((t) => ({ x: (t.x + 0.5) * ts, y: (t.y + 0.5) * ts }));
+  const step = 6;
+  for (let y = 0; y < map.height; y += step) {
+    for (let x = 0; x < map.width; x += step) {
+      const t = map.tileAt(x, y);
+      if (t === T.GARDEN || t === T.HEDGE) out.push({ x: (x + 0.5) * ts, y: (y + 0.5) * ts });
+    }
+  }
+  return out;
 }

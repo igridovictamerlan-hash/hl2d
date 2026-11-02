@@ -33,24 +33,52 @@ export interface PoiLight {
 export const LIGHTING = {
   dayLength: 1080,
   start: 0.71,
+  /** Разрешение карты света по умолчанию (доля экрана); в игре — по качеству атмосферы (ATMOSPHERE.presets). */
   lightmapScale: 0.25,
+  /**
+   * Палитра суток (умножается на картинку): глубокая лунная синева ночью (читается, без черноты), розовато-сиреневый
+   * рассвет, тёплое утро, светлый день, золотой час перед закатом, закат, «синий час» после него — фонари уже горят.
+   */
   keys: [
-    { at: 0.0, ambient: [112, 112, 156], lamps: 1, name: 'ночь' },
-    { at: 0.2, ambient: [114, 112, 154], lamps: 1, name: 'ночь' },
-    { at: 0.25, ambient: [204, 166, 170], lamps: 0.7, name: 'рассвет' },
-    { at: 0.31, ambient: [255, 234, 208], lamps: 0, name: 'утро' },
-    { at: 0.5, ambient: [255, 247, 232], lamps: 0, name: 'день' },
-    { at: 0.64, ambient: [255, 232, 196], lamps: 0, name: 'день' },
-    { at: 0.71, ambient: [255, 196, 138], lamps: 0.5, name: 'закат' },
-    { at: 0.78, ambient: [222, 156, 128], lamps: 1, name: 'вечер' },
-    { at: 0.84, ambient: [142, 124, 160], lamps: 1, name: 'сумерки' },
-    { at: 0.9, ambient: [112, 112, 156], lamps: 1, name: 'ночь' },
-    { at: 1.0, ambient: [112, 112, 156], lamps: 1, name: 'ночь' },
+    { at: 0.0, ambient: [98, 110, 172], lamps: 1, name: 'ночь' },
+    { at: 0.17, ambient: [94, 106, 168], lamps: 1, name: 'ночь' },
+    { at: 0.205, ambient: [120, 120, 178], lamps: 1, name: 'предрассветье' },
+    { at: 0.235, ambient: [206, 168, 190], lamps: 0.7, name: 'рассвет' },
+    { at: 0.26, ambient: [255, 208, 172], lamps: 0.1, name: 'восход' },
+    { at: 0.31, ambient: [255, 236, 214], lamps: 0, name: 'утро' },
+    { at: 0.5, ambient: [255, 250, 240], lamps: 0, name: 'день' },
+    { at: 0.63, ambient: [255, 240, 216], lamps: 0, name: 'день' },
+    { at: 0.7, ambient: [255, 214, 160], lamps: 0.1, name: 'закат' },
+    { at: 0.77, ambient: [250, 168, 122], lamps: 0.6, name: 'закат' },
+    { at: 0.81, ambient: [166, 132, 180], lamps: 1, name: 'сумерки' },
+    { at: 0.86, ambient: [120, 120, 182], lamps: 1, name: 'вечер' },
+    { at: 0.91, ambient: [100, 112, 174], lamps: 1, name: 'ночь' },
+    { at: 1.0, ambient: [98, 110, 172], lamps: 1, name: 'ночь' },
   ] as readonly DayKey[],
+  /**
+   * Пятно света (спрайт на цвет): ядро светлее (core — доля до белого), спад мягкий, как от лампы под абажуром:
+   * [доля радиуса, яркость].
+   */
+  falloff: {
+    core: 0.3,
+    stops: [[0, 1], [0.12, 0.95], [0.3, 0.72], [0.5, 0.43], [0.7, 0.18], [0.86, 0.06], [1, 0]] as readonly (readonly [number, number])[],
+  },
+  /**
+   * Облака: мягкий шум (texture px на тайл size px мира) плывёт по ветру (speed px/с) и затеняет свет суток — днём
+   * сильнее (day: тенью цвета shade обычным наложением), в лунную ночь слабее (night: в карте света); свет ламп облака
+   * не трогают.
+   */
+  clouds: { texture: 96, size: 900, speed: [7, 2.5] as const, day: 0.3, night: 0.2, octaves: 4, seed: 0xc10d, shade: [38, 48, 86] as Rgb },
+  /** Виньетка — в карте света (без отдельного прохода): от доли inner радиуса к краю темнее до edge (тёплый). */
+  vignette: { inner: 0.45, edge: [168, 150, 136] as Rgb },
+  /** Туман войны по времени суток: днём — тёмный нейтральный, ночью — тёмно-синий, как ночное небо. */
+  fog: { day: [3, 5, 8, 0.74] as const, night: [8, 12, 30, 0.64] as const },
+  /** Тени людей от солнца: длина — доля тени этажа, ширина px, прозрачность (× бледнения у восхода и заката). */
+  pawnShadow: { len: 0.6, width: 4.2, alpha: 0.42 },
   /** Канализация — вечные сумерки. */
   sewer: [74, 78, 88] as Rgb,
   /** Фонарь улицы: плафон на кронштейне (head px от стены). */
-  lamp: { color: [255, 196, 120] as Rgb, radius: 130, power: 1, head: 12 },
+  lamp: { color: [255, 194, 122] as Rgb, radius: 160, power: 1.1, head: 12 },
   /** Бочка с огнём и костёр лагеря сопротивления. */
   barrel: { color: [255, 138, 58] as Rgb, radius: 104, power: 1, flicker: 0.22 },
   campfire: { color: [255, 140, 60] as Rgb, radius: 170, power: 1, flicker: 0.25 },
@@ -172,7 +200,11 @@ export const LIGHTING = {
    * в куски карты: кусок перерисовывается, когда солнце сдвинулось на шаг (steps за световой день). Освещение
    * выключено (меню) — солнце стоит в still (доля суток).
    */
-  sun: { rise: 0.24, set: 0.8, fade: 0.04, alpha: 0.42, alphaLevels: 6, storey: 8, lenNoon: 0.75, lenMax: 3, penumbra: 1.3, steps: 48, still: 0.42 },
+  sun: {
+    rise: 0.24, set: 0.8, fade: 0.04, alpha: 0.36, alphaLevels: 6, storey: 8, lenNoon: 0.75, lenMax: 3, penumbra: 1.3, steps: 48, still: 0.42,
+    /** Цвет тени: в полдень — холодная синяя (свет неба), у горизонта — сиреневая; не чёрная. */
+    noon: [30, 46, 104] as Rgb, low: [74, 40, 100] as Rgb,
+  },
   /**
    * Высота зданий в этажах — для длины тени (world/shadows.ts). [от, до] — у каждого дома своя (по хэшу дома): ряды
    * домов вдоль улиц (facade), стены жилых комнат (house), глухая застройка под крышей (block) — по полосе достатка
@@ -191,8 +223,14 @@ export const LIGHTING = {
     /** Зоны казённых зданий (высота civic). */
     civicZones: ['nexus', 'cells', 'prison', 'academy', 'arsenal', 'cwu_hq'] as readonly string[],
   },
-  /** Свечение (bloom) источников поверх картинки: доля радиуса и яркость. */
-  bloom: { radius: 0.3, alpha: 0.4 },
+  /**
+   * Свечение (в мелком буфере, на экран — одним проходом сложения): плафоны и огонь (bloom: доля радиуса, яркость),
+   * тёплая дымка вокруг каждого ночного источника (haze — на высоком качестве), ореолы горящих окон и фонарей фасадов.
+   */
+  bloom: { radius: 0.3, alpha: 0.42 },
+  haze: { radius: 0.8, alpha: 0.17 },
+  /** Буфер свечения — эта доля карты света (свечение мягкое: мельче — дешевле, разницы не видно). */
+  glowScale: 0.6,
   /** Сколько ламп ещё горит днём (0 — все выключены) — порог включения. */
   lampsOn: 0.05,
   /** Днём при свете суток ярче этого (по каналам) проход света пропускается. */
@@ -205,15 +243,30 @@ export const LIGHTING = {
  * пылинки в свете фонарей ночью.
  */
 export const COZY = {
-  /** Выключатель атмосферы (меню) — в localStorage. */
-  storageKey: 'city17.atmosphere',
-  /**
-   * Слабая машина: кадров меньше fps дольше after с — упрощённая атмосфера (без зерна, свечения и
-   * пылинок; свет суток остаётся). Обратно сама не усложняется (не «мигает»), снова полная — через меню.
-   */
-  autoLite: { fps: 42, after: 4 },
-  grain: { alpha: 0.09, size: 128 },
+  grain: { alpha: 0.07, size: 128 },
   vignette: '26,15,6',
   smoke: { perSec: 0.9, life: [3.5, 6] as const, rise: 9, wind: [7, 3] as const, size: [5, 11] as const, color: '150,145,140', alpha: 0.28, max: 260, nightMul: 1.4 },
   motes: { perLamp: 3, color: '255,226,170', alpha: 0.7, size: 1.2, radius: 34 },
+  /** Светлячки у зелени тёплой ночью: по perSpot у дерева или клумбы, мигают, кружат в radius px. */
+  fireflies: { perSpot: 2, color: '214,255,150', alpha: 0.9, size: 1.5, radius: 22, dark: 0.55, maxSpots: 60 },
+} as const;
+
+/**
+ * Настройки атмосферы (меню «Атмосфера: свет и сутки», world/atmosphere.ts): хранятся в браузере (storageKey;
+ * прежний ключ «вкл/выкл» — legacyKey). Качество — разрешение карты света и набор эффектов: высокое — всё (дымка у
+ * света, облака, светлячки, зерно), среднее — без облаков, дымки, светлячков и зерна, низкое — только свет суток и
+ * тени. Ночь — светлее (+ доля до белого) или темнее. Слабая машина: кадров меньше fps дольше after с — качество на
+ * ступень ниже (само не повышается; вернуть — в меню).
+ */
+export const ATMOSPHERE = {
+  storageKey: 'city17.atmosphere.v2',
+  legacyKey: 'city17.atmosphere',
+  defaultQuality: 'high' as 'high' | 'medium' | 'low',
+  presets: {
+    high: { lightScale: 0.28, glow: true, haze: true, clouds: true, shadows: true, pawnShadows: true, life: true, fireflies: true, film: true, grain: true },
+    medium: { lightScale: 0.22, glow: true, haze: true, clouds: false, shadows: true, pawnShadows: true, life: true, fireflies: false, film: true, grain: false },
+    low: { lightScale: 0.16, glow: false, haze: false, clouds: false, shadows: true, pawnShadows: false, life: false, fireflies: false, film: false, grain: false },
+  },
+  night: { bright: 0.16, normal: 0, dark: -0.16 },
+  autoLite: { fps: 40, after: 6 },
 } as const;

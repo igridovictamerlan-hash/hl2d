@@ -1,5 +1,5 @@
 /** Описание системы — docs/rendering.md («Окна и тени»). */
-import { LIGHTING } from '../config/lighting';
+import { LIGHTING, type Rgb } from '../config/lighting';
 
 /** Высота тайла в MapRenderer.heights — этажи × HEIGHT_UNIT (Uint8: до ~8 этажей). */
 export const HEIGHT_UNIT = 32;
@@ -27,4 +27,12 @@ export function sunAlpha(f: number): number {
   const S = LIGHTING.sun;
   if (sunPhase(f) === null) return 0;
   return S.alpha * Math.min(1, (f - S.rise) / S.fade, (S.set - f) / S.fade);
+}
+
+/** Цвет тени в фазе дня p: в полдень — холодная синяя (свет неба), у горизонта — сиреневая (LIGHTING.sun). */
+export function sunTint(p: number): Rgb {
+  const S = LIGHTING.sun;
+  const h = Math.sin(Math.PI * Math.min(1, Math.max(0, p)));
+  const t = Math.min(1, h / 0.7);
+  return [0, 1, 2].map((k) => Math.round(S.low[k] + (S.noon[k] - S.low[k]) * t)) as unknown as Rgb;
 }

@@ -511,7 +511,8 @@ export class RoofLayer {
   }
 
   /** Ночью после затемнения: горящие окна, витрины, слуховые окна, фонари у дверей (своим часом отбоя). */
-  drawLit(ctx: CanvasRenderingContext2D, v: View, night: number, lamps: number): void {
+  /** halos — ореолы здесь же (лист ассетов); в игре они в буфере свечения (forEachGlow → Lighting). */
+  drawLit(ctx: CanvasRenderingContext2D, v: View, night: number, lamps: number, halos = false): void {
     if (!this.enabled || lamps <= 0.02) return;
     for (const p of this.order) {
       const b = p.b;
@@ -524,8 +525,28 @@ export class RoofLayer {
       const sx = W / c.w;
       const sy = H / c.h;
       ctx.setTransform(sx, 0, 0, sy, X - c.x * sx, Y - c.y * sy);
-      drawLit(ctx, c.rec, night, lamps * a);
+      drawLit(ctx, c.rec, night, lamps * a, halos);
       ctx.restore();
+    }
+  }
+
+  /**
+   * Ореолы горящих окон и фонарей у дверей — в буфер свечения (Lighting.facadeGlows): fn(x, y, радиус, сила) в
+   * пикселях мира. С дома в разрезе — слабее (крыша снята, видно стекло изнутри).
+   */
+  forEachGlow(v: View, night: number, fn: (x: number, y: number, r: number, power: number) => void): void {
+    if (!this.enabled) return;
+    const N = FACADES.night;
+    for (const p of this.order) {
+      const c = this.cache.get(p.b.id);
+      if (!c || !this.inView(p.b, v, N.lampR)) continue;
+      const a = this.alphaOf(p.b.id);
+      if (a <= 0.01) continue;
+      for (const w of c.rec.windows) {
+        if (!litAt(night, w.seed, w.key, w.share)) continue;
+        fn(w.x + w.w / 2, w.y + w.h / 2, Math.max(w.w, w.h) * N.haloR * 0.75, N.haloPower * a);
+      }
+      for (const l of c.rec.lamps) fn(l.x, l.y, N.lampR * 1.3, N.lampGlow * a);
     }
   }
 
