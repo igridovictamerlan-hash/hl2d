@@ -9,7 +9,7 @@ const SOLID_T = SOLID;
 function solidAt(map: GameMap, tx: number, ty: number): boolean {
   if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return true;
   const i = ty * map.width + tx;
-  return SOLID_T[map.tiles[i]] === 1 || map.doorLocked[i] === 1;
+  return SOLID_T[map.tiles[i]] === 1 || map.doorLocked[i] === 1 || map.doorBarred[i] === 1;
 }
 
 /**

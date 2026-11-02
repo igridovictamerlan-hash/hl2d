@@ -63,6 +63,9 @@ describe('штаб ТС', () => {
     // Управы: дорога до стола занимает ~100 с. Замеры выше остаются в 420 с, а отчёт главы ждём отдельно (на сиде 12345 —
     // около десятой минуты), не растягивая остальное.
     for (let t = 0; t < 600 * 60 && hq.stats.inspections < 1; t++) sim.step();
+    // Соискатели идут через полгорода (~50 с), их по дороге останавливают на проверку документов — место в очереди
+    // теряется; найма ждём отдельно, как и отчёта главы.
+    for (let t = 0; t < 300 * 60 && hq.stats.hired < 1; t++) sim.step();
     const cwuAfter = sim.entities.list.filter((c) => c.faction === 'cwu').length;
     console.log(`штаб ТС: ${JSON.stringify(hq.stats)}, ТС ${cwuBefore} → ${cwuAfter}, глава в штабе ${Math.round((headInHq / samples) * 100)}%, докеры: ${JSON.stringify(sim.ctx.supply.stats)}`);
     expect(headInHq / samples).toBeGreaterThan(0.6);

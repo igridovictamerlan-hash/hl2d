@@ -38,6 +38,8 @@ import { isQuartermaster, type DepotAct, type Slot } from '../systems/Arsenal';
 import { coverAuthority } from '../entities/cover';
 import type { WeaponWheel } from '../ui/WeaponWheel';
 import { HUD } from '../config/hud';
+import { LOCKS } from '../config/locks';
+import type { DoorGroup } from '../systems/DoorSystem';
 
 const near: Character[] = [];
 
@@ -59,7 +61,10 @@ export class PlayerController {
   /** Саботирует узел Протектората (повстанец). */
   private sabotaging: { spot: RepairSpot; progress: number } | null = null;
   /** Работа у места (фасовка на заводе) и действие с таймером (уборка, поиск в мусоре, взлом, кража). */
-  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'papers' | 'identity' | 'break' | 'armory' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot } | null = null;
+  private task: { kind: 'clean' | 'search' | 'hack' | 'pick' | 'rob' | 'scan' | 'paper' | 'dress' | 'papers' | 'identity' | 'break' | 'armory' | 'depot' | 'beacon' | 'bench' | 'check' | 'requisition' | 'lockpick' | 'kick'; x: number; y: number; left: number; total: number; pile?: TrashPile; victim?: Character; corpse?: Corpse; cell?: Cell; act?: DepotAct; slot?: Slot; door?: DoorGroup } | null = null;
+  /** Последний стук в дверь (второй E по той же двери в LOCKS.knock.window с — выбить). */
+  private knockDoor: DoorGroup | null = null;
+  private knockAt = -1e9;
   /** Откат бунта у игрока-спецагента (G). */
   private riotCooldown = 0;
   private healCooldown = 0;
@@ -731,6 +736,8 @@ export class PlayerController {
         return this.say('Ремонт… не отходите 5 секунд.', 'world');
       }
     }
+    // Дверь на замке: своя — запереть или оставить открытой; чужая — постучать, вскрыть отмычкой, выбить.
+    if (this.door(p, ctx)) return;
     // Человек перед вами: поговорить (раньше очереди за рационом — у окна раздачи всегда кто-то стоит).
     if (this.talkToFront(p, ctx)) return;
     // Очередь за рационом.
@@ -750,6 +757,90 @@ export class PlayerController {
       return this.say(ctx.arsenal?.present ? 'Аптечка пополнена. Патроны и гранаты — на складе Протектората, у окна выдачи.' : 'Аптечка пополнена.', 'world');
     }
     this.say('Рядом нечего использовать. E работает у терминала, прилавков, люков, окна раздачи, завода, мусора, поломок, узлов Протектората, тел и людей (поговорить).');
+  }
+
+  /**
+   * E у двери с замком (systems/Locks.ts). Своя (ключ от дома или комнаты) — запереть или оставить открытой. Чужая и
+   * запертая: с отмычкой — вскрыть (это взлом: увидят — арест), без неё — постучать: кто дома и не спит, откроет другу
+   * и родне; второй E — выбить дверь (шумно). true — обработано.
+   */
+  private door(p: Character, ctx: AiContext): boolean {
+    const L = ctx.locks;
+    if (!L?.enabled) return false;
+    const g = L.doorNear(p.x, p.y);
+    if (!g) return false;
+    const lock = L.list[g.lock];
+    const own = p.home >= 0 && lock.homes.includes(p.home);
+    if (own) {
+      L.setOpen(lock.id, !lock.open);
+      this.say(lock.open ? LOCKS.lines.unlockedOwn : LOCKS.lines.lockedOwn);
+      return true;
+    }
+    if (!L.engaged(lock.id) || L.canPass(p, g)) return false;
+    const now = ctx.law.now;
+    if (p.inventory.has('lockpick')) {
+      const T = p.profession === 'thief' ? LOCKS.pick.thief : LOCKS.pick.time;
+      this.task = { kind: 'lockpick', x: p.x, y: p.y, left: T, total: T, door: g };
+      this.say(LOCKS.lines.picking(T), 'world');
+      return true;
+    }
+    if (this.knockDoor === g && now - this.knockAt < LOCKS.knock.window) {
+      this.knockDoor = null;
+      const T = LOCKS.kick.time;
+      this.task = { kind: 'kick', x: p.x, y: p.y, left: T, total: T, door: g };
+      this.say(LOCKS.lines.kicking, 'world');
+      return true;
+    }
+    this.knockDoor = g;
+    this.knockAt = now;
+    L.stats.knocks++;
+    if (lock.kind === 'shop') {
+      this.say(`${LOCKS.lines.shopClosed(lock.shop?.name ?? 'Лавка')} ${LOCKS.lines.knockAgain}`);
+      return true;
+    }
+    const home = L.occupants(lock.id).filter((o) => !o.downed && o.law.phase === 'none');
+    if (!home.length) {
+      this.say(LOCKS.lines.knockNobody);
+      return true;
+    }
+    const awake = home.filter((o) => !o.asleep);
+    if (!awake.length) {
+      this.say(LOCKS.lines.knockAsleep);
+      return true;
+    }
+    const host = awake.find((o) => ctx.relations?.loved(o, p));
+    if (host) {
+      for (const id of L.keysOfHome(host.home)) L.grant(p, id, LOCKS.knock.pass);
+      const line = ctx.rng.pick(LOCKS.lines.knockOpen);
+      host.say(line, now, 2.5);
+      this.say(`${host.name}: ${line}`, 'world');
+      return true;
+    }
+    const line = ctx.rng.pick(LOCKS.lines.knockRefuse);
+    awake[0].say(line, now, 2.5);
+    L.stats.refused++;
+    this.say(`${line} ${LOCKS.lines.knockAgain}`, 'world');
+    return true;
+  }
+
+  /** Взлом двери: «засветился» (ВС задержит, если увидит), кто дома и не спит — зовёт ВС. */
+  private burglary(p: Character, ctx: AiContext, g: DoorGroup, loud: boolean): void {
+    const L = ctx.locks!;
+    const now = ctx.law.now;
+    p.law.crimeUntil = now + LOCKS.seenFor;
+    const lock = L.list[g.lock];
+    const awake = L.occupants(lock.id).filter((o) => !o.asleep && !o.downed && o.law.phase === 'none');
+    let witness: Character | null = awake[0] ?? null;
+    if (!witness && loud) {
+      // Выбить дверь слышно на квартал: ближайший прохожий кричит.
+      let best: number = LOCKS.kick.noise;
+      for (const o of ctx.entities.near(g.x, g.y, LOCKS.kick.noise, [])) {
+        if (o === p || !o.alive || o.isPlayer || o.downed || o.asleep || o.faction === 'rebel') continue;
+        const d = Math.hypot(o.x - g.x, o.y - g.y);
+        if (d < best) [best, witness] = [d, o];
+      }
+    }
+    if (witness) ctx.crime.cry(witness, p);
   }
 
   /**
@@ -982,6 +1073,24 @@ export class PlayerController {
     if (t.kind === 'requisition') {
       const n = ctx.arsenal.requisition(p);
       return this.say(n > 0 ? `Кладовщик выдал гранат: ${n}. Записал — не кража.` : 'Кладовщик: «Гранат нет» (или выдача закрыта).', 'world');
+    }
+    if ((t.kind === 'lockpick' || t.kind === 'kick') && t.door && ctx.locks) {
+      const L = ctx.locks;
+      const g = t.door;
+      if (g.lock < 0 || !L.engaged(g.lock)) return this.say('Дверь уже открыта.');
+      if (t.kind === 'lockpick') {
+        L.stats.picked++;
+        this.burglary(p, ctx, g, false);
+        if (ctx.rng.chance(LOCKS.pick.breakChance)) {
+          p.inventory.remove('lockpick', 1);
+          return this.say(LOCKS.lines.pickBroke);
+        }
+        L.grant(p, g.lock, LOCKS.pick.pass);
+        return this.say(LOCKS.lines.picked, 'world');
+      }
+      L.breakDoor(g);
+      this.burglary(p, ctx, g, true);
+      return this.say(LOCKS.lines.kicked, 'world');
     }
     if (t.kind === 'hack') {
       const n = ctx.crime.hackDispenser(p);

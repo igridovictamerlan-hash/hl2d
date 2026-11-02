@@ -116,7 +116,11 @@ export class Mover {
     // Вдали от игрока (упрощённая симуляция) — «жадный» поиск: дешевле, путь чуть длиннее (его не видно).
     const weight = self.lodFar ? LOD.paths.weight : undefined;
     const crowdCost = this.crowdAware && ctx.crowd?.enabled ? ctx.crowd.cost : undefined;
-    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, extraCost: this.extraCost, crowdCost, blocked: ctx.access?.blockerFor(self), weight });
+    // Закрыто: режимный объект без пропуска (вахта) и чужой дом, комната, закрытая лавка (замки).
+    const access = ctx.access?.blockerFor(self);
+    const locks = ctx.locks?.blockerFor(self);
+    const blocked = access && locks ? (n: number) => access(n) || locks(n) : access ?? locks;
+    this.req = ctx.paths.request(self.x, self.y, this.goal, { avoidZones: this.avoidZones, avoidCost: this.avoidCost, extraCost: this.extraCost, crowdCost, blocked, weight });
     this.status = 'pending';
     this.path = [];
     this.wp = 0;

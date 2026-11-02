@@ -41,6 +41,7 @@ import type { Brawls } from '../systems/Brawls';
 import type { AcademySystem } from '../systems/Academy';
 import type { Staffing } from '../systems/Staffing';
 import type { Access } from '../systems/Access';
+import type { Locks } from '../systems/Locks';
 import type { Radio } from '../systems/Radio';
 import type { Talk } from '../systems/Talk';
 import type { Relations } from '../systems/Relations';
@@ -135,6 +136,8 @@ export interface AiContext {
   staffing: Staffing;
   /** Пропускной режим режимных объектов (вахтёры). */
   access: Access;
+  /** Двери и ключи: дома и комнаты на защёлке, закрытые лавки (systems/Locks.ts). */
+  locks?: Locks;
   /** Рация силового блока: происшествия, вызовы Надзора, доклады. */
   radio: Radio;
   /** Разговоры жителей: слухи о происшествиях, темы по обстановке, без повторов. */

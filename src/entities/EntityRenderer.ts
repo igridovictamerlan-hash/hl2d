@@ -84,6 +84,16 @@ export class EntityRenderer {
   relations: Relations | null = null;
   /** Страх (испуган, в панике — строка под курсором); задаёт Game. */
   senses: Senses | null = null;
+  /**
+   * Насколько персонажа закрывает крыша (world/RoofLayer.ts): 1 — под крышей (не рисуется, без подписи), 0 — на улице
+   * или в доме игрока; между — крыша снимается или возвращается. null — крыш нет.
+   */
+  roofAlpha: ((x: number, y: number) => number) | null = null;
+
+  /** Сколько крыша закрывает персонажа c (игрок — никогда). */
+  private covered(c: Character): number {
+    return c.isPlayer || !this.roofAlpha ? 0 : this.roofAlpha(c.x, c.y);
+  }
 
   /** Внешность пешки: партизан в маскировке — по личине; лоялист — в форме; семья и банда — повязка. */
   lookOf(c: Character): PawnLook {
@@ -108,7 +118,11 @@ export class EntityRenderer {
     return { faction, rank, color: loyalist ? LOYALTY.uniform.color : colorsOf(faction, rank).color, seed: lookSeed(c.pid), profession: c.disguised ? c.cover?.profession ?? null : c.profession, kin: fam?.seed, band, helmet: gearColor(c, 'head'), vest: gearColor(c, 'torso'), clothes: dressed, kit, clothesKey: op ? op.key : dressed || worn ? c.clothesKey : undefined };
   }
 
-  drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number): void {
+  /**
+   * Пешки. pass: under — кто в доме, с которого крыша снимается (рисуются до крыш), over — кто на улице и в доме игрока
+   * (после крыш), all — все (крыш нет). Под крышей целиком — не рисуются.
+   */
+  drawBodies(ctx: CanvasRenderingContext2D, v: View, list: readonly Character[], alpha: number, showAll: boolean, now: number, pass: 'under' | 'over' | 'all' = 'all'): void {
     const s = v.scale;
     // Пешка мельче круга столкновений (PAWN.scale) — как в RimWorld.
     const ps = s * PAWN.scale;
@@ -117,6 +131,10 @@ export class EntityRenderer {
     shown.length = 0;
     for (const c of list) {
       if (!c.alive || (!c.visible && !showAll)) continue;
+      if (pass !== 'all') {
+        const r = this.covered(c);
+        if (pass === 'under' ? r <= 0 || r >= 1 : r > 0) continue;
+      }
       const x = (lerp(c.prevX, c.x, alpha) - v.left) * s;
       const y = (lerp(c.prevY, c.y, alpha) - v.top) * s;
       const m = 30 * s;
@@ -480,6 +498,7 @@ export class EntityRenderer {
     const py = player ? player.y : v.top + v.height / s / 2;
     for (const c of list) {
       if (!c.alive || (!c.visible && !showAll)) continue;
+      if (!showAll && this.covered(c) >= 0.5) continue;
       // Спящий лежит на кровати — подпись у кровати, а не у клетки рядом.
       const bed = c.asleep ? c.sleepAt : null;
       const x = ((bed ? bed.x : lerp(c.prevX, c.x, alpha)) - v.left) * s;

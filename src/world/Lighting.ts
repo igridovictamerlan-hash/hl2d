@@ -7,6 +7,7 @@ import type { Barrel, Lamp } from '../systems/StreetLife';
 import { LIGHTING, type Rgb } from '../config/lighting';
 import { MEMORIALS } from '../config/memorials';
 import { SIDE_DX, SIDE_DY, windowOn, type WindowSpot } from './windows';
+import { FACADES } from '../config/facades';
 
 /**
  * Источник света в мире: где, радиус (px мира), цвет, яркость; night — горит только в темноте
@@ -143,6 +144,16 @@ export class Lighting {
   lite = false;
   private lights: Light[] = [];
   private windows: WindowLight[] = [];
+  /**
+   * Свет горящих окон фасадов и фонарей у дверей на мостовую (world/RoofLayer.ts → forEachLight): fn(x, y, сила)
+   * в пикселях мира; f — доля суток. null — нет фасадов.
+   */
+  facadeLights: ((v: View, f: number, fn: (x: number, y: number, power: number) => void) => void) | null = null;
+  /**
+   * Насколько точку закрывает крыша (world/RoofLayer.roofAlpha): лампы комнат под крышей на улицу не светят и не
+   * сияют сквозь неё (их свет наружу — окна фасадов), у дома в разрезе — светят. null — крыш нет.
+   */
+  covered: ((x: number, y: number) => number) | null = null;
   /** Памятные места со свечами (Memorials.list — тот же массив): тёплое пятно света у каждого. */
   memorials: readonly { id: number; x: number; y: number; candles: number }[] = [];
   private lm: HTMLCanvasElement | null = null;
@@ -246,16 +257,23 @@ export class Lighting {
     g.fillRect(0, 0, w, h);
     g.globalCompositeOperation = 'lighter';
     const L = LIGHTING;
+    const cov = this.covered;
     for (const s of this.lights) {
       if (s.off?.broken) continue;
       const on = s.night ? lamps : 1;
       if (on <= L.lampsOn) continue;
-      this.put(g, v, k, s.x, s.y, s.r, s.color, s.power * on * this.flick(s, time));
+      const open = cov ? 1 - cov(s.x, s.y) : 1;
+      if (open <= 0.01) continue;
+      this.put(g, v, k, s.x, s.y, s.r, s.color, s.power * on * open * this.flick(s, time));
     }
     // Окна: у каждого свой час отбоя.
     const W = L.window;
     const f = dayFraction(time);
-    if (lamps > L.lampsOn) for (const o of this.windows) if (windowOn(o, f)) this.put(g, v, k, o.x, o.y, W.radius, W.color, W.power * lamps);
+    if (lamps > L.lampsOn) {
+      for (const o of this.windows) if (windowOn(o, f)) this.put(g, v, k, o.x, o.y, W.radius, W.color, W.power * lamps);
+      const R = FACADES.night.spillR;
+      this.facadeLights?.(v, f, (x, y, p) => this.put(g, v, k, x, y, R, W.color, W.power * FACADES.night.spillPower * p * lamps));
+    }
     // Свечи на памятных местах: чем больше свечей, тем ярче; мерцают.
     const G = MEMORIALS.glow;
     for (const m of this.memorials) {
@@ -312,11 +330,14 @@ export class Lighting {
     g.clearRect(0, 0, w, h);
     g.globalCompositeOperation = 'lighter';
     let any = false;
+    const cov = this.covered;
     for (const L of this.lights) {
       if (!L.bloom || L.off?.broken) continue;
       const on = L.night ? lamps : 1;
       if (on <= LIGHTING.lampsOn) continue;
-      if (this.put(g, v, k, L.x, L.y, L.r * B.radius, L.color, a * on * L.power * this.flick(L, time))) any = true;
+      const open = cov ? 1 - cov(L.x, L.y) : 1;
+      if (open <= 0.01) continue;
+      if (this.put(g, v, k, L.x, L.y, L.r * B.radius, L.color, a * on * L.power * open * this.flick(L, time))) any = true;
     }
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';

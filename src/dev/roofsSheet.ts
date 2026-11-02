@@ -2,27 +2,25 @@ import { generateCity } from '../world/generator/CityGenerator';
 import { MapRenderer } from '../world/MapRenderer';
 import { furnishMap } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
-import { computeBuildings, type Building, type BuildingKind } from '../world/buildings';
-import { RoofRenderer, type RoofOptions, type RoofView } from '../world/RoofRenderer';
+import type { Building, BuildingKind } from '../world/buildings';
+import { RoofLayer } from '../world/RoofLayer';
 import { facadeHeight, facadeKit, type Family, type FacadeKit } from '../world/facadeStyle';
-import { bayCenters, gable, paintFacade, paintRoof } from '../world/FacadeRenderer';
-import { castRay } from '../world/visibility';
+import { bayCenters, drawLit, emptyRecord, gable, litAt, paintFacade, paintRoof } from '../world/FacadeRenderer';
 import { drawPawnFigure } from '../ui/pawnFigure';
 import type { PawnDir, PawnLook } from '../entities/PawnRenderer';
 import { CLOTHES } from '../config/clothes';
 import { PAWN } from '../config/pawns';
 import { CP_UNIT, colorsOf } from '../config/factions';
-import { ROOFS } from '../config/roofs';
-import { VISION } from '../config/vision';
+import { FACADES } from '../config/facades';
 import { hash2 } from '../core/rng';
 import { T } from '../world/tiles';
 import type { District, GameMap } from '../world/GameMap';
 import type { View } from '../core/Camera';
 
 /**
- * Лист вариантов «Крыши и фасады» (dev-страница sheets/roofs.html): настоящий город (сид SEED) тем же кодом, что игра,
- * в нескольких видах — как сейчас (план этажа), крыша сверху, ¾ с фасадом в контуре дома, ¾ с высотой; дом, где
- * игрок, — разрезом или «видно только то, что видит»; ночь; образцы материалов. Только отрисовка, в игру не входит.
+ * Лист «Крыши и фасады» (dev-страница sheets/roofs.html): настоящий город (сид SEED) тем же слоем крыш, что игра
+ * (world/RoofLayer.ts) — план этажа для сравнения, вид Б днём, дом игрока в разрезе, ночь со светом окон; галерея
+ * семейств фасадов крупно (world/FacadeRenderer.ts).
  */
 const SEED = 12345;
 /** CSS px на пиксель мира и размер кадра в тайлах. */
@@ -31,7 +29,7 @@ const VW = 24;
 const VH = 22;
 const TS = 16;
 
-type Mode = 'plan' | RoofView | 'cut' | 'cutTall' | 'los';
+type Mode = 'plan' | 'facade' | 'cut';
 interface Pawn {
   x: number;
   y: number;
@@ -49,7 +47,7 @@ interface Frag {
 
 let map: GameMap;
 let mr: MapRenderer;
-let roofs: RoofRenderer;
+let roofs: RoofLayer;
 let furniture: ReturnType<typeof furnishMap>;
 
 function canvas(wCss: number, hCss: number): [HTMLCanvasElement, CanvasRenderingContext2D, number] {
@@ -78,7 +76,7 @@ function walkable(ax: number, ay: number): boolean {
 function buildingAt(x: number, y: number): number {
   const tx = Math.floor((x - 1) / TS);
   const ty = Math.floor((y - 1) / TS);
-  return roofs.buildings.of[ty * map.width + tx];
+  return roofs.of[ty * map.width + tx];
 }
 
 /** Окно VW×VH с наибольшей суммой очков (points — очки на тайл), шаг 2 тайла. */
@@ -111,7 +109,7 @@ function fragment(points: Float32Array, salt: number): Frag {
   const { x, y } = bestWindow(points);
   const w = map.width;
   const inside = (tx: number, ty: number) => tx >= x && ty >= y && tx < x + VW && ty < y + VH;
-  const list = roofs.buildings.list.filter((b) => b.x1 >= x && b.y1 >= y && b.x0 < x + VW && b.y0 < y + VH);
+  const list = roofs.list.filter((b) => b.x1 >= x && b.y1 >= y && b.x0 < x + VW && b.y0 < y + VH);
   const rooms = map.poisOf('room');
   const roomsIn = (b: Building) => rooms.filter((r) => r.x >= b.x0 && r.y >= b.y0 && r.x <= b.x1 && r.y <= b.y1).length;
   const whole = (b: Building) => b.x0 >= x && b.y0 >= y && b.x1 < x + VW && b.y1 < y + VH;
@@ -131,7 +129,7 @@ function fragment(points: Float32Array, salt: number): Frag {
       const ay = (i - ax) / w;
       if (map.tiles[i] !== T.INTERIOR || !walkable(ax, ay) || !inside(ax, ay)) continue;
       let own = true;
-      for (const j of [i, i + 1, i + w, i + w + 1]) if (roofs.buildings.of[j] !== home.id) own = false;
+      for (const j of [i, i + 1, i + w, i + w + 1]) if (roofs.of[j] !== home.id) own = false;
       const dist = Math.hypot(ax + 1 - (d.x + 0.5), ay + 1 - (d.y + 0.5));
       if (own && dist >= 2 && dist < bd) {
         bd = dist;
@@ -150,7 +148,7 @@ function fragment(points: Float32Array, salt: number): Frag {
       continue;
     }
     if ((hash2(b.id, 1, salt) & 3) === 0) continue;
-    const spots = b.tiles.filter((i) => map.tiles[i] === T.INTERIOR && walkable(i % w, Math.floor(i / w)) && roofs.buildings.of[i] === b.id);
+    const spots = b.tiles.filter((i) => map.tiles[i] === T.INTERIOR && walkable(i % w, Math.floor(i / w)) && roofs.of[i] === b.id);
     if (!spots.length) continue;
     const i = spots[hash2(b.id, 2, salt) % spots.length];
     const px = ((i % w) + 1) * TS;
@@ -162,7 +160,7 @@ function fragment(points: Float32Array, salt: number): Frag {
   for (let ay = y; ay < y + VH - 1; ay++) {
     for (let ax = x; ax < x + VW - 1; ax++) {
       const t = map.tileAt(ax, ay);
-      if ((t === T.STREET || t === T.FLOOR || t === T.PLAZA) && walkable(ax, ay) && roofs.buildings.of[ay * w + ax] < 0) street.push(ay * w + ax);
+      if ((t === T.STREET || t === T.FLOOR || t === T.PLAZA) && walkable(ax, ay) && roofs.of[ay * w + ax] < 0) street.push(ay * w + ax);
     }
   }
   let made = 0;
@@ -188,7 +186,7 @@ function drawPawn(ctx: CanvasRenderingContext2D, p: Pawn, v: View): void {
   const foot = sy + PAWN.walk.foot.y * ps;
   if (p.player) {
     ctx.save();
-    ctx.strokeStyle = ROOFS.cut.outline;
+    ctx.strokeStyle = FACADES.cut.outline;
     ctx.lineWidth = 2 * (k / SCALE);
     ctx.beginPath();
     ctx.ellipse(sx, foot, 9 * k / SCALE * 1.4, 4 * k / SCALE * 1.4, 0, 0, Math.PI * 2);
@@ -198,89 +196,53 @@ function drawPawn(ctx: CanvasRenderingContext2D, p: Pawn, v: View): void {
   drawPawnFigure(ctx, p.look, null, sx, foot, ps, p.dir);
 }
 
-/** Область видимости игрока (лучи до стен, как туман войны) — в пикселях холста. */
-function sightPath(p: Pawn, v: View): Path2D {
-  const path = new Path2D();
-  const n = 720;
-  for (let k = 0; k < n; k++) {
-    const a = (k / n) * Math.PI * 2;
-    const dx = Math.cos(a);
-    const dy = Math.sin(a);
-    const d = castRay(map, p.x, p.y, dx, dy, VISION.radius);
-    const x = (p.x + dx * d - v.left) * v.scale;
-    const y = (p.y + dy * d - v.top) * v.scale;
-    if (k === 0) path.moveTo(x, y);
-    else path.lineTo(x, y);
-  }
-  path.closePath();
-  return path;
-}
-
-/** Кадр куска города f в режиме mode; night — доля суток ночью (иначе день). */
+/** Кадр куска города f: план этажа, вид Б или дом игрока в разрезе; night — доля суток ночью (иначе день). */
 function scene(f: Frag, mode: Mode, night: number | null = null): HTMLCanvasElement {
   const [c, ctx, dpr] = canvas(VW * TS * SCALE, VH * TS * SCALE);
   const v: View = { left: f.x * TS, top: f.y * TS, scale: SCALE * dpr, width: c.width, height: c.height };
-  const k = v.scale;
-  const world = (g: CanvasRenderingContext2D) => g.setTransform(k, 0, 0, k, -v.left * k, -v.top * k);
   mr.draw(ctx, v, night === null ? 0.42 : null);
   drawFurnitureList(ctx, v, furniture);
-  const list = roofs.buildings.list.filter((b) => b.x1 >= f.x - 1 && b.y1 >= f.y - 1 && b.x0 <= f.x + VW && b.y0 <= f.y + VH + 4);
-  const cut = (mode === 'cut' || mode === 'cutTall') && f.home ? f.home.id : -1;
-  const view: RoofView = mode === 'top' ? 'top' : mode === 'tall' || mode === 'cutTall' ? 'tall' : 'facade';
-  const o: RoofOptions = { view, cut, night };
-  const player = f.pawns.find((p) => p.player);
-  const visible = (p: Pawn) => {
-    if (mode === 'plan') return true;
-    const b = buildingAt(p.x, p.y);
-    return b < 0 || b === cut;
-  };
   const byY = (a: Pawn, b: Pawn) => a.y - b.y;
   if (mode === 'plan') {
     for (const p of [...f.pawns].sort(byY)) drawPawn(ctx, p, v);
-  } else if (mode === 'tall' || mode === 'cutTall') {
-    // Художник: здания по нижнему краю и пешки по ногам — кто южнее, тот поверх.
-    const items: { y: number; draw: () => void }[] = [];
-    for (const b of list) items.push({ y: (b.y1 + 1) * TS, draw: () => { world(ctx); roofs.drawBuilding(ctx, b, o); ctx.setTransform(1, 0, 0, 1, 0, 0); } });
-    for (const p of f.pawns) if (visible(p)) items.push({ y: p.y + 6, draw: () => drawPawn(ctx, p, v) });
-    for (const it of items.sort((a, b) => a.y - b.y)) it.draw();
-  } else if (mode === 'los' && player) {
-    // Крыши — отдельным слоем; где игрок видит (лучи до стен), крыша прозрачна.
-    for (const p of f.pawns) if (buildingAt(p.x, p.y) >= 0) drawPawn(ctx, p, v);
-    const [off, octx] = canvas(VW * TS * SCALE, VH * TS * SCALE);
-    world(octx);
-    for (const b of list) roofs.drawBuilding(octx, b, { view: 'facade', cut: -1, night });
-    octx.setTransform(1, 0, 0, 1, 0, 0);
-    const sight = sightPath(player, v);
-    octx.globalCompositeOperation = 'destination-out';
-    octx.fill(sight);
-    ctx.drawImage(off, 0, 0);
-    // Туман войны: вне видимости — темнее.
-    ctx.save();
-    const fog = new Path2D();
-    fog.rect(0, 0, c.width, c.height);
-    fog.addPath(sight);
-    ctx.fillStyle = 'rgba(8,8,10,0.38)';
-    ctx.fill(fog, 'evenodd');
-    ctx.restore();
-    for (const p of [...f.pawns].sort(byY)) if (buildingAt(p.x, p.y) < 0 || p.player) drawPawn(ctx, p, v);
   } else {
-    world(ctx);
-    for (const b of list) roofs.drawBuilding(ctx, b, o);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    for (const p of [...f.pawns].sort(byY)) if (visible(p)) drawPawn(ctx, p, v);
+    // Как в игре: крыши поверх тех, кто внутри; разрезанный дом — без крыши, с контуром; кто на улице — поверх крыш.
+    const cut = mode === 'cut' && f.home ? f.home.id : -1;
+    roofs.setCut(cut);
+    roofs.update(10);
+    roofs.prebuild((f.x + VW / 2) * TS, (f.y + VH / 2) * TS, (VW + VH) * TS);
+    roofs.draw(ctx, v);
+    if (cut >= 0) roofs.outline(ctx, v, cut);
+    for (const p of [...f.pawns].sort(byY)) if (roofs.roofAlpha(p.x, p.y) < 1) drawPawn(ctx, p, v);
   }
   if (night !== null) {
-    ctx.fillStyle = ROOFS.night.shade;
+    // Ночь: затемнение, свет окон на мостовую, горящие окна и фонари поверх.
+    ctx.fillStyle = 'rgba(6,10,28,0.7)';
     ctx.fillRect(0, 0, c.width, c.height);
-    world(ctx);
-    roofs.drawLit(ctx, list, o);
-    // Дом игрока ночью — лампа внутри.
-    if (cut >= 0 && f.home) {
-      ctx.fillStyle = 'rgba(255,196,120,0.16)';
-      for (const i of f.home.tiles) if (map.tiles[i] !== T.WALL) ctx.fillRect((i % map.width) * TS, Math.floor(i / map.width) * TS, TS, TS);
+    if (mode !== 'plan') {
+      const k = v.scale;
+      const N = FACADES.night;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      roofs.forEachLight(v, night, (x, y, power) => {
+        const g = ctx.createRadialGradient((x - v.left) * k, (y - v.top) * k, 0, (x - v.left) * k, (y - v.top) * k, N.spillR * k);
+        g.addColorStop(0, `rgba(255,190,110,${(0.22 * power).toFixed(3)})`);
+        g.addColorStop(1, 'rgba(255,190,110,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect((x - v.left - N.spillR) * k, (y - v.top - N.spillR) * k, N.spillR * 2 * k, N.spillR * 2 * k);
+      });
+      ctx.restore();
+      roofs.drawLit(ctx, v, night, 1);
+      const home = mode === 'cut' ? f.home : null;
+      if (home) {
+        // Свой дом ночью — лампа внутри.
+        ctx.setTransform(k, 0, 0, k, -v.left * k, -v.top * k);
+        ctx.fillStyle = 'rgba(255,196,120,0.16)';
+        for (const i of home.tiles) if (map.tiles[i] !== T.WALL) ctx.fillRect((i % map.width) * TS, Math.floor(i / map.width) * TS, TS, TS);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        for (const p of f.pawns) if (buildingAt(p.x, p.y) === home.id) drawPawn(ctx, p, v);
+      }
     }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (cut >= 0) for (const p of f.pawns) if (buildingAt(p.x, p.y) === cut) drawPawn(ctx, p, v);
   }
   return c;
 }
@@ -332,12 +294,12 @@ interface Sample {
   door?: number;
 }
 
-/** Улица из образцов: дома вплотную, крыша на 6 тайлов вглубь, мостовая перед фасадами; ночью — свет окон. */
+/** Улица из образцов: дома вплотную, крыша на 9 тайлов вглубь, мостовая перед фасадами; ночью — свет окон. */
 function street(samples: Sample[], night: number | null = null, scale = 2.5): HTMLCanvasElement {
-  const depth = 7 * TS;
+  const depth = 9 * TS;
   const pad = TS;
   const W = samples.reduce((a, q) => a + q.w, 0) * TS + pad * 2;
-  const H = depth + 2 * TS + 8;
+  const H = depth + 3 * TS + 8;
   const [c, ctx, dpr] = canvas(W * scale, H * scale);
   const k = scale * dpr;
   ctx.setTransform(k, 0, 0, k, 0, 0);
@@ -349,8 +311,9 @@ function street(samples: Sample[], night: number | null = null, scale = 2.5): HT
   ctx.fillRect(0, bottom, W, H - bottom);
   ctx.fillStyle = 'rgba(0,0,0,0.18)';
   for (let y = bottom + 3; y < H; y += 4) for (let x = (y >> 2) % 2 ? 0 : 3; x < W; x += 6) ctx.fillRect(x, y, 5, 1);
-  const kits: { kit: FacadeKit; X0: number; X1: number; q: Sample }[] = [];
+  const rec = emptyRecord();
   let x = pad;
+  const kits: { kit: FacadeKit; X0: number; X1: number; q: Sample }[] = [];
   samples.forEach((q, n) => {
     const kit = kitFor(q.family, q.w, 1000 + n * 37 + q.w, q.storeys ?? 3, q.over);
     kits.push({ kit, X0: x, X1: x + q.w * TS, q });
@@ -367,28 +330,38 @@ function street(samples: Sample[], night: number | null = null, scale = 2.5): HT
         if (kit.roof === 'mansard' || xs.length <= 2 || i % 2 === 1) dormers.push(x);
       });
     }
-    const chimneys = gabled ? [Math.round((X0 + X1) / 2)] : [X0 + 4, X1 - 5];
+    const chimneys = gabled ? [Math.round((X0 + X1) / 2)] : [X0 + 6, X1 - 7];
     ctx.save();
     ctx.beginPath();
     ctx.rect(X0, bottom - depth, X1 - X0, depth);
     ctx.clip();
-    paintRoof(ctx, kit, X0, bottom - depth, X1, bottom, eave, { dormers, chimneys }, night);
+    paintRoof(ctx, kit, X0, bottom - depth, X1, bottom, eave, { dormers, chimneys }, rec);
     ctx.restore();
-    ctx.fillStyle = ROOFS.seam;
+    ctx.fillStyle = FACADES.seam;
     ctx.fillRect(X0, bottom - depth, 1, depth);
     const d = q.door ?? Math.max(0, Math.round(q.w / 2) - 1);
     const doors = d >= 0 ? [{ x0: X0 + d * TS, x1: X0 + (d + 2) * TS }] : [];
-    paintFacade(ctx, kit, { X0, X1, bottom, storeys, doors, sign: q.sign ?? null, gable: gabled, night });
-    if (gabled) gable(ctx, kit, X0, X1, bottom - facadeHeight(kit, storeys));
+    paintFacade(ctx, kit, { X0, X1, bottom, storeys, doors, sign: q.sign ?? null, gable: gabled }, rec);
+    if (gabled) gable(ctx, kit, X0, X1, bottom - facadeHeight(kit, storeys), rec, eave - (bottom - depth) - 3);
   }
   if (night !== null) {
-    ctx.fillStyle = ROOFS.night.shade;
+    ctx.fillStyle = 'rgba(6,10,28,0.7)';
     ctx.fillRect(0, 0, W, H);
-    for (const { kit, X0, X1, q } of kits) {
-      const d = q.door ?? Math.max(0, Math.round(q.w / 2) - 1);
-      const doors = d >= 0 ? [{ x0: X0 + d * TS, x1: X0 + (d + 2) * TS }] : [];
-      paintFacade(ctx, kit, { X0, X1, bottom, storeys: q.storeys ?? kit.storeys, doors, sign: q.sign ?? null, gable: false, night, litOnly: true });
-    }
+    // Свет окон на мостовую перед фасадом.
+    const N = FACADES.night;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const spill = (x: number, y: number, power: number) => {
+      const g = ctx.createRadialGradient(x, y, 0, x, y, N.spillR);
+      g.addColorStop(0, `rgba(255,190,110,${(0.22 * power).toFixed(3)})`);
+      g.addColorStop(1, 'rgba(255,190,110,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - N.spillR, y - N.spillR, N.spillR * 2, N.spillR * 2);
+    };
+    for (const w of rec.windows) if (w.storey <= 3 && litAt(night, w.seed, w.key, w.share)) spill(w.x + w.w / 2, w.street + N.spill, w.storey === 0 ? 1 : N.upper);
+    for (const l of rec.lamps) spill(l.x, l.street + N.spill, N.lampPower);
+    ctx.restore();
+    drawLit(ctx, rec, night, 1);
   }
   return c;
 }
@@ -437,8 +410,8 @@ function build(root: HTMLElement): void {
   map = generateCity(SEED);
   mr = new MapRenderer(map);
   furniture = furnishMap(map);
-  const buildings = computeBuildings(map, mr.heights);
-  roofs = new RoofRenderer(map, buildings, mr.windows);
+  roofs = new RoofLayer(map, mr.heights);
+  const buildings = { list: roofs.list };
   root.querySelector('#status')?.remove();
   const w = map.width;
   const n = map.width * map.height;

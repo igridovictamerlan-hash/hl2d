@@ -593,7 +593,8 @@ export class MapRenderer {
    * Горящие окна ночью (после Lighting): стекло светится тёплым поверх затемнения. glow — 0..1 (свет ламп суток),
    * f — доля суток (у каждого окна свой час отбоя — windowOn).
    */
-  drawLitWindows(ctx: CanvasRenderingContext2D, v: View, glow: number, f: number): void {
+  /** only — какие окна (тайл стены): с крышами в игре горят только окна дома игрока в разрезе (фасады — RoofLayer). */
+  drawLitWindows(ctx: CanvasRenderingContext2D, v: View, glow: number, f: number, only: ((tx: number, ty: number) => boolean) | null = null): void {
     const LW = LIGHTING.window;
     const a = glow * LW.glow;
     if (a <= 0.02) return;
@@ -608,7 +609,7 @@ export class MapRenderer {
     ctx.globalAlpha = a;
     ctx.fillStyle = LW.glass;
     for (const o of this.litWindows) {
-      if (o.x < tx0 || o.x > tx1 || o.y < ty0 || o.y > ty1 || !windowOn(o, f)) continue;
+      if (o.x < tx0 || o.x > tx1 || o.y < ty0 || o.y > ty1 || !windowOn(o, f) || (only && !only(o.x, o.y))) continue;
       fillWindowGlass(ctx, o, X(o.x * ts), Y(o.y * ts), X((o.x + 1) * ts), Y((o.y + 1) * ts));
     }
     ctx.globalAlpha = 1;

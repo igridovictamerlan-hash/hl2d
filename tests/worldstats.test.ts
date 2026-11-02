@@ -54,6 +54,8 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   sim.academy.recruiting = true;
   // RELATIONS=0 — без живых людей (для сравнения: драки, смерти, занятия).
   sim.ctx.relations.enabled = process.env.RELATIONS !== '0';
+  // LOCKS=0 — двери без замков (как до замков: любой входит в любой дом).
+  if (sim.ctx.locks) sim.ctx.locks.enabled = process.env.LOCKS !== '0';
   // HOODS=0 — прежняя жизнь без районов (прогулки по всему городу, площадь — любимое место, Арбат заселяется первым).
   sim.ctx.hoods.enabled = sim.ctx.crowd.enabled = process.env.HOODS !== '0';
   spawnPopulation(sim.ctx, AI.citizens);
@@ -249,6 +251,11 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Преступность: ${JSON.stringify((sim.crime as unknown as { stats?: object }).stats ?? {})}`);
   out.push(`Банды: ${JSON.stringify((sim.ctx.gangs as unknown as { stats?: object }).stats ?? {})}; драки: ${JSON.stringify(sim.ctx.brawls.stats)}`);
   out.push(`Подполье: ${JSON.stringify((sim.insurgency as unknown as { stats?: object }).stats ?? {})}`);
+  const LK = sim.ctx.locks;
+  if (LK) {
+    const kinds = (k: string) => LK.list.filter((l) => l.kind === k).length;
+    out.push(`Двери и ключи${LK.enabled ? '' : ' (выключены)'}: замков дом ${kinds('home')}, комната ${kinds('room')}, лавка ${kinds('shop')}; ${JSON.stringify(LK.stats)}`);
+  }
   out.push(`Тюрьма: ${JSON.stringify(sim.prison.stats)}; дела банд с подпольем (штурм+охота): ${sim.ctx.gangs.gangs.map((g) => g.stats.storms).join('/')}, из них охоты: ${sim.ctx.gangs.gangs.map((g) => g.stats.hunts).join('/')}`);
   out.push(`Война банд: стычек ${sim.ctx.gangs.stats.feuds}, налётов ${sim.ctx.gangs.gangs.map((g) => g.stats.raids).join('/')}, из них мести ${sim.ctx.gangs.gangs.map((g) => g.stats.revenges).join('/')}, сборов на защиту ${sim.ctx.gangs.gangs.map((g) => g.stats.defends).join('/')}`);
   for (let i = 0; i < 2; i++) {

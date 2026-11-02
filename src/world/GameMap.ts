@@ -276,6 +276,8 @@ export class GameMap {
   readonly doorClosed: Uint8Array;
   /** 1 — дверь заперта и непроходима (камеры КПЗ). */
   readonly doorLocked: Uint8Array;
+  /** Дверь на замке с ключом закрыта (systems/Locks.ts): стена для столкновений, но не для навигации — у кого ключ, тот откроет. */
+  readonly doorBarred: Uint8Array;
   /** 1 — дверь-решётка (камеры тюрьмы): закрытая держит пулю, но сквозь неё видно. */
   readonly grate: Uint8Array;
   /** Дым от дымовых гранат: сколько облаков накрывает тайл (> 0 — не видно насквозь, пули летят). */
@@ -300,6 +302,7 @@ export class GameMap {
     this.worldHeight = height * tileSize;
     this.doorClosed = new Uint8Array(width * height);
     this.doorLocked = new Uint8Array(width * height);
+    this.doorBarred = new Uint8Array(width * height);
     this.grate = new Uint8Array(width * height);
     this.smoke = new Uint8Array(width * height);
     for (let i = 0; i < tiles.length; i++) if (tiles[i] === T.DOOR) this.doorClosed[i] = 1;

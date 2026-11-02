@@ -9,14 +9,21 @@ type Hsl = { h: number; s: number; l: number };
 
 export const FACADES = {
   /**
-   * Высоты: первый этаж, этаж выше, бельэтаж (второй этаж Лондона и доходного дома — выше), карниз / парапет / свес;
-   * щипец — по ширине, не выше gableMax. Окно — на 4 px ниже своего этажа.
+   * Масштаб — по пешке (рост ≈ 28 px мира): первый этаж 36 (дверь ≈ 31 — пешка проходит в рост), этаж выше 28,
+   * бельэтаж Лондона и доходного дома 32; карниз / парапет / свес; щипец — по ширине, от gableMin до gableMax.
+   * Над фасадом остаётся крыша не меньше minRoof (иначе этажей меньше — их ограничивает глубина дома).
    */
-  size: { ground: 18, upper: 14, piano: 16, cornice: 3, parapet: 5, eave: 2, gableMax: 22, gableMin: 10, minRoof: 6 },
+  size: { ground: 36, upper: 28, piano: 32, cornice: 6, parapet: 10, eave: 4, gableMax: 46, gableMin: 22, minRoof: 10 },
+  /** Окно: высота на первом этаже, выше, на бельэтаже (французское), в верхнем этаже Амстердама; отступ от верха этажа. */
+  winH: { ground: 19, upper: 17, piano: 22, attic: 12, top: 5 },
+  /** Дверь: высота портала, ширина (с портиком шире), фрамуга; у лавки дверь начинается под фризом (shopTop). */
+  door: { h: 31, w: 24, portico: 30, fan: 5, shopTop: 10 },
+  /** Витрина лавки: фриз с надписью, шаг переплёта, цоколь. */
+  shopfront: { fascia: 8, mullion: 8, riser: 5, font: 5.4 },
   /** Шаг окон по семейству (желаемый: окон — сколько влезает с таким шагом, поровну по ширине). */
-  bay: { slum: 20, amsterdam: 24, munich: 22, london: 18, grand: 22, civic: 22 } as Record<string, number>,
+  bay: { slum: 30, amsterdam: 30, munich: 32, london: 27, grand: 32, civic: 32 } as Record<string, number>,
   /** Ширина окна по семейству. */
-  window: { slum: 6, amsterdam: 7, munich: 7, london: 6, grand: 8, civic: 8 } as Record<string, number>,
+  window: { slum: 11, amsterdam: 12, munich: 12, london: 11, grand: 13, civic: 13 } as Record<string, number>,
 
   brick: {
     slum: [{ h: 12, s: 28, l: 25 }, { h: 20, s: 18, l: 23 }, { h: 6, s: 30, l: 27 }, { h: 28, s: 10, l: 26 }] as readonly Hsl[],
@@ -64,6 +71,23 @@ export const FACADES = {
     riser: '#3a2e24',
     goods: ['#c9a227', '#a0522d', '#6b8e23', '#b03a2e', '#e8dcc8', '#4f6b8a'] as readonly string[],
   },
+  /**
+   * Ночь: горящее окно поверх темноты — стекло, ореол (доля размера окна) и свет на мостовую перед фасадом (источник
+   * в карте света: на spill px от фасада, радиус spillR, сила; окна выше первого этажа светят слабее — upper).
+   * Фонарь у двери — ореол lampR.
+   */
+  night: { halo: 'rgba(255,190,105,0.34)', haloR: 1.8, spill: 14, spillR: 46, spillPower: 1.25, upper: 0.55, lampHalo: 'rgba(255,205,120,0.6)', lampR: 14, lampSpill: 30, lampPower: 1.1 },
+  /**
+   * Слой крыш в игре (world/RoofLayer.ts): каждый дом рисуется один раз в свой холст (кэш до maxPixels пикселей,
+   * давно не видные — вон); за кадр строится не дольше budget мс (дом без холста — заглушка цветом крыши), на margin
+   * px вокруг экрана — заранее; при входе крыша снимается за fade с; при старте — дома в prebuild px от игрока.
+   */
+  layer: { budget: 4, maxPixels: 16_000_000, margin: 192, fade: 0.3, prebuild: 640, pad: 6 },
+  /** Контур своего дома в разрезе; шов между крышами соседей и карниз над открытым местом; козырёк входа сбоку и сзади. */
+  cut: { outline: 'rgba(240,192,64,0.9)', dash: [3, 2] as number[], width: 1.2 },
+  seam: 'rgba(0,0,0,0.45)',
+  eaveLine: 'rgba(16,12,10,0.7)',
+  canopy: { color: '#3a3430', edge: 'rgba(0,0,0,0.35)', depth: 5, lamp: '#e8c878' },
   /** Мелочи: водосток, фонарь у двери, плакаты Протектората, бельё на верёвке. */
   pipe: '#2a2a28',
   lantern: { body: '#22201c', glass: '#e8c878', glow: 'rgba(255,205,120,0.35)' },
@@ -79,8 +103,9 @@ export const FACADES = {
     pantile: [{ h: 18, s: 52, l: 36 }, { h: 14, s: 46, l: 32 }, { h: 24, s: 14, l: 20 }] as readonly Hsl[],
     slate: [{ h: 214, s: 12, l: 30 }, { h: 228, s: 9, l: 27 }, { h: 205, s: 10, l: 33 }] as readonly Hsl[],
     copper: [{ h: 164, s: 20, l: 40 }, { h: 158, s: 17, l: 37 }] as readonly Hsl[],
-    /** Ряд черепицы (пиксели) на южном скате и на северном (уже в ¾). */
-    row: { tile: 3, pantile: 3, slate: 2, copper: 3 } as Record<string, number>,
+    /** Ряд черепицы (пиксели) на южном скате и на северном (уже в ¾); ширина плитки. */
+    row: { tile: 4, pantile: 4, slate: 3, copper: 5 } as Record<string, number>,
+    tileW: { tile: 6, pantile: 6, slate: 5, copper: 5 } as Record<string, number>,
     jitter: 5,
     /** Конёк — доля высоты крыши от северного края; северный скат темнее. */
     ridge: 0.36,
@@ -96,6 +121,6 @@ export const FACADES = {
     /** Заплаты Слободы: шаг сетки, редкость жести и дыр (1 из N клеток), ржавый потёк, обломки черепицы у дыры. */
     patch: { step: 10, tin: 9, hole: 17, rust: 'rgba(120,64,32,0.55)', broken: 'rgba(90,64,44,0.85)' },
   },
-  chimney: { pot: '#a35a3a', potDark: '#6a3424', top: 'rgba(255,255,255,0.18)', soot: 'rgba(0,0,0,0.5)', shadow: 'rgba(0,0,0,0.28)' },
-  dormer: { cheek: 'rgba(0,0,0,0.28)' },
+  chimney: { w: 8, h: 12, pot: '#a35a3a', potDark: '#6a3424', top: 'rgba(255,255,255,0.18)', soot: 'rgba(0,0,0,0.5)', shadow: 'rgba(0,0,0,0.28)' },
+  dormer: { w: 12, h: 11, cheek: 'rgba(0,0,0,0.28)' },
 } as const;

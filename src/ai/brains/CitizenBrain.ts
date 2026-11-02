@@ -604,6 +604,8 @@ export class CitizenBrain implements Brain {
   private beginChat(best: Character): boolean {
     const { self, ctx } = this;
     const pb = best.brain as CitizenBrain;
+    // К другу домой: хозяин откроет дверь (пропуск в его дом и комнату на время гостей).
+    ctx.locks?.invite(self, best);
     this.partner = best;
     this.chatLead = true;
     pb.partner = self;

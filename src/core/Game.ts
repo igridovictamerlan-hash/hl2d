@@ -20,6 +20,7 @@ import type { GameMap, Level } from '../world/GameMap';
 import { NavGrid } from '../world/NavGrid';
 import type { Poi } from '../world/GameMap';
 import { MapRenderer } from '../world/MapRenderer';
+import { RoofLayer } from '../world/RoofLayer';
 import { FogRenderer } from '../world/FogRenderer';
 import { VisibilityPolygon, canSeeCircle } from '../world/visibility';
 import { generateCity } from '../world/generator/CityGenerator';
@@ -45,6 +46,7 @@ import type { AiContext } from '../ai/AiContext';
 import { updateNpcs } from '../ai/NpcController';
 import { ZoneSystem } from '../systems/ZoneSystem';
 import { DoorSystem } from '../systems/DoorSystem';
+import { Locks } from '../systems/Locks';
 import { LawSystem } from '../systems/LawSystem';
 import { spawnPopulation, roleSpawn, poiWorld, equipKit, cpKit, workplaceOf } from '../systems/Population';
 import { EconomySystem } from '../systems/EconomySystem';
@@ -120,6 +122,8 @@ import type { OrgSource } from '../ui/OrgPanel';
 export interface GameOptions {
   /** Граждан ровно столько (?npcs=); null — по уровню населения из настроек (config/population.ts). */
   npcs: number | null;
+  /** Крыши и фасады над домами (?roofs=0 — без них, план этажа виден весь). */
+  roofs?: boolean;
 }
 
 /**
@@ -167,6 +171,10 @@ export class Game {
   private chat!: ChatSystem;
   private ai!: AiContext;
   private mapRenderer!: MapRenderer;
+  /** Крыши и фасады над домами (вид ¾), дом игрока — в разрезе. */
+  roofs!: RoofLayer;
+  /** Дома вокруг игрока уже построены в кэш крыш (после смены карты — заново). */
+  private roofsWarm = false;
   /** Мебель (дома, казарма, канцелярия, комната OTA) — точки интереса карты. */
   /** Деревья садов (POI) и обстановка комнат (furnishMap). */
   private trees: Poi[] = [];
@@ -441,6 +449,14 @@ export class Game {
     this.furnishings = furnishMap(map);
     this.rng = new Rng(map.seed ^ 0x51f15e);
     this.doors = new DoorSystem(map, this.nav);
+    this.roofs = new RoofLayer(map, this.mapRenderer.heights);
+    this.roofs.enabled = this.opts.roofs !== false;
+    this.roofsWarm = false;
+    this.roofs.doorLook = (tx, ty) => {
+      const g = this.doors.groupAtTile(tx, ty);
+      return !g ? 'closed' : g.broken ? 'broken' : g.closed ? 'closed' : 'open';
+    };
+    this.entityRenderer.roofAlpha = this.roofs.enabled ? (x, y) => this.roofs.roofAlpha(x, y) : null;
     this.law = new LawSystem(map, this.nav, this.doors, this.entities, this.bus, this.rng);
     this.economy = new EconomySystem(map, this.entities, this.bus, this.rng);
     this.combat = new CombatSystem(map, this.entities, this.bus, this.rng, this.law);
@@ -527,6 +543,8 @@ export class Game {
     this.ai.staffing = new Staffing(this.ai);
     this.ai.academy = new AcademySystem(this.ai);
     this.ai.access = new Access(this.ai);
+    this.ai.locks = new Locks(this.ai);
+    this.doors.locks = this.ai.locks;
     this.ai.talk = new Talk(this.ai);
     this.ai.relations = new Relations(this.ai);
     this.ai.radio = new Radio(this.ai);
@@ -538,9 +556,13 @@ export class Game {
     this.entityRenderer.families = this.ai.families;
     this.entityRenderer.gangs = this.ai.gangs;
     this.entityRenderer.senses = this.ai.senses;
-    this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes, this.war.dugouts.list, this.mapRenderer.windows);
+    // С крышами окна к югу — на фасадах (их свет даёт слой крыш), остальные светят на улицу как прежде.
+    const roofsOn = this.roofs.enabled;
+    this.lighting.setWorld(map, this.ai.street.lamps, this.ai.street.barrels, this.economy.nodes, this.war.dugouts.list, roofsOn ? this.mapRenderer.windows.filter((o) => o.out !== 2) : this.mapRenderer.windows);
+    this.lighting.facadeLights = roofsOn ? (v, f, fn) => this.roofs.forEachLight(v, f, fn) : null;
+    this.lighting.covered = roofsOn ? (x, y) => (this.level === 'sewer' ? 0 : this.roofs.roofAlpha(x, y)) : null;
     this.lighting.memorials = this.ai.memorials.list;
-    this.ambience.setWorld(this.mapRenderer.chimneyPoints());
+    this.ambience.setWorld(roofsOn ? this.roofs.chimneyPoints() : this.mapRenderer.chimneyPoints());
     this.fireSpots = [...this.ai.street.barrels.map((b) => ({ x: b.x, y: b.y })), ...(['rebel_camp', 'rebel_base'] as const).map((t) => poiWorld(this.ai, t)).filter((q): q is { x: number; y: number } => q !== null)];
     this.economy.onEmpty = () => this.labor.noticeEmpty();
     // Раздача — только днём (распорядок), и не в комендантский час (WarSystem).
@@ -806,6 +828,14 @@ export class Game {
     }
     if (ai.routine.night && ai.errands.canTake(this.player)) out.push('Ночь: на улицах проверяют чаще, на районах банд грабят');
     const p = this.player;
+    // Дверь с замком рядом: своя — запереть или оставить открытой; чужая заперта — что можно сделать.
+    const L = ai.locks;
+    const g = L?.enabled ? L.doorNear(p.x, p.y) : null;
+    if (L && g) {
+      const lock = L.list[g.lock];
+      if (p.home >= 0 && lock.homes.includes(p.home)) out.push(lock.open ? 'Своя дверь не заперта · E — запереть' : 'Своя дверь · E — оставить незапертой');
+      else if (L.engaged(g.lock) && !L.canPass(p, g)) out.push(p.inventory.has('lockpick') ? 'Заперто · E — вскрыть отмычкой (взлом)' : lock.kind === 'shop' ? 'Лавка заперта' : 'Заперто · E — постучать');
+    }
     const cadet = ai.academy?.hint(p);
     if (cadet) out.push(cadet.text);
     else if (p.faction === 'cp' && ai.staffing) out.push(serviceHint(p, ai.staffing));
@@ -1289,6 +1319,7 @@ export class Game {
       lod.farR2 = (r * LOD.farMul) ** 2;
     }
     updateNpcs(this.ai, dt);
+    this.ai.locks?.update(dt);
     this.doors.update(this.entities, dt);
     stepPhysics(this.entities, this.map, dt);
     this.ai.access.update();
@@ -1399,6 +1430,25 @@ export class Game {
     v.top += (Math.cos(t * 2.3) * a) / v.scale;
   }
 
+  /**
+   * Крыши: дом, где игрок (и на пороге), — в разрезе; плавное снятие и возврат крыш по реальному времени кадра; при
+   * первом кадре на карте — дома вокруг игрока сразу в кэш (дальше — по бюджету кадра).
+   */
+  private updateRoofs(): void {
+    const R = this.roofs;
+    const p = this.player;
+    if (!this.roofsWarm) {
+      R.prebuild(p.x, p.y);
+      this.roofsWarm = true;
+    }
+    R.setCut(p.alive || p.downed ? R.buildingAtPoint(p.x, p.y) : -1);
+    const now = performance.now();
+    R.update(Math.min(0.1, Math.max(0, (now - this.roofClock) / 1000)));
+    this.roofClock = now;
+  }
+
+  private roofClock = 0;
+
   private render(alpha: number): void {
     const ctx = this.ctx;
     // Замирание от удара идёт в реальном времени (логика в это время почти стоит).
@@ -1435,18 +1485,35 @@ export class Game {
     this.effects.drawScenes(ctx, v, this.war.scenes.list);
     this.effects.drawMemorials(ctx, v, this.ai.memorials.list, this.law.now);
     this.effects.drawMines(ctx, v, this.combat, this.player, this.map);
-    this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
+    // Крыши и фасады (вид ¾): кто в домах — под ними, кто на улице и в доме игрока (разрез) — поверх.
+    const sewer = this.level === 'sewer';
+    const roofs = this.roofs.enabled && !sewer;
+    if (roofs) {
+      this.updateRoofs();
+      this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now, 'under');
+      this.roofs.draw(ctx, v);
+      if (this.roofs.cut >= 0) this.roofs.outline(ctx, v, this.roofs.cut);
+      this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now, 'over');
+    } else this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now);
     this.arsenalView.drawCarried(ctx, v, this.ai.arsenal, alpha);
     this.effects.drawSmokers(ctx, v, this.entities.list, this.law.now);
     this.effects.drawNotepads(ctx, v, this.entities.list, this.combat.now, this.law.now);
-    this.effects.drawPrisonBars(ctx, v, this.law.cells, this.map.tileSize, this.law.now);
+    const ts = this.map.tileSize;
+    const cells = roofs ? this.law.cells.filter((c) => !c.door || this.roofs.roofAlpha(((c.door.bounds.x0 + c.door.bounds.x1 + 1) / 2) * ts, ((c.door.bounds.y0 + c.door.bounds.y1 + 1) / 2) * ts) < 0.5) : this.law.cells;
+    this.effects.drawPrisonBars(ctx, v, cells, ts, this.law.now);
     this.aim.drawNpcCones(ctx, v, this.map, this.combat, this.entities.list, alpha, showAll);
     // Дымок из труб, затем свет суток и источников (умножение), свечение ламп и огня, пылинки.
-    const sewer = this.level === 'sewer';
     this.ambience.drawSmoke(ctx, v);
     this.lighting.draw(ctx, v, this.time, this.player, this.combat, this.entities.list, sewer);
     this.lighting.drawBloom(ctx, v, this.time, sewer);
-    if (!sewer && this.lighting.enabled) this.mapRenderer.drawLitWindows(ctx, v, this.lighting.day(this.time).lamps, dayFraction(this.time));
+    if (!sewer && this.lighting.enabled) {
+      const lamps = this.lighting.day(this.time).lamps;
+      const f = dayFraction(this.time);
+      // С крышами: окна плана — только у дома в разрезе, у остальных — горящие окна фасадов.
+      const cut = this.roofs.cut;
+      this.mapRenderer.drawLitWindows(ctx, v, lamps, f, roofs ? (tx, ty) => this.roofs.buildingAt(tx, ty) === cut : null);
+      if (roofs) this.roofs.drawLit(ctx, v, f, lamps);
+    }
     if (!sewer) this.arsenalView.drawGlow(ctx, v, this.ai.arsenal, this.law.now);
     if (!sewer) this.prisonView.drawGlow(ctx, v, this.ai.prison, this.law.now);
     if (!sewer) this.ambience.drawMotes(ctx, v, this.lighting.litLamps(), this.lighting.day(this.time).lamps, this.time);
@@ -1456,7 +1523,7 @@ export class Game {
     this.effects.drawScanners(ctx, v, this.ai.scanners.list, alpha, this.law.now);
     this.aim.drawSwings(ctx, v, this.combat, alpha, showAll);
     this.refreshSight();
-    this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor);
+    this.fog.draw(ctx, v, this.sight, this.player.x, this.player.y, this.sightRadius, sewer ? VISION.sewerFogColor : VISION.fogColor, roofs ? (c) => this.roofs.fogHoles(c, v) : null);
     this.particles.drawOver(ctx, v, this.combat);
     if (!sewer) this.arsenalView.drawShip(ctx, v, this.ai.arsenal, this.law.now);
     this.aim.drawPlayerCone(ctx, v, this.map, this.combat, this.player, alpha);

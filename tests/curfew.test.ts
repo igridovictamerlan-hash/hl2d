@@ -272,7 +272,13 @@ describe('Посты на выходах из квартала', () => {
     const b = cop.brain as CpBrain;
     expect(run(sim, 60, () => Math.hypot(cop.x - b.rally!.x, cop.y - b.rally!.y) < LAW.postArrive + 6)).toBe(true);
     // Прохожий рядом с постом, документы в порядке: ВС обязательно его остановит (ступень 2 — checkMul × 4.5).
-    const pass = createCharacter(sim.entities, sim.ctx.rng, 'citizen', b.rally!.x + Math.cos(b.rallyFacing) * 70, b.rally!.y + Math.sin(b.rallyFacing) * 70, true);
+    // Стоит на улице перед постом (ближайшая к точке в 70 px по взгляду проходимая точка с видимостью, не в доме и не
+    // в стене — иначе его выталкивает куда придётся).
+    const want = { x: b.rally!.x + Math.cos(b.rallyFacing) * 70, y: b.rally!.y + Math.sin(b.rallyFacing) * 70 };
+    const spot = ring(sim, b.rally!, 40, 110)
+      .filter((q) => sim.ctx.war.outdoors(q as Character))
+      .reduce((a, q) => (Math.hypot(q.x - want.x, q.y - want.y) < Math.hypot(a.x - want.x, a.y - want.y) ? q : a));
+    const pass = createCharacter(sim.entities, sim.ctx.rng, 'citizen', spot.x, spot.y, true);
     pass.law.wanted = false;
     pass.law.hasCid = true;
     pass.law.lastCheck = -1e9;

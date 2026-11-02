@@ -35,7 +35,7 @@ until grep -q "Test Files" /tmp/hl2d-audit/density_after.log; do sleep 5; done
 vitest подхватывает файлы по мере импорта, и прогон смешает старый и новый код.
 
 Переменные `worldstats` — в CLAUDE.md («Команды»): `SEED`, `MINUTES`, `RELATIONS=0`, `HOODS=0`, `CP=classic`,
-`LINE=0`, `DUGOUTS=0`, `WARCFG="dugout.sortie.chance=0,line.shift=300"`. Тепловой карты: `SEED`, `MIN` (12 ≈ 16
+`LINE=0`, `DUGOUTS=0`, `LOCKS=0` (двери без замков), `WARCFG="dugout.sortie.chance=0,line.shift=300"`. Тепловой карты: `SEED`, `MIN` (12 ≈ 16
 игровых часов), `START` (час начала, 7), `SCALE` (4 = «много», 1 = состав тестов), `HOODS=0`, `CP=classic`,
 `LINE=0`, `CELL`, `NEAR` (радиус «у площади», 50 тайлов), `MAXV`, `OUT`, `TAG`. Результат — `OUT/heat_<TAG>.png`
 (площадь — жёлтая метка и круг «у площади»), `OUT/heat_<TAG>.json` (данные для общей нормировки) и

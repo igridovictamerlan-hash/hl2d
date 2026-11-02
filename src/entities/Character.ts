@@ -326,6 +326,8 @@ export class Character {
   cadet: CadetRecord | null = null;
   /** Пропуска на режимные объекты (systems/Access.ts); forged — поддельные. */
   passes: AccessSite[] = [];
+  /** Ключи сверх своего дома (systems/Locks.ts): номера замков — подобранные, отданные, украденные. */
+  keys: number[] = [];
   forged: AccessSite[] = [];
   /** Где был в прошлый тик (режимный объект или null) — Access пропускает внутрь только по пропуску. */
   accessAt: AccessSite | null | undefined = undefined;

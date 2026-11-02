@@ -14,6 +14,7 @@ import { fetchMap } from './world/mapIO';
  *   ?debug=1    — сразу включить отладку ИИ
  *   ?mode=squad — экспериментальный режим «отряд на отряд» (&side=combine — за Протекторат)
  *   ?touch=1    — сенсорное управление и с мышью (на телефоне включается само при первом касании)
+ *   ?roofs=0    — без крыш и фасадов (план этажа виден весь, как раньше)
  * Без ?seed и ?map игра продолжается из сохранения в браузере (если есть).
  */
 const params = new URLSearchParams(location.search);
@@ -29,7 +30,7 @@ window.addEventListener('unhandledrejection', (e) => showError(String((e.reason 
 
 // ?npcs= — ровно столько граждан (в обход уровня населения из настроек); без него — по уровню.
 const npcs = params.has('npcs') ? Math.max(0, Math.min(POPULATION.maxCitizens, Number(params.get('npcs')) || 0)) : null;
-const game = new Game(canvas, uiRoot, { npcs });
+const game = new Game(canvas, uiRoot, { npcs, roofs: params.get('roofs') !== '0' });
 // Для отладки из консоли браузера.
 (window as unknown as { game: Game }).game = game;
 

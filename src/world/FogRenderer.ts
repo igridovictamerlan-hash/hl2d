@@ -12,8 +12,26 @@ import { VISION } from '../config/vision';
  * радиальным градиентом от прозрачного (до fadeStart) к цвету тумана на краю радиуса обзора.
  */
 export class FogRenderer {
-  draw(target: CanvasRenderingContext2D, v: View, poly: VisibilityPolygon, cx: number, cy: number, radius: number = VISION.radius, color: string = VISION.fogColor): void {
+  /**
+   * holes — добавляет в путь прямоугольники, которых туман не касается (крыши домов: их видно и за углом — камера
+   * сверху); прямоугольники не пересекаются, вырезаются правилом evenodd.
+   */
+  draw(target: CanvasRenderingContext2D, v: View, poly: VisibilityPolygon, cx: number, cy: number, radius: number = VISION.radius, color: string = VISION.fogColor, holes: ((ctx: CanvasRenderingContext2D) => void) | null = null): void {
     const ctx = target;
+    if (holes) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, v.width, v.height);
+      holes(ctx);
+      ctx.clip('evenodd');
+      this.fill(ctx, v, poly, cx, cy, radius, color);
+      ctx.restore();
+      return;
+    }
+    this.fill(ctx, v, poly, cx, cy, radius, color);
+  }
+
+  private fill(ctx: CanvasRenderingContext2D, v: View, poly: VisibilityPolygon, cx: number, cy: number, radius: number, color: string): void {
     const s = v.scale;
     const p = poly.points;
     const trace = () => {

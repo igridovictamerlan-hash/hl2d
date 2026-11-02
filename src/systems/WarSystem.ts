@@ -358,10 +358,13 @@ export class WarSystem {
     const nav = this.ctx.nav;
     if (who) this.releaseShelter(who);
     const claimed = [...this.shelterClaims.entries()].filter(([, c]) => c.alive).map(([a]) => a);
+    // Чужой дом заперт (systems/Locks.ts): укрытие — свой дом, двор, подъезд, куда пустят.
+    const locked = who ? this.ctx.locks?.blockerFor(who) : undefined;
     let best = -1;
     let bestD = Infinity;
     for (let k = 0; k < 60 && this.shelters.length; k++) {
       const a = this.ctx.rng.pick(this.shelters);
+      if (locked?.(a)) continue;
       const ax = nav.worldX(a);
       const ay = nav.worldY(a);
       let d = Math.hypot(ax - x, ay - y);

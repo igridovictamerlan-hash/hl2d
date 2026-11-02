@@ -4,7 +4,7 @@ import { computeLots } from './houses';
 import { HEIGHT_UNIT } from './shadows';
 
 /**
- * Здания для крыш и фасадов (world/RoofRenderer.ts): кто под какой крышей. Дом в ряду вдоль улицы — по POI facade;
+ * Здания для крыш и фасадов (world/RoofLayer.ts): кто под какой крышей. Дом в ряду вдоль улицы — по POI facade;
  * дом с помещениями — связный пол, двери и укрытия внутри плюс стены вокруг; глухая застройка — по участкам
  * (computeLots), как у прежних крыш. Тайл в одном здании; общая стена соседей — у того, кто нашёл её первым.
  */
@@ -51,7 +51,7 @@ function indoorAt(map: GameMap, x: number, y: number): boolean {
 }
 
 /** Открытая земля: улица, переулок, площадь, двор, сад — где крыши нет. */
-function openAt(map: GameMap, x: number, y: number): boolean {
+export function openAt(map: GameMap, x: number, y: number): boolean {
   const t = map.tileAt(x, y);
   return t === T.STREET || t === T.FLOOR || t === T.PLAZA || t === T.COURTYARD || t === T.ARCH || t === T.GATE || t === T.GARDEN || t === T.WASTE;
 }
@@ -108,7 +108,7 @@ export function computeBuildings(map: GameMap, heights?: Uint8Array): Buildings 
   for (let start = 0; start < n; start++) {
     const sx = start % w;
     const sy = (start - sx) / w;
-    if (of[start] >= 0 || !indoorAt(map, sx, sy) || !inCity(sx, sy)) continue;
+    if (of[start] !== -1 || !indoorAt(map, sx, sy) || !inCity(sx, sy)) continue;
     const region: number[] = [];
     of[start] = -2;
     stack.push(start);
@@ -126,6 +126,11 @@ export function computeBuildings(map: GameMap, heights?: Uint8Array): Buildings 
         of[j] = -2;
         stack.push(j);
       }
+    }
+    // Одни укрытия без пола и дверей (постамент памятника, клумба в ограде) — не дом: крыши над ними нет.
+    if (!region.some((i) => map.tiles[i] !== T.BARRIER)) {
+      for (const i of region) of[i] = -3;
+      continue;
     }
     const tiles = [...region];
     for (const i of region) {
@@ -148,6 +153,8 @@ export function computeBuildings(map: GameMap, heights?: Uint8Array): Buildings 
     const kind: BuildingKind = region.some((i) => villa.has(i)) ? 'villa' : region.some((i) => dorm.has(i)) ? 'dorm' : zk && CIVIC.has(zk) ? 'civic' : zk === 'canteen' ? 'canteen' : 'house';
     add(kind, tiles, null);
   }
+
+  for (let i = 0; i < n; i++) if (of[i] === -3) of[i] = -1;
 
   // 3. Глухая застройка — участками, как прежние крыши.
   const rest = Uint8Array.from(map.tiles, (t, i) => (of[i] < 0 && t === T.WALL && inCity(i % w, Math.floor(i / w)) ? T.WALL : T.INTERIOR));

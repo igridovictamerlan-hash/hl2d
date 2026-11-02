@@ -88,7 +88,7 @@ export class Errands {
   /** Сдать посылку у дома получателя (E): текст или null — не здесь. */
   deliver(p: Character): string | null {
     const a = this.active;
-    if (!a || Math.hypot(a.to.at.x - p.x, a.to.at.y - p.y) > ERRANDS.deliver) return null;
+    if (!a || (Math.hypot(a.to.at.x - p.x, a.to.at.y - p.y) > ERRANDS.deliver && !this.atDoor(p, a.to))) return null;
     const { ctx } = this;
     const item = a.secret ? 'parcel_x' : 'parcel';
     if (!p.inventory.has(item)) {
@@ -108,6 +108,14 @@ export class Errands {
     this.stats.done++;
     if (a.secret) this.stats.secret++;
     return fill(ctx.rng.pick(a.secret ? E.lines.doneSecret : E.lines.done), { name: a.name, pay });
+  }
+
+  /** У двери дома адресата (дверь на замке — посылку отдают в дверь, внутрь не войти). */
+  private atDoor(p: Character, d: Dwelling): boolean {
+    const L = this.ctx.locks;
+    if (!L) return false;
+    const g = L.doorNear(p.x, p.y);
+    return !!g && L.keysOfHome(d.id).includes(g.lock);
   }
 
   /** Просрочка (раз в тик): посылку забирают, лояльность падает. */

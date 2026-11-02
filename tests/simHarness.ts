@@ -44,6 +44,7 @@ import { StreetLifeSystem } from '../src/systems/StreetLife';
 import { AcademySystem } from '../src/systems/Academy';
 import { Staffing } from '../src/systems/Staffing';
 import { Access } from '../src/systems/Access';
+import { Locks } from '../src/systems/Locks';
 import { Senses } from '../src/systems/Senses';
 import { Suspects } from '../src/systems/Suspects';
 import { Escalation } from '../src/systems/Escalation';
@@ -221,6 +222,8 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   // Набор в академию в тестах выключен (свой тест) — иначе лоялисты уходят учиться.
   ctx.academy.recruiting = false;
   ctx.access = new Access(ctx);
+  ctx.locks = new Locks(ctx);
+  doors.locks = ctx.locks;
   ctx.talk = new Talk(ctx);
   ctx.relations = new Relations(ctx);
   ctx.radio = new Radio(ctx);
@@ -246,6 +249,7 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   const step = (dt = 1 / 60) => {
     ctx.time += dt;
     updateNpcs(ctx, dt);
+    ctx.locks?.update(dt);
     doors.update(entities, dt);
     stepPhysics(entities, map, dt);
     ctx.access.update();
