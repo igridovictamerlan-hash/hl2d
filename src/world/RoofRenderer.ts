@@ -3,12 +3,16 @@ import type { Building, Buildings } from './buildings';
 import { windowOn, type WindowLook, type WindowSpot, type WindowStyle } from './windows';
 import { ROOFS } from '../config/roofs';
 import { RENDER } from '../config/render';
+import { ARBAT } from '../config/arbat';
+import { FACADES } from '../config/facades';
 import { hash2 } from '../core/rng';
+import { facadeHeight, facadeKit, type FacadeKit } from './facadeStyle';
+import { bayCenters, gable, paintFacade, paintRoof as paintEuroRoof, type Doorway } from './FacadeRenderer';
 
 /**
- * Крыши и фасады над домами: с улицы видно кровлю и стену, а не комнаты. Вид top — крыша сверху во весь дом;
- * facade — ¾ «в контуре»: стена к югу (к камере) с окнами и дверью поверх нижнего ряда дома; tall — ¾ с высотой:
- * крыша поднята на этажи, стена к югу видна целиком. Дом, где игрок (cut), — без крыши, контур пунктиром.
+ * Крыши и фасады над домами: с улицы видно кровлю и стену, а не комнаты. Вид facade — ¾ «в контуре»: скатная
+ * крыша и европейский фасад к югу (world/FacadeRenderer.ts, набор деталей — world/facadeStyle.ts) поверх нижних
+ * рядов дома; top — крыша сверху во весь дом; tall — ¾ с высотой. Дом, где игрок (cut), — без крыши, контур пунктиром.
  * Рисует в пикселях мира (ctx уже в масштабе камеры); текстуры — функциями от прямоугольника (ими же лист ассетов).
  */
 export type RoofView = 'top' | 'facade' | 'tall';
@@ -290,6 +294,22 @@ export function paintDoor(ctx: Ctx, X0: number, top: number, X1: number, bottom:
   }
 }
 
+interface EuroRun {
+  x0: number;
+  x1: number;
+  /** Ряд стены к улице (тайлы). */
+  y: number;
+  storeys: number;
+  doors: Doorway[];
+}
+
+interface Euro {
+  runs: EuroRun[];
+  main: EuroRun | null;
+  kit: FacadeKit;
+  sign: string | null;
+}
+
 interface Look {
   roof: RoofStyle;
   color: Hsl;
@@ -302,6 +322,9 @@ export class RoofRenderer {
   private readonly looks: Look[];
   private readonly winAt = new Map<number, WindowSpot>();
   private readonly doorSide = new Map<number, 0 | 1 | 2 | 3>();
+  /** Вид ¾: ряды фасада к улице, набор деталей, высота главного фасада — на здание (лениво). */
+  private readonly euroCache = new Map<number, Euro>();
+  private readonly signs = new Map<string, string>([...ARBAT.shops, ...ARBAT.cafes].map((d) => [d.id, d.sign]));
 
   constructor(private readonly map: GameMap, readonly buildings: Buildings, windows: readonly WindowSpot[]) {
     const w = map.width;
@@ -358,6 +381,11 @@ export class RoofRenderer {
       this.outline(ctx, b);
       return;
     }
+    if (o.view === 'facade') {
+      this.euro(ctx, b, o, false);
+      this.entrances(ctx, b, o.view, 0);
+      return;
+    }
     const lift = o.view === 'tall' ? this.lift(b) : 0;
     ctx.save();
     if (lift) ctx.translate(0, -lift);
@@ -365,6 +393,127 @@ export class RoofRenderer {
     ctx.restore();
     if (o.view !== 'top') this.facade(ctx, b, o, lift, false);
     this.entrances(ctx, b, o.view, lift);
+  }
+
+  /**
+   * Ряды фасада к улице: столбцы, где ниже дома — открытое место, подряд на одной высоте; у каждого — двери игры
+   * (проёмы) и высота по этажам (не глубже дома: сверху остаётся крыша).
+   */
+  private euroOf(b: Building): Euro {
+    let e = this.euroCache.get(b.id);
+    if (e) return e;
+    const w = this.map.width;
+    const h = this.map.height;
+    const bottomAt = new Map<number, number>();
+    for (const i of b.tiles) {
+      const x = i % w;
+      const y = (i - x) / w;
+      if (this.has(b, x, y + 1)) continue;
+      if (y + 1 >= h || this.buildings.of[i + w] >= 0 || this.map.isSolid(x, y + 1)) continue;
+      bottomAt.set(x, y);
+    }
+    const runs: EuroRun[] = [];
+    for (let x = b.x0; x <= b.x1; x++) {
+      const y = bottomAt.get(x);
+      if (y === undefined) continue;
+      const last = runs[runs.length - 1];
+      if (last && last.x1 === x - 1 && last.y === y) last.x1 = x;
+      else runs.push({ x0: x, x1: x, y, storeys: 1, doors: [] });
+    }
+    const main = runs.reduce<EuroRun | null>((a, r) => (!a || r.x1 - r.x0 > a.x1 - a.x0 ? r : a), null);
+    const kit = facadeKit(b, main ? main.x1 - main.x0 + 1 : b.x1 - b.x0 + 1);
+    for (const r of runs) {
+      // Двери к югу в ряду: соседние тайлы двери — один проём.
+      const xs = b.doors.filter((d) => d.side === 2 && d.y === r.y && d.x >= r.x0 && d.x <= r.x1).map((d) => d.x).sort((a, c) => a - c);
+      for (const x of xs) {
+        const last = r.doors[r.doors.length - 1];
+        if (last && last.x1 === x * TS) last.x1 = (x + 1) * TS;
+        else r.doors.push({ x0: x * TS, x1: (x + 1) * TS });
+      }
+      // Этажей — сколько влезает в глубину дома над этим рядом (над фасадом остаётся крыша).
+      const depth = (r.y + 1 - b.y0) * TS;
+      let st = kit.storeys;
+      while (st > 1 && facadeHeight(kit, st) > depth - FACADES.size.minRoof) st--;
+      r.storeys = st;
+    }
+    const sign = b.facade && (b.kind === 'shop' || b.kind === 'cafe') ? this.signs.get(b.facade.sub ?? '') ?? null : b.kind === 'canteen' && b.facade ? ARBAT.canteen.sign : null;
+    e = { runs, main, kit, sign };
+    this.euroCache.set(b.id, e);
+    return e;
+  }
+
+  /** Вид ¾: скатная крыша по контуру дома, фасады рядов к улице, щипец главного; litOnly — ночью только горящее. */
+  private euro(ctx: Ctx, b: Building, o: RoofOptions, litOnly: boolean): void {
+    const e = this.euroOf(b);
+    const k = e.kit;
+    const w = this.map.width;
+    const X0 = b.x0 * TS;
+    const X1 = (b.x1 + 1) * TS;
+    const Y0 = b.y0 * TS;
+    const Y1 = (b.y1 + 1) * TS;
+    const night = o.night ?? null;
+    const gabled = k.roof === 'ns' && (k.top === 'step' || k.top === 'neck' || k.top === 'bell' || k.top === 'spout');
+    const main = e.main;
+    const eave = main ? (main.y + 1) * TS - facadeHeight(k, main.storeys) : Y1;
+    if (!litOnly) {
+      // Крыша: трубы — на брандмауэрах по краям (у широкого дома и посередине), слуховые окна — по осям фасада.
+      const chimneys: number[] = [];
+      if (gabled) chimneys.push(Math.round((X0 + X1) / 2));
+      else {
+        chimneys.push(X0 + 4, X1 - 5);
+        if (X1 - X0 > 160) chimneys.push(Math.round((X0 + X1) / 2) + 6);
+      }
+      const dormers: number[] = [];
+      if (k.dormers && main && !gabled) {
+        const xs = bayCenters(k, main.x0 * TS, (main.x1 + 1) * TS);
+        xs.forEach((x, i) => {
+          if (k.roof === 'mansard' || xs.length <= 2 || i % 2 === 1) dormers.push(x);
+        });
+      }
+      ctx.save();
+      ctx.beginPath();
+      for (const i of b.tiles) {
+        const x = i % w;
+        ctx.rect(x * TS, ((i - x) / w) * TS, TS, TS);
+      }
+      ctx.clip();
+      paintEuroRoof(ctx, k, X0, Y0, X1, Y1, eave, { dormers, chimneys }, night);
+      // Край крыши у соседа (шов) и у открытого места (свес).
+      ctx.restore();
+      this.edges(ctx, b);
+    }
+    for (const r of e.runs) {
+      const rx0 = r.x0 * TS;
+      const rx1 = (r.x1 + 1) * TS;
+      const isMain = r === main;
+      paintFacade(ctx, k, {
+        X0: rx0, X1: rx1, bottom: (r.y + 1) * TS, storeys: r.storeys, doors: r.doors,
+        sign: e.sign && r.doors.length ? e.sign : null, gable: isMain && gabled, night, litOnly,
+      });
+      if (isMain && gabled && !litOnly) gable(ctx, k, rx0, rx1, (r.y + 1) * TS - facadeHeight(k, r.storeys));
+    }
+  }
+
+  /** Края скатной крыши: шов с соседней крышей, карниз над открытым местом (не там, где фасад). */
+  private edges(ctx: Ctx, b: Building): void {
+    const w = this.map.width;
+    for (const i of b.tiles) {
+      const x = i % w;
+      const y = (i - x) / w;
+      for (let k = 0; k < 4; k++) {
+        if (k === 2) continue;
+        const nx = x + (k === 1 ? 1 : k === 3 ? -1 : 0);
+        const ny = y + (k === 0 ? -1 : 0);
+        if (this.has(b, nx, ny)) continue;
+        const other = nx >= 0 && ny >= 0 && nx < w && ny < this.map.height && this.buildings.of[ny * w + nx] >= 0;
+        ctx.fillStyle = other ? ROOFS.seam : ROOFS.eave;
+        const X = x * TS;
+        const Y = y * TS;
+        if (k === 0) ctx.fillRect(X, Y, TS, other ? 1 : 2);
+        else if (k === 1) ctx.fillRect(X + TS - (other ? 1 : 2), Y, other ? 1 : 2, TS);
+        else ctx.fillRect(X, Y, other ? 1 : 2, TS);
+      }
+    }
   }
 
   /** Кровля по контуру дома: текстура, карниз (у плоской — парапет), шов с соседом, трубы и всё на крыше. */
@@ -613,6 +762,10 @@ export class RoofRenderer {
     const w = this.map.width;
     for (const b of list) {
       if (o.cut === b.id) continue;
+      if (o.view === 'facade') {
+        this.euro(ctx, b, o, true);
+        continue;
+      }
       const lift = o.view === 'tall' ? this.lift(b) : 0;
       if (o.view !== 'top') this.facade(ctx, b, o, lift, true);
       for (const i of b.tiles) {

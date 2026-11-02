@@ -2,9 +2,10 @@ import { generateCity } from '../world/generator/CityGenerator';
 import { MapRenderer } from '../world/MapRenderer';
 import { furnishMap } from '../world/furnish';
 import { drawFurnitureList } from '../world/FurnitureRenderer';
-import { computeBuildings, type Building } from '../world/buildings';
-import { RoofRenderer, paintDoor, paintRoof, paintWall, paintWindow, type RoofOptions, type RoofStyle, type RoofView, type WallStyle } from '../world/RoofRenderer';
-import type { WindowLook, WindowStyle } from '../world/windows';
+import { computeBuildings, type Building, type BuildingKind } from '../world/buildings';
+import { RoofRenderer, type RoofOptions, type RoofView } from '../world/RoofRenderer';
+import { facadeHeight, facadeKit, type Family, type FacadeKit } from '../world/facadeStyle';
+import { bayCenters, gable, paintFacade, paintRoof } from '../world/FacadeRenderer';
 import { castRay } from '../world/visibility';
 import { drawPawnFigure } from '../ui/pawnFigure';
 import type { PawnDir, PawnLook } from '../entities/PawnRenderer';
@@ -15,7 +16,7 @@ import { ROOFS } from '../config/roofs';
 import { VISION } from '../config/vision';
 import { hash2 } from '../core/rng';
 import { T } from '../world/tiles';
-import type { GameMap } from '../world/GameMap';
+import type { District, GameMap } from '../world/GameMap';
 import type { View } from '../core/Camera';
 
 /**
@@ -308,87 +309,87 @@ function section(eyebrow: string, title: string, lede: string, cards: HTMLElemen
   return s;
 }
 
-/** Образцы: материал кровли — квадратом 6×4 тайла. */
-function roofSwatch(style: RoofStyle, color: { h: number; s: number; l: number }): HTMLCanvasElement {
-  const [c, ctx, dpr] = canvas(6 * TS * 2.5, 4 * TS * 2.5);
-  const k = 2.5 * dpr;
-  ctx.setTransform(k, 0, 0, k, 0, 0);
-  paintRoof(ctx, 0, 0, 6 * TS, 4 * TS, style, color, true, 17);
-  ctx.strokeStyle = ROOFS.eave;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, 6 * TS - 2, 4 * TS - 2);
-  return c;
+/** Набор деталей нужного семейства для образца: перебор зерна, пока facadeKit не выберет это семейство. */
+function kitFor(family: Family, width: number, salt: number, storeys: number, over: Partial<FacadeKit> = {}): FacadeKit {
+  const district: District = family === 'slum' ? 'slum' : family === 'london' || family === 'grand' ? 'upper' : 'old';
+  const kind: BuildingKind = family === 'civic' ? 'civic' : family === 'grand' && salt % 2 ? 'villa' : 'house';
+  let k = facadeKit(fakeBuilding(salt, kind, district, width, storeys), width);
+  for (let id = salt + 1; k.family !== family && id < salt + 400; id++) k = facadeKit(fakeBuilding(id, kind, district, width, storeys), width);
+  return { ...k, ...over };
 }
 
-/** Образцы: стена в ¾ на 6 тайлов — окна через тайл, дверь посередине; этажей storeys, ночью — свет. */
-function wallSwatch(style: WallStyle, wnd: WindowStyle, color: { h: number; s: number; l: number }, storeys: number, lit: boolean, looks: WindowLook[], shop = false): HTMLCanvasElement {
-  const H = ROOFS.facade.height[Math.min(storeys, ROOFS.facade.height.length - 1)];
-  const [c, ctx, dpr] = canvas(6 * TS * 3, (H + 6) * 3);
-  const k = 3 * dpr;
+function fakeBuilding(id: number, kind: BuildingKind, district: District, w: number, storeys: number): Building {
+  return { id, kind, district, x0: id % 97, y0: (id * 7) % 89, x1: (id % 97) + w - 1, y1: (id * 7) % 89 + 6, tiles: [], storeys, doors: [], facade: null };
+}
+
+interface Sample {
+  family: Family;
+  w: number;
+  storeys?: number;
+  over?: Partial<FacadeKit>;
+  sign?: string;
+  /** Дверь: тайл от левого края (две клетки), -1 — без двери. */
+  door?: number;
+}
+
+/** Улица из образцов: дома вплотную, крыша на 6 тайлов вглубь, мостовая перед фасадами; ночью — свет окон. */
+function street(samples: Sample[], night: number | null = null, scale = 2.5): HTMLCanvasElement {
+  const depth = 7 * TS;
+  const pad = TS;
+  const W = samples.reduce((a, q) => a + q.w, 0) * TS + pad * 2;
+  const H = depth + 2 * TS + 8;
+  const [c, ctx, dpr] = canvas(W * scale, H * scale);
+  const k = scale * dpr;
   ctx.setTransform(k, 0, 0, k, 0, 0);
-  ctx.fillStyle = '#4c4741';
-  ctx.fillRect(0, 0, 6 * TS, H + 6);
-  paintWall(ctx, 0, 0, 6 * TS, H, style, color, 5);
-  const S = { slum: [3.5, 12.5], old: [2.5, 13.5], upper: [2.5, 13.5], shop: [1, 15], civic: [2, 14] }[wnd];
-  const rows = H >= ROOFS.facade.storeyMin * storeys ? storeys : 1;
-  const band = (H - 4) / rows;
-  for (let t = 0; t < 6; t++) {
-    const door = t === 2 || t === 3;
-    if (door) paintDoor(ctx, t * TS, H - Math.min(13, H - 3), (t + 1) * TS, H - 1, ROOFS.facade.door[style] ?? ROOFS.facade.door.old, t === 2 ? 1 : 2, shop, lit);
-    for (let r = 0; r < rows; r++) {
-      if (door && r === rows - 1) continue;
-      if (!shop && (t & 1) && wnd !== 'upper') continue;
-      const v0 = Math.round(3 + r * band + (shop ? 1 : band * 0.18));
-      const v1 = Math.round(3 + (r + 1) * band - (shop ? 3 : band * 0.3));
-      const pair = wnd === 'upper' ? ((t & 1) ? 2 : 1) : 0;
-      const u0 = t * TS + (pair === 2 ? 0 : Math.round(S[0] + 1));
-      const u1 = t * TS + (pair === 1 ? TS : Math.round(S[1] - 1));
-      paintWindow(ctx, u0, v0, u1, v1, wnd, shop ? 'plain' : looks[(t + r) % looks.length], t * 7 + r * 3, lit && ((t + r) % 3 !== 1));
+  // Небо над крышами и мостовая.
+  ctx.fillStyle = '#2b2824';
+  ctx.fillRect(0, 0, W, H);
+  const bottom = depth + 6;
+  ctx.fillStyle = '#56504a';
+  ctx.fillRect(0, bottom, W, H - bottom);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let y = bottom + 3; y < H; y += 4) for (let x = (y >> 2) % 2 ? 0 : 3; x < W; x += 6) ctx.fillRect(x, y, 5, 1);
+  const kits: { kit: FacadeKit; X0: number; X1: number; q: Sample }[] = [];
+  let x = pad;
+  samples.forEach((q, n) => {
+    const kit = kitFor(q.family, q.w, 1000 + n * 37 + q.w, q.storeys ?? 3, q.over);
+    kits.push({ kit, X0: x, X1: x + q.w * TS, q });
+    x += q.w * TS;
+  });
+  for (const { kit, X0, X1, q } of kits) {
+    const storeys = q.storeys ?? kit.storeys;
+    const eave = bottom - facadeHeight(kit, storeys);
+    const gabled = kit.roof === 'ns' && (kit.top === 'step' || kit.top === 'neck' || kit.top === 'bell' || kit.top === 'spout');
+    const dormers: number[] = [];
+    if (kit.dormers && !gabled) {
+      const xs = bayCenters(kit, X0, X1);
+      xs.forEach((x, i) => {
+        if (kit.roof === 'mansard' || xs.length <= 2 || i % 2 === 1) dormers.push(x);
+      });
+    }
+    const chimneys = gabled ? [Math.round((X0 + X1) / 2)] : [X0 + 4, X1 - 5];
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(X0, bottom - depth, X1 - X0, depth);
+    ctx.clip();
+    paintRoof(ctx, kit, X0, bottom - depth, X1, bottom, eave, { dormers, chimneys }, night);
+    ctx.restore();
+    ctx.fillStyle = ROOFS.seam;
+    ctx.fillRect(X0, bottom - depth, 1, depth);
+    const d = q.door ?? Math.max(0, Math.round(q.w / 2) - 1);
+    const doors = d >= 0 ? [{ x0: X0 + d * TS, x1: X0 + (d + 2) * TS }] : [];
+    paintFacade(ctx, kit, { X0, X1, bottom, storeys, doors, sign: q.sign ?? null, gable: gabled, night });
+    if (gabled) gable(ctx, kit, X0, X1, bottom - facadeHeight(kit, storeys));
+  }
+  if (night !== null) {
+    ctx.fillStyle = ROOFS.night.shade;
+    ctx.fillRect(0, 0, W, H);
+    for (const { kit, X0, X1, q } of kits) {
+      const d = q.door ?? Math.max(0, Math.round(q.w / 2) - 1);
+      const doors = d >= 0 ? [{ x0: X0 + d * TS, x1: X0 + (d + 2) * TS }] : [];
+      paintFacade(ctx, kit, { X0, X1, bottom, storeys: q.storeys ?? kit.storeys, doors, sign: q.sign ?? null, gable: false, night, litOnly: true });
     }
   }
-  ctx.fillStyle = ROOFS.facade.step;
-  ctx.fillRect(2 * TS, H, 2 * TS, 2);
-  return c;
-}
-
-/** Образцы: окна по стилю и виду — крупно. */
-function windowGrid(): HTMLCanvasElement {
-  const styles: WindowStyle[] = ['slum', 'old', 'upper', 'shop', 'civic'];
-  const looks: WindowLook[] = ['plain', 'curtains', 'flowers', 'shutters', 'closed', 'boarded', 'broken'];
-  const cw = 22;
-  const ch = 20;
-  const [c, ctx, dpr] = canvas(looks.length * cw * 3, styles.length * ch * 3);
-  const k = 3 * dpr;
-  ctx.setTransform(k, 0, 0, k, 0, 0);
-  styles.forEach((st, r) => {
-    const wall: WallStyle = st === 'shop' ? 'old' : st === 'civic' ? 'civic' : st;
-    const color = wall === 'old' ? { h: 38, s: 40, l: 62 } : ROOFS.facade.wall[wall][0];
-    looks.forEach((lk, q) => {
-      paintWall(ctx, q * cw, r * ch, (q + 1) * cw, (r + 1) * ch, wall, color, q);
-      paintWindow(ctx, q * cw + 6, r * ch + 5, q * cw + 16, r * ch + 14, st, lk, q * 5 + r, false);
-    });
-  });
-  return c;
-}
-
-/** Образец здания: настоящий дом стиля style — сверху и в ¾. */
-function sampleHouse(style: RoofStyle, view: RoofView): HTMLCanvasElement | null {
-  const b = roofs.buildings.list.find((q) => roofs.styleOf(q).roof === style && q.doors.some((d) => d.side === 2) && q.x1 - q.x0 >= 4 && q.x1 - q.x0 <= 10 && q.y1 - q.y0 >= 3 && q.y1 - q.y0 <= 8 && (q.kind === 'house' || q.kind === 'shop' || q.kind === 'civic' || q.kind === 'cafe'));
-  if (!b) return null;
-  const wT = 12;
-  const hT = 10;
-  const [c, ctx, dpr] = canvas(wT * TS * 1.5, hT * TS * 1.5);
-  const cx = Math.round((b.x0 + b.x1) / 2 - wT / 2 + 0.5);
-  const cy = Math.round((b.y0 + b.y1) / 2 - hT / 2 + 1);
-  const v: View = { left: cx * TS, top: cy * TS, scale: 1.5 * dpr, width: c.width, height: c.height };
-  mr.draw(ctx, v, 0.42);
-  drawFurnitureList(ctx, v, furniture);
-  const k = v.scale;
-  ctx.setTransform(k, 0, 0, k, -v.left * k, -v.top * k);
-  const near = roofs.buildings.list.filter((q) => q.x1 >= cx && q.y1 >= cy && q.x0 <= cx + wT && q.y0 <= cy + hT + 4);
-  if (view === 'tall') near.sort((a, q) => a.y1 - q.y1);
-  for (const q of near) roofs.drawBuilding(ctx, q, { view, cut: -1, night: null });
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
   return c;
 }
 
@@ -420,11 +421,12 @@ export function renderRoofsSheet(root: HTMLElement): void {
   document.head.append(style);
   root.innerHTML = `
     <header class="top">
-      <p class="eyebrow">Лист вариантов · крыши и фасады</p>
+      <p class="eyebrow">Лист вариантов · вид Б · европейский город</p>
       <h1>Крыши Верхнеречья</h1>
-      <p class="lede">Сейчас у каждого дома виден план этажа: с улицы видно, кто где сидит. Здесь тот же город (сид ${SEED})
-      тем же движком игры, но с крышами: с улицы — кровля и стена дома, внутрь видно только из самого дома. Выберите вид
-      (А, Б или В) и как показывать дом, где вы находитесь (разрез целиком или только то, что видит персонаж).</p>
+      <p class="lede">Вид Б (¾, фасад в контуре дома), дом игрока — разрезом. Фасады — по образцу Амстердама, Мюнхена и
+      Лондона: кирпич с перевязкой, штукатурка, руст, камень; окна с переплётами, наличниками и подоконниками; двери с
+      фрамугой и пилястрами; щипцы, эркеры, балконы, витрины лавок. Крыши только скатные: черепица, шифер, медь;
+      слуховые окна, трубы с горшками, вальмы и мансарды. Город — тот же (сид ${SEED}), тем же движком.</p>
       <p class="loading" id="status">Генерация города…</p>
     </header>`;
   // Генерация занимает секунду-две — сначала покажем шапку.
@@ -439,114 +441,104 @@ function build(root: HTMLElement): void {
   roofs = new RoofRenderer(map, buildings, mr.windows);
   root.querySelector('#status')?.remove();
   const w = map.width;
-  // Куски города: проспект с лавками, переулок Слободы с коммуналками, квартал Верхнего города.
-  // Очки — на мостовой перед лавкой (сторона фасада), и немного — любой улице: в кадре должна быть улица.
-  const shops = new Float32Array(map.width * map.height);
+  const n = map.width * map.height;
+  // Куски города: проспект с лавками в Старом городе, переулок Слободы, улица Верхнего города.
+  const shops = new Float32Array(n);
+  const slum = new Float32Array(n);
+  const upper = new Float32Array(n);
   for (const p of map.poisOf('facade')) {
     if (p.use !== 'shop' && p.use !== 'cafe') continue;
     const fx = p.face === 'E' ? p.x + p.w! + 1 : p.face === 'W' ? p.x - 2 : p.x + (p.w! >> 1);
     const fy = p.face === 'S' ? p.y + p.h! + 1 : p.face === 'N' ? p.y - 2 : p.y + (p.h! >> 1);
-    if (fx >= 0 && fy >= 0 && fx < w && fy < map.height) shops[fy * w + fx] += 10;
+    if (fx >= 0 && fy >= 0 && fx < w && fy < map.height) shops[fy * w + fx] += map.districtAt(fx, fy) === 'old' ? 10 : 2;
   }
-  for (let i = 0; i < shops.length; i++) if (map.tiles[i] === T.STREET) shops[i] += 0.02;
-  for (const p of map.poisOf('home')) if (!p.kind) shops[p.y * w + p.x] += 0.5;
-  const slum = new Float32Array(map.width * map.height);
-  const upper = new Float32Array(map.width * map.height);
-  for (let i = 0; i < slum.length; i++) {
+  for (let i = 0; i < n; i++) {
     const t = map.tiles[i];
+    if (t === T.STREET) shops[i] += 0.02;
     if (t === T.FLOOR || t === T.STREET) {
       slum[i] += 0.05;
       upper[i] += 0.05;
     }
   }
-  for (const r of map.poisOf('room')) {
-    const d = map.districtAt(r.x, r.y);
-    if (d === 'slum' && (r.sub === 'room' || r.sub === 'corridor' || r.sub === 'kitchen')) slum[r.y * w + r.x] += 3;
-    if (d === 'upper' && (r.sub === 'hall' || r.sub === 'living' || r.sub === 'bath' || r.sub === 'bedroom')) upper[r.y * w + r.x] += 3;
+  // Фасады к югу над открытым местом — их и показываем.
+  for (const b of buildings.list) {
+    if (b.kind === 'mass') continue;
+    for (const d of b.doors) {
+      if (d.side !== 2) continue;
+      const i = d.y * w + d.x;
+      if (b.district === 'slum') slum[i] += 3;
+      if (b.district === 'upper') upper[i] += 3;
+      if (b.district === 'old') shops[i] += 1;
+    }
   }
   const F1 = fragment(shops, 1);
   const F2 = fragment(slum, 2);
   const F3 = fragment(upper, 3);
   const NIGHT = 0.92;
-
   const DN = { slum: 'Слобода', old: 'Старый город', upper: 'Верхний город' } as const;
-  const where = DN[map.districtAt(F1.x + (VW >> 1), F1.y + (VH >> 1)) ?? 'old'];
-  root.append(section(`Кусок 1 · проспект с лавками, ${where}`, 'Варианты вида с улицы',
-    'Тот же момент, четыре способа нарисовать дома. Люди в домах и лавках есть во всех кадрах — на плане их видно, под крышей нет.', [
-      card('0', 'Сейчас: план этажа', 'Комнаты, мебель и люди внутри видны с улицы — то, от чего уходим.', scene(F1, 'plan')),
-      card('А', 'Крыша сверху', 'Строго сверху, как остальная карта: кровля во весь дом, над входом — козырёк с фонарём. Проще всего, ничего не перекрывает улицу.', scene(F1, 'top'), 'pick'),
-      card('Б', '¾: фасад в контуре дома', 'Нижний ряд дома — стена к нам: окна, дверь, цоколь; выше — крыша. Дом остаётся в своих клетках, улицу не закрывает. Входы с другой стороны — козырёк.', scene(F1, 'facade'), 'pick'),
-      card('В', '¾ с высотой', 'Крыша поднята на этажи, стена к югу во всю высоту — объёмнее всего, но дом закрывает кусок улицы за собой (там может стоять враг).', scene(F1, 'tall'), 'pick'),
+  const where = (f: Frag) => DN[map.districtAt(f.x + (VW >> 1), f.y + (VH >> 1)) ?? 'old'];
+
+  root.append(section(`Кусок 1 · проспект с лавками, ${where(F1)}`, 'Вид Б днём и ночью',
+    'С улицы — крыша и фасад, внутрь не видно. Игрок (жёлтое кольцо) вошёл в свой дом — с него крыша снята.', [
+      card('0', 'Сейчас: план этажа', 'Для сравнения: комнаты и люди внутри видны с улицы.', scene(F1, 'plan')),
+      card('Б', 'Вид Б днём', 'Скатные крыши и фасады по семействам; на первом этаже лавок — витрины с фризом и надписью.', scene(F1, 'facade'), 'pick'),
+      card('Б·1', 'Игрок дома, разрез', 'Свой дом без крыши, контур пунктиром; соседи — под крышами.', scene(F1, 'cut'), 'pick'),
+      card('Б·1н', 'Ночью, игрок дома', 'Горят окна у кого не спят, фонари у дверей; свой дом освещён лампой.', scene(F1, 'cut', NIGHT), 'pick'),
     ]));
-  root.append(section('Кусок 1 · игрок вошёл в свой дом', 'Как показать дом, где вы',
-    'Персонаж (жёлтое кольцо) в двух шагах от двери. С остальных домов крыша не снимается.', [
-      card('Б·1', 'Разрез: дом игрока целиком', 'Над своим домом крыши нет, контур — пунктиром; видны все комнаты и кто в них. Соседи под крышей.', scene(F1, 'cut'), 'pick'),
-      card('Б·2', 'Видно только то, что видит игрок', 'Крыша «прозрачна» там, куда достают лучи обзора (как туман войны): комната перед глазами видна, за стеной — нет, в дверь видно улицу.', scene(F1, 'los'), 'pick'),
-      card('В·1', '¾ с высотой, разрез своего дома', 'Тот же разрез при виде В: свой дом без крыши, остальные стоят во весь рост.', scene(F1, 'cutTall')),
+  root.append(section(`Кусок 2 · ${where(F2)}`, 'Рабочий квартал',
+    'Закопчённый кирпич и облезлая штукатурка, ставни, заколоченные и разбитые окна, плакаты, бельё; на черепице и шифере — жесть заплатами.', [
+      card('Б', 'Днём', 'Узкие дома со свесом крыши, водостоки, трубы.', scene(F2, 'facade'), 'pick'),
+      card('Б·1н', 'Ночью, игрок дома', 'Свет — в редких окнах.', scene(F2, 'cut', NIGHT), 'pick'),
     ]));
-  root.append(section('Кусок 1 · ночь', 'Ночью',
-    'Внутри по-прежнему не видно, но окна горят у кого не спят — свет из окна ложится на мостовую.', [
-      card('Б·н', 'Вид Б ночью', 'Горящие окна на фасадах (у каждого свой час отбоя, как сейчас), пятна света на улице.', scene(F1, 'facade', NIGHT)),
-      card('Б·1н', 'Ночью, игрок дома (разрез)', 'Свой дом изнутри освещён лампой, соседние — только окна.', scene(F1, 'cut', NIGHT)),
-      card('А·н', 'Вид А ночью', 'Сверху стёкол не видно — только свет из окон на мостовой.', scene(F1, 'top', NIGHT)),
-    ]));
-  root.append(section('Кусок 2 · Слобода', 'Слобода: жесть и доски',
-    'Переулок с коммуналками: кровля из волнистой жести с заплатами и ржавчиной, стены из досок, окна часто заколочены или в ставнях.', [
-      card('0', 'Сейчас', 'План: коридоры коммуналок и комнаты.', scene(F2, 'plan')),
-      card('А', 'Крыша сверху', 'Жесть волной, заплаты, жестяные трубы.', scene(F2, 'top')),
-      card('Б', '¾ в контуре', 'Дощатые стены и окна Слободы.', scene(F2, 'facade')),
-      card('В', '¾ с высотой', 'Низкие дома — подъём небольшой.', scene(F2, 'tall')),
-    ]));
-  root.append(section('Кусок 3 · Верхний город', 'Верхний город: плоские крыши',
-    'Квартиры богатых: плоская кровля с парапетом, гравий, световые фонари, вентиляция и баки; стены облицованы камнем, окна парные.', [
-      card('0', 'Сейчас', 'План: прихожие, кухни, спальни.', scene(F3, 'plan')),
-      card('А', 'Крыша сверху', 'Парапет, фонари, вентиляция.', scene(F3, 'top')),
-      card('Б', '¾ в контуре', 'Каменная облицовка, парные окна со шторами и цветами.', scene(F3, 'facade')),
-      card('В', '¾ с высотой', 'Дома в 2–3 этажа — стена выше, окна в два ряда.', scene(F3, 'tall')),
+  root.append(section(`Кусок 3 · ${where(F3)}`, 'Богатые улицы',
+    'Лондонские террасы и каменные доходные дома: руст первого этажа, балконы с решёткой, двери с фрамугой, мансарды с слуховыми окнами.', [
+      card('Б', 'Днём', 'Шифер и медь, трубы с горшками на брандмауэрах.', scene(F3, 'facade'), 'pick'),
+      card('Б·1', 'Игрок дома', 'Разрез своего дома.', scene(F3, 'cut'), 'pick'),
     ]));
 
-  // Ассеты.
-  const assets = document.createElement('section');
-  assets.className = 'part';
-  assets.innerHTML = `<p class="eyebrow">Ассеты</p><h2>Материалы, стены, окна</h2>
-    <p class="lede">Всё рисуется кодом из config/roofs.ts (цвета, размеры) — для правок не нужно художника: скажите, что
-    темнее, светлее, другого цвета.</p>`;
-  assets.append(document.createElement('h3'));
-  assets.lastElementChild!.textContent = 'Кровля';
-  assets.append(...rowOf([
-    { c: roofSwatch('tin', ROOFS.slum.tin[1]), label: 'Слобода · ржавая жесть' },
-    { c: roofSwatch('tin', ROOFS.slum.tin[0]), label: 'Слобода · серая жесть' },
-    { c: roofSwatch('tile', ROOFS.old.tile[0]), label: 'Старый город · черепица' },
-    { c: roofSwatch('slate', ROOFS.old.slate), label: 'Старый город · сланец' },
-    { c: roofSwatch('flat', ROOFS.upper.flat[0]), label: 'Верхний город · плоская' },
-    { c: roofSwatch('concrete', ROOFS.civic.flat), label: 'Казённые · бетон' },
-  ]));
-  assets.append(document.createElement('h3'));
-  assets.lastElementChild!.textContent = 'Стена к улице (вид Б): 1, 2 и 3 этажа, день и ночь';
-  const W = ROOFS.facade.wall;
-  assets.append(...rowOf([
-    { c: wallSwatch('slum', 'slum', W.slum[0], 1, false, ['plain', 'shutters', 'boarded', 'broken']), label: 'Слобода · доски, 1 этаж' },
-    { c: wallSwatch('old', 'old', { h: 14, s: 32, l: 60 }, 2, false, ['curtains', 'flowers', 'plain']), label: 'Старый город · штукатурка, 2 этажа' },
-    { c: wallSwatch('upper', 'upper', W.upper[0], 3, false, ['curtains', 'flowers']), label: 'Верхний город · камень, 3 этажа' },
-    { c: wallSwatch('old', 'shop', { h: 205, s: 20, l: 60 }, 1, false, ['plain'], true), label: 'Лавка · витрины, стеклянная дверь' },
-    { c: wallSwatch('civic', 'civic', W.civic[0], 2, false, ['plain']), label: 'Казённое · бетонные панели' },
-    { c: wallSwatch('old', 'old', { h: 14, s: 32, l: 60 }, 2, true, ['curtains', 'flowers', 'plain']), label: 'Ночью: горят окна' },
-  ], 'row three'));
-  assets.append(document.createElement('h3'));
-  assets.lastElementChild!.textContent = 'Окна: стиль × вид (просто, шторы, цветы, ставни, закрыто, заколочено, разбито)';
-  assets.append(...rowOf([{ c: windowGrid(), label: 'Строки: Слобода, Старый город, Верхний город, лавка, казённое' }], 'row one'));
-  assets.append(document.createElement('h3'));
-  assets.lastElementChild!.textContent = 'Настоящие дома города: сверху (А), в контуре (Б), с высотой (В)';
-  for (const st of ['tin', 'tile', 'slate', 'flat', 'concrete'] as RoofStyle[]) {
-    const name = { tin: 'Жесть (Слобода)', tile: 'Черепица (Старый город)', slate: 'Сланец (Старый город)', flat: 'Плоская (Верхний город)', concrete: 'Бетон (казённые)' }[st];
-    const row = figureRow([
-      { c: sampleHouse(st, 'top'), label: `${name} · А` },
-      { c: sampleHouse(st, 'facade'), label: `${name} · Б` },
-      { c: sampleHouse(st, 'tall'), label: `${name} · В` },
-    ], 'row three');
-    if (row) assets.append(row);
-  }
-  root.append(assets);
+  // Галерея: улицы из образцов — семейства фасадов крупно.
+  const g = document.createElement('section');
+  g.className = 'part';
+  g.innerHTML = `<p class="eyebrow">Ассеты · фасады и крыши</p><h2>Семейства домов</h2>
+    <p class="lede">Каждый дом города получает семейство по району и ширине, остальное — по своему хэшу: материал, цвет,
+    окна, дверь, верх, крыша. Ниже — те же функции, что рисуют город, крупно. Цвета и размеры — config/facades.ts.</p>`;
+  g.append(...rowOf([{ c: street([
+    { family: 'amsterdam', w: 5, over: { top: 'step', roof: 'ns' } },
+    { family: 'amsterdam', w: 4, over: { top: 'neck', roof: 'ns' } },
+    { family: 'amsterdam', w: 5, over: { top: 'bell', roof: 'ns' }, sign: 'Табак' },
+    { family: 'amsterdam', w: 6, over: { top: 'spout', roof: 'ns' } },
+    { family: 'amsterdam', w: 4, over: { top: 'step', roof: 'ns' } },
+    { family: 'amsterdam', w: 7, over: { top: 'cornice', roof: 'ew', dormers: true } },
+  ]), label: 'Старый город · Амстердам: кирпич, белые наличники и замковые камни, щипцы ступенями, с шеей, колоколом; балка для подъёма грузов' }], 'row one'));
+  g.append(...rowOf([{ c: street([
+    { family: 'munich', w: 9, over: { top: 'eave', roof: 'ew', oriel: true, dormers: true } },
+    { family: 'munich', w: 7, over: { top: 'eave', roof: 'ew', dormers: true } },
+    { family: 'munich', w: 6, over: { top: 'step', roof: 'ns' } },
+    { family: 'munich', w: 9, over: { top: 'eave', roof: 'ew', dormers: true }, sign: 'Пекарня' },
+  ]), label: 'Старый город · Мюнхен: штукатурка в цвет, крашеные наличники, ставни, герань, эркер, черепица со слуховыми окнами' }], 'row one'));
+  g.append(...rowOf([{ c: street([
+    { family: 'london', w: 7, storeys: 4, over: { top: 'parapet', roof: 'mansard' } },
+    { family: 'london', w: 7, storeys: 4, over: { top: 'parapet', roof: 'mansard' } },
+    { family: 'london', w: 8, storeys: 3, over: { top: 'cornice', roof: 'ew', porch: 'portico' } },
+    { family: 'grand', w: 10, storeys: 4, over: { roof: 'hip', roofMat: 'slate' } },
+  ]), label: 'Верхний город · Лондон: руст первого этажа, кирпич или штукатурка, балкон с решёткой, мансарда; каменный доходный дом с вальмой' }], 'row one'));
+  g.append(...rowOf([{ c: street([
+    { family: 'slum', w: 6, storeys: 2, over: { top: 'eave', roof: 'ew', laundry: true } },
+    { family: 'slum', w: 5, storeys: 2, over: { top: 'spout', roof: 'ns' } },
+    { family: 'slum', w: 7, storeys: 3, over: { top: 'eave', roof: 'ew', posters: true } },
+    { family: 'slum', w: 6, storeys: 2, over: { top: 'eave', roof: 'ew' }, sign: 'Лавка' },
+  ]), label: 'Слобода: закопчённый кирпич, облезлая штукатурка, заколоченные окна, плакаты, бельё, жесть заплатами' }], 'row one'));
+  g.append(...rowOf([{ c: street([
+    { family: 'civic', w: 15, storeys: 3, over: { roof: 'hip', roofMat: 'copper', banners: true } },
+    { family: 'civic', w: 11, storeys: 3, over: { roof: 'hip', roofMat: 'slate', wall: 'brick', wallColor: { h: 12, s: 28, l: 25 }, ground: 'brick', groundColor: { h: 12, s: 28, l: 25 }, banners: false, posters: true } },
+  ]), label: 'Казённые: камень, портик, медная вальма, полотнища Протектората; общежитие — кирпич с плакатами' }], 'row one'));
+  g.append(...rowOf([{ c: street([
+    { family: 'amsterdam', w: 5, over: { top: 'step', roof: 'ns' } },
+    { family: 'amsterdam', w: 5, over: { top: 'bell', roof: 'ns' }, sign: 'Табак' },
+    { family: 'munich', w: 9, over: { top: 'eave', roof: 'ew', oriel: true, dormers: true } },
+    { family: 'london', w: 7, storeys: 4, over: { top: 'parapet', roof: 'mansard' } },
+  ], NIGHT), label: 'Ночью: горят окна у кого не спят, витрины, фонари у дверей' }], 'row one'));
+  root.append(g);
 }
 
 const CSS = `
