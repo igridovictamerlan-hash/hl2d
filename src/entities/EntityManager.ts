@@ -38,6 +38,11 @@ export class EntityManager {
     return this.byIdMap.get(id);
   }
 
+  /** Кто сейчас в хэше (кого может вернуть near): живые на последней перестройке и добавленные после. */
+  get hashed(): readonly Character[] {
+    return this.hash.items;
+  }
+
   rebuildHash(): void {
     this.hash.clear();
     for (const c of this.list) if (c.alive) this.hash.insert(c);
@@ -45,15 +50,6 @@ export class EntityManager {
 
   /** Персонажи в радиусе r от точки (точная проверка расстояния до центра). */
   near(x: number, y: number, r: number, out: Character[] = []): Character[] {
-    this.hash.query(x, y, r, out);
-    let k = 0;
-    const r2 = r * r;
-    for (const c of out) {
-      const dx = c.x - x;
-      const dy = c.y - y;
-      if (dx * dx + dy * dy <= r2) out[k++] = c;
-    }
-    out.length = k;
-    return out;
+    return this.hash.within(x, y, r, out);
   }
 }

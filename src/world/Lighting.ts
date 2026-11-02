@@ -226,6 +226,8 @@ export class Lighting {
   private ambientStyle = '';
   private readonly near: Light[] = [];
   private readonly nearWin: WindowLight[] = [];
+  /** Рамка нарисованного в буфер свечения за кадр (px буфера): на экран — только она, а не весь буфер. */
+  private readonly box = [0, 0, 0, 0];
 
   /** Новая карта: собрать постоянные источники и свет окон (в сетку по ячейкам). */
   setWorld(map: GameMap, lamps: readonly Lamp[], barrels: readonly Barrel[], nodes: readonly { x: number; y: number; broken: boolean }[], dugouts: readonly { x: number; y: number; broken: boolean }[] = [], windows: readonly WindowSpot[] = []): void {
@@ -294,6 +296,11 @@ export class Lighting {
     if (px < -pr || py < -pr || px > v.width * k + pr || py > v.height * k + pr || power <= 0.01) return false;
     g.globalAlpha = Math.min(1, power);
     g.drawImage(this.sprite(color), px - pr, py - pr, pr * 2, pr * 2);
+    const b = this.box;
+    b[0] = Math.min(b[0], px - pr);
+    b[1] = Math.min(b[1], py - pr);
+    b[2] = Math.max(b[2], px + pr);
+    b[3] = Math.max(b[3], py + pr);
     return true;
   }
 
@@ -522,6 +529,9 @@ export class Lighting {
     g.clearRect(0, 0, w, h);
     g.globalCompositeOperation = 'lighter';
     let any = false;
+    const box = this.box;
+    box[0] = box[1] = Infinity;
+    box[2] = box[3] = -Infinity;
     const cov = this.covered;
     const haze = this.haze && dark > 0.15 ? H.alpha * dark : 0;
     for (const L of this.inView(this.grid, v, this.near)) {
@@ -544,9 +554,17 @@ export class Lighting {
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
     if (!any) return;
+    // Только рамка нарисованного (в тёмном переулке с парой окон — малая часть экрана), с пикселем запаса.
+    const x0 = Math.max(0, Math.floor(box[0]) - 1);
+    const y0 = Math.max(0, Math.floor(box[1]) - 1);
+    const x1 = Math.min(w, Math.ceil(box[2]) + 1);
+    const y1 = Math.min(h, Math.ceil(box[3]) + 1);
+    if (x1 <= x0 || y1 <= y0) return;
+    const sx = v.width / w;
+    const sy = v.height / h;
     ctx.globalCompositeOperation = 'lighter';
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(this.bl, 0, 0, v.width, v.height);
+    ctx.drawImage(this.bl, x0, y0, x1 - x0, y1 - y0, x0 * sx, y0 * sy, (x1 - x0) * sx, (y1 - y0) * sy);
     ctx.globalCompositeOperation = 'source-over';
   }
 

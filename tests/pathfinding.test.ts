@@ -6,6 +6,7 @@ import { PathService } from '../src/ai/PathService';
 import { segmentClear } from '../src/world/collision';
 import { Rng } from '../src/core/rng';
 import { CHARACTER } from '../src/config/entities';
+import { AI } from '../src/config/ai';
 
 const map = generateCity(12345);
 const nav = new NavGrid(map);
@@ -54,5 +55,49 @@ describe('A* по якорям 2×2', () => {
       if (path.some((i) => restricted.has(nav.zone[i]))) through++;
     }
     expect(through).toBe(0);
+  });
+
+  test('карман цели: цель за кольцом закрытого — отказ сразу; найденные пути те же, что без проверки', () => {
+    const astar = new AStar(nav);
+    const w = nav.w;
+    // Закрытые «дома» — квадраты вокруг случайных якорей (снаружи в них не входят, изнутри выходят).
+    const boxes = Array.from({ length: 60 }, () => {
+      const c = rng.pick(city);
+      return { x: c % w, y: Math.floor(c / w), r: 3 + rng.int(0, 5) };
+    });
+    const inBox = (n: number) => {
+      const x = n % w;
+      const y = (n - x) / w;
+      return boxes.some((b) => Math.abs(x - b.x) <= b.r && Math.abs(y - b.y) <= b.r);
+    };
+    // Кольцо закрытого вокруг цели: сама цель и её окрестность открыты, но снаружи туда не попасть.
+    const goal = city.find((i) => nav.level[i] === 0 && Math.abs((i % w) - 300) < 2 && Math.abs(Math.floor(i / w) - 150) < 40)!;
+    const gx = goal % w;
+    const gy = Math.floor(goal / w);
+    const ring = (n: number) => {
+      const d = Math.max(Math.abs((n % w) - gx), Math.abs(Math.floor(n / w) - gy));
+      return d >= 6 && d <= 7;
+    };
+    const far = city.find((i) => Math.abs((i % w) - gx) > 80)!;
+    expect(astar.find(far, goal, { blocked: ring })).toBeNull();
+    expect(astar.lastExpanded).toBeLessThanOrEqual(AI.pathPocketAfter);
+    // Двор открыт, но заперт кольцом: изнутри тоже не выйти. Закрыт весь круг (как дом) — изнутри выходят.
+    expect(astar.find(goal, far, { blocked: ring })).toBeNull();
+    const house = (n: number) => Math.max(Math.abs((n % w) - gx), Math.abs(Math.floor(n / w) - gy)) <= 7;
+    expect(astar.find(goal, far, { blocked: house })).not.toBeNull();
+    // Те же поиски без проверки кармана — те же ответы.
+    const pairs = Array.from({ length: 40 }, () => [rng.pick(city), rng.pick(city)] as const);
+    const withPocket = pairs.map(([a, b]) => astar.find(a, b, { blocked: inBox }));
+    const cfg = AI as { pathPocketAfter: number };
+    const keep = cfg.pathPocketAfter;
+    cfg.pathPocketAfter = Number.MAX_SAFE_INTEGER;
+    try {
+      const plain = pairs.map(([a, b]) => astar.find(a, b, { blocked: inBox }));
+      expect(withPocket).toEqual(plain);
+      expect(plain.some((p) => p === null)).toBe(true);
+      expect(plain.some((p) => p !== null)).toBe(true);
+    } finally {
+      cfg.pathPocketAfter = keep;
+    }
   });
 });

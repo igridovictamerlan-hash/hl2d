@@ -2,6 +2,7 @@ import type { View } from '../core/Camera';
 import type { Light } from './Lighting';
 import { Rng } from '../core/rng';
 import { COZY } from '../config/lighting';
+import { BoxGrid } from './BoxGrid';
 
 /**
  * Уют поверх картинки (только отрисовка, своя случайность — не игровая): дымок из труб на крышах
@@ -20,6 +21,9 @@ export class Ambience {
   private readonly fireflyStyle = `rgb(${COZY.fireflies.color})`;
   private readonly rng = new Rng(0xc0ffee);
   private chimneys: { x: number; y: number }[] = [];
+  /** Трубы по ячейкам: дымок рождается только у труб на экране — перебираются те, что рядом с ним. */
+  private chimneyGrid: BoxGrid | null = null;
+  private readonly nearChimneys: number[] = [];
   private readonly n = COZY.smoke.max;
   private readonly x = new Float32Array(this.n);
   private readonly y = new Float32Array(this.n);
@@ -48,6 +52,13 @@ export class Ambience {
     this.acc.length = chimneys.length;
     this.acc.fill(0);
     this.count = 0;
+    let w = 1;
+    let h = 1;
+    for (const c of chimneys) {
+      w = Math.max(w, c.x + 1);
+      h = Math.max(h, c.y + 1);
+    }
+    this.chimneyGrid = new BoxGrid(COZY.smoke.grid, w, h, chimneys.length, (i) => [chimneys[i].x, chimneys[i].y, chimneys[i].x, chimneys[i].y]);
   }
 
   /** Дымок: рождается у труб на экране (чаще в темноте — топят печи), летит по ветру, тает. */
@@ -75,7 +86,9 @@ export class Ambience {
     this.count = k;
     const pad = 80;
     const rate = S.perSec * (1 + (S.nightMul - 1) * dark) * dt;
-    for (let c = 0; c < this.chimneys.length; c++) {
+    const pw = pad / v.scale;
+    const near = this.chimneyGrid?.query(v.left - pw, v.top - pw, v.left + (v.width + pad) / v.scale, v.top + (v.height + pad) / v.scale, this.nearChimneys) ?? [];
+    for (const c of near) {
       const ch = this.chimneys[c];
       const sx = (ch.x - v.left) * v.scale;
       const sy = (ch.y - v.top) * v.scale;

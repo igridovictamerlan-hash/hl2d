@@ -8,6 +8,7 @@ import {
 } from './FacadeRenderer';
 import { FACADES } from '../config/facades';
 import { ARBAT } from '../config/arbat';
+import { BoxGrid } from './BoxGrid';
 
 /**
  * Крыши и фасады над домами в игре (вид ¾ «в контуре»): с улицы видно скатную крышу и европейский фасад к югу, а не
@@ -59,6 +60,10 @@ interface Cached {
 /** Как выглядит дверь фасада. */
 export type DoorLook = 'closed' | 'open' | 'broken';
 
+/** Ячейка сетки домов, px; поле кадра — самое широкое из полей слоёв (заготовка холстов, свет на мостовую, ореолы). */
+const GRID = 512;
+const FRAME_MARGIN = Math.max(FACADES.layer.margin, FACADES.layer.pad, FACADES.night.spillR, FACADES.night.lampR);
+
 const signs = new Map<string, string>([...ARBAT.shops, ...ARBAT.cafes].map((d) => [d.id, d.sign]));
 
 export class RoofLayer {
@@ -81,6 +86,14 @@ export class RoofLayer {
   doorLook: ((tx: number, ty: number) => DoorLook) | null = null;
   enabled = true;
   readonly stats = { built: 0, buildMs: 0, evicted: 0, placeholders: 0 };
+  /**
+   * Сетка домов (номера в order): какие дома в кадре, без перебора всех ~2000 по пять раз за кадр (крыши, свет,
+   * ореолы, туман). Список кадра — в порядке order, считается раз на вид.
+   */
+  private readonly grid: BoxGrid;
+  private readonly near: number[] = [];
+  private framePlans: Plan[] = [];
+  private readonly frameKey = [NaN, NaN, NaN, NaN, NaN];
 
   constructor(private readonly map: GameMap, heights?: Uint8Array) {
     const B = computeBuildings(map, heights);
@@ -90,6 +103,24 @@ export class RoofLayer {
     // В дверях фасада (к улице на юг) человек виден перед стеной; в двери сбоку, сзади, во двор — под краем крыши.
     for (const b of this.list) for (const d of b.doors) if (d.side === 2) this.entry.add(d.y * map.width + d.x);
     this.order = [...this.plans].sort((a, b) => a.b.y1 - b.b.y1 || a.b.x0 - b.b.x0);
+    const ts = map.tileSize;
+    this.grid = new BoxGrid(GRID, map.width * ts, map.height * ts, this.order.length, (i) => {
+      const b = this.order[i].b;
+      return [b.x0 * ts, b.y0 * ts, (b.x1 + 1) * ts, (b.y1 + 1) * ts];
+    });
+  }
+
+  /** Дома в кадре с самым широким полем (FRAME_MARGIN) — в порядке отрисовки; точную проверку делает каждый слой. */
+  private inFrame(v: View): readonly Plan[] {
+    const k = this.frameKey;
+    if (k[0] === v.left && k[1] === v.top && k[2] === v.width && k[3] === v.height && k[4] === v.scale) return this.framePlans;
+    k[0] = v.left; k[1] = v.top; k[2] = v.width; k[3] = v.height; k[4] = v.scale;
+    const m = FRAME_MARGIN;
+    const near = this.grid.query(v.left - m, v.top - m, v.left + v.width / v.scale + m, v.top + v.height / v.scale + m, this.near);
+    const out = this.framePlans;
+    out.length = 0;
+    for (const i of near) if (this.inView(this.order[i].b, v, m)) out.push(this.order[i]);
+    return out;
   }
 
   get cut(): number {
@@ -454,7 +485,7 @@ export class RoofLayer {
     const t0 = performance.now();
     const L = FACADES.layer;
     ctx.imageSmoothingEnabled = false;
-    for (const p of this.order) {
+    for (const p of this.inFrame(v)) {
       const b = p.b;
       if (!this.inView(b, v, L.margin)) continue;
       const visible = this.inView(b, v, FACADES.layer.pad);
@@ -514,7 +545,7 @@ export class RoofLayer {
   /** halos — ореолы здесь же (лист ассетов); в игре они в буфере свечения (forEachGlow → Lighting). */
   drawLit(ctx: CanvasRenderingContext2D, v: View, night: number, lamps: number, halos = false): void {
     if (!this.enabled || lamps <= 0.02) return;
-    for (const p of this.order) {
+    for (const p of this.inFrame(v)) {
       const b = p.b;
       const c = this.cache.get(b.id);
       if (!c || !this.inView(b, v, FACADES.layer.pad)) continue;
@@ -537,7 +568,7 @@ export class RoofLayer {
   forEachGlow(v: View, night: number, fn: (x: number, y: number, r: number, power: number) => void): void {
     if (!this.enabled) return;
     const N = FACADES.night;
-    for (const p of this.order) {
+    for (const p of this.inFrame(v)) {
       const c = this.cache.get(p.b.id);
       if (!c || !this.inView(p.b, v, N.lampR)) continue;
       const a = this.alphaOf(p.b.id);
@@ -557,7 +588,7 @@ export class RoofLayer {
   forEachLight(v: View, night: number, fn: (x: number, y: number, power: number) => void): void {
     if (!this.enabled) return;
     const N = FACADES.night;
-    for (const p of this.order) {
+    for (const p of this.inFrame(v)) {
       const c = this.cache.get(p.b.id);
       if (!c || !this.inView(p.b, v, N.spillR)) continue;
       for (const w of c.rec.windows) {
@@ -576,7 +607,7 @@ export class RoofLayer {
     if (!this.enabled) return;
     const ts = this.map.tileSize;
     const s = v.scale;
-    for (const p of this.order) {
+    for (const p of this.inFrame(v)) {
       if (this.alphaOf(p.b.id) < 0.5 || !this.inView(p.b, v, 0)) continue;
       for (let i = 0; i < p.rows.length; i += 3) {
         const X0 = Math.round((p.rows[i + 1] * ts - v.left) * s);

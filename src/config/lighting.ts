@@ -239,13 +239,13 @@ export const LIGHTING = {
 
 /**
  * Уют поверх картинки: плёночное зерно (alpha, размер тайла шума), тёплая виньетка (цвет вместо
- * чёрного), дымок из труб (частота на трубу в секунду, сколько живёт, подъём и снос ветром),
- * пылинки в свете фонарей ночью.
+ * чёрного), дымок из труб (частота на трубу в секунду, сколько живёт, подъём и снос ветром; трубы — по ячейкам
+ * grid px, перебираются только у экрана), пылинки в свете фонарей ночью.
  */
 export const COZY = {
   grain: { alpha: 0.07, size: 128 },
   vignette: '26,15,6',
-  smoke: { perSec: 0.9, life: [3.5, 6] as const, rise: 9, wind: [7, 3] as const, size: [5, 11] as const, color: '150,145,140', alpha: 0.28, max: 260, nightMul: 1.4 },
+  smoke: { perSec: 0.9, life: [3.5, 6] as const, rise: 9, wind: [7, 3] as const, size: [5, 11] as const, color: '150,145,140', alpha: 0.28, max: 260, nightMul: 1.4, grid: 512 },
   motes: { perLamp: 3, color: '255,226,170', alpha: 0.7, size: 1.2, radius: 34 },
   /** Светлячки у зелени тёплой ночью: по perSpot у дерева или клумбы, мигают, кружат в radius px. */
   fireflies: { perSpot: 2, color: '214,255,150', alpha: 0.9, size: 1.5, radius: 22, dark: 0.55, maxSpots: 60 },

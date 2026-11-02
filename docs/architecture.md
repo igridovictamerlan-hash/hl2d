@@ -11,14 +11,15 @@ src/
   config/            ВСЕ настраиваемые значения (см. ниже) — никаких «магических чисел» в коде
   core/              Game (корень), GameLoop (фикс. шаг 60 Гц + интерполяция), Input (по KeyboardEvent.code;
                      виртуальные клавиши и аналоговый шаг сенсорного экрана), touch (стики, спуск, ролевые кнопки),
-                     PlayerController (движение, ЛКМ/ПКМ/R/Q/H/T/Y/B/Z/C/X, E, F, G, K, Tab, 1/2/3), Camera (~820×550 px мира), EventBus, Rng, MinHeap, math
+                     PlayerController (движение, ЛКМ/ПКМ/R/Q/H/T/Y/B/Z/C/X, E, F, G, K, Tab, 1/2/3), Camera (~700×470 px мира), EventBus, Rng, MinHeap, math
   world/             GameMap (данные карты + состояние дверей), tiles (типы тайлов), NavGrid (якоря 2×2),
-                     collision (круг–тайлы), visibility (лучи DDA, прямая видимость), FogRenderer (туман войны),
+                     collision (круг–тайлы), visibility (лучи DDA, прямая видимость), FogRenderer (мягкий туман войны:
+                     маленькая размытая маска), BoxGrid (сетка прямоугольников: что в кадре — мебель, трубы),
                      connectivity (flood fill + тоннели), mapStats, mapIO (JSON), places (места в речи: «на Заводской
                      улице»), MapRenderer, EffectsRenderer
                      (тела, пули в полёте, гранаты, поломки, узлы Протектората, люки, очередь, тревоги, указатели КПП),
                      Particles (частицы боя: вспышки, кровь, искры, взрывы, дым, линии удара; тряска, маркер попадания, замирание кадра), SpatialHash,
-                     furnish + FurnitureRenderer (мебель комнат в духе RimWorld), ArsenalRenderer (склад
+                     furnish + FurnitureRenderer (мебель комнат в духе RimWorld; FurnitureLayer — сетка и пропуск под крышей), ArsenalRenderer (склад
                      Протектората: ячейки с ящиками, разметка пола, крыльцо, маяк, корабль, пункты КПП),
                      PrisonRenderer (тюрьма: нары, приёмная, караулка, оружейная, шлюз, площадка с маяками), DugoutRenderer (блиндаж: койки, ящик со штабелем по запасу, фонарь; разрушенный — копоть, обломки, дымок),
                      AcademyRenderer (академия: разметка плаца, флагшток, мишени тира, доска и парты, койки, вахта),

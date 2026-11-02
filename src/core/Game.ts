@@ -11,6 +11,7 @@ import { PlayerController } from './PlayerController';
 import { RENDER } from '../config/render';
 import { SUPPRESS } from '../config/tactics';
 import { VISION } from '../config/vision';
+import { CAMERA } from '../config/camera';
 import { CHARACTER } from '../config/entities';
 import { FACTIONS, CP_DIVISIONS, rankOf, type FactionId, cpGroup, cpUnit, rebelUnitOf, CP_UNIT } from '../config/factions';
 import { hasLoyalty, loyaltyTier } from '../systems/Loyalty';
@@ -91,8 +92,8 @@ import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { PrisonRenderer } from '../world/PrisonRenderer';
 import { DugoutRenderer } from '../world/DugoutRenderer';
 import { AcademyRenderer } from '../world/AcademyRenderer';
-import { furnishMap, type Furniture } from '../world/furnish';
-import { drawFurnitureList } from '../world/FurnitureRenderer';
+import { furnishMap } from '../world/furnish';
+import { FurnitureLayer } from '../world/FurnitureRenderer';
 import { StreetLifeSystem } from '../systems/StreetLife';
 import { ChatSystem } from '../systems/ChatSystem';
 import { LOYALTY } from '../config/loyalty';
@@ -180,7 +181,7 @@ export class Game {
   /** Мебель (дома, казарма, канцелярия, комната OTA) — точки интереса карты. */
   /** Деревья садов (POI) и обстановка комнат (furnishMap). */
   private trees: Poi[] = [];
-  private furnishings: Furniture[] = [];
+  private furnishings: FurnitureLayer | null = null;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly entityRenderer = new EntityRenderer();
   /** Колесо оружия (зажать Q). */
@@ -450,11 +451,12 @@ export class Game {
     this.nav = new NavGrid(map);
     this.mapRenderer = new MapRenderer(map);
     this.trees = map.pois.filter((p) => p.type === 'tree');
-    this.furnishings = furnishMap(map);
     this.rng = new Rng(map.seed ^ 0x51f15e);
     this.doors = new DoorSystem(map, this.nav);
     this.roofs = new RoofLayer(map, this.mapRenderer.heights);
     this.roofs.enabled = this.opts.roofs !== false;
+    const ts = map.tileSize;
+    this.furnishings = new FurnitureLayer(furnishMap(map), map.width * ts, map.height * ts, this.roofs.enabled ? (x, y) => this.roofs.buildingAtPoint(x, y) : null);
     this.roofsWarm = false;
     this.roofs.doorLook = (tx, ty) => {
       const g = this.doors.groupAtTile(tx, ty);
@@ -1455,7 +1457,8 @@ export class Game {
     if (this.ui.org.isOpen && this.player.faction !== 'cp') this.ui.org.toggle(false);
     if (this.input.wasPressed('zoom')) {
       const k = this.camera.cycleZoom();
-      this.bus.emit('log', { text: `Масштаб камеры: ×${k}`, kind: 'world' });
+      const name = CAMERA.zoomNames[this.camera.zoomLevel] ?? '';
+      this.bus.emit('log', { text: `Камера: ${name} (×${k}) · V — дальше/ближе`, kind: 'world' });
     }
     // Чат: Enter — открыть, «/» — открыть с командой.
     if (!this.ui.chat.isOpen && !this.ui.roles.isOpen && (this.input.wasPressed('chat') || this.input.wasPressed('command'))) {
@@ -1536,7 +1539,11 @@ export class Game {
     this.dugoutView.drawGround(ctx, v, this.war.dugouts, this.map);
     this.portView.drawGround(ctx, v, this.port, this.map.tileSize);
     this.portView.drawCargo(ctx, v, this.ai.supply);
-    drawFurnitureList(ctx, v, this.furnishings);
+    // Крыши — до мебели: мебель под крышей, которая на месте, не рисуется (её закроет крыша; кадр — тот же).
+    const sewer = this.level === 'sewer';
+    const roofs = this.roofs.enabled && !sewer;
+    if (roofs) this.updateRoofs();
+    this.furnishings?.draw(ctx, v, roofs ? (id) => this.roofs.alphaOf(id) >= 1 : null);
     this.portView.drawShopGoods(ctx, v, this.ai.shops.shops);
     this.effects.drawFurniture(ctx, v, this.trees, this.map.tileSize);
     this.effects.drawAvenue(ctx, v, this.ai.street.lamps, this.ai.street.benches, this.ai.street.boards, this.lighting.enabled ? this.lighting.day(this.time).lamps : 1);
@@ -1546,13 +1553,10 @@ export class Game {
     this.effects.drawMemorials(ctx, v, this.ai.memorials.list, this.law.now);
     this.effects.drawMines(ctx, v, this.combat, this.player, this.map);
     // Крыши и фасады (вид ¾): кто в домах — под ними, кто на улице и в доме игрока (разрез) — поверх.
-    const sewer = this.level === 'sewer';
-    const roofs = this.roofs.enabled && !sewer;
     // Тени людей от солнца — на земле, до пешек (под крышей их закроет крыша).
     const sun = this.pawnSun();
     if (sun) this.entityRenderer.drawSunShadows(ctx, v, this.entities.list, alpha, showAll, sun);
     if (roofs) {
-      this.updateRoofs();
       this.entityRenderer.drawBodies(ctx, v, this.entities.list, alpha, showAll, this.law.now, 'under');
       this.roofs.draw(ctx, v);
       if (this.roofs.cut >= 0) this.roofs.outline(ctx, v, this.roofs.cut);

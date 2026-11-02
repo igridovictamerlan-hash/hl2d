@@ -15,6 +15,8 @@ export class SpatialHash<T extends { x: number; y: number }> {
   private used: number[] = [];
   /** Объекты далеко за картой (прямоугольник не растёт без меры) — проверяются в каждом запросе. */
   private far: T[] = [];
+  /** Все вставленные с последней очистки, в порядке вставки (кого вообще может вернуть запрос). */
+  readonly items: T[] = [];
 
   constructor(private readonly cellSize: number) {}
 
@@ -22,6 +24,7 @@ export class SpatialHash<T extends { x: number; y: number }> {
     for (const i of this.used) this.cells[i].length = 0;
     this.used.length = 0;
     this.far.length = 0;
+    this.items.length = 0;
   }
 
   insert(item: T): void {
@@ -29,6 +32,7 @@ export class SpatialHash<T extends { x: number; y: number }> {
     const cy = Math.floor(item.y / this.cellSize);
     // Не число (ошибка где-то ещё) — в запросы не попадает, как и раньше.
     if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+    this.items.push(item);
     if (cx < this.cx0 || cy < this.cy0 || cx >= this.cx0 + this.cols || cy >= this.cy0 + this.rows) {
       if (Math.abs(cx) > FAR || Math.abs(cy) > FAR) {
         this.far.push(item);
@@ -84,6 +88,36 @@ export class SpatialHash<T extends { x: number; y: number }> {
       }
     }
     for (const it of this.far) if (Math.abs(it.x - x) <= r + s && Math.abs(it.y - y) <= r + s) out.push(it);
+    return out;
+  }
+
+  /** Объекты не дальше r от точки (точная проверка) — тот же порядок, что query с отсевом, за один проход. */
+  within(x: number, y: number, r: number, out: T[] = []): T[] {
+    out.length = 0;
+    const s = this.cellSize;
+    const r2 = r * r;
+    const x0 = Math.max(0, Math.floor((x - r) / s) - this.cx0);
+    const x1 = Math.min(this.cols - 1, Math.floor((x + r) / s) - this.cx0);
+    const y0 = Math.max(0, Math.floor((y - r) / s) - this.cy0);
+    const y1 = Math.min(this.rows - 1, Math.floor((y + r) / s) - this.cy0);
+    const cells = this.cells;
+    for (let cy = y0; cy <= y1; cy++) {
+      let i = cy * this.cols + x0;
+      for (let cx = x0; cx <= x1; cx++, i++) {
+        const arr = cells[i];
+        for (let k = 0; k < arr.length; k++) {
+          const it = arr[k];
+          const dx = it.x - x;
+          const dy = it.y - y;
+          if (dx * dx + dy * dy <= r2) out.push(it);
+        }
+      }
+    }
+    for (const it of this.far) {
+      const dx = it.x - x;
+      const dy = it.y - y;
+      if (dx * dx + dy * dy <= r2) out.push(it);
+    }
     return out;
   }
 }

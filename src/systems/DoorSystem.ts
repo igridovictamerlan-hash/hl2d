@@ -29,6 +29,7 @@ export interface DoorGroup {
 }
 
 const near: Character[] = [];
+const NOBODY: Character[] = [];
 
 /**
  * Двери: группа соседних тайлов DOOR — одна дверь. Открывается, когда рядом кто-то есть,
@@ -44,6 +45,18 @@ export class DoorSystem {
   locks: Locks | null = null;
   private readonly byTile: Int32Array;
   private acc = 0;
+  /**
+   * Сетка дверей по ячейкам DOORS.cell px (CSR: cellStart/cellDoors): в ячейке — двери, до которых из неё можно
+   * дотянуться (центр ближе g.half + openRadius). Проверка идёт от людей: дверь, рядом с которой никого, не спрашивает
+   * хэш — раньше каждая из ~1200 дверей делала запрос «кто рядом» 10 раз в секунду.
+   */
+  private readonly cellCols: number;
+  private readonly cellRows: number;
+  private readonly cellStart: Int32Array;
+  private readonly cellDoors: Int32Array;
+  /** Метка «рядом кто-то есть» на этом шаге (сравнение с stamp). */
+  private readonly mark: Int32Array;
+  private stamp = 0;
 
   constructor(
     private readonly map: GameMap,
@@ -84,6 +97,55 @@ export class DoorSystem {
         lock: -1, inside: null, barred: false, broken: false,
       });
     }
+    const cs = DOORS.cell;
+    this.cellCols = Math.max(1, Math.ceil((w * map.tileSize) / cs));
+    this.cellRows = Math.max(1, Math.ceil((map.height * map.tileSize) / cs));
+    const spans: number[] = [];
+    const count = new Int32Array(this.cellCols * this.cellRows + 1);
+    for (const g of this.groups) {
+      const r = g.half + DOORS.openRadius + 1;
+      const x0 = this.col(g.x - r), x1 = this.col(g.x + r);
+      const y0 = this.row(g.y - r), y1 = this.row(g.y + r);
+      spans.push(x0, x1, y0, y1);
+      for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) count[cy * this.cellCols + cx + 1]++;
+    }
+    for (let i = 1; i < count.length; i++) count[i] += count[i - 1];
+    this.cellStart = count.slice();
+    this.cellDoors = new Int32Array(count[count.length - 1]);
+    for (const g of this.groups) {
+      const k = g.id * 4;
+      for (let cy = spans[k + 2]; cy <= spans[k + 3]; cy++)
+        for (let cx = spans[k]; cx <= spans[k + 1]; cx++) this.cellDoors[count[cy * this.cellCols + cx]++] = g.id;
+    }
+    this.mark = new Int32Array(this.groups.length);
+  }
+
+  private col(x: number): number {
+    return Math.max(0, Math.min(this.cellCols - 1, Math.floor(x / DOORS.cell)));
+  }
+
+  private row(y: number): number {
+    return Math.max(0, Math.min(this.cellRows - 1, Math.floor(y / DOORS.cell)));
+  }
+
+  /** Отметить двери, рядом с которыми кто-то из хэша: только у них запрос «кто рядом» может быть не пуст. */
+  private markNear(entities: EntityManager): number {
+    const stamp = ++this.stamp;
+    const R = DOORS.openRadius + 1;
+    for (const c of entities.hashed) {
+      if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
+      const i = this.row(c.y) * this.cellCols + this.col(c.x);
+      for (let k = this.cellStart[i], e = this.cellStart[i + 1]; k < e; k++) {
+        const id = this.cellDoors[k];
+        if (this.mark[id] === stamp) continue;
+        const g = this.groups[id];
+        const r = g.half + R;
+        const dx = c.x - g.x;
+        const dy = c.y - g.y;
+        if (dx * dx + dy * dy <= r * r) this.mark[id] = stamp;
+      }
+    }
+    return stamp;
   }
 
   groupAtTile(tx: number, ty: number): DoorGroup | null {
@@ -148,6 +210,7 @@ export class DoorSystem {
     const step = this.acc;
     this.acc = 0;
     const locks = this.locks;
+    const stamp = this.markNear(entities);
     for (const g of this.groups) {
       if (g.locked) continue;
       if (g.broken) {
@@ -155,7 +218,8 @@ export class DoorSystem {
         if (g.closed) this.setClosed(g, false);
         continue;
       }
-      const list = entities.near(g.x, g.y, g.half + DOORS.openRadius, near);
+      // Рядом никого из хэша — запрос «кто рядом» вернул бы пусто.
+      const list = this.mark[g.id] === stamp ? entities.near(g.x, g.y, g.half + DOORS.openRadius, near) : NOBODY;
       const keyed = !!locks && g.lock >= 0 && locks.engaged(g.lock);
       let someone = false;
       if (!keyed) someone = list.length > 0;

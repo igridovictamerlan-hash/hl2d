@@ -35,8 +35,14 @@ export class AStar {
   private readonly closed: Uint32Array;
   private readonly heap = new MinHeap(4096);
   private gen = 0;
+  /** Обход кармана цели (pocket): свои метки и очередь. */
+  private readonly pSeen: Uint32Array;
+  private readonly pQueue = new Int32Array(AI.pathPocketMax);
+  private pGen = 0;
   /** Сколько узлов раскрыл последний поиск (для отладки). */
   lastExpanded = 0;
+  /** Отказов по карману цели (для замеров). */
+  pocketFails = 0;
 
   constructor(private readonly nav: NavGrid) {
     const n = nav.w * nav.h;
@@ -44,6 +50,44 @@ export class AStar {
     this.parent = new Int32Array(n);
     this.seen = new Uint32Array(n);
     this.closed = new Uint32Array(n);
+    this.pSeen = new Uint32Array(n);
+  }
+
+  /**
+   * Цель в замкнутом кармане, куда из start не попасть: обход в обратную сторону от цели (кто может шагнуть в узел),
+   * не больше pathPocketMax якорей. true — карман исчерпан, start в нём нет (пути нет); false — дошли до start или
+   * карман больше предела (неизвестно). Правило «в закрытое снаружи не входят» — то же, что в find: шаг u→v есть,
+   * если u закрыт или v открыт.
+   */
+  private pocket(goal: number, start: number, blocked: ((anchor: number) => boolean) | undefined): boolean {
+    const nav = this.nav;
+    const w = nav.w;
+    const gen = ++this.pGen;
+    const seen = this.pSeen;
+    const q = this.pQueue;
+    let head = 0;
+    let tail = 0;
+    seen[goal] = gen;
+    q[tail++] = goal;
+    while (head < tail) {
+      const v = q[head++];
+      const vx = v % w;
+      const vy = (v - vx) / w;
+      const closedV = !!blocked && blocked(v);
+      for (let k = 0; k < 8; k++) {
+        const ux = vx + DX[k];
+        const uy = vy + DY[k];
+        if (!nav.isWalkable(ux, uy)) continue;
+        if (k >= 4 && (!nav.isWalkable(vx + DX[k], vy) || !nav.isWalkable(vx, vy + DY[k]))) continue;
+        const u = uy * w + ux;
+        if (seen[u] === gen) continue;
+        if (closedV && !blocked!(u)) continue;
+        if (u === start || tail >= q.length) return false;
+        seen[u] = gen;
+        q[tail++] = u;
+      }
+    }
+    return true;
   }
 
   /** Путь из якорей от start до goal (включительно) или null. */
@@ -83,6 +127,12 @@ export class AStar {
       if (cur === goal) break;
       if (++expanded > maxNodes) {
         this.lastExpanded = expanded;
+        return null;
+      }
+      // Поиск затянулся — не в замкнутом ли кармане цель (один раз за поиск).
+      if (expanded === AI.pathPocketAfter && this.pocket(goal, start, blocked)) {
+        this.lastExpanded = expanded;
+        this.pocketFails++;
         return null;
       }
       const cx = cur % w;

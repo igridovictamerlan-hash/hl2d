@@ -2,6 +2,7 @@ import type { View } from '../core/Camera';
 import type { Furniture, FurnitureKind } from './furnish';
 import { FURNITURE } from '../config/furniture';
 import { LruCache, scaleLevel } from '../core/spriteCache';
+import { BoxGrid } from './BoxGrid';
 
 type Ctx = CanvasRenderingContext2D;
 const P = FURNITURE.palette;
@@ -509,15 +510,16 @@ function sprite(f: Furniture, q: number): HTMLCanvasElement {
   return c;
 }
 
-export function drawFurnitureList(ctx: Ctx, v: View, list: readonly Furniture[]): void {
+export function drawFurnitureList(ctx: Ctx, v: View, list: readonly Furniture[], only?: readonly number[]): void {
   const s = v.scale;
   const q = scaleLevel(s, FURNITURE.cache.perOctave);
   const k = s / q;
   const pad = 2;
+  const n = only ? only.length : list.length;
   // Ковры — первыми (под мебелью).
   for (let pass = 0; pass < 2; pass++) {
-    for (let i = 0; i < list.length; i++) {
-      const f = list[i];
+    for (let j = 0; j < n; j++) {
+      const f = list[only ? only[j] : j];
       if ((f.kind === 'rug') !== (pass === 0)) continue;
       const x = (f.x - pad - v.left) * s;
       const y = (f.y - pad - v.top) * s;
@@ -525,5 +527,50 @@ export function drawFurnitureList(ctx: Ctx, v: View, list: readonly Furniture[])
       const img = sprite(f, q);
       ctx.drawImage(img, x, y, img.width * k, img.height * k);
     }
+  }
+}
+
+/**
+ * Мебель карты для кадра: сетка (FURNITURE.grid px) — перебираются только предметы у экрана; предмет целиком в доме,
+ * чья крыша сейчас на месте, не рисуется — его всё равно закрывает крыша (в кадре таких большинство).
+ */
+export class FurnitureLayer {
+  private readonly grid: BoxGrid;
+  /** Дом, в котором предмет целиком (-1 — снаружи или на границе домов). */
+  private readonly inside: Int32Array;
+  private readonly near: number[] = [];
+  private readonly shown: number[] = [];
+
+  constructor(
+    readonly list: readonly Furniture[],
+    width: number,
+    height: number,
+    buildingAt: ((x: number, y: number) => number) | null,
+  ) {
+    const pad = 2;
+    this.grid = new BoxGrid(FURNITURE.grid, width, height, list.length, (i) => {
+      const f = list[i];
+      return [f.x - pad, f.y - pad, f.x + f.w + pad, f.y + f.h + pad];
+    });
+    this.inside = new Int32Array(list.length).fill(-1);
+    if (buildingAt) {
+      list.forEach((f, i) => {
+        const a = buildingAt(f.x - pad, f.y - pad);
+        if (a >= 0 && a === buildingAt(f.x + f.w + pad, f.y - pad) && a === buildingAt(f.x - pad, f.y + f.h + pad) && a === buildingAt(f.x + f.w + pad, f.y + f.h + pad)) this.inside[i] = a;
+      });
+    }
+  }
+
+  /** roofOn(id) — крыша дома id сейчас целиком на месте (под ней не видно); null — крыш нет (канализация, ?roofs=0). */
+  draw(ctx: Ctx, v: View, roofOn: ((id: number) => boolean) | null): void {
+    const near = this.grid.query(v.left, v.top, v.left + v.width / v.scale, v.top + v.height / v.scale, this.near);
+    const shown = this.shown;
+    shown.length = 0;
+    for (const i of near) {
+      const b = this.inside[i];
+      if (roofOn && b >= 0 && roofOn(b)) continue;
+      shown.push(i);
+    }
+    drawFurnitureList(ctx, v, this.list, shown);
   }
 }
