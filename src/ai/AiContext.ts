@@ -47,6 +47,7 @@ import type { Talk } from '../systems/Talk';
 import type { Relations } from '../systems/Relations';
 import type { Neighborhoods } from '../systems/Neighborhoods';
 import type { CrowdMap } from '../systems/Crowd';
+import type { HospitalSystem } from '../systems/Hospital';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 /**
@@ -138,6 +139,8 @@ export interface AiContext {
   access: Access;
   /** Двери и ключи: дома и комнаты на защёлке, закрытые лавки (systems/Locks.ts). */
   locks?: Locks;
+  /** Городская больница и медслужба: эвакуация тяжелораненых, койки, выписка, охрана преступников (systems/Hospital.ts). */
+  hospital?: HospitalSystem;
   /** Рация силового блока: происшествия, вызовы Надзора, доклады. */
   radio: Radio;
   /** Разговоры жителей: слухи о происшествиях, темы по обстановке, без повторов. */

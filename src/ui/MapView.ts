@@ -97,6 +97,7 @@ export class MapView {
       [C.arsenal, 'склад Протектората'],
       [C.prison, 'тюрьма Протектората'],
       [C.academy, 'академия ВС (вахта)'],
+      [C.hospital, 'городская больница'],
       [C.hatch, 'люк'],
       [C.nodeBroken, 'узел Протектората выведен из строя'],
       [C.alarm, 'тревога'],
@@ -561,6 +562,8 @@ export class MapView {
       for (const p of poi('arsenal_desk')) dot(p.x, p.y, 3, C.arsenal);
       const ac = map.poisOf('academy_counter');
       if (ac.length) dot((ac[0].x + 0.5) * ts, (ac[0].y + 0.5) * ts, 3.5, C.academy);
+      const hl = map.poisOf('hospital_lobby')[0];
+      if (hl) dot((hl.x + (hl.w ?? 1) / 2) * ts, (hl.y + (hl.h ?? 1) / 2) * ts, 3.5, C.hospital);
       // Тюрьма — у ворот; идёт штурм армии — мигает.
       const gate = host.law?.prisonGate;
       if (gate) dot(gate.x, gate.y, 3.5, host.prison?.rescue && pulse > 0.5 ? C.alarm : C.prison);

@@ -32,6 +32,7 @@ import type { TrashPile } from '../../systems/LaborSystem';
 import type { Corpse } from '../../systems/CombatSystem';
 import { CrimeScenes } from '../../systems/CrimeScenes';
 import { LABOR } from '../../config/labor';
+import { HOSPITAL } from '../../config/hospital';
 import { SUPPLY } from '../../config/port';
 import type { Dock } from '../../systems/Supply';
 import { CRIME } from '../../config/crime';
@@ -245,7 +246,7 @@ export class CitizenBrain implements Brain {
     this.mover = new Mover(this.walkSpeed);
     // Людное место — в обход по соседним улицам (карта толпы; выключена — путь прежний).
     this.mover.crowdAware = true;
-    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'ges', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
+    this.avoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'ges', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy', 'hospital']);
     this.mover.avoidZones = this.avoid;
     const f = self.faction === 'cwu' || self.faction === 'rebel' || self.faction === 'vort' ? self.faction : 'citizen';
     this.profile = PROFILES[f];
@@ -1279,7 +1280,11 @@ export class CitizenBrain implements Brain {
           if (!FACTIONS[o.faction].authority && o.money < M.fee) continue;
           if (!best || o.health < best.health) best = o;
         }
-        return best && (self.inventory.has('bandage') || self.inventory.has('medkit')) ? { kind: 'heal', patient: best, repath: 0 } : null;
+        if (best && (self.inventory.has('bandage') || self.inventory.has('medkit'))) return { kind: 'heal', patient: best, repath: 0 };
+        // Больница — хаб медиков: без работы медик ТС ждёт вызова в ординаторской (там же пополняет бинты).
+        const hs = ctx.hospital;
+        const spot = hs?.active ? hs.hubSpot(self) : null;
+        return spot ? { kind: 'rest', spot, until: ctx.law.now + ctx.rng.range(HOSPITAL.hub.hold[0], HOSPITAL.hub.hold[1]), lines: HOSPITAL.lines.hub } : null;
       }
       case 'thief': {
         // Ночью воры выходят чаще: прохожих меньше, ВС видно хуже.
@@ -2077,7 +2082,8 @@ const WORK: State<CitizenBrain> = {
         if (now > job.until || b.ctx.war.curfew) return done();
         if (Math.hypot(job.spot.x - b.self.x, job.spot.y - b.self.y) < 20) {
           b.mover.stop();
-          if (b.self.profession === 'cwu_head') b.ctx.economy.markWorked(b.self);
+          // Глава ТС на обходе и медик ТС на дежурстве в больнице — на работе.
+          if (b.self.profession === 'cwu_head' || b.self.profession === 'cwu_medic') b.ctx.economy.markWorked(b.self);
           if (b.fsm.time % 9 < dt && b.ctx.rng.chance(0.35)) b.self.say(b.ctx.rng.pick(job.lines), now, 3);
         } else if (st === 'idle' || st === 'arrived') b.goToPoint(job.spot);
         return;

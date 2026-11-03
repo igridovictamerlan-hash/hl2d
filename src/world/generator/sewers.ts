@@ -225,7 +225,9 @@ function pickCityHatches(city: GameMap, rng: Rng, count: number, spacing: number
   if (out.length >= count) return out;
   // Зона целиком застроена — прорезаем от её проходов ходы к площадкам у края города.
   carveHatchYards(city, cx0, cy0, cx1, cy1, spacing);
-  return pickFarthest(hatchCandidates(city, Infinity, cx0, cy0, cx1, cy1), rng, count, spacing);
+  out = pickFarthest(hatchCandidates(city, Infinity, cx0, cy0, cx1, cy1), rng, count, spacing);
+  // Площадки легли тесно (зона у края узкая) — люки ближе друг к другу, но оба.
+  return out.length >= count ? out : pickFarthest(hatchCandidates(city, Infinity, cx0, cy0, cx1, cy1), rng, count, spacing / 2);
 }
 
 /**

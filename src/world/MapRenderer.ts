@@ -37,6 +37,8 @@ const PRISON_FURNITURE = [
   'prison_rack', 'prison_ammo', 'prison_cot', 'prison_table', 'prison_locker', 'prison_counter', 'prison_bench', 'prison_itable', 'prison_desk', 'prison_shelf',
   // Академия ВС: рубеж тира, парты, койки, шкафчики, столы, ограждение и стойка вахты, стол начальника (AcademyRenderer).
   'academy_line', 'academy_desk', 'academy_bunk', 'academy_bunk_tile', 'academy_locker', 'academy_table', 'academy_rail', 'academy_counter', 'academy_head_desk',
+  // Больница: койки, шкафы с аптечками, стол ординаторской, стойка регистратуры (HospitalRenderer).
+  'hospital_bed_head', 'hospital_bed_tile', 'hospital_cabinet', 'hospital_table', 'hospital_counter',
 ] as const;
 
 /**
@@ -173,6 +175,10 @@ export class MapRenderer {
     for (const r of map.poisOf('room')) {
       const st = this.floorStyle(r.sub ?? '', map.districtAt(r.x, r.y), r.sub === 'sales' ? subOf.get(r.id) : undefined);
       for (let y = r.y; y < r.y + (r.h ?? 1); y++) for (let x = r.x; x < r.x + (r.w ?? 1); x++) this.floorPlan[y * w + x] = st;
+    }
+    // Больница — белая плитка во всех помещениях (и в коридоре между ними).
+    for (const t of ['hospital'] as const) {
+      for (const r of map.poisOf(t)) for (let y = r.y; y < r.y + (r.h ?? 1); y++) for (let x = r.x; x < r.x + (r.w ?? 1); x++) this.floorPlan[y * w + x] = FLOOR_CODE.white;
     }
     const CF = RENDER.tiles.checkerFloor[1];
     this.checkerDark = hsl(CF.h, CF.s, CF.l);

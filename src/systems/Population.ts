@@ -1,6 +1,7 @@
 import type { Poi } from '../world/GameMap';
 import { ARSENAL } from '../config/arsenal';
 import { PRISON } from '../config/prison';
+import { HOSPITAL } from '../config/hospital';
 import { ACADEMY } from '../config/academy';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
@@ -103,7 +104,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
   const P = AI.population;
   // Сколько при множителе: при 1 — ровно как в конфиге; было хоть одно — останется хоть одно.
   const sc = (n: number): number => (scale === 1 ? n : n > 0 ? Math.max(1, Math.round(n * scale)) : 0);
-  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'ges', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy']);
+  const civAvoid = zoneIds(ctx, ['nexus', 'cells', 'restricted', 'ges', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy', 'hospital']);
   const plaza = poiWorld(ctx, 'plaza_center') ?? { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   const anywhere = { x: ctx.map.worldWidth / 2, y: ctx.map.worldHeight / 2 };
   // Силовой блок — постоянный состав: не нашлось места у точки — появляется там же, где при возрождении.
@@ -173,7 +174,7 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
     const rank = CP_UNIT[unit];
     return { kind, faction: 'cp', profession: null, division: cpUnit(rank).group, rank, kit: cpUnit(rank).kit, ...extra };
   };
-  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'ges', 'arsenal', 'prison', 'academy']);
+  const cityAvoid = zoneIds(ctx, ['nexus', 'cells', 'checkpoint', 'outlands', 'wasteland', 'rebel_camp', 'restricted', 'ges', 'arsenal', 'prison', 'academy', 'hospital']);
   const patrolAvoid = zoneIds(ctx, ['checkpoint', 'outlands', 'wasteland', 'rebel_camp']);
   // RCT.PCU на постах: у ворот Управы (лицом наружу) и в людных местах — площадь и улицы.
   const inside = zoneIds(ctx, ['nexus', 'cells']);
@@ -326,6 +327,20 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
   ctx.wardrobe?.dressAll();
   // Живые люди: знакомства, дружба и вражда с первой минуты (семьи, соседи, банды, сослуживцы, товарищи).
   ctx.relations?.seed();
+  // Городская больница (медслужба включена): рекруты RCT на постах у входа, медики SU.02 в ординаторской. Последними —
+  // случайность заселения остального города та же, что без больницы.
+  const hosp = ctx.hospital;
+  if (hosp?.active) {
+    const H = HOSPITAL.staff;
+    for (const p of hosp.posts.slice(0, H.posts)) {
+      const post = { x: p.x, y: p.y };
+      put(cpSpec('post', 'rct', { post, facing: p.facing, hospital: true }), freeSpot(ctx, post, 0, 1, none, 16) ?? post);
+    }
+    for (let k = 0; k < H.cpMedics; k++) {
+      const at = hosp.hub[k % Math.max(1, hosp.hub.length)] ?? hosp.door;
+      if (at) put(cpSpec('hmedic', 'su2'), freeSpot(ctx, at, 0, 2, none, 16) ?? at);
+    }
+  }
 }
 
 /**

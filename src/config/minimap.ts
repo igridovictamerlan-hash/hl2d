@@ -69,6 +69,8 @@ export const MINIMAP = {
     prison: '#c8a2e8',
     /** Академия ВС (у вахты). */
     academy: '#7fc8f0',
+    /** Городская больница (у входа). */
+    hospital: '#ff6f7d',
     hatch: '#b8b0a0',
     node: '#6ec2ff',
     nodeBroken: '#ff6a3a',

@@ -41,7 +41,9 @@ export type RoleKind =
   /** Боец или авторитет банды (живут в общаге банды). */
   | 'gang'
   /** Академия ВС: курсант, инструктор, выпускник в резерве (дневальный академии). */
-  | 'cadet' | 'instructor' | 'reserve';
+  | 'cadet' | 'instructor' | 'reserve'
+  /** Городская больница: медик SU.02 в ординаторской (выезжает за тяжелоранеными). */
+  | 'hmedic';
 
 /**
  * Роль персонажа в постоянном составе (как игрок на сервере): кто он, с каким набором, и — у
@@ -78,6 +80,8 @@ export interface RoleSpec {
   access?: AccessSite;
   /** Пост блок-поста на стене Верхнего города: проверяет документы и досматривает вещи у себя на КПП. */
   border?: boolean;
+  /** Пост рекрута у входа в больницу. */
+  hospital?: boolean;
 }
 
 /** Здоровье роли: ВС — по юниту, сопротивление — по юниту из профессии, остальные — ROSTER.hp. */
@@ -122,6 +126,7 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'warden':
     case 'instructor':
     case 'reserve':
+    case 'hmedic':
     case 'epu': {
       // ВС — из казармы Управы (нары), нет казармы — у ворот.
       const n = ctx.map.poisOf('bunk').length;
@@ -231,6 +236,9 @@ export function brainFor(ctx: AiContext, c: Character, spec: RoleSpec): Brain {
     case 'epu':
     case 'instructor':
       brain = new CpBrain(c, ctx, { duty: spec.kind });
+      break;
+    case 'hmedic':
+      brain = new CpBrain(c, ctx, { duty: 'hospital' });
       break;
     case 'reserve':
       brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'post' });

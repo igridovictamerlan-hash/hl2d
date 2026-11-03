@@ -27,7 +27,10 @@ describe('окна', () => {
       const at = new Map(ws.map((o) => [o.y * map.width + o.x, o]));
       for (const o of ws) {
         expect(map.tileAt(o.x, o.y)).toBe(T.WALL);
-        expect(map.tileAt(o.x - SIDE_DX[o.out], o.y - SIDE_DY[o.out])).toBe(T.INTERIOR);
+        const behind = map.tileAt(o.x - SIDE_DX[o.out], o.y - SIDE_DY[o.out]);
+        // Витрина лавки на ступенчатом фасаде — в наружном ряду толстой стены: за ней стена, за стеной — зал.
+        if (behind === T.WALL && o.style === 'shop') expect(map.tileAt(o.x - 2 * SIDE_DX[o.out], o.y - 2 * SIDE_DY[o.out])).toBe(T.INTERIOR);
+        else expect(behind).toBe(T.INTERIOR);
         expect(OUTDOOR).toContain(map.tileAt(o.x + SIDE_DX[o.out], o.y + SIDE_DY[o.out]));
         const sides = [-1, 1].map((k) => {
           const p = along(o, k);

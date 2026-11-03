@@ -51,5 +51,5 @@ export const STAFFING = {
   /** Повышают только того, кто сейчас не занят делом (состояние мозга). */
   freeStates: ['patrol', 'patrol-again', 'post', 'guard', 'follow', 'duty', 'hunt'] as readonly string[],
   /** Важность должности при равном уровне командования: виды ролей по порядку. */
-  kindOrder: ['epu', 'inspector', 'warden', 'officer', 'instructor', 'guard', 'medic', 'squad', 'qm', 'depot', 'jailer', 'convoy', 'bodyguard', 'tech', 'gate', 'post', 'patrol'] as readonly string[],
+  kindOrder: ['epu', 'inspector', 'warden', 'officer', 'instructor', 'guard', 'medic', 'hmedic', 'squad', 'qm', 'depot', 'jailer', 'convoy', 'bodyguard', 'tech', 'gate', 'post', 'patrol'] as readonly string[],
 } as const;

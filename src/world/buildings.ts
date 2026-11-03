@@ -36,7 +36,7 @@ export interface Buildings {
 }
 
 /** Зоны казённых зданий: бетонная кровля с антеннами. */
-const CIVIC: ReadonlySet<ZoneKind> = new Set<ZoneKind>(['nexus', 'cells', 'restricted', 'checkpoint', 'arsenal', 'prison', 'academy', 'cwu_hq', 'ges', 'industrial']);
+const CIVIC: ReadonlySet<ZoneKind> = new Set<ZoneKind>(['nexus', 'cells', 'restricted', 'checkpoint', 'arsenal', 'prison', 'academy', 'cwu_hq', 'ges', 'industrial', 'hospital']);
 
 const DX = [0, 1, 0, -1] as const;
 const DY = [-1, 0, 1, 0] as const;

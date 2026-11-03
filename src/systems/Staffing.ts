@@ -25,7 +25,8 @@ function cpName(front: number | undefined): string {
 /** Описание должности для журнала: «пост у Управы», «ведущий группы 2»… */
 export function postName(spec: RoleSpec): string {
   switch (spec.kind) {
-    case 'post': return spec.access === 'nexus' ? 'вахта Управы' : spec.access === 'academy' ? 'вахта академии' : 'пост в городе';
+    case 'post': return spec.access === 'nexus' ? 'вахта Управы' : spec.access === 'academy' ? 'вахта академии' : spec.hospital ? 'пост у больницы' : 'пост в городе';
+    case 'hmedic': return 'медик больницы';
     case 'gate': return `проходная ${cpName(spec.front)}`;
     case 'guard': return `пост на ${cpName(spec.front)}`;
     case 'medic': return 'медпункт КПП';

@@ -38,7 +38,8 @@ const top = (m: Map<string, number>, n = 12) => [...m].sort((a, b) => b[1] - a[1
 test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, () => {
   const minutes = Number(process.env.MINUTES ?? 30);
   // Как в игре: типы КПП по сиду и позиционная линия армии (CP=classic — прежняя карта аудитов, LINE=0 — без линии).
-  const sim = makeSim(Number(process.env.SEED ?? 12345), { checkpoints: process.env.CP === 'classic' ? ['classic'] : null, line: process.env.LINE !== '0' });
+  // Как в игре — с городской больницей (HOSPITAL=0 выключает медслужбу, здание остаётся).
+  const sim = makeSim(Number(process.env.SEED ?? 12345), { checkpoints: process.env.CP === 'classic' ? ['classic'] : null, line: process.env.LINE !== '0', hospital: true });
   // WARCFG="dugout.sortie.chance=0,dugout.reserve=0" — подмена чисел WAR на прогон (подбор настроек без правки конфига).
   for (const kv of (process.env.WARCFG ?? '').split(',').filter(Boolean)) {
     const [path, val] = kv.split('=');
@@ -58,6 +59,8 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   if (sim.ctx.locks) sim.ctx.locks.enabled = process.env.LOCKS !== '0';
   // HOODS=0 — прежняя жизнь без районов (прогулки по всему городу, площадь — любимое место, Арбат заселяется первым).
   sim.ctx.hoods.enabled = sim.ctx.crowd.enabled = process.env.HOODS !== '0';
+  // HOSPITAL=0 — без медслужбы и больницы (лежащие истекают кровью за 20 с, раненые ВС бегут к Управе).
+  sim.ctx.hospital!.enabled = process.env.HOSPITAL !== '0';
   spawnPopulation(sim.ctx, AI.citizens);
   const out: string[] = [];
   const start = new Map<string, number>();
@@ -69,6 +72,13 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   const killers = new Map<string, number>();
   const pairs = new Map<string, number>();
   const victimsByMinute: number[] = [];
+  // Потери ВС по местам: фронт (КПП и пустошь перед ним), рейд на лагерь (тропа и лагерь), тюрьма, улицы города.
+  const cpLoss: Record<string, number> = { фронт: 0, рейд: 0, тюрьма: 0, улицы: 0 };
+  sim.ctx.combat.deathListeners.push((c) => {
+    if (c.faction !== 'cp' || c.cadet) return;
+    const k = sim.map.zoneAtWorld(c.x, c.y)?.kind ?? '';
+    cpLoss[k === 'checkpoint' || k === 'outlands' ? 'фронт' : k === 'wasteland' || k === 'rebel_camp' ? 'рейд' : k === 'prison' ? 'тюрьма' : 'улицы']++;
+  });
   sim.ctx.combat.deathListeners.push((c, killer) => {
     const v = group(c);
     inc(deaths, v);
@@ -295,6 +305,8 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   const vac: Record<string, number> = {};
   for (const s of sim.staffing.vacancies()) vac[cpUnit(s.spec.rank).short] = (vac[cpUnit(s.spec.rank).short] ?? 0) + 1;
   out.push(`Вакансии ВС по юнитам: ${JSON.stringify(vac)}`);
+  out.push(`ВС погибло по местам: ${Object.entries(cpLoss).map(([k, v]) => `${k} ${v}`).join(', ')}; красный код ${((codeTime.get('red') ?? 0) / 60).toFixed(1)} мин`);
+  out.push(`Больница: ${JSON.stringify(sim.ctx.hospital!.stats)}; сейчас на койках ${sim.ctx.hospital!.patients}`);
   out.push(`Штат ВС: ${JSON.stringify(sim.staffing.stats)}; академия: ${JSON.stringify(sim.academy.stats)}; пропуска: ${JSON.stringify(sim.access.stats)}; приехало жителей ${sim.roster.arrived}`);
   console.log(out.join('\n'));
 });

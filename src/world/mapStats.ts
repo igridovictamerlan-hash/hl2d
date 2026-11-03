@@ -28,6 +28,8 @@ export interface MapStats {
   fragmentsFilled: number;
   unreachableRemoved: number;
   components: number;
+  /** Строилась ли городская больница (GENERATOR.hospital.build; тестовые города — без неё). Нет поля — строилась. */
+  hospital?: boolean;
 }
 
 /** Тайлы, из которых состоит «переулок» для измерения прямых участков. */

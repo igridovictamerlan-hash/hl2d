@@ -31,6 +31,7 @@ import { PAWN } from '../config/pawns';
 import { LIGHTING } from '../config/lighting';
 import { apparentFaction, displayName } from './cover';
 import { CROUCH, DOWNED, TRENCH } from '../config/tactics';
+import { HOSPITAL_LOOK } from '../config/hospital';
 import type { PawnLook } from './PawnRenderer';
 import { drawFists, fistsShown, flinchOf, meleeSwing } from './meleePose';
 import { MELEE_LOOK } from '../config/melee';
@@ -85,6 +86,9 @@ export class EntityRenderer {
   relations: Relations | null = null;
   /** Страх (испуган, в панике — строка под курсором); задаёт Game. */
   senses: Senses | null = null;
+  /** Шрифт «!» над лежащими — по масштабу (строка собирается раз на смену масштаба). */
+  private alertFont = '';
+  private alertScale = -1;
   /**
    * Насколько персонажа закрывает крыша (world/RoofLayer.ts): 1 — под крышей (не рисуется, без подписи), 0 — на улице
    * или в доме игрока; между — крыша снимается или возвращается. null — крыш нет.
@@ -494,7 +498,25 @@ export class EntityRenderer {
     ctx.setTransform(cs, si, -si, cs, gx, gy);
     drawPawnSprite(ctx, look, 0, -2 * ps, ps, 'S');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const left = Math.max(0, Math.min(1, (c.downedUntil - now) / DOWNED.time));
+    const A = HOSPITAL_LOOK.alert;
+    // Стабилизирован медиком (несут в больницу) — зелёный крест вместо таймера и «!».
+    if (c.evacStable) {
+      const k = A.size * 0.45 * s;
+      const cy = gy - A.base * s;
+      ctx.lineWidth = Math.max(2, 3.2 * s);
+      ctx.strokeStyle = A.edge;
+      ctx.beginPath();
+      ctx.moveTo(gx - k, cy);
+      ctx.lineTo(gx + k, cy);
+      ctx.moveTo(gx, cy - k);
+      ctx.lineTo(gx, cy + k);
+      ctx.stroke();
+      ctx.lineWidth = Math.max(1, 1.6 * s);
+      ctx.strokeStyle = A.stable;
+      ctx.stroke();
+      return;
+    }
+    const left = Math.max(0, Math.min(1, (c.downedUntil - now) / Math.max(DOWNED.time, c.downedSpan)));
     const r = D.ringR * s;
     ctx.lineWidth = Math.max(1.5, 1.8 * s);
     ctx.strokeStyle = D.ringBack;
@@ -505,6 +527,28 @@ export class EntityRenderer {
     ctx.beginPath();
     ctx.arc(gx, gy, r, -Math.PI / 2, -Math.PI / 2 + left * Math.PI * 2);
     ctx.stroke();
+    // Ждёт помощи — над ним по очереди всплывают и тают «!» (как в RimWorld); времени мало — красные.
+    if (this.alertScale !== s) {
+      this.alertScale = s;
+      this.alertFont = `900 ${Math.max(8, Math.round(A.size * s))}px monospace`;
+    }
+    ctx.font = this.alertFont;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2, 2.4 * s);
+    ctx.strokeStyle = A.edge;
+    ctx.fillStyle = left < A.urgentBelow ? A.urgent : A.warn;
+    const base = ctx.globalAlpha;
+    for (let i = 0; i < A.count; i++) {
+      const ph = (now / A.period + i / A.count + c.id * 0.137) % 1;
+      const x = gx + (i - (A.count - 1) / 2) * 5 * s;
+      const y = gy - (A.base + ph * A.rise) * s;
+      ctx.globalAlpha = base * (ph < 0.15 ? ph / 0.15 : 1 - (ph - 0.15) / 0.85);
+      ctx.strokeText('!', x, y);
+      ctx.fillText('!', x, y);
+    }
+    ctx.globalAlpha = base;
   }
 
 
@@ -596,7 +640,7 @@ export class EntityRenderer {
       const nw = textWidth(ctx, name, E.nameFont, dpr);
       const wantRole = key || zoom >= L.roleZoom;
       const gang = !c.disguised && seesCrew(player, c) ? this.gangs?.of(c) ?? null : null;
-      const role = !wantRole ? '' : c.downed ? `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с` : roleLabel(c, player);
+      const role = !wantRole ? '' : c.downed ? (c.evacStable ? 'ранен · несут в больницу' : `ранен · ${Math.max(0, Math.ceil(c.downedUntil - now))} с`) : roleLabel(c, player);
       const rw = role ? textWidth(ctx, role, E.roleFont, dpr) : 0;
       const details = c === hovered && c !== player ? labelDetails(c, this.families, gang, this.relations, player, this.senses) : noDetails;
       let dw = 0;

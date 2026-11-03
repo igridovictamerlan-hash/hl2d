@@ -70,6 +70,8 @@ export const ZONE_NAMES = {
   prisonRoad: 'Тюремный проезд',
   academy: 'Академия ВС',
   academyRoad: 'Курсантский проезд',
+  hospital: 'Городская больница',
+  hospitalRoad: 'Больничный проезд',
   sewer: 'Канализация',
   rebelBase: 'Схрон партизан',
   wasteland: 'Тропа через пустошь',

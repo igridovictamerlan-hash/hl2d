@@ -24,6 +24,7 @@ const MARKS: [string, [number, number, number], string][] = [
   ['arsenal', [255, 255, 255], 'склад'],
   ['prison', [200, 80, 255], 'тюрьма'],
   ['academy', [0, 240, 240], 'академия'],
+  ['hospital', [255, 70, 90], 'больница'],
   ['restricted_gate', [255, 0, 0], 'ворота запретной зоны'],
   ['hatch', [0, 255, 0], 'люк'],
   ['checkpoint_type', [255, 60, 60], 'КПП'],

@@ -27,8 +27,10 @@ test('density', () => {
   mkdirSync(OUT, { recursive: true });
   (LIGHTING as { start: number }).start = Number(env.START ?? 7) / 24;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sim: any = (makeSim as any)(Number(env.SEED ?? 12345), { checkpoints: env.CP === 'classic' ? ['classic'] : null, line: env.LINE !== '0' });
+  const sim: any = (makeSim as any)(Number(env.SEED ?? 12345), { checkpoints: env.CP === 'classic' ? ['classic'] : null, line: env.LINE !== '0', hospital: env.HOSPITAL !== '0' });
   const ctx = sim.ctx;
+  // Медслужба — как в игре (HOSPITAL=0 — без неё и без здания).
+  if (ctx.hospital) ctx.hospital.enabled = env.HOSPITAL !== '0';
   if (ctx.routine) ctx.routine.enabled = true;
   if (ctx.brawls) ctx.brawls.enabled = true;
   if (sim.academy) sim.academy.recruiting = true;

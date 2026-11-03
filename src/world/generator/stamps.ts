@@ -149,6 +149,20 @@ const TEMPLATE_TILES: Record<string, TileId> = {
   'т': T.INTERIOR,
   'Я': T.BARRIER,
   'я': T.INTERIOR,
+  // Городская больница: палаты, ординаторская, приёмный покой, тамбур и посты у дверей — пол; койки (изголовье и
+  // изножье), шкафы с аптечками, стол ординаторской и стойка регистратуры — мебель-укрытие (рисует HospitalRenderer).
+  'Б': T.BARRIER,
+  'Ю': T.BARRIER,
+  'ю': T.INTERIOR,
+  'й': T.INTERIOR,
+  'Й': T.INTERIOR,
+  'Ъ': T.BARRIER,
+  'ъ': T.BARRIER,
+  'Ф': T.INTERIOR,
+  'Щ': T.BARRIER,
+  'Ш': T.INTERIOR,
+  'ё': T.INTERIOR,
+  'Ё': T.INTERIOR,
 };
 
 /** Точки интереса академии по символам шаблона (ACADEMY_TEMPLATE). */
@@ -170,6 +184,18 @@ const ACADEMY_POIS: Record<string, Poi['type']> = {
   'т': 'academy_turnstile',
   'Я': 'academy_counter',
   'я': 'academy_post',
+};
+
+/** Точки интереса больницы по символам шаблона (HOSPITAL_TEMPLATE). */
+const HOSPITAL_POIS: Record<string, Poi['type']> = {
+  'Б': 'hospital_bed_head',
+  'Ю': 'hospital_bed_tile',
+  'Ъ': 'hospital_cabinet',
+  'ъ': 'hospital_table',
+  'Щ': 'hospital_counter',
+  'Ш': 'hospital_intake',
+  'Й': 'hospital_hub_spot',
+  'Ё': 'hospital_post',
 };
 
 /** Точки интереса тюрьмы по символам шаблона (PRISON_TEMPLATE). */
@@ -226,7 +252,8 @@ export interface StampResult {
    * Помещения по символам: штаб ТС — l отдых, n столовая, e кабинет, a приёмная, p цех; склад —
    * s зал, j гранатный отсек, N мастерская, f выдача, e контора, 1 бытовка, z караулка, Y крыльцо;
    * тюрьма — 6 камеры, 0 караулка, 9 кабинет, & изъятое, 8 двор, < шлюз, ( оружейная, $ допросная, @ приёмная;
-   * академия — и тир, э кабинет, л класс, п плац, г кубрик, ы столовая, В вахта, в вестибюль.
+   * академия — и тир, э кабинет, л класс, п плац, г кубрик, ы столовая, В вахта, в вестибюль;
+   * больница — ю палаты, й ординаторская, Ф приёмный покой, ё тамбур.
    */
   areas: Record<string, Rect[]>;
 }
@@ -267,7 +294,7 @@ export function stampTemplate(
       if (ch === 'u') pois.push({ type: 'cwu_store', x: x0 + x, y: y0 + y });
       if (ch === 'H') pois.push({ type: 'cwu_head_desk', x: x0 + x, y: y0 + y });
       if (ch === 'J') pois.push({ type: 'cwu_hire', x: x0 + x, y: y0 + y });
-      const ap = ARSENAL_POIS[ch] ?? PRISON_POIS[ch] ?? ACADEMY_POIS[ch];
+      const ap = ARSENAL_POIS[ch] ?? PRISON_POIS[ch] ?? ACADEMY_POIS[ch] ?? HOSPITAL_POIS[ch];
       if (ap) pois.push({ type: ap, x: x0 + x, y: y0 + y });
     }
   }
@@ -303,7 +330,7 @@ export function stampTemplate(
   const rooms = regions('r');
   const commons = regions('m');
   const areas: Record<string, Rect[]> = {};
-  for (const mark of 'lneapsfzNYj1609&8<($@иэлпгыВв') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
+  for (const mark of 'lneapsfzNYj1609&8<($@иэлпгыВвюйФё') if (rows.some((r) => r.includes(mark))) areas[mark] = regions(mark);
 
   // Выходы: группы проходимых клеток на краях шаблона.
   const exits: Exit[] = [];

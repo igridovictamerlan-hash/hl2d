@@ -12,7 +12,7 @@ import { StateMachine, type State } from '../StateMachine';
 import { randomAnchorAround, zoneIds } from '../destinations';
 import { poiWorld } from '../../systems/Population';
 import { faceMovement, faceTowards, turnTowards } from '../facing';
-import { canSeeCircle } from '../../world/visibility';
+import { canSeeCircle, lineOfSight } from '../../world/visibility';
 import { CHARACTER } from '../../config/entities';
 import { CP_UNITS } from '../../config/cpUnits';
 import type { Corpse } from '../../systems/CombatSystem';
@@ -23,7 +23,7 @@ import { LAW } from '../../config/law';
 import { VISION } from '../../config/vision';
 import { dist, type Vec2 } from '../../core/math';
 import { Gunner } from '../Gunner';
-import { Tactician, followColumn, watchSector } from '../Tactics';
+import { Tactician, findCover, followColumn, retreatSpot, watchSector } from '../Tactics';
 import { TACTICS } from '../../config/tactics';
 import { WAR } from '../../config/war';
 import { FireDiscipline } from '../FireDiscipline';
@@ -40,6 +40,7 @@ import { LINES } from '../../config/lines';
 import { SUSPECTS } from '../../config/suspects';
 import { phrase } from '../../systems/phrases';
 import { whereOf } from '../../world/places';
+import { HOSPITAL } from '../../config/hospital';
 
 const near: Character[] = [];
 /** Отдельный буфер для опознания по ориентировке: не портит список, по которому идут плановые проверки. */
@@ -64,17 +65,18 @@ export interface CpOptions {
    * sentry — охрана склада: пост, обход вокруг поста, у дверей не стоит; convoy — экипаж конвоя склада
    * (ждёт в караулке, по приказу склада носит ящики на пункты боепитания); jailer — охрана тюрьмы
    * (как sentry, обход — внутри тюрьмы); warden — начальник тюрьмы SU.INSP (допрос у камеры, обход);
-   * instructor — инструктор академии (место на занятии даёт AcademySystem.dutyFor).
+   * instructor — инструктор академии (место на занятии даёт AcademySystem.dutyFor); hospital — медик SU.02 в
+   * ординаторской больницы (за тяжелоранеными его посылает HospitalSystem).
    */
   duty?: CpDuty;
   squad?: number;
   lead?: boolean;
 }
 
-export type CpDuty = 'post' | 'squad' | 'officer' | 'inspector' | 'bodyguard' | 'epu' | 'qm' | 'sentry' | 'convoy' | 'jailer' | 'warden' | 'instructor';
+export type CpDuty = 'post' | 'squad' | 'officer' | 'inspector' | 'bodyguard' | 'epu' | 'qm' | 'sentry' | 'convoy' | 'jailer' | 'warden' | 'instructor' | 'hospital';
 
 /** Командование и охрана: за нарушителями не бегают, по тревоге не прочёсывают — при своём деле. */
-const STAFF: ReadonlySet<CpDuty> = new Set<CpDuty>(['inspector', 'epu', 'bodyguard', 'officer', 'warden', 'instructor']);
+const STAFF: ReadonlySet<CpDuty> = new Set<CpDuty>(['inspector', 'epu', 'bodyguard', 'officer', 'warden', 'instructor', 'hospital']);
 
 /** Место в строю построения (Security) — пока задано, юнит стоит в строю. */
 export interface FormationSlot {
@@ -199,6 +201,21 @@ export class CpBrain implements Brain {
   alertFace = 0;
   /** Вызов по рации (Radio): куда ехать по происшествию, до какого времени, бегом ли. */
   call: RadioCall | null = null;
+  /**
+   * Умный отход раненого (медслужба включена, HOSPITAL.retreat): cover — бежит в укрытие вне линии огня, hold — сидит
+   * там и перевязывается, go — тихо: в больницу (или к прежней цели).
+   */
+  retreatPhase: 'cover' | 'hold' | 'go' = 'go';
+  hideSpot: Vec2 | null = null;
+  retreatCalm = 0;
+  /** Отходит в больницу (у дверей ляжет на койку); мест нет — как прежде, ждёт поправки у входа. */
+  retreatHospital = false;
+  /** Откуда стреляли, когда ранили (и когда): путь в больницу — в обход этого места. */
+  retreatThreat: { x: number; y: number; t: number } | null = null;
+  /** Бой без укрытия: отход за угол (куда, до какого времени), следующий — не раньше withdrawCool. */
+  private withdrawTo: Vec2 | null = null;
+  private withdrawUntil = 0;
+  private withdrawCool = 0;
 
   constructor(
     public self: Character,
@@ -214,7 +231,7 @@ export class CpBrain implements Brain {
     this.lead = opts.lead ?? false;
     // Городская полиция PCU на бойню у КПП не ходит: КПП держат SU и OTA.
     const pcu = self.faction === 'cp' && cpUnit(self.rank).group === 'pcu' && this.front < 0;
-    this.patrolAvoid = zoneIds(ctx, pcu ? ['outlands', 'wasteland', 'rebel_camp', 'checkpoint', 'arsenal', 'prison', 'academy', 'ges'] : ['outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy', 'ges']);
+    this.patrolAvoid = zoneIds(ctx, pcu ? ['outlands', 'wasteland', 'rebel_camp', 'checkpoint', 'arsenal', 'prison', 'academy', 'ges', 'hospital'] : ['outlands', 'wasteland', 'rebel_camp', 'arsenal', 'prison', 'academy', 'ges', 'hospital']);
     this.mover = new Mover(LAW.cpWalkSpeed);
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
@@ -230,6 +247,8 @@ export class CpBrain implements Brain {
    * за мешком или в траншее его не разглядеть, а встречная очередь не застаёт стоящим (WAR.line.garrison).
    */
   get sits(): boolean {
+    // Раненый в укрытии — сидит, перевязывается.
+    if (this.retreatPhase === 'hold' && this.fsm.current === 'retreat') return true;
     if (this.front < 0 || !this.guardPost || this.medicStation) return false;
     const cur = this.fsm.current;
     if (cur !== 'guard' && cur !== 'fight') return false;
@@ -266,6 +285,75 @@ export class CpBrain implements Brain {
     const { war } = this.ctx;
     const f = war.fronts[this.front];
     return !!f && war.command.lineEnabled && this.self.health > this.self.maxHealth * WAR.line.garrison.stayAbove && war.sinceShot(f) < WAR.line.garrison.sitFor;
+  }
+
+  /** Умное поведение в бою (медслужба и больница включены): отход в укрытие, прикрытие раненых, бой не посреди улицы. */
+  get smart(): boolean {
+    return !!this.ctx.hospital?.active;
+  }
+
+  /** Откуда угроза: цель на виду, где её видели недавно, кто ранил недавно. */
+  threatPoint(): Vec2 | null {
+    const now = this.ctx.combat.now;
+    const t = this.gunner.target;
+    if (t && t.alive) return { x: t.x, y: t.y };
+    const seen = this.gunner.lastSeenAt;
+    if (now - seen.t < HOSPITAL.retreat.calm) return { x: seen.x, y: seen.y };
+    const a = this.self.lastAttacker;
+    if (a && a.alive && now - this.self.lastHurt < HOSPITAL.retreat.calm) return { x: a.x, y: a.y };
+    return null;
+  }
+
+  /**
+   * «Ранен, прикройте!» — свои рядом в бою, сидящие за углом (Tactician hide), сразу выглядывают на очередь: давят
+   * стрелка, пока раненый бежит в укрытие. Стоящих на открытом месте не останавливает.
+   */
+  callCover(): void {
+    const { self, ctx } = this;
+    self.say(ctx.rng.pick(HOSPITAL.lines.hurt), ctx.law.now, 2);
+    let answered = false;
+    for (const o of ctx.entities.near(self.x, self.y, HOSPITAL.retreat.cover, near)) {
+      const b = o.brain;
+      if (o === self || !o.fit || !(b instanceof CpBrain) || b.fsm.current !== 'fight' || !b.tactics.coverNow()) continue;
+      if (!answered) {
+        answered = true;
+        o.say(ctx.rng.pick(HOSPITAL.lines.cover), ctx.law.now + 0.6, 2);
+      }
+    }
+  }
+
+  /**
+   * Бой без укрытия (умный ВС, не на посту): не стоять посреди улицы — отойти туда, где враг не видит (за угол);
+   * оттуда — снова в бой из укрытия. true — отходит.
+   */
+  withdraw(dt: number): boolean {
+    const { self, ctx } = this;
+    const W = HOSPITAL.retreat.withdraw;
+    const now = ctx.combat.now;
+    if (!this.withdrawTo) {
+      const t = this.gunner.target;
+      if (now < this.withdrawCool || !t || ctx.map.levelAt(self.x, self.y) !== 'city') return false;
+      const k = ctx.map.zoneAtWorld(self.x, self.y)?.kind;
+      if (k === 'checkpoint' || k === 'outlands' || k === 'wasteland') return false;
+      const spot = retreatSpot(self, ctx, t, W.min, W.max);
+      if (!spot) {
+        this.withdrawCool = now + W.cool;
+        return false;
+      }
+      this.withdrawTo = spot;
+      this.withdrawUntil = now + W.time;
+    }
+    const to = this.withdrawTo;
+    if (dist(self.x, self.y, to.x, to.y) < 16 || now > this.withdrawUntil) {
+      this.withdrawTo = null;
+      this.withdrawCool = now + W.cool;
+      this.fightHome = { x: self.x, y: self.y };
+      this.tactics.reset(self);
+      return false;
+    }
+    this.mover.speed = CHARACTER.runSpeed * 0.9;
+    this.goToPoint(to, dt, 1);
+    return true;
   }
 
   get stateName(): string {
@@ -535,6 +623,16 @@ export class CpBrain implements Brain {
       this.repath = 0;
       return;
     }
+    if (this.duty === 'hospital') {
+      // Медик больницы: место в ординаторской (у стола, у шкафа), иногда — в приёмном покое.
+      const spot = ctx.hospital?.hubSpot(self) ?? null;
+      this.dutySpot = spot;
+      this.dutyFacing = ctx.rng.range(0, Math.PI * 2);
+      this.dutyUntil = now + ctx.rng.range(HOSPITAL.hub.hold[0], HOSPITAL.hub.hold[1]);
+      if (ctx.rng.chance(0.3)) this.dutyLine = ctx.rng.pick(HOSPITAL.lines.hub);
+      this.repath = 0;
+      return;
+    }
     if (this.duty === 'inspector') {
       // Обход: повара на раздаче, канцелярия с лоялистами, завод ТС, площадь, плац.
       const places: [Vec2 | null, readonly string[]][] = [
@@ -794,7 +892,8 @@ export class CpBrain implements Brain {
     // Комендантский час в квартале: сперва окрик «по домам» (Escalation.warn), останавливают — только упрямых.
     const warns = ctx.escalation.curfewOn && this.checksPeople && ctx.war.code !== 'red';
     for (const o of ctx.entities.near(self.x, self.y, VISION.npcRange, near)) {
-      if (o === self) continue;
+      // Больного на койке не проверяют (преступника там охраняет конвоир — HospitalSystem).
+      if (o === self || o.inBed) continue;
       const v = law.observe(self, o);
       if (!v) {
         if (warns && this.watches(o, atCheckpoint) && !ctx.combat.threat(self, o)) ctx.escalation.warn(self, o);
@@ -1547,6 +1646,8 @@ const FIGHT: State<CpBrain> = {
     }
     const gp = b.guardPost ? postOf(b) : null;
     if (b.tactics.fight(b.self, b.ctx, b.gunner, b.mover, dt, gp ?? b.fightHome, gp ? TACTICS.postLeash : TACTICS.leash)) return;
+    // Укрытия рядом нет — умный ВС не стоит посреди улицы, а отходит за угол.
+    if (!gp && b.smart && b.withdraw(dt)) return;
     // Отошёл от поста — вернуться на пост (там укрытие).
     if (gp && dist(b.self.x, b.self.y, gp.x, gp.y) > 24) {
       if (b.mover.status !== 'moving' && b.mover.status !== 'pending') {
@@ -1574,8 +1675,20 @@ const RETREAT: State<CpBrain> = {
       dest = { x: b.ctx.nav.worldX(a), y: b.ctx.nav.worldY(a) };
     } else dest = poiWorld(b.ctx, 'nexus_desk');
     b.retreatTo = dest;
+    // Умный отход: в городе — не через весь город к Управе, а в больницу; под огнём — сперва в укрытие.
+    b.retreatHospital = false;
+    // Гарнизон КПП отходит по-прежнему (в бункер; позиционная война выверена на этом) — умный отход только в городе.
+    if (b.smart && b.front < 0) {
+      const H = b.ctx.hospital!;
+      if (b.front < 0 && H.door && dist(b.self.x, b.self.y, H.door.x, H.door.y) < HOSPITAL.retreat.hospitalMax) {
+        b.retreatTo = { x: H.door.x, y: H.door.y };
+        b.retreatHospital = true;
+      }
+      startCover(b);
+    }
   },
   update(b, dt) {
+    if (b.smart && b.front < 0 && smartRetreat(b, dt)) return;
     if (b.retreatTo && dist(b.self.x, b.self.y, b.retreatTo.x, b.retreatTo.y) > 20) b.goToPoint(b.retreatTo, dt);
     else {
       b.mover.stop();
@@ -1585,13 +1698,93 @@ const RETREAT: State<CpBrain> = {
         if (kit && b.ctx.economy.use(b.self, kit)) b.self.say('Перевязываюсь.', b.ctx.law.now, 1.5);
       }
     }
-    // Регенерация поднимает до COMBAT.regenCap — возвращаемся чуть ниже, не дожидаясь медика.
-    if (b.self.health >= b.self.maxHealth * (COMBAT.regenCap - 0.05)) {
+    // Регенерация поднимает до COMBAT.regenCap — возвращаемся чуть ниже, не дожидаясь медика. Идёт в больницу —
+    // доходит (ляжет на койку), если только не поправился до HOSPITAL.care.walkInBelow.
+    if (b.self.health >= b.self.maxHealth * (b.retreatHospital ? HOSPITAL.care.walkInBelow : COMBAT.regenCap - 0.05)) {
       b.mover.speed = LAW.cpWalkSpeed;
       return b.idleState;
     }
   },
+  exit(b) {
+    b.mover.extraCost = undefined;
+    b.retreatPhase = 'go';
+    b.retreatHospital = false;
+  },
 };
+
+/** Раненый под огнём: найти укрытие вне линии огня (угол или блок), позвать прикрытие; угрозы нет — сразу к цели. */
+function startCover(b: CpBrain): void {
+  const threat = b.threatPoint();
+  b.retreatPhase = 'go';
+  b.hideSpot = null;
+  if (!threat) return;
+  const R = HOSPITAL.retreat;
+  b.retreatThreat = { x: threat.x, y: threat.y, t: b.ctx.combat.now };
+  const spot = findCover(b.self, b.ctx, threat, b.self, R.leash, b.ctx.combat.reach(b.self) || 200);
+  const at = spot && spot.kind === 'corner' ? { x: b.ctx.nav.worldX(spot.hide), y: b.ctx.nav.worldY(spot.hide) } : retreatSpot(b.self, b.ctx, threat, 40, R.leash);
+  if (!at) return;
+  b.hideSpot = at;
+  b.retreatPhase = 'cover';
+  b.retreatCalm = 0;
+  b.callCover();
+}
+
+/**
+ * Умный отход (HOSPITAL.retreat): cover — бегом в укрытие; hold — сидит (sits), перевязывается сам, ждёт тишины
+ * calm с; go — в больницу: у дверей ложится на койку (HospitalSystem.walkIn). Снова попали в пути — опять в укрытие.
+ * true — шаг занят (иначе — прежний отход к retreatTo).
+ */
+function smartRetreat(b: CpBrain, dt: number): boolean {
+  const { self, ctx } = b;
+  const now = ctx.combat.now;
+  const R = HOSPITAL.retreat;
+  if (b.retreatPhase === 'cover') {
+    const to = b.hideSpot;
+    if (!to) {
+      b.retreatPhase = 'go';
+      return false;
+    }
+    // До самой точки укрытия (за углом в шаге от неё ещё видно) — или пока не скрылся из виду.
+    const th = b.retreatThreat;
+    const hidden = th !== null && dist(self.x, self.y, to.x, to.y) < 24 && !lineOfSight(ctx.map, th.x, th.y, self.x, self.y);
+    if (dist(self.x, self.y, to.x, to.y) > 4 && !hidden) {
+      b.mover.speed = LAW.cpRunSpeed * 0.9;
+      b.goToPoint(to, dt, 1);
+      if (b.mover.status !== 'failed') return true;
+    }
+    b.retreatPhase = 'hold';
+    b.retreatCalm = 0;
+  }
+  if (b.retreatPhase === 'hold') {
+    b.mover.stop();
+    // Тихо calm с (не попадали, врага не видно) — дальше в больницу.
+    b.retreatCalm = now - self.lastHurt > R.calm && !b.gunner.target ? b.retreatCalm + dt : 0;
+    if (b.retreatCalm < R.calm) return true;
+    b.retreatPhase = 'go';
+    b.mover.speed = LAW.cpWalkSpeed * 1.2;
+    // В больницу — в обход места, откуда стреляли (недавно): там может ждать стрелок.
+    const th = b.retreatThreat;
+    if (th && now - th.t < R.avoidFor) {
+      const nav = ctx.nav;
+      const r2 = R.avoidRadius * R.avoidRadius;
+      b.mover.extraCost = (a: number) => ((nav.worldX(a) - th.x) ** 2 + (nav.worldY(a) - th.y) ** 2 < r2 ? R.avoidCost : 0);
+    }
+    b.repath = 0;
+  }
+  // В пути снова ранили — опять в укрытие.
+  if (now - self.lastHurt < 0.5 && b.threatPoint()) {
+    startCover(b);
+    if ((b.retreatPhase as string) === 'cover') return true;
+  }
+  const H = ctx.hospital;
+  const door = H?.door;
+  if (door && b.retreatHospital && dist(self.x, self.y, door.x, door.y) < HOSPITAL.care.door) {
+    // У больницы: ложится на койку (если есть место); нет — ждёт у входа, как прежде у Управы.
+    if (H!.walkIn(self)) return true;
+    b.retreatHospital = false;
+  }
+  return false;
+}
 
 /** Медик HELIX на КПП: ждёт в бункере, выходит к раненым. */
 const MEDIC: State<CpBrain> = {

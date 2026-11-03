@@ -24,7 +24,9 @@ export type ZoneKind =
   | 'prison'
   | 'academy'
   /** ГЭС за восточной стеной города: двор, машинный зал, плотина (посторонним нельзя). */
-  | 'ges';
+  | 'ges'
+  /** Городская больница (Старый город): палаты, ординаторская, приёмный покой. */
+  | 'hospital';
 
 /** Уровень: город или канализация под ним. */
 export type Level = 'city' | 'sewer';
@@ -210,6 +212,22 @@ export type PoiType =
   | 'academy_mess'
   | 'academy_vakhta'
   | 'academy_lobby'
+  /** Городская больница: здание (x, y, w, h, face), койка (рамка изголовье+изножье, face — от изголовья к изножью),
+   *  тайлы коек, шкафы, стол, стойка, места носилок, места медиков, посты у входа и помещения. */
+  | 'hospital'
+  | 'hospital_bed'
+  | 'hospital_bed_head'
+  | 'hospital_bed_tile'
+  | 'hospital_cabinet'
+  | 'hospital_table'
+  | 'hospital_counter'
+  | 'hospital_intake'
+  | 'hospital_hub_spot'
+  | 'hospital_post'
+  | 'hospital_ward'
+  | 'hospital_hub'
+  | 'hospital_reception'
+  | 'hospital_lobby'
   | 'district'
   | 'border_gate'
   | 'border_post'

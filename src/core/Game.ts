@@ -66,6 +66,7 @@ import { CwuHqSystem } from '../systems/CwuHq';
 import { ArsenalSystem } from '../systems/Arsenal';
 import { PrisonSystem } from '../systems/Prison';
 import { AcademySystem } from '../systems/Academy';
+import { HospitalSystem } from '../systems/Hospital';
 import { Staffing } from '../systems/Staffing';
 import { Access } from '../systems/Access';
 import { Radio, type Transmission } from '../systems/Radio';
@@ -92,6 +93,7 @@ import { ArsenalRenderer } from '../world/ArsenalRenderer';
 import { PrisonRenderer } from '../world/PrisonRenderer';
 import { DugoutRenderer } from '../world/DugoutRenderer';
 import { AcademyRenderer } from '../world/AcademyRenderer';
+import { HospitalRenderer } from '../world/HospitalRenderer';
 import { furnishMap } from '../world/furnish';
 import { FurnitureLayer } from '../world/FurnitureRenderer';
 import { StreetLifeSystem } from '../systems/StreetLife';
@@ -204,6 +206,7 @@ export class Game {
   private readonly prisonView = new PrisonRenderer();
   private readonly dugoutView = new DugoutRenderer();
   private readonly academyView = new AcademyRenderer();
+  private readonly hospitalView = new HospitalRenderer();
   private readonly aim = new AimRenderer();
   /** Частицы боя, тряска экрана, маркер попадания (только отрисовка). */
   private readonly particles = new Particles();
@@ -548,6 +551,7 @@ export class Game {
     this.ai.brawls = new Brawls(this.ai);
     this.ai.staffing = new Staffing(this.ai);
     this.ai.academy = new AcademySystem(this.ai);
+    this.ai.hospital = new HospitalSystem(this.ai);
     this.ai.access = new Access(this.ai);
     this.ai.locks = new Locks(this.ai);
     this.doors.locks = this.ai.locks;
@@ -1310,6 +1314,7 @@ export class Game {
     if (this.ai.memorials) this.ai.memorials.enabled = false;
     if (this.ai.hoods) this.ai.hoods.enabled = false;
     if (this.ai.crowd) this.ai.crowd.enabled = false;
+    if (this.ai.hospital) this.ai.hospital.enabled = false;
     this.ui.roles.close();
     // Учения — все рядом: без упрощённой симуляции.
     this.ai.lod = null;
@@ -1415,6 +1420,7 @@ export class Game {
     this.ai.prison.update();
     this.ai.staffing.update();
     this.ai.academy.update(dt);
+    this.ai.hospital?.update(dt);
     this.ai.radio.update(dt);
     this.ai.talk.update();
     this.ai.relations.update(dt);
@@ -1536,6 +1542,7 @@ export class Game {
     this.arsenalView.drawGround(ctx, v, this.ai.arsenal, this.map.tileSize, this.law.now);
     this.prisonView.drawGround(ctx, v, this.ai.prison, this.law.cells, this.map, this.law.evidence.size, this.law.now);
     this.academyView.drawGround(ctx, v, this.ai.academy, this.map, this.law.now);
+    this.hospitalView.drawGround(ctx, v, this.ai.hospital, this.map);
     this.dugoutView.drawGround(ctx, v, this.war.dugouts, this.map);
     this.portView.drawGround(ctx, v, this.port, this.map.tileSize);
     this.portView.drawCargo(ctx, v, this.ai.supply);

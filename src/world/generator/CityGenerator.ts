@@ -16,7 +16,7 @@ import { Lattice, assignRegions, growMaze, addLoops, finalizeEdges, carveLattice
 import { stampPlaza, stampTemplate, stampRestricted, stampShop, carveConnector, carveConnectorChecked, carveAccessRoad } from './stamps';
 import { addHomes } from './homes';
 import { planStreets, carveArteries } from './streets';
-import { NEXUS_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, ACADEMY_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate } from './templates';
+import { NEXUS_TEMPLATE, CWU_HQ_TEMPLATE, ARSENAL_TEMPLATE, PRISON_TEMPLATE, ACADEMY_TEMPLATE, HOSPITAL_TEMPLATE, DORM_TEMPLATE, VILLA_TEMPLATE, faceTemplate, rotateTemplate } from './templates';
 import { CHECKPOINTS, checkpointRows, dugoutsOf, isOutlandsGround, pickCheckpointTypes, type SectionChar } from './checkpoints';
 import { addFeatures, removeWallSpikes } from './features';
 import { addSewers } from './sewers';
@@ -34,6 +34,14 @@ import { addDam } from './dam';
  *  7. Канализация справа от города (sewers.ts), связанная с ним люками.
  * Результат детерминирован по seed.
  */
+/**
+ * Для тестов: строить ли городскую больницу (тестовые города по сиду — без неё, как с классическими КПП: карта
+ * совпадает с прежней побитово, тесты поведения выверены на ней).
+ */
+export function setHospitalBuilding(on: boolean): void {
+  (GENERATOR.hospital as { build: boolean }).build = on;
+}
+
 /** Печать причин неудачных попыток (для тестов): globalThis.__HL2D_DEBUG_GEN = true. */
 const DEBUG_GEN = (globalThis as { __HL2D_DEBUG_GEN?: boolean }).__HL2D_DEBUG_GEN === true;
 
@@ -94,6 +102,11 @@ export function validateMap(map: GameMap): string[] {
     ['academy_office', 1], ['academy_vakhta', 1], ['academy_lobby', 1],
     ['canteen', 1], ['canteen_table', 2], ['kiosk', 2], ['facade', 40], ['vendor_spot', 4],
   ];
+  // Больница — если строилась (тестовые города без неё).
+  if (s.hospital !== false) {
+    need.push(['hospital', 1], ['hospital_bed', 16], ['hospital_post', 2], ['hospital_hub_spot', 4], ['hospital_intake', 3], ['hospital_counter', 3],
+      ['hospital_ward', 2], ['hospital_hub', 1], ['hospital_reception', 1], ['hospital_lobby', 1]);
+  }
   for (const [type, n] of need) if (map.poisOf(type).length < n) out.push(`нет точки ${type}`);
   if (!restrictedReachable(map)) out.push('ворота запретной зоны отрезаны');
   // Каждому пограничному КПП — передовой блиндаж повстанцев с ящиком и местами отдыха.
@@ -181,7 +194,7 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
   }
   // Здания не встают на стену Верхнего города.
   streetBlocked.push({ x: layout.upperX - 2, y: 0, w: G.wealth.wall + 4, h: H });
-  const streets = planStreets(lat, rng.fork(11), [layout.hLine, layout.hLine2], { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H, layout.nexus, layout.upperX);
+  const streets = planStreets(lat, rng.fork(11), [layout.hLine, layout.hLine2], { rect: layout.plaza, side: layout.plazaSide }, streetBlocked, W, H, layout.nexus, layout.upperX, layout.oldX);
   const starts: number[] = [];
   lat.nodes.forEach((n, k) => n.onAvenue && starts.push(k));
   for (const a of streets.arteries) for (const n of a.nodes) if (!starts.includes(n)) starts.push(n);
@@ -446,6 +459,35 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     pois.push({ type: 'academy', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h, face: p.face });
   }
 
+  // Городская больница: палаты с койками, ординаторская (хаб медиков), приёмный покой, тамбур с постами; подъезд — улицей.
+  if (streets.hospital) {
+    const p = streets.hospital;
+    const z = addZone('hospital', ZONE_NAMES.hospital, null);
+    const res = stampTemplate(g, faceTemplate(HOSPITAL_TEMPLATE, p.face), p.rect.x, p.rect.y, () => z, pois);
+    const A = G.hospital;
+    const road = addZone('avenue', ZONE_NAMES.hospitalRoad, null);
+    roadTargets.add(zPlaza);
+    if (!carveAccessRoad(g, p.rect, p.face, A.road.width, A.road.apron, A.road.maxLen, road, (i) => roadTargets.has(g.zones[i]))) {
+      for (const exit of res.exits) if (!carveConnectorChecked(g, exit, G.connectorMax)) carveConnector(g, exit, G.connectorMax);
+    }
+    const area = (mark: string, type: Poi['type']) => {
+      for (const r of res.areas[mark] ?? []) pois.push({ type, x: r.x, y: r.y, w: r.w, h: r.h });
+    };
+    area('ю', 'hospital_ward');
+    area('й', 'hospital_hub');
+    area('Ф', 'hospital_reception');
+    area('ё', 'hospital_lobby');
+    // Койки: изголовье (у стены) и соседнее изножье; face — от изголовья к изножью (там место больного).
+    const feet = pois.filter((q) => q.type === 'hospital_bed_tile' && q.x >= p.rect.x && q.y >= p.rect.y && q.x < p.rect.x + p.rect.w && q.y < p.rect.y + p.rect.h);
+    for (const hd of pois.filter((q) => q.type === 'hospital_bed_head' && q.x >= p.rect.x && q.y >= p.rect.y && q.x < p.rect.x + p.rect.w && q.y < p.rect.y + p.rect.h)) {
+      const ft = feet.find((q) => Math.abs(q.x - hd.x) + Math.abs(q.y - hd.y) === 1);
+      if (!ft) continue;
+      const face = ft.x > hd.x ? 'E' : ft.x < hd.x ? 'W' : ft.y > hd.y ? 'S' : 'N';
+      pois.push({ type: 'hospital_bed', x: Math.min(hd.x, ft.x), y: Math.min(hd.y, ft.y), w: Math.abs(ft.x - hd.x) + 1, h: Math.abs(ft.y - hd.y) + 1, face });
+    }
+    pois.push({ type: 'hospital', x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h, face: p.face });
+  }
+
   stampRestricted(g, layout.restricted, layout.restrictedGates, rng.fork(8), pois);
 
   // Пограничные КПП. Выход только один — в сторону города (к проспекту). Тип КПП — свой шаблон и своя карта
@@ -546,6 +588,7 @@ export function generateAttempt(seed: number, attempt: number): GameMap {
     fragmentsFilled: conn.fragmentsFilled,
     unreachableRemoved: conn.unreachableRemoved,
     components: conn.finalComponents,
+    hospital: G.hospital.build,
   };
 
   return new GameMap(W, H, WORLD.tileSize, g.tiles, g.zones, zones, pois, seed, `Верхнеречье · seed ${seed}`, stats);

@@ -136,6 +136,18 @@ export function computeWindows(map: GameMap): WindowSpot[] {
           count++;
         }
       }
+      // Лавка на ступенчатом фасаде (arbat: фасад целиком в толстой стене, дверь в нише) — витрина в наружном ряду
+      // толстой стены: за ней стена, за стеной — зал.
+      if (count === 0 && facadeOf[i] >= 0) {
+        const p = facades[facadeOf[i]];
+        if (p.use === 'shop' || p.use === 'cafe') {
+          const s = (faceSide(p.face) + 2) & 3;
+          if (tiles[i + SIDE_DY[s] * w + SIDE_DX[s]] === T.WALL && tiles[i + 2 * (SIDE_DY[s] * w + SIDE_DX[s])] === T.INTERIOR) {
+            inside = s;
+            count = 1;
+          }
+        }
+      }
       if (count !== 1) continue;
       const out = (inside + 2) & 3;
       const outer = tiles[i + SIDE_DY[out] * w + SIDE_DX[out]];
@@ -182,7 +194,11 @@ export function computeWindows(map: GameMap): WindowSpot[] {
     return spot;
   };
   // Отрезки вдоль стены: одна сторона улицы, один стиль, одна комната.
-  const roomBehind = (i: number, o: number) => room[i - SIDE_DY[o] * w - SIDE_DX[o]];
+  // За окном — комната (у витрины в толстой стене — через тайл стены).
+  const roomBehind = (i: number, o: number) => {
+    const d = SIDE_DY[o] * w + SIDE_DX[o];
+    return room[i - d] >= 0 ? room[i - d] : room[i - 2 * d] ?? -1;
+  };
   const done = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     if (cand[i] < 0 || done[i]) continue;

@@ -167,6 +167,36 @@ function safeSpot(self: Character, ctx: AiContext, threat: Vec2): Vec2 | null {
   return best;
 }
 
+/**
+ * Куда отойти от угрозы, чтобы она тебя не видела (раненый ВС, бой без укрытия): из 16 направлений на 3 радиусах
+ * в rMin…rMax px — точка того же уровня, не на виду у угрозы, не ближе к ней, чем сейчас; лучше — дальше от угрозы и
+ * ближе к себе. Без случайности. null — некуда.
+ */
+export function retreatSpot(self: Character, ctx: AiContext, threat: Vec2, rMin: number, rMax: number): Vec2 | null {
+  const nav = ctx.nav;
+  const level = ctx.map.levelAt(self.x, self.y);
+  const now = Math.hypot(threat.x - self.x, threat.y - self.y);
+  let best: Vec2 | null = null;
+  let bestScore = -Infinity;
+  for (let k = 0; k < 48; k++) {
+    const a = ((k % 16) / 16) * Math.PI * 2;
+    const r = rMin + ((rMax - rMin) * Math.floor(k / 16)) / 2;
+    const i = nav.nearestWalkable(self.x + Math.cos(a) * r, self.y + Math.sin(a) * r, 1);
+    if (i < 0) continue;
+    const x = nav.worldX(i);
+    const y = nav.worldY(i);
+    if (ctx.map.levelAt(x, y) !== level) continue;
+    const dT = Math.hypot(threat.x - x, threat.y - y);
+    if (dT < now - 20 || lineOfSight(ctx.map, threat.x, threat.y, x, y)) continue;
+    const score = dT * 0.5 - Math.hypot(x - self.x, y - self.y);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { x, y };
+    }
+  }
+  return best;
+}
+
 // ————— Колонна штурмовой группы —————
 
 interface Trail {
@@ -299,6 +329,13 @@ export class Tactician {
     this.fails = 0;
     this.hasThreat = false;
     claims.delete(self);
+  }
+
+  /** Прикрыть своего («прикройте!»): сидящий за углом сразу выглядывает на очередь. true — прикрывает. */
+  coverNow(): boolean {
+    if (this.mode !== 'hide') return false;
+    this.timer = 0;
+    return true;
   }
 
   /** Смотреть в сторону угрозы, если своей цели на виду нет. false — решает мозг. */

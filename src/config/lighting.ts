@@ -221,7 +221,7 @@ export const LIGHTING = {
     internal: 1,
     low: 1,
     /** Зоны казённых зданий (высота civic). */
-    civicZones: ['nexus', 'cells', 'prison', 'academy', 'arsenal', 'cwu_hq'] as readonly string[],
+    civicZones: ['nexus', 'cells', 'prison', 'academy', 'arsenal', 'cwu_hq', 'hospital'] as readonly string[],
   },
   /**
    * Свечение (в мелком буфере, на экран — одним проходом сложения): плафоны и огонь (bloom: доля радиуса, яркость),

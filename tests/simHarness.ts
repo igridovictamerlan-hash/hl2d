@@ -1,7 +1,7 @@
 import { Wardrobe } from '../src/systems/Wardrobe';
 import { resetCids } from '../src/entities/factory';
 import { resetPhrases } from '../src/systems/phrases';
-import { generateCity } from '../src/world/generator/CityGenerator';
+import { generateCity, setHospitalBuilding } from '../src/world/generator/CityGenerator';
 import { setForcedCheckpointTypes } from '../src/world/generator/checkpoints';
 import type { CheckpointType } from '../src/config/generator';
 import { NavGrid } from '../src/world/NavGrid';
@@ -42,6 +42,7 @@ import { Brawls } from '../src/systems/Brawls';
 import { GangSystem } from '../src/systems/Gangs';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
 import { AcademySystem } from '../src/systems/Academy';
+import { HospitalSystem } from '../src/systems/Hospital';
 import { Staffing } from '../src/systems/Staffing';
 import { Access } from '../src/systems/Access';
 import { Locks } from '../src/systems/Locks';
@@ -70,6 +71,12 @@ export interface SimOptions {
    * на армии, что сидит в лагере и шлёт разведку (HL2D_LINE=1 включает везде); свой тест — tests/positional.test.ts.
    */
   line?: boolean;
+  /**
+   * Городская больница в городе (GENERATOR.hospital.build): по умолчанию в тестах её нет — карта сида совпадает с прежней
+   * побитово, как с классическими КПП (здание меняет лабиринт решётки и всю раскладку). HL2D_HOSPITAL=1 — с ней везде;
+   * свои тесты — tests/hospital.test.ts, замер — worldstats.
+   */
+  hospital?: boolean;
 }
 
 /**
@@ -79,15 +86,17 @@ export interface SimOptions {
  */
 const cityCache = new Map<string, GameMap>();
 
-function cachedCity(seed: number, types: readonly CheckpointType[] | null): GameMap {
-  const key = `${seed}:${types ? types.join(',') : 'random'}`;
+function cachedCity(seed: number, types: readonly CheckpointType[] | null, hospital: boolean): GameMap {
+  const key = `${seed}:${types ? types.join(',') : 'random'}:${hospital ? 'h' : ''}`;
   let src = process.env.HL2D_NOCACHE === '1' ? undefined : cityCache.get(key);
   if (!src) {
     setForcedCheckpointTypes(types);
+    setHospitalBuilding(hospital);
     try {
       src = generateCity(seed);
     } finally {
       setForcedCheckpointTypes(null);
+      setHospitalBuilding(true);
     }
     if (process.env.HL2D_NOCACHE === '1') return src;
     // В кэше — нетронутая копия: возвращённую карту тест будет менять.
@@ -118,7 +127,7 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   let map: GameMap;
   if (typeof seedOrMap === 'number') {
     const types = opts.checkpoints !== undefined ? opts.checkpoints : process.env.HL2D_CP === 'random' ? null : (['classic'] as const);
-    map = cachedCity(seedOrMap, types);
+    map = cachedCity(seedOrMap, types, opts.hospital ?? process.env.HL2D_HOSPITAL === '1');
   } else map = seedOrMap;
   const nav = new NavGrid(map);
   const entities = new EntityManager();
@@ -221,6 +230,10 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   ctx.academy = new AcademySystem(ctx);
   // Набор в академию в тестах выключен (свой тест) — иначе лоялисты уходят учиться.
   ctx.academy.recruiting = false;
+  // Медслужба и больница (эвакуация лежащих, умный отход раненых ВС) в тестах выключены — старые тесты выверены на
+  // прежнем бое; свой тест — tests/hospital.test.ts.
+  ctx.hospital = new HospitalSystem(ctx);
+  ctx.hospital.enabled = false;
   ctx.access = new Access(ctx);
   ctx.locks = new Locks(ctx);
   doors.locks = ctx.locks;
@@ -275,6 +288,7 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
     prison.update();
     ctx.staffing.update();
     ctx.academy.update(dt);
+    ctx.hospital!.update(dt);
     ctx.radio.update(dt);
     ctx.talk.update();
     ctx.relations.update(dt);
@@ -283,5 +297,5 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
     ctx.memorials.update();
     ctx.crowd.update(dt);
   };
-  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access };
+  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access, hospital: ctx.hospital };
 }

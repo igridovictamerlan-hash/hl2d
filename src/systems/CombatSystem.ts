@@ -29,6 +29,7 @@ import { Melee } from './Melee';
 import type { MeleeStyle } from '../config/melee';
 import { MELEE } from '../config/melee';
 import { resetMelee } from '../entities/meleeState';
+import { HOSPITAL } from '../config/hospital';
 
 const DEG = Math.PI / 180;
 
@@ -315,8 +316,8 @@ export class CombatSystem {
    * врагам и напавшим (безоружного повстанца ВС пытается задержать).
    */
   threat(a: Character, b: Character): boolean {
-    // Лежащий и задержанный (в наручниках, в камере) — не угроза.
-    if (b.downed || !this.isHostile(a, b) || inCustody(b)) return false;
+    // Лежащий, больной на койке и задержанный (в наручниках, в камере) — не угроза.
+    if (b.downed || b.inBed || !this.isHostile(a, b) || inCustody(b)) return false;
     if (!FACTIONS[a.faction].authority) return true;
     return b.weapon !== null || b.hostile;
   }
@@ -779,6 +780,8 @@ export class CombatSystem {
     if (!c.alive || c.downed) return;
     c.downedUntil = this.time + DOWNED.time;
     c.downedAt = this.time;
+    c.downedSpan = DOWNED.time;
+    c.evacStable = false;
     c.health = 1;
     c.bleed = 0;
     c.bandageUntil = c.plantUntil = c.reloadUntil = 0;
@@ -863,8 +866,9 @@ export class CombatSystem {
   }
 
   /** Встать после тяжёлого ранения с hp здоровья (кровь остановлена, хромает). */
-  private raise(t: Character, hp: number): void {
+  raise(t: Character, hp: number): void {
     t.downedUntil = 0;
+    t.evacStable = false;
     t.health = Math.max(1, Math.min(t.maxHealth, hp));
     t.bleed = 0;
     t.limpUntil = this.time + HITS.limpTime;
@@ -953,6 +957,7 @@ export class CombatSystem {
     c.suppress = 0;
     c.crouch = false;
     c.downedUntil = 0;
+    c.evacStable = false;
     c.badAmmo = false;
     this.cancelRevive(c);
     this.stopDrag(c);
@@ -1455,7 +1460,7 @@ export class CombatSystem {
       // Нокаут — лежит; блок — шаг короче; стойка — лицом к противнику (походка).
       if (m.block && !this.melee.guard(c, true)) m.block = false;
       m.engaged = m.stance > this.time;
-      c.speedMul = m.ko > this.time ? 0 : (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1) * (c.crouch ? CROUCH.speedMul : 1) * (c.dragging ? DOWNED.dragSpeed : 1) * (m.block ? MELEE.block.speedMul : 1);
+      c.speedMul = m.ko > this.time ? 0 : (stunned ? COMBAT.stunSpeedMul : 1) * (dressing ? COMBAT.bandageSpeedMul : 1) * (c.limpUntil > this.time ? HITS.limp : 1) * (c.crouch ? CROUCH.speedMul : 1) * (c.dragging ? (c.dragging.evacStable ? HOSPITAL.evac.carry : DOWNED.dragSpeed) : 1) * (m.block ? MELEE.block.speedMul : 1);
       // Прицеливание копится стоя (при ходьбе — медленнее), теряется на бегу, без ПКМ и при перезарядке.
       if (w && w.mode !== 'melee') {
         const running = c.moveSpeed > CHARACTER.walkSpeed * 1.2;
