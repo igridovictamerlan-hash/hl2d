@@ -125,6 +125,12 @@ export const PAWN = {
     order: { x: 7.6, y: -2.5, wobble: 0.5, card: '#f1eee4' },
     panic: { rate: 14, amp: 2.4, y: -6, bob: 1.5 },
     salute: { x: 4.4, y: -13.6 },
+    /**
+     * Конвой: у задержанного руки за спиной в наручниках (back — кисти у поясницы со спины, side — в профиль за корпусом;
+     * браслеты cuff, цепочка chain); конвоир держит его за руку — кисть у плеча задержанного (shoulder — над центром
+     * пешки, inset — не доходя до центра, reach — длина руки, px пешки).
+     */
+    custody: { back: { x: 1.7, y: 6.6 }, side: { x: 4.4, y: 6.2 }, cuff: '#c9ced4', chain: '#9aa1a8', shoulder: 1.5, inset: 4, reach: 15 },
     dust: { from: 0.8, puffs: 3, size: 2.6, back: 11, color: '190,176,150', alpha: 0.34 },
     fall: { time: 0.38, slide: 6, bounce: 0.07, pivot: 12 },
   },

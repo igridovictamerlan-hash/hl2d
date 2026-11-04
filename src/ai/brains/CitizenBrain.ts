@@ -46,7 +46,7 @@ import { CWU_HQ } from '../../config/cwuHq';
 import { PARTISANS } from '../../config/underground';
 import { GANGS } from '../../config/gangs';
 import { Gunner } from '../Gunner';
-import { followColumn, watchSector } from '../Tactics';
+import { banditFight, endBanditFight, followColumn, newBanditFight, watchSector, type BanditFight } from '../Tactics';
 import type { Gang } from '../../systems/Gangs';
 import { SENSES } from '../../config/senses';
 import type { Tip } from '../../systems/Suspects';
@@ -200,6 +200,8 @@ export class CitizenBrain implements Brain {
   gunner: Gunner | null = null;
   private inFight = false;
   private fightRepath = 0;
+  /** Бой бандита из укрытий и на ходу (операции ВС включены). */
+  private bandit: BanditFight | null = null;
   /**
    * Банда: по городу — не меньше GANGS.pairs.min. Ведущий — escort (кто идёт за ним колонной), ведомый —
    * crewLead (за кем идёт, состояние 'crew'). crewLegs — сколько ещё точек города обойти; waitGoal —
@@ -440,6 +442,7 @@ export class CitizenBrain implements Brain {
     const g = (this.gunner ??= new Gunner(ctx.rng));
     const fighting = g.update(self, ctx, dt) && !!g.target;
     if (!fighting) {
+      if (this.bandit?.home) endBanditFight(self, this.bandit);
       if (this.inFight) {
         this.inFight = false;
         ctx.combat.equip(self, null);
@@ -452,6 +455,15 @@ export class CitizenBrain implements Brain {
     if (!this.inFight) {
       this.inFight = true;
       this.mover.stop();
+    }
+    // Операции ВС включены — бандит воюет живо: из укрытий, на ходу, с натиском (RESPONSE.bandit).
+    if (ctx.response?.enabled) {
+      this.bandit ??= newBanditFight();
+      if (banditFight(self, ctx, g, this.mover, this.bandit, dt)) {
+        this.mover.update(self, ctx, dt);
+        if (!g.look(self, ctx, dt) && !this.bandit.tactics.face(self, dt)) faceMovement(self, ctx, dt);
+        return true;
+      }
     }
     const t = g.target!;
     const w = ctx.combat.weaponOf(self);

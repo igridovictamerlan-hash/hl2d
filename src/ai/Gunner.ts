@@ -14,6 +14,7 @@ import { FACTIONS } from '../config/factions';
 import { angleDiff } from '../systems/CombatSystem';
 import { bark } from '../systems/Barks';
 import { SUPPRESS, DOWNED, TACTICS } from '../config/tactics';
+import { RESPONSE } from '../config/response';
 
 const near: Character[] = [];
 const DEG = Math.PI / 180;
@@ -220,6 +221,13 @@ export class Gunner {
   update(self: Character, ctx: AiContext, dt: number): boolean {
     const combat = ctx.combat;
     if (this.alert && combat.now >= this.alert.until) this.alert = null;
+    // Ослеплён светошумовой: цели не видит и не стреляет (помнит её, как пропавшую из виду).
+    if (self.flashUntil > combat.now) {
+      self.aiming = false;
+      this.lostFor += dt;
+      if (this.lostFor > this.memory) this.target = null;
+      return this.target !== null;
+    }
     this.scan -= dt;
     if (this.scan <= 0) {
       this.scan = 0.3;
@@ -234,8 +242,8 @@ export class Gunner {
       }
     }
     const t = this.target;
-    // Цель упала (тяжело ранена) — не угроза, если не решил добить.
-    if (!t || !t.alive || (t.downed && !this.finishing)) {
+    // Цель упала (тяжело ранена) — не угроза, если не решил добить; сдаётся (руки вверх) — не стрелять.
+    if (!t || !t.alive || (t.downed && !this.finishing) || t.surrendering) {
       this.target = null;
       self.aiming = false;
       this.holster(self, ctx, dt);
@@ -417,7 +425,9 @@ export class Gunner {
     if (land < G.radius + 12) return false;
     // Цель прижата огнём за укрытием — самое время для гранаты.
     const pressed = t.suppress >= SUPPRESS.pinned ? TACTICS.grenadeMul : 1;
-    if (!this.rng.chance(Math.min(1, G.ai.chance * (demo ? G.ai.demoMul : 1) * pressed))) return false;
+    // Бандиты при включённых операциях ВС бросают чаще (RESPONSE.bandit).
+    const bandit = self.gang >= 0 && ctx.response?.enabled ? RESPONSE.bandit.grenadeMul : 1;
+    if (!this.rng.chance(Math.min(1, G.ai.chance * (demo ? G.ai.demoMul : 1) * pressed * bandit))) return false;
     if (!combat.throwGrenade(self, px, py, kind)) return false;
     this.nextNade = now + this.rng.range(G.ai.cooldown[0], G.ai.cooldown[1]) / (demo ? G.ai.demoMul : 1);
     self.say(FACTIONS[self.faction].authority ? 'Граната! Ложись!' : 'Лови подарок!', now, 1.5);

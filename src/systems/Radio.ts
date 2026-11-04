@@ -798,6 +798,18 @@ export class Radio {
     this.push({ ready: this.now + this.rng.range(delay[0], delay[1]), pushed: this.now, from, tpl, vars, to: [], x: from.x, y: from.y, prio, log });
   }
 
+  /** Операция ВС (Response): реплика юнита в эфир (текст готовый, без подстановок). */
+  opLine(from: Character, text: string, prio = 3): void {
+    if (!this.enabled) return;
+    this.say(from, text, {}, prio, true, RADIO.reportDelay);
+  }
+
+  /** Операция ВС (Response): Надзор — адресатам (to) у места at. */
+  opNadzor(text: string, to: Character[], at: { x: number; y: number } | null, prio = 3): void {
+    if (!this.enabled) return;
+    this.nadzor(text, {}, to, at, prio, true, RADIO.reply);
+  }
+
   /** Надзор в эфир: показать над адресатами (to), слушателями рядом и игроком из силового блока. */
   private nadzor(tpl: string, vars: VarsSrc, to: Character[], at: { x: number; y: number } | null, prio: number, log: boolean, delay: readonly [number, number] = [0, 0], unit: Character | null = null): void {
     const p = at ?? to[0] ?? this.ctx.player ?? { x: 0, y: 0 };

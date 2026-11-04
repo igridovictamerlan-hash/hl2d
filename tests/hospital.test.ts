@@ -121,6 +121,21 @@ describe('медслужба', () => {
     expect(H.stats.discharged).toBe(1);
   });
 
+  test('взять на носилки сразу не вышло (медик занят): подходит и берёт позже, стабилизация — одна', () => {
+    fastCare();
+    const sim = city();
+    const H = sim.ctx.hospital!;
+    const medic = cwuMedic(sim, streetNear(sim, 100));
+    const c = spawnRole(sim.ctx, { kind: 'citizen', faction: 'citizen', profession: null, division: null, rank: 0, kit: 'citizen' }, streetNear(sim, 320))!;
+    sim.combat.down(c, null);
+    expect(run(sim, 60, () => medic.brain instanceof EvacBrain && (medic.brain as EvacBrain).phase === 'stabilize')).toBe(true);
+    // Перевязывается ещё 2 с после конца стабилизации — носилки в этот миг не взять (CombatSystem.busy).
+    medic.bandageUntil = sim.combat.now + HOSPITAL.evac.stabilize + 2;
+    expect(run(sim, 20, () => medic.dragging === c)).toBe(true);
+    // Раньше оставался в stabilize и каждый тик стабилизировал заново (в 15-минутном городе — тысячи раз).
+    expect(H.stats.stabilized).toBe(1);
+  });
+
   test('под огнём медик к лежащему не лезет — ждёт поодаль', () => {
     const sim = city();
     const medic = cwuMedic(sim, streetNear(sim, 80));

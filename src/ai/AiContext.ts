@@ -48,6 +48,7 @@ import type { Relations } from '../systems/Relations';
 import type { Neighborhoods } from '../systems/Neighborhoods';
 import type { CrowdMap } from '../systems/Crowd';
 import type { HospitalSystem } from '../systems/Hospital';
+import type { Response } from '../systems/Response';
 
 /** Всё, что видят мозги NPC. Создаётся при загрузке карты. */
 /**
@@ -141,6 +142,8 @@ export interface AiContext {
   locks?: Locks;
   /** Городская больница и медслужба: эвакуация тяжелораненых, койки, выписка, охрана преступников (systems/Hospital.ts). */
   hospital?: HospitalSystem;
+  /** Операции ВС против вооружённых: оцепление, засевший, переговоры, штурм групп реагирования (systems/Response.ts). */
+  response?: Response;
   /** Рация силового блока: происшествия, вызовы Надзора, доклады. */
   radio: Radio;
   /** Разговоры жителей: слухи о происшествиях, темы по обстановке, без повторов. */

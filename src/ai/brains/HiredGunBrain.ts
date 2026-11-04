@@ -3,6 +3,7 @@ import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
 import { Mover } from '../Mover';
 import { Gunner } from '../Gunner';
+import { banditFight, endBanditFight, newBanditFight } from '../Tactics';
 import { faceMovement } from '../facing';
 import { CHARACTER } from '../../config/entities';
 import { COMBAT } from '../../config/combat';
@@ -17,6 +18,7 @@ import { PARTISANS } from '../../config/underground';
 export class HiredGunBrain implements Brain {
   readonly mover = new Mover(CHARACTER.walkSpeed * 1.05);
   readonly gunner: Gunner;
+  private readonly bandit = newBanditFight();
   prey: Character | null = null;
   private readonly until: number;
   private repath = 0;
@@ -83,11 +85,16 @@ export class HiredGunBrain implements Brain {
       this.engaged = true;
     }
     const fighting = self.hostile && this.gunner.update(self, ctx, dt);
-    if (fighting && this.gunner.target) this.mover.stop();
-    else if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
-      this.repath = H.repath;
-      const a = ctx.nav.nearestWalkable(prey.x, prey.y, 4);
-      if (a >= 0) this.mover.goTo(self, ctx, a);
+    if (fighting && this.gunner.target) {
+      // Операции ВС включены — из укрытий и на ходу (RESPONSE.bandit), иначе — стоя.
+      if (!(ctx.response?.enabled && banditFight(self, ctx, this.gunner, this.mover, this.bandit, dt))) this.mover.stop();
+    } else {
+      if (this.bandit.home) endBanditFight(self, this.bandit);
+      if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
+        this.repath = H.repath;
+        const a = ctx.nav.nearestWalkable(prey.x, prey.y, 4);
+        if (a >= 0) this.mover.goTo(self, ctx, a);
+      }
     }
     this.mover.update(self, ctx, dt);
     if (!this.gunner.look(self, ctx, dt)) faceMovement(self, ctx, dt);

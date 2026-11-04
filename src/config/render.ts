@@ -298,6 +298,8 @@ export const RENDER = {
    * начинается), тяжело ранен — красные края и надпись по центру.
    */
   suppressVignette: { inner: 0.18, color: '8,8,10', alpha: 0.85 },
+  /** Ослеплён светошумовой (Character.flashUntil): белый экран, тает к концу. */
+  flashScreen: '#f4f6f2',
   downedScreen: { inner: 0.1, color: '70,0,0', alpha: 0.75, font: '700 22px "Segoe UI", Roboto, Arial, sans-serif', hintFont: '500 13px "Segoe UI", Roboto, Arial, sans-serif', text: '#ffb3a6', hint: 'rgba(255,230,220,0.85)' },
   effects: {
     /** Люк в городе (крышка) и в канализации (лестница, свет сверху). */
@@ -371,6 +373,9 @@ export const RENDER = {
     grenade: '#39402f',
     grenadeSmoke: '#8d9296',
     grenadeFire: '#8a2a1e',
+    /** Светошумовая в полёте и её вспышка (белая, без огня). */
+    grenadeFlash: '#c9ced3',
+    blastFlash: '255,255,250',
     grenadeLightCombine: '#6fc3ff',
     grenadeLightRebel: '#ff5a3a',
     grenadeShadow: 'rgba(0,0,0,0.35)',

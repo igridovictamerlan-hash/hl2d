@@ -26,7 +26,7 @@ export const TOUCH = {
   /** Колесо оружия (Q зажать): палец от точки касания — сектор (усиление сдвига). */
   wheel: { gain: 3 },
   /** Подпись кнопки гранаты — какая выбрана (коротко) и сколько. */
-  nadeShort: { grenade: 'Оскол.', smoke_grenade: 'Дым', fire_grenade: 'Зажиг.' } as Record<string, string>,
+  nadeShort: { grenade: 'Оскол.', smoke_grenade: 'Дым', fire_grenade: 'Зажиг.', flashbang: 'Свет.' } as Record<string, string>,
   /** Касание мира: повернуться туда и показать подробности о пешке под пальцем inspect с. */
   inspect: 3,
   /** Кнопки: размер основных, малых, верхней панели (px). */

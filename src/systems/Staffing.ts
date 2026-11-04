@@ -27,6 +27,7 @@ export function postName(spec: RoleSpec): string {
   switch (spec.kind) {
     case 'post': return spec.access === 'nexus' ? 'вахта Управы' : spec.access === 'academy' ? 'вахта академии' : spec.hospital ? 'пост у больницы' : 'пост в городе';
     case 'hmedic': return 'медик больницы';
+    case 'swat': return spec.lead ? `ведущий группы реагирования ${(spec.squad ?? 0) + 1}` : `группа реагирования ${(spec.squad ?? 0) + 1}`;
     case 'gate': return `проходная ${cpName(spec.front)}`;
     case 'guard': return `пост на ${cpName(spec.front)}`;
     case 'medic': return 'медпункт КПП';

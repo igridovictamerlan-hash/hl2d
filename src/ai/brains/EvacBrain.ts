@@ -118,14 +118,16 @@ export class EvacBrain implements Brain {
         this.t += dt;
         if (this.t < E.stabilize) break;
         self.task = '';
+        if (!p.evacStable) this.hospital.stats.stabilized++;
         p.evacStable = true;
         p.bleed = 0;
         p.downedUntil = now + E.carryHold;
         p.downedSpan = p.downedUntil - p.downedAt;
-        this.hospital.stats.stabilized++;
         this.bed = this.hospital.reserveBed(p);
         ctx.combat.stopDrag(p);
-        if (!ctx.combat.startDrag(self, p)) break;
+        // Носилки — в любом случае: не дотянулся (стабилизирует с reach + 10, а взять — с DOWNED.reach) — подойдёт
+        // вплотную и возьмёт (carry). Раньше здесь оставался в stabilize и каждый тик стабилизировал заново до giveUp.
+        ctx.combat.startDrag(self, p);
         this.phase = 'carry';
         this.repath = 0;
         self.say(ctx.rng.pick(HOSPITAL.lines.carry), ctx.law.now, 2.5);

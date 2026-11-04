@@ -2,7 +2,9 @@ import type { Brain } from '../Brain';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
 import { Mover } from '../Mover';
-import { faceMovement } from '../facing';
+import { faceMovement, faceTowards } from '../facing';
+import { lineOfSight } from '../../world/visibility';
+import { LAW } from '../../config/law';
 import { dist } from '../../core/math';
 import { CHARACTER } from '../../config/entities';
 
@@ -30,6 +32,39 @@ export class PrisonerBrain implements Brain {
     this.mover.goTo(self, ctx, anchor);
   }
 
+  /**
+   * Идёт впереди конвоира (LAW.escortHold): точка — на ahead px по ходу конвоира (куда ведёт его путь) и side px вбок;
+   * догоняет её сам, без пути (рядом, стен между ними нет). Отстал или угол — false: следом по пути, как прежде.
+   */
+  private leadBy(self: Character, h: Character, ctx: AiContext, dt: number): boolean {
+    const E = LAW.escortHold;
+    const gap = dist(self.x, self.y, h.x, h.y);
+    if (gap > E.maxGap || !lineOfSight(ctx.map, self.x, self.y, h.x, h.y)) return false;
+    const hb = h.brain;
+    const head = hb?.mover.heading(h) ?? null;
+    let fx = head ? head.x : Math.cos(h.facing);
+    let fy = head ? head.y : Math.sin(h.facing);
+    // Стоит конвоир — стоит и задержанный (лицом по ходу).
+    const moving = Math.hypot(h.vx, h.vy) > 8;
+    if (!head && !moving) {
+      fx = (self.x - h.x) / Math.max(1, gap);
+      fy = (self.y - h.y) / Math.max(1, gap);
+    }
+    const tx = h.x + fx * E.ahead - fy * E.side;
+    const ty = h.y + fy * E.ahead + fx * E.side;
+    const d = dist(self.x, self.y, tx, ty);
+    this.mover.stop();
+    this.goal = -1;
+    if (d > 2) {
+      const sp = Math.max(E.speed[0], Math.min(E.speed[1], Math.hypot(h.vx, h.vy) + d * E.catchUp));
+      self.wantX = ((tx - self.x) / d) * sp;
+      self.wantY = ((ty - self.y) / d) * sp;
+    } else self.wantX = self.wantY = 0;
+    faceTowards(self, self.x + fx * 40, self.y + fy * 40, dt);
+    h.leading = self;
+    return true;
+  }
+
   update(self: Character, ctx: AiContext, dt: number): void {
     const law = self.law;
     this.repath -= dt;
@@ -37,6 +72,9 @@ export class PrisonerBrain implements Brain {
       case 'cuffed': {
         const h = law.handler;
         if (!h) break;
+        // Конвой «за локоть»: впереди конвоира по его ходу, руки за спиной; конвоир держит за руку.
+        if (ctx.law.escortHold && !self.isPlayer && this.leadBy(self, h, ctx, dt)) return;
+        if (h.leading === self) h.leading = null;
         this.mover.speed = Math.min(160, Math.max(85, h.moveSpeed * 1.1));
         if (dist(self.x, self.y, h.x, h.y) > 40) {
           if (this.repath <= 0) {
@@ -51,6 +89,7 @@ export class PrisonerBrain implements Brain {
         break;
       }
       case 'entering': {
+        if (law.handler?.leading === self) law.handler.leading = null;
         const cell = ctx.law.cells[law.cell];
         if (cell) this.go(self, ctx, ctx.law.cellAnchor(cell, self));
         break;

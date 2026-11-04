@@ -43,6 +43,7 @@ import { GangSystem } from '../src/systems/Gangs';
 import { StreetLifeSystem } from '../src/systems/StreetLife';
 import { AcademySystem } from '../src/systems/Academy';
 import { HospitalSystem } from '../src/systems/Hospital';
+import { Response } from '../src/systems/Response';
 import { Staffing } from '../src/systems/Staffing';
 import { Access } from '../src/systems/Access';
 import { Locks } from '../src/systems/Locks';
@@ -234,6 +235,10 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   // прежнем бое; свой тест — tests/hospital.test.ts.
   ctx.hospital = new HospitalSystem(ctx);
   ctx.hospital.enabled = false;
+  // Операции ВС (оцепление, засевшие, группы реагирования, бандиты из укрытий) — тоже выключены; свой тест —
+  // tests/response.test.ts.
+  ctx.response = new Response(ctx);
+  ctx.response.enabled = false;
   ctx.access = new Access(ctx);
   ctx.locks = new Locks(ctx);
   doors.locks = ctx.locks;
@@ -252,6 +257,8 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
   // Случайные драки в тестах выключены (свой тест) — удары и братва работают.
   ctx.brawls.enabled = false;
   economy.onEmpty = () => labor.noticeEmpty();
+  // Конвой «за локоть» в тестах выключен: задержанный идёт следом, как прежде (свой тест — tests/response.test.ts).
+  law.escortHold = false;
   law.curfewCheck = (c) => war.curfewViolation(c);
   law.panicking = (c) => c.panicUntil > law.now;
   law.trespass = (c) => ctx.access.trespassing(c);
@@ -289,6 +296,7 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
     ctx.staffing.update();
     ctx.academy.update(dt);
     ctx.hospital!.update(dt);
+    ctx.response!.update(dt);
     ctx.radio.update(dt);
     ctx.talk.update();
     ctx.relations.update(dt);
@@ -297,5 +305,5 @@ export function makeSim(seedOrMap: number | GameMap, opts: SimOptions = {}) {
     ctx.memorials.update();
     ctx.crowd.update(dt);
   };
-  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access, hospital: ctx.hospital };
+  return { map, nav, entities, ctx, step, bus, law, doors, log, economy, combat, war, insurgency, labor, crime, scanners, roster, elections, street, security, cwuHq, arsenal, prison, academy: ctx.academy, staffing: ctx.staffing, access: ctx.access, hospital: ctx.hospital, response: ctx.response };
 }

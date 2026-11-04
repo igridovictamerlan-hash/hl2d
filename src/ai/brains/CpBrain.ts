@@ -41,6 +41,7 @@ import { SUSPECTS } from '../../config/suspects';
 import { phrase } from '../../systems/phrases';
 import { whereOf } from '../../world/places';
 import { HOSPITAL } from '../../config/hospital';
+import { RESPONSE } from '../../config/response';
 
 const near: Character[] = [];
 /** Отдельный буфер для опознания по ориентировке: не портит список, по которому идут плановые проверки. */
@@ -66,17 +67,18 @@ export interface CpOptions {
    * (ждёт в караулке, по приказу склада носит ящики на пункты боепитания); jailer — охрана тюрьмы
    * (как sentry, обход — внутри тюрьмы); warden — начальник тюрьмы SU.INSP (допрос у камеры, обход);
    * instructor — инструктор академии (место на занятии даёт AcademySystem.dutyFor); hospital — медик SU.02 в
-   * ординаторской больницы (за тяжелоранеными его посылает HospitalSystem).
+   * ординаторской больницы (за тяжелоранеными его посылает HospitalSystem); swat — боец группы реагирования
+   * (squad — номер группы, lead — ведущий): дежурит в Управе, на штурм его посылает Response.
    */
   duty?: CpDuty;
   squad?: number;
   lead?: boolean;
 }
 
-export type CpDuty = 'post' | 'squad' | 'officer' | 'inspector' | 'bodyguard' | 'epu' | 'qm' | 'sentry' | 'convoy' | 'jailer' | 'warden' | 'instructor' | 'hospital';
+export type CpDuty = 'post' | 'squad' | 'officer' | 'inspector' | 'bodyguard' | 'epu' | 'qm' | 'sentry' | 'convoy' | 'jailer' | 'warden' | 'instructor' | 'hospital' | 'swat';
 
 /** Командование и охрана: за нарушителями не бегают, по тревоге не прочёсывают — при своём деле. */
-const STAFF: ReadonlySet<CpDuty> = new Set<CpDuty>(['inspector', 'epu', 'bodyguard', 'officer', 'warden', 'instructor', 'hospital']);
+const STAFF: ReadonlySet<CpDuty> = new Set<CpDuty>(['inspector', 'epu', 'bodyguard', 'officer', 'warden', 'instructor', 'hospital', 'swat']);
 
 /** Место в строю построения (Security) — пока задано, юнит стоит в строю. */
 export interface FormationSlot {
@@ -160,6 +162,8 @@ export class CpBrain implements Brain {
   dutyUntil = 0;
   dutyLine: string | null = null;
   dutyArrived = false;
+  /** На месте службы — сидит (группа реагирования в казарме). */
+  dutySit = false;
   /** Место в строю (построение) — задаёт Security. */
   formation: FormationSlot | null = null;
   private leaderCache: Character | null = null;
@@ -212,6 +216,12 @@ export class CpBrain implements Brain {
   retreatHospital = false;
   /** Откуда стреляли, когда ранили (и когда): путь в больницу — в обход этого места. */
   retreatThreat: { x: number; y: number; t: number } | null = null;
+  /** Пост оцепления операции Response (id операции; −1 — нет): стоит на rally, не прочёсывает, сидит на посту. */
+  opPost = -1;
+  /** Штурм (состояние swat): сидит по приказу. */
+  swatCrouch = false;
+  /** Штурм на улице (приказ engage): ведёт бой из укрытий (Tactician) — сбросить, когда враг пропал или приказ другой. */
+  swatFight = false;
   /** Бой без укрытия: отход за угол (куда, до какого времени), следующий — не раньше withdrawCool. */
   private withdrawTo: Vec2 | null = null;
   private withdrawUntil = 0;
@@ -236,7 +246,7 @@ export class CpBrain implements Brain {
     this.gunner = new Gunner(ctx.rng);
     this.fsm = new StateMachine<CpBrain>(
       this,
-      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD, SCAN, FOLLOW, DUTY, FORMATION, SCENE, RESUPPLY, CONVOY],
+      [PATROL, PATROL_AGAIN, POST, GUARD, APPROACH, CHECK, CHASE, ESCORT, FIGHT, RETREAT, MEDIC, HEAL, HUNT, BODYGUARD, SCAN, FOLLOW, DUTY, FORMATION, SCENE, RESUPPLY, CONVOY, SWAT],
       this.idleState,
     );
     this.scan = ctx.rng.range(0, LAW.scanInterval);
@@ -249,6 +259,9 @@ export class CpBrain implements Brain {
   get sits(): boolean {
     // Раненый в укрытии — сидит, перевязывается.
     if (this.retreatPhase === 'hold' && this.fsm.current === 'retreat') return true;
+    // Штурм — сидит по приказу; оцепление — на посту за углом.
+    if (this.fsm.current === 'swat') return this.swatCrouch;
+    if (this.opPost >= 0 && this.fsm.current === 'guard' && this.rally && dist(this.self.x, this.self.y, this.rally.x, this.rally.y) < 20) return true;
     if (this.front < 0 || !this.guardPost || this.medicStation) return false;
     const cur = this.fsm.current;
     if (cur !== 'guard' && cur !== 'fight') return false;
@@ -356,6 +369,52 @@ export class CpBrain implements Brain {
     return true;
   }
 
+  /** Пост оцепления (Response): стоять на spot лицом face, путь — в обход места врага (avoid — цена шага). */
+  assignOpPost(op: number, spot: Vec2, face: number, avoid?: (a: number) => number): void {
+    this.opPost = op;
+    this.rally = spot;
+    this.rallyFacing = face;
+    this.call = null;
+    this.mover.extraCost = avoid;
+    const cur = this.fsm.current;
+    if (cur !== 'fight' && cur !== 'retreat' && cur !== 'escort' && cur !== 'swat') this.fsm.change('guard');
+  }
+
+  /** Снять с поста оцепления — к своей службе. */
+  releaseOpPost(): void {
+    if (this.opPost < 0) return;
+    this.opPost = -1;
+    this.rally = null;
+    this.mover.extraCost = undefined;
+    const cur = this.fsm.current;
+    if (cur === 'guard') this.fsm.change(this.idleState);
+  }
+
+  /** К сдавшемуся — задержать (Response.takeIn, когда подойдёт). */
+  goArrest(s: Character): void {
+    this.rally = { x: s.x, y: s.y };
+    this.rallyFacing = Math.atan2(s.y - this.self.y, s.x - this.self.x);
+    this.mover.extraCost = undefined;
+    if (this.fsm.current !== 'guard' && this.fsm.current !== 'fight') this.fsm.change('guard');
+  }
+
+  /** В строй группы реагирования (или следователем при ней): приказы — Response.orderFor. */
+  joinSwat(): void {
+    if (this.opPost >= 0) this.releaseOpPost();
+    this.self.seated = '';
+    this.call = null;
+    this.swatCrouch = false;
+    if (this.target && this.target.law.handler === this.self && this.target.law.phase !== 'cuffed') this.ctx.law.clear(this.target);
+    this.target = null;
+    this.fsm.change('swat');
+  }
+
+  /** Из строя группы — к своей службе. */
+  leaveSwat(): void {
+    this.swatCrouch = false;
+    if (this.fsm.current === 'swat') this.fsm.change(this.idleState);
+  }
+
   get stateName(): string {
     const t = this.target ? ` → #${this.target.cid}` : this.gunner.target ? ` → ${this.gunner.target.name}` : '';
     const div = this.self.faction === 'cp' ? `${cpUnit(this.self.rank).short} · ` : '';
@@ -369,7 +428,7 @@ export class CpBrain implements Brain {
    */
   shouldHunt(): boolean {
     const war = this.ctx.war;
-    if (this.guardPost || this.medicStation) return false;
+    if (this.guardPost || this.medicStation || this.opPost >= 0) return false;
     // Командование и охрана при тревоге остаются при своих. Ведомые идут за ведущим, а когда он
     // поднят на прочёсывание — расходятся и прочёсывают вместе с ним, каждый в своей точке.
     if (this.duty && STAFF.has(this.duty)) return false;
@@ -499,9 +558,11 @@ export class CpBrain implements Brain {
     for (let k = 0; k < 10; k++) {
       const a = randomAnchorAround(p, ctx, H.radius[0], H.radius[1], this.patrolAvoid);
       if (a < 0) continue;
-      best = a;
       const x = ctx.nav.worldX(a);
       const y = ctx.nav.worldY(a);
+      // Здание, где засел вооружённый, не прочёсывают — его держит оцепление (Response).
+      if (ctx.response?.forbids(x, y)) continue;
+      best = a;
       if (!taken.some((q) => Math.hypot(q.x - x, q.y - y) < H.spacing)) break;
     }
     if (best < 0) return;
@@ -623,6 +684,17 @@ export class CpBrain implements Brain {
       this.repath = 0;
       return;
     }
+    if (this.duty === 'swat') {
+      // Группа реагирования: дежурство в Управе — у входа (лицом наружу) или в казарме (сидя). Группа бойца ещё не
+      // знает (только заступил) — постоять на месте и спросить снова (иначе все шли к воротам Управы и толпились там).
+      const r = ctx.response?.restSpotOf(self) ?? null;
+      this.dutySpot = r ? { x: r.x, y: r.y } : { x: self.x, y: self.y };
+      this.dutyFacing = r?.face ?? self.facing;
+      this.dutySit = r?.sit ?? false;
+      this.dutyUntil = now + (r ? RESPONSE.swat.restHold : RESPONSE.swat.restRetry);
+      this.repath = 0;
+      return;
+    }
     if (this.duty === 'hospital') {
       // Медик больницы: место в ординаторской (у стола, у шкафа), иногда — в приёмном покое.
       const spot = ctx.hospital?.hubSpot(self) ?? null;
@@ -725,7 +797,7 @@ export class CpBrain implements Brain {
     }
     cur = this.fsm.current;
     // Свой тяжелораненый рядом — оттащить и поднять; лежащий враг в городе — задержать.
-    const free = cur !== 'escort' && cur !== 'check' && cur !== 'approach' && cur !== 'formation' && cur !== 'retreat' && cur !== 'scene' && cur !== 'chase';
+    const free = cur !== 'escort' && cur !== 'check' && cur !== 'approach' && cur !== 'formation' && cur !== 'retreat' && cur !== 'scene' && cur !== 'chase' && cur !== 'swat';
     if (free) {
       let busy = this.tactics.rescue(self, ctx, this.gunner, this.mover, dt);
       if (!busy && !this.guardPost && !(engaged && this.gunner.target)) {
@@ -795,7 +867,7 @@ export class CpBrain implements Brain {
       watchSector(self, this.leaderCache, this.colIndex, this.colLast, dt);
       return;
     }
-    if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic' && now !== 'formation' && !(now === 'duty' && this.dutyArrived) && !(now === 'scene' && self.moveSpeed < 8)) faceMovement(self, ctx, dt);
+    if (now !== 'check' && now !== 'post' && now !== 'guard' && now !== 'medic' && now !== 'formation' && now !== 'swat' && !(now === 'duty' && this.dutyArrived) && !(now === 'scene' && self.moveSpeed < 8)) faceMovement(self, ctx, dt);
   }
 
   /** Отправить на место преступления: следователь — осмотр тела, медик — осмотр с блокнотом и простыня, офицер — охрана оцепления. */
@@ -2059,10 +2131,95 @@ const DUTY: State<CpBrain> = {
         b.dutyArrived = true;
         if (b.dutyLine) b.self.say(b.dutyLine, now, 3);
       }
+      if (b.dutySit) b.self.seated = 'sit';
       turnTowards(b.self, b.dutyFacing, dt, 2);
-      if (b.duty !== 'instructor' && b.ctx.rng.chance(dt * 0.3)) b.dutyFacing = b.ctx.rng.range(0, Math.PI * 2);
-    } else b.goToPoint(p, dt, 2);
+      // Дежурный у входа группы реагирования смотрит на улицу, не по сторонам.
+      if (b.duty !== 'instructor' && b.duty !== 'swat' && b.ctx.rng.chance(dt * 0.3)) b.dutyFacing = b.ctx.rng.range(0, Math.PI * 2);
+    } else {
+      if (b.self.seated) b.self.seated = '';
+      b.goToPoint(p, dt, 2);
+    }
     if (now >= b.dutyUntil) b.nextDuty();
+  },
+  exit(b) {
+    if (b.dutySit) b.self.seated = '';
+  },
+};
+
+/**
+ * Штурм группы реагирования (Response.orderFor): к точке, колонной за ведущим или на месте — бегом или шагом, по
+ * приказу присев; стреляет Gunner (бой из этого состояния, в fight не переходит). Приказа нет — к своей службе.
+ */
+const SWAT: State<CpBrain> = {
+  name: 'swat',
+  enter(b) {
+    b.repath = 0;
+    b.column.repath = 0;
+    b.self.seated = '';
+  },
+  update(b, dt) {
+    const o = b.ctx.response?.orderFor(b.self) ?? null;
+    if (b.swatFight && (o?.mode !== 'engage' || !b.gunner.target)) {
+      b.swatFight = false;
+      b.tactics.reset(b.self);
+    }
+    if (!o) {
+      b.swatCrouch = false;
+      return b.idleState;
+    }
+    const self = b.self;
+    if (o.mode === 'engage') {
+      // Перестрелка на улице: видит врага — бой из укрытий, как у ВС (угол, выглянуть на очередь, блок); укрытия
+      // нет — за угол. Не видит — цепью к своей точке.
+      b.swatCrouch = false;
+      if (b.gunner.target) {
+        if (!b.swatFight) {
+          b.swatFight = true;
+          b.fightHome = { x: self.x, y: self.y };
+        }
+        if (b.tactics.fight(self, b.ctx, b.gunner, b.mover, dt, b.fightHome ?? self, TACTICS.leash)) return;
+        if (b.smart && b.withdraw(dt)) return;
+        b.mover.stop();
+        return;
+      }
+      b.mover.speed = o.speed;
+      if (dist(self.x, self.y, o.x, o.y) > 16) {
+        b.goToPoint({ x: o.x, y: o.y }, dt, 0.8);
+        faceMovement(self, b.ctx, dt);
+      } else {
+        b.mover.stop();
+        turnTowards(self, o.face, dt, 4);
+      }
+    } else if (o.mode === 'go') {
+      b.swatCrouch = false;
+      b.mover.speed = o.speed;
+      if (dist(self.x, self.y, o.x, o.y) > 12) {
+        b.goToPoint({ x: o.x, y: o.y }, dt, 0.8);
+        if (!b.gunner.target) faceMovement(self, b.ctx, dt);
+      } else {
+        b.mover.stop();
+        b.swatCrouch = o.crouch;
+        if (o.face !== null && !b.gunner.target) turnTowards(self, o.face, dt, 5);
+      }
+    } else if (o.mode === 'column') {
+      b.swatCrouch = false;
+      const moving = followColumn(self, b.ctx, b.mover, o.leader, o.k, dt, b.column, o.speed);
+      if (!b.gunner.target) {
+        if (moving) faceMovement(self, b.ctx, dt);
+        else watchSector(self, o.leader, o.k, o.k >= 4, dt);
+      }
+    } else {
+      b.mover.stop();
+      b.swatCrouch = o.crouch;
+      if (!b.gunner.target) turnTowards(self, o.face, dt, 4);
+    }
+  },
+  exit(b) {
+    b.swatCrouch = false;
+    if (b.swatFight) {
+      b.swatFight = false;
+      b.tactics.reset(b.self);
+    }
   },
 };
 

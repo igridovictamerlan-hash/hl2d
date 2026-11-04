@@ -92,7 +92,7 @@ export function wantedLevel(c: Character): 1 | 2 | 3 {
 /** Изъятое при водворении в тюрьму: стволы, патроны, гранаты. */
 function confiscable(id: ItemId): boolean {
   const k = ITEMS[id].kind;
-  return k === 'weapon' || k === 'ammo' || id === 'grenade' || id === 'smoke_grenade' || id === 'fire_grenade';
+  return k === 'weapon' || k === 'ammo' || id === 'grenade' || id === 'smoke_grenade' || id === 'fire_grenade' || id === 'flashbang';
 }
 
 /** Кого сажают в общую камеру: граждан, ТС и поднадзорных (не бойцов армии). */
@@ -239,6 +239,8 @@ export class LawSystem {
   }
 
   /** Задаёт Game: нарушает ли персонаж комендантский час (красный код, на улице). */
+  /** Конвой «за локоть» (LAW.escortHold): задержанный впереди конвоира; выключено — идёт следом (тесты). */
+  escortHold = true;
   curfewCheck: (c: Character) => boolean = () => false;
   /** Задаёт Brawls: дерётся ли персонаж на кулаках (нарушение 'fight'). */
   fightCheck: (c: Character) => boolean = () => false;

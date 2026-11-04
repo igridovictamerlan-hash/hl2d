@@ -264,10 +264,14 @@ export class Character {
   evacStable = false;
   /** Лежит на койке в больнице (PatientBrain): не угроза и не проверяется, задержанного охраняет конвоир. */
   inBed = false;
+  /** Сдаётся (HoldoutBrain): ствол бросил, руки вверх — не цель (Gunner снимает его с прицела), ждёт задержания. */
+  surrendering = false;
   /** Поднимает (или стабилизирует для ареста — reviveArrest) лежащего до этого времени (0 — нет). */
   reviveUntil = 0;
   reviving: Character | null = null;
   reviveArrest = false;
+  /** Конвоир держит за руку этого задержанного (ставит PrisonerBrain, только отрисовка). */
+  leading: Character | null = null;
   /** Тащит лежащего / кто тащит его. */
   dragging: Character | null = null;
   draggedBy: Character | null = null;
@@ -275,6 +279,8 @@ export class Character {
   lastZone: 'head' | 'torso' | 'arm' | 'leg' | 'blast' | null = null;
   /** Оглушён (дубинкой) до этого времени. */
   stunUntil = 0;
+  /** Ослеплён светошумовой до этого времени: не видит целей и не стреляет (Gunner), игроку — белый экран. */
+  flashUntil = 0;
   /** Ближний бой: удар и серия, блок, сбит, нокаут (systems/Melee.ts). */
   readonly melee: MeleeState = newMeleeState();
   /** Только для отрисовки (entities/poses.ts): когда и куда бил (кулак, дубинка, нож), когда бросал гранату, откуда пришёл удар. */

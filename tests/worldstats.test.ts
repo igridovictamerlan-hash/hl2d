@@ -61,6 +61,9 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   sim.ctx.hoods.enabled = sim.ctx.crowd.enabled = process.env.HOODS !== '0';
   // HOSPITAL=0 — без медслужбы и больницы (лежащие истекают кровью за 20 с, раненые ВС бегут к Управе).
   sim.ctx.hospital!.enabled = process.env.HOSPITAL !== '0';
+  // RESPONSE=0 — без операций ВС (оцепление, группы реагирования, бандиты из укрытий), конвой — следом, как прежде.
+  sim.ctx.response!.enabled = process.env.RESPONSE !== '0';
+  sim.law.escortHold = process.env.RESPONSE !== '0';
   spawnPopulation(sim.ctx, AI.citizens);
   const out: string[] = [];
   const start = new Map<string, number>();
@@ -307,6 +310,7 @@ test.skipIf(!RUN)('аудит живого мира', { timeout: 3_600_000 }, ()
   out.push(`Вакансии ВС по юнитам: ${JSON.stringify(vac)}`);
   out.push(`ВС погибло по местам: ${Object.entries(cpLoss).map(([k, v]) => `${k} ${v}`).join(', ')}; красный код ${((codeTime.get('red') ?? 0) / 60).toFixed(1)} мин`);
   out.push(`Больница: ${JSON.stringify(sim.ctx.hospital!.stats)}; сейчас на койках ${sim.ctx.hospital!.patients}`);
+  out.push(`Операции ВС: ${JSON.stringify(sim.ctx.response!.stats)}`);
   out.push(`Штат ВС: ${JSON.stringify(sim.staffing.stats)}; академия: ${JSON.stringify(sim.academy.stats)}; пропуска: ${JSON.stringify(sim.access.stats)}; приехало жителей ${sim.roster.arrived}`);
   console.log(out.join('\n'));
 });

@@ -2,6 +2,7 @@ import type { Poi } from '../world/GameMap';
 import { ARSENAL } from '../config/arsenal';
 import { PRISON } from '../config/prison';
 import { HOSPITAL } from '../config/hospital';
+import { RESPONSE } from '../config/response';
 import { ACADEMY } from '../config/academy';
 import type { AiContext } from '../ai/AiContext';
 import type { Character } from '../entities/Character';
@@ -339,6 +340,18 @@ export function spawnPopulation(ctx: AiContext, citizens: number, scale = 1): vo
     for (let k = 0; k < H.cpMedics; k++) {
       const at = hosp.hub[k % Math.max(1, hosp.hub.length)] ?? hosp.door;
       if (at) put(cpSpec('hmedic', 'su2'), freeSpot(ctx, at, 0, 2, none, 16) ?? at);
+    }
+  }
+  // Группы реагирования SU.03 в Управе (операции включены): у входов и в казарме; штурмовой (второй) — с дробовиком.
+  const resp = ctx.response;
+  if (resp?.active) {
+    const S = RESPONSE.swat;
+    for (let t = 0; t < S.teams; t++) {
+      for (let k = 0; k < S.size; k++) {
+        const r = resp.restSpot(t, k);
+        const at = r ? { x: r.x, y: r.y } : nexus;
+        put(cpSpec('swat', 'su3', { squad: t, lead: k === 0, kit: k === 1 ? 'cp_swat_breach' : 'cp_swat' }), freeSpot(ctx, at, 0, 2, none, 16) ?? at);
+      }
     }
   }
 }

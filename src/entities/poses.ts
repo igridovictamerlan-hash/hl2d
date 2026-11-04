@@ -501,6 +501,50 @@ export function drawGestureHands(ctx: CanvasRenderingContext2D, c: Character, lo
   }
 }
 
+/**
+ * Конвой (поверх спрайта, обе отрисовки пешек): задержанный в наручниках — руки за спиной (со спины видны кисти у
+ * поясницы, браслеты и цепочка; в профиль — кисть за корпусом; анфас руки скрыты корпусом); конвоир, который ведёт
+ * его за руку (Character.leading), — кисть у его плеча (не дальше длины руки).
+ */
+export function drawCustodyHands(ctx: CanvasRenderingContext2D, c: Character, look: PawnLook, x: number, y: number, ps: number, dir: PawnDir): void {
+  const C = PAWN.anim.custody;
+  const phase = c.law.phase;
+  if (phase === 'cuffed' || phase === 'entering') {
+    const col = handColor(look);
+    if (dir === 'N') {
+      const B = C.back;
+      drawHand(ctx, x - B.x * ps, y + B.y * ps, ps, col);
+      drawHand(ctx, x + B.x * ps, y + B.y * ps, ps, col);
+      ctx.strokeStyle = C.chain;
+      ctx.lineWidth = Math.max(1, 0.8 * ps);
+      ctx.beginPath();
+      ctx.moveTo(x - B.x * ps, y + (B.y - 1.2) * ps);
+      ctx.lineTo(x + B.x * ps, y + (B.y - 1.2) * ps);
+      ctx.stroke();
+      ctx.fillStyle = C.cuff;
+      ctx.fillRect(x - (B.x + 1) * ps, y + (B.y - 2) * ps, 2 * ps, 1.2 * ps);
+      ctx.fillRect(x + (B.x - 1) * ps, y + (B.y - 2) * ps, 2 * ps, 1.2 * ps);
+    } else if (dir === 'E' || dir === 'W') {
+      const back = dir === 'E' ? -1 : 1;
+      const S = C.side;
+      drawHand(ctx, x + back * S.x * ps, y + S.y * ps, ps, col);
+      ctx.fillStyle = C.cuff;
+      ctx.fillRect(x + (back * S.x - 1) * ps, y + (S.y - 2) * ps, 2 * ps, 1.2 * ps);
+    }
+  }
+  const p = c.leading;
+  if (!p || !p.alive || p.law.handler !== c || (p.law.phase !== 'cuffed' && p.law.phase !== 'entering')) return;
+  // Кисть конвоира — у плеча задержанного: вектор к нему в единицах пешки, не дальше длины руки.
+  let dx = (p.x - c.x) / PAWN.scale;
+  let dy = (p.y - c.y) / PAWN.scale;
+  const d = Math.hypot(dx, dy);
+  if (d < 1) return;
+  const k = Math.min(C.reach, Math.max(0, d - C.inset)) / d;
+  dx *= k;
+  dy *= k;
+  drawHand(ctx, x + dx * ps, y + (dy * 0.6 + C.shoulder) * ps, ps, handColor(look));
+}
+
 /** Пыль из-под ног на быстром беге: клубы отстают назад по ходу (без состояния — по фазе шага). */
 export function drawDust(ctx: CanvasRenderingContext2D, c: Character, gx: number, gy: number, ps: number, speed: number, fastSpeed: number): void {
   const D = PAWN.anim.dust;

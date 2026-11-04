@@ -10,7 +10,7 @@ import { COMBAT } from '../../config/combat';
 import { GANGS } from '../../config/gangs';
 import { canSeeCircle } from '../../world/visibility';
 import { LAW } from '../../config/law';
-import { followColumn, watchSector } from '../Tactics';
+import { banditFight, endBanditFight, followColumn, newBanditFight, watchSector } from '../Tactics';
 import { PRISON } from '../../config/prison';
 import { PARTISANS } from '../../config/underground';
 import { randomAnchorAround } from '../destinations';
@@ -33,6 +33,7 @@ import { randomAnchorAround } from '../destinations';
 export class GangOpBrain implements Brain {
   readonly mover = new Mover(CHARACTER.walkSpeed * 1.05);
   readonly gunner: Gunner;
+  private readonly bandit = newBanditFight();
   private repath = 0;
   private stay = 0;
   prey: Character | null = null;
@@ -154,8 +155,10 @@ export class GangOpBrain implements Brain {
     // Сигнал подполья — стволы сразу у всех (не ждать, пока ведущий, собирающий отставших, дойдёт до дела).
     if (op.kind === 'storm' && op.group?.attack && !self.hostile) this.attack(self, ctx, 'storm');
     const fighting = this.gunner.update(self, ctx, dt);
+    if (!(fighting && this.gunner.target) && this.bandit.home) endBanditFight(self, this.bandit);
     if (fighting && this.gunner.target) {
-      this.mover.stop();
+      // Операции ВС включены — из укрытий и на ходу (RESPONSE.bandit), иначе — стоя.
+      if (!(ctx.response?.enabled && op.kind !== 'storm' && banditFight(self, ctx, this.gunner, this.mover, this.bandit, dt))) this.mover.stop();
     } else if (!(op.kind === 'convoy' && ctx.gangs.lootToStash(op.gang, self)) && this.together(self, ctx, dt)) {
       if (self.brain !== this) return;
       this.mover.update(self, ctx, dt);

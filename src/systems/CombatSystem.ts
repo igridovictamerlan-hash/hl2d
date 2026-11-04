@@ -30,6 +30,7 @@ import type { MeleeStyle } from '../config/melee';
 import { MELEE } from '../config/melee';
 import { resetMelee } from '../entities/meleeState';
 import { HOSPITAL } from '../config/hospital';
+import { RESPONSE } from '../config/response';
 
 const DEG = Math.PI / 180;
 
@@ -162,7 +163,7 @@ export interface Blast {
   t: number;
   life: number;
   r: number;
-  kind: 'frag' | 'fire' | 'rocket';
+  kind: 'frag' | 'fire' | 'rocket' | 'flash';
 }
 
 /**
@@ -317,7 +318,7 @@ export class CombatSystem {
    */
   threat(a: Character, b: Character): boolean {
     // Лежащий, больной на койке и задержанный (в наручниках, в камере) — не угроза.
-    if (b.downed || b.inBed || !this.isHostile(a, b) || inCustody(b)) return false;
+    if (b.downed || b.inBed || b.surrendering || !this.isHostile(a, b) || inCustody(b)) return false;
     if (!FACTIONS[a.faction].authority) return true;
     return b.weapon !== null || b.hostile;
   }
@@ -950,6 +951,7 @@ export class CombatSystem {
     c.limpUntil = c.armUntil = 0;
     c.burnUntil = 0;
     c.stunUntil = 0;
+    c.flashUntil = 0;
     resetMelee(c.melee);
     c.speedMul = 1;
     c.recoil = c.kick = c.aim = 0;
@@ -1123,7 +1125,7 @@ export class CombatSystem {
     c.facing = ang;
     c.throwAt = this.time;
     c.throwAng = ang;
-    const fuse = k === 'smoke_grenade' ? G.smoke.fuse : k === 'fire_grenade' ? G.fire.fuse : G.fuse;
+    const fuse = k === 'smoke_grenade' ? G.smoke.fuse : k === 'fire_grenade' ? G.fire.fuse : k === 'flashbang' ? RESPONSE.flash.fuse : G.fuse;
     const g: Grenade = {
       kind: k, x: c.x, y: c.y, x0: c.x, y0: c.y, x1: c.x + dx * land, y1: c.y + dy * land,
       flight: 0, dur: Math.max(0.15, land / G.speed), at: this.time + fuse, thrower: c,
@@ -1135,7 +1137,7 @@ export class CombatSystem {
 
   /** Какой гранатой минировать: выбранной (если не дымовая), иначе осколочной или зажигательной. */
   mineKindOf(c: Character): 'grenade' | 'fire_grenade' | null {
-    if (c.grenadeKind !== 'smoke_grenade' && c.inventory.has(c.grenadeKind)) return c.grenadeKind;
+    if (c.grenadeKind !== 'smoke_grenade' && c.grenadeKind !== 'flashbang' && c.inventory.has(c.grenadeKind)) return c.grenadeKind;
     return c.inventory.has('grenade') ? 'grenade' : c.inventory.has('fire_grenade') ? 'fire_grenade' : null;
   }
 
@@ -1255,6 +1257,10 @@ export class CombatSystem {
       this.shots.push({ x: g.x, y: g.y, t: this.time, shooter: g.thrower, weapon: 'smoke', noise: 500 });
       return;
     }
+    if (g.kind === 'flashbang') {
+      this.flashbang(g.x, g.y, g.thrower);
+      return;
+    }
     if (g.kind === 'fire_grenade') {
       this.fires.push({ x: g.x, y: g.y, r: G.fire.radius, until: this.time + G.fire.time, owner: g.thrower });
       this.blasts.push({ x: g.x, y: g.y, t: 0.5, life: 0.5, r: G.fire.radius, kind: 'fire' });
@@ -1271,6 +1277,27 @@ export class CombatSystem {
     // Осколочная (у пиротехника — ещё и пламя, как раньше).
     this.explode(g.x, g.y, g.thrower, 'frag', 1);
     if (g.thrower.profession === 'pyro') this.fires.push({ x: g.x, y: g.y, r: G.radius * FIRE.zoneRadiusMul, until: this.time + FIRE.zoneTime, owner: g.thrower });
+  }
+
+  /**
+   * Светошумовая: вспышка и хлопок, без урона. В радиусе RESPONSE.flash.radius и в прямой видимости (стена закрывает
+   * целиком) — оглушён (stunUntil: медленнее, прицел сброшен), ослеплён (flashUntil: Gunner не видит и не стреляет)
+   * и прижат; ближе к центру — дольше.
+   */
+  flashbang(x: number, y: number, thrower: Character): void {
+    const F = RESPONSE.flash;
+    this.blasts.push({ x, y, t: COMBAT.blastTime, life: COMBAT.blastTime, r: F.radius, kind: 'flash' });
+    this.shots.push({ x, y, t: this.time, shooter: thrower, weapon: 'blast', noise: GRENADE.noise * 0.7 });
+    this.emit('blast', x, y, 0, null, thrower.alive ? thrower : null, null, 'blast', F.radius * 0.5);
+    for (const o of this.entities.near(x, y, F.radius, near)) {
+      if (!o.alive || this.blastCover(x, y, o.x, o.y) <= 0) continue;
+      const k = 1 - 0.5 * Math.min(1, Math.hypot(o.x - x, o.y - y) / F.radius);
+      o.stunUntil = Math.max(o.stunUntil, this.time + F.stun * k);
+      o.flashUntil = Math.max(o.flashUntil, this.time + F.blind * k);
+      o.aim = 0;
+      o.aiming = false;
+      this.press(o, 1);
+    }
   }
 
   /**
@@ -1592,7 +1619,7 @@ export function inCustody(c: Character): boolean {
 }
 
 /** Гранаты по порядку выбора (Y у игрока). */
-export const GRENADE_KINDS: readonly GrenadeId[] = ['grenade', 'smoke_grenade', 'fire_grenade'];
+export const GRENADE_KINDS: readonly GrenadeId[] = ['grenade', 'smoke_grenade', 'fire_grenade', 'flashbang'];
 
 /** Прямая видимость для дыма: сквозь стены и закрытые двери не течёт (дым сам себе не помеха). */
 function lineOfSightShot(map: GameMap, x0: number, y0: number, x1: number, y1: number): boolean {

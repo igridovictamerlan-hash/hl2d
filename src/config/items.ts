@@ -6,8 +6,8 @@ export type AmmoType = 'pistol' | 'smg' | 'ar2' | 'magnum' | 'buckshot' | 'bolt'
 export type WeaponId =
   | 'stunstick' | 'knife' | 'usp' | 'revolver' | 'mp7' | 'ar2' | 'spas12' | 'rebel_pistol' | 'rebel_smg' | 'crossbow'
   | 'm4a4' | 'ak74' | 'sniper' | 'rpg';
-/** Гранаты: осколочная, дымовая, зажигательная. */
-export type GrenadeId = 'grenade' | 'smoke_grenade' | 'fire_grenade';
+/** Гранаты: осколочная, дымовая, зажигательная, светошумовая (оглушает и слепит, не ранит). */
+export type GrenadeId = 'grenade' | 'smoke_grenade' | 'fire_grenade' | 'flashbang';
 export type ItemId =
   | 'ration'
   | 'parcel'
@@ -282,6 +282,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   grenade: { id: 'grenade', name: 'Осколочная граната', desc: 'T — бросить к курсору (взрыв через 2 с), Y — сменить гранату.', kind: 'misc', stack: 3 },
   smoke_grenade: { id: 'smoke_grenade', name: 'Дымовая граната', desc: 'Дымовая завеса: сквозь неё не видно (пули летят).', kind: 'misc', stack: 3 },
   fire_grenade: { id: 'fire_grenade', name: 'Зажигательная граната', desc: 'Пламя на земле: кто в нём — горит.', kind: 'misc', stack: 3 },
+  flashbang: { id: 'flashbang', name: 'Светошумовая граната', desc: 'Вспышка и хлопок: кто рядом и видит — оглушён и ослеплён на несколько секунд, не ранит.', kind: 'misc', stack: 3 },
   fake_cid: { id: 'fake_cid', name: 'Поддельный паспорт', desc: 'С чёрного рынка: «чистая» карта — снимает розыск (повстанца в лицо всё равно узнают).', kind: 'misc', stack: 1 },
   forged_pass: { id: 'forged_pass', name: 'Пропуск в Управу (липа)', desc: 'С чёрного рынка: вахта Управы пропустит, но может присмотреться — раскроют, задержат за подделку.', kind: 'misc', stack: 1 },
   toolkit: { id: 'toolkit', name: 'Набор инструментов', desc: 'Для ремонта (ТС).', kind: 'tool', stack: 1, price: 20 },
@@ -365,6 +366,10 @@ export const KITS: Record<string, [ItemId, number][]> = {
   cp_sgt: [['stunstick', 1], ['usp', 1], ['ammo_pistol', 36], ['mp7', 1], ['ammo_smg', 90], ['bandage', 1]],
   /** Спецназ SU.03: M4A4, пистолет, аптечка, осколочные и дымовая. */
   cp_su: [['m4a4', 1], ['ammo_556', 150], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 2], ['grenade', 2], ['smoke_grenade', 1]],
+  /** Группа реагирования SU.03 (Управа): M4A4, пистолет, перевязка, светошумовые, осколочная, дым. */
+  cp_swat: [['m4a4', 1], ['ammo_556', 180], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 3], ['flashbang', 2], ['grenade', 1], ['smoke_grenade', 1]],
+  /** Штурмовой группы реагирования: дробовик SPAS-12 (вскрывает и зачищает вплотную), пистолет, светошумовые. */
+  cp_swat_breach: [['spas12', 1], ['ammo_buckshot', 32], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 1], ['bandage', 3], ['flashbang', 3], ['smoke_grenade', 1]],
   /** Медик-техник SU.02: MP7, пистолет, аптечки. */
   cp_su_medic: [['mp7', 1], ['ammo_smg', 90], ['usp', 1], ['ammo_pistol', 36], ['stunstick', 1], ['medkit', 3], ['bandage', 4], ['smoke_grenade', 1]],
   /** Охрана, инспектор, глава силового блока: MP7 и пистолет. */

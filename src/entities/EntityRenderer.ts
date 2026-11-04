@@ -17,7 +17,7 @@ import { lerp } from '../core/math';
 import { drawWeapon } from './WeaponRenderer';
 import { bootColor, defaultKit, drawPawnShadow, handColor, lookSeed, pawnDir } from './PawnRenderer';
 import { isWalking } from './gait';
-import { animOf, isTalking, drawActionHands, drawBlanket, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash } from './poses';
+import { animOf, isTalking, drawActionHands, drawBlanket, drawCustodyHands, drawDust, drawGestureHands, drawHandProps, drawSleepZ, drawWorkHands, hurtFlash } from './poses';
 import { CHARACTER } from '../config/entities';
 import { drawPawnCached, drawPawnSprite } from './PawnCache';
 import { isPixelStyle } from './pixel/pawnStyle';
@@ -290,6 +290,7 @@ export class EntityRenderer {
         if (!lying) drawGestureHands(ctx, c, look, x, y, ps, dir, now);
         if (!lying) drawWorkHands(ctx, c, look, x, y, ps, dir, now);
         if (!lying) drawActionHands(ctx, c, look, x, y, ps, dir, now, marching ? sn : 0);
+        if (!lying) drawCustodyHands(ctx, c, look, x, y, ps, dir);
       }
       // Курьер несёт коробку перед собой.
       if (c.carrying) {
@@ -339,16 +340,6 @@ export class EntityRenderer {
           ctx.lineTo(x + Math.cos(a + 0.5) * r * 1.45, hy + Math.sin(a + 0.5) * r * 0.75);
         }
         ctx.stroke();
-      }
-      // Наручники — кольца на поясе.
-      if (c.law.phase === 'cuffed' || c.law.phase === 'entering') {
-        ctx.strokeStyle = 'rgba(230,230,230,0.95)';
-        ctx.lineWidth = Math.max(1, s * 1.1);
-        for (const dx of [-2.2, 2.2]) {
-          ctx.beginPath();
-          ctx.arc(x + dx * ps, y + 6 * ps, 2 * ps, 0, Math.PI * 2);
-          ctx.stroke();
-        }
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
@@ -415,6 +406,7 @@ export class EntityRenderer {
     drawGestureHands(R.ctx, c, look, 0, 0, 1, dir, now);
     drawWorkHands(R.ctx, c, look, 0, 0, 1, dir, now);
     drawActionHands(R.ctx, c, look, 0, 0, 1, dir, now, sn);
+    drawCustodyHands(R.ctx, c, look, 0, 0, 1, dir);
     if (fists && hand) drawFists(R.ctx, c, 0, 0, 1 / PAWN.scale, now, hand);
     R.into(f);
     if (c.weapon && armed && !busy && !fists) {

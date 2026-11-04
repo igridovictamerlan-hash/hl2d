@@ -43,7 +43,9 @@ export type RoleKind =
   /** Академия ВС: курсант, инструктор, выпускник в резерве (дневальный академии). */
   | 'cadet' | 'instructor' | 'reserve'
   /** Городская больница: медик SU.02 в ординаторской (выезжает за тяжелоранеными). */
-  | 'hmedic';
+  | 'hmedic'
+  /** Группа реагирования SU.03 в Управе (squad — номер группы, lead — ведущий): штурм засевших (Response). */
+  | 'swat';
 
 /**
  * Роль персонажа в постоянном составе (как игрок на сервере): кто он, с каким набором, и — у
@@ -127,6 +129,7 @@ export function respawnPoint(ctx: AiContext, spec: RoleSpec): Vec2 | null {
     case 'instructor':
     case 'reserve':
     case 'hmedic':
+    case 'swat':
     case 'epu': {
       // ВС — из казармы Управы (нары), нет казармы — у ворот.
       const n = ctx.map.poisOf('bunk').length;
@@ -239,6 +242,9 @@ export function brainFor(ctx: AiContext, c: Character, spec: RoleSpec): Brain {
       break;
     case 'hmedic':
       brain = new CpBrain(c, ctx, { duty: 'hospital' });
+      break;
+    case 'swat':
+      brain = new CpBrain(c, ctx, { duty: 'swat', squad: spec.squad, lead: spec.lead });
       break;
     case 'reserve':
       brain = new CpBrain(c, ctx, { post: spec.post, facing: spec.facing, duty: 'post' });

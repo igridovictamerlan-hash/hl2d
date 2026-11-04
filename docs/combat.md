@@ -129,7 +129,8 @@
   `finished`. Отрисовка — `EntityRenderer.downedBody` (лужа, пешка на боку, кольцо-таймер), подпись
   «тяжело ранен · N с», экран игрока — красные края и надпись. В войне и арене считаются только `fit`.
 - **Тактика ИИ** (`ai/Tactics.ts`, `TACTICS`; `Tactician` у `CpBrain`, `OtaBrain`, `RebelBrain`,
-  `ArenaBrain`): `fight(…, home, leash, zones)` — `findCover` из `sample` проб в `search` px: **угол**
+  `ArenaBrain`; у бойцов банд и наёмников — `anyFaction` и бой на ходу `skirmish`, см. docs/response.md; светошумовая
+  граната — там же): `fight(…, home, leash, zones)` — `findCover` из `sample` проб в `search` px: **угол**
   (врага не видно, в `peekDist` px сбоку — видно: `hide` → `peek` на очередь → назад, прижат — сидит
   дольше, перезаряжается за стеной) или **блок** (`blockToward`; сидит, `suppressive` — очереди по месту,
   где видели врага); не у своих (`claims`, `spacing`), не дальше `leash` от поста/места боя; засвечено —

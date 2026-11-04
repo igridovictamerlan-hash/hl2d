@@ -1042,7 +1042,7 @@ export class EffectsRenderer {
         ctx.fill();
       }
       const gy = y - lift * 14 * s;
-      ctx.fillStyle = g.kind === 'smoke_grenade' ? E.grenadeSmoke : g.kind === 'fire_grenade' ? E.grenadeFire : E.grenade;
+      ctx.fillStyle = g.kind === 'smoke_grenade' ? E.grenadeSmoke : g.kind === 'fire_grenade' ? E.grenadeFire : g.kind === 'flashbang' ? E.grenadeFlash : E.grenade;
       ctx.beginPath();
       ctx.arc(x, gy, (3.5 + lift * 1.5) * s, 0, Math.PI * 2);
       ctx.fill();
@@ -1061,6 +1061,14 @@ export class EffectsRenderer {
       if (k > 0.4) continue;
       const x = (b.x - v.left) * s;
       const y = (b.y - v.top) * s;
+      // Светошумовая — белая вспышка во весь радиус, без огня.
+      if (b.kind === 'flash') {
+        ctx.fillStyle = `rgba(${E.blastFlash},${(0.85 * (1 - k / 0.4)).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(x, y, b.r * (0.35 + 0.65 * Math.sqrt(k / 0.4)) * s, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
       ctx.fillStyle = `rgba(${E.blastFire},${(0.9 * (1 - k / 0.4)).toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(x, y, b.r * (0.2 + 0.5 * Math.sqrt(k / 0.4)) * s, 0, Math.PI * 2);

@@ -1648,10 +1648,15 @@ export class ArsenalSystem {
     return this.slots.find((s) => s.area === 'shelf' && s.crate?.kind === kind && s.crate.left > 0 && !(kind === 'gun' && s.crate.broken)) ?? null;
   }
 
+  /** Набор бойца: у группы реагирования — свой (штурмовой — с дробовиком), иначе — юнита по званию. */
+  private kitOf(c: Character): (typeof KITS)[string] {
+    return (c.role?.kind === 'swat' ? KITS[c.role.kit] : undefined) ?? KITS[cpKit(c.rank)] ?? [];
+  }
+
   /** Табельное оружие по набору юнита (огнестрел, кроме пистолета, который есть всегда). */
   private kitGuns(c: Character): WeaponId[] {
     if (c.faction !== 'cp') return [];
-    return (KITS[cpKit(c.rank)] ?? []).map(([id]) => id).filter((id): id is WeaponId => ITEMS[id].kind === 'weapon' && !!WEAPONS[id as WeaponId].ammo && id !== 'usp');
+    return this.kitOf(c).map(([id]) => id).filter((id): id is WeaponId => ITEMS[id].kind === 'weapon' && !!WEAPONS[id as WeaponId].ammo && id !== 'usp');
   }
 
   /**
@@ -1665,7 +1670,7 @@ export class ArsenalSystem {
     if (!qm) return this.ctx.rng.pick(ARSENAL.lines.away);
     const I = ARSENAL.issue;
     this.shiftServed.add(c);
-    const kitG0 = (KITS[cpKit(c.rank)] ?? []).find(([id]) => id === 'grenade')?.[1] ?? 0;
+    const kitG0 = this.kitOf(c).find(([id]) => id === 'grenade')?.[1] ?? 0;
     const need = this.kitGuns(c).some((id) => !c.inventory.has(id)) || this.lowAmmo(c, I.mags) || c.inventory.count('grenade') < Math.min(kitG0, I.grenades);
     if (!need) {
       // Полный комплект (смена): проверил, записал — свободен.
@@ -1692,7 +1697,7 @@ export class ArsenalSystem {
       }
       got = true;
     }
-    const kitG = (KITS[cpKit(c.rank)] ?? []).find(([id]) => id === 'grenade')?.[1] ?? 0;
+    const kitG = this.kitOf(c).find(([id]) => id === 'grenade')?.[1] ?? 0;
     const wantG = Math.min(kitG, I.grenades) - c.inventory.count('grenade');
     if (wantG > 0) {
       const n = this.takeGrenades(wantG);
@@ -1828,7 +1833,7 @@ export class ArsenalSystem {
     c.badAmmo = p.tainted > 0 && this.ctx.rng.chance(p.tainted / p.kits);
     if (c.badAmmo) p.tainted--;
     p.kits--;
-    const kitG = (KITS[cpKit(c.rank)] ?? []).find(([id]) => id === 'grenade')?.[1] ?? 0;
+    const kitG = this.kitOf(c).find(([id]) => id === 'grenade')?.[1] ?? 0;
     const want = Math.min(kitG, K.grenades) - c.inventory.count('grenade');
     if (want > 0 && p.grenades > 0) {
       const n = Math.min(want, p.grenades);

@@ -9,6 +9,7 @@ import { T } from '../world/tiles';
 import { trenchCover } from '../world/trench';
 import { TACTICS, SUPPRESS, CROUCH, DOWNED } from '../config/tactics';
 import { CHARACTER } from '../config/entities';
+import { RESPONSE } from '../config/response';
 import { FACTIONS } from '../config/factions';
 import { isMedic } from '../systems/CombatSystem';
 import { faceTowards, turnTowards } from './facing';
@@ -121,6 +122,8 @@ export function findCover(
     if (home && Math.hypot(x - home.x, y - home.y) > leash) continue;
     if (ctx.map.levelAt(x, y) !== level) continue;
     if (zones && !zones.has(ctx.map.zoneAtWorld(x, y)?.kind ?? '')) continue;
+    // ВС не прячется внутри здания, где засел вооружённый (его держит оцепление, входит только группа реагирования).
+    if (self.faction === 'cp' && ctx.response?.forbids(x, y)) continue;
     const dT = Math.hypot(threat.x - x, threat.y - y);
     // К врагу вплотную и мимо него не бежим.
     if (dT < 60 || dT < now - TACTICS.search * 0.6) continue;
@@ -134,6 +137,7 @@ export function findCover(
     } else {
       const peek = peekFrom(ctx, x, y, threat, reach);
       if (peek < 0) continue;
+      if (self.faction === 'cp' && ctx.response?.forbids(ctx.nav.worldX(peek), ctx.nav.worldY(peek))) continue;
       score += 8;
       spot = { hide: a, peek, kind: 'corner' };
     }
@@ -195,6 +199,87 @@ export function retreatSpot(self: Character, ctx: AiContext, threat: Vec2, rMin:
     }
   }
   return best;
+}
+
+/** Бой на ходу (skirmish): когда следующий шаг, куда идёт сейчас, в какую сторону вбок шёл прошлый раз. */
+export interface Skirmish {
+  next: number;
+  to: Vec2 | null;
+  side: number;
+}
+
+export function newSkirmish(): Skirmish {
+  return { next: 0, to: null, side: 1 };
+}
+
+/**
+ * Бой на ходу (бандит без укрытия, RESPONSE.bandit): каждые step с — шаг вбок поперёк линии огня (по очереди в стороны),
+ * с коротким стволом дальше rushAt × прицельной дальности — рывок к цели; ранили — сразу вбок. Стреляет Gunner (на ходу
+ * хуже, но в такого труднее попасть). true — шаг задан.
+ */
+export function skirmish(self: Character, ctx: AiContext, gunner: Gunner, mover: Mover, st: Skirmish, dt: number): boolean {
+  const B = RESPONSE.bandit;
+  const t = gunner.target;
+  if (!t || !t.alive || t.downed) return false;
+  const now = ctx.combat.now;
+  void dt;
+  if (st.to && (Math.hypot(st.to.x - self.x, st.to.y - self.y) < 10 || mover.status === 'failed' || mover.status === 'arrived')) st.to = null;
+  const hurt = now - self.lastHurt < 0.4;
+  if (st.to && !hurt) return true;
+  if (now < st.next && !hurt) return false;
+  st.next = now + ctx.rng.range(B.step[0], B.step[1]);
+  const nav = ctx.nav;
+  const w = ctx.combat.weaponOf(self);
+  const d = Math.hypot(t.x - self.x, t.y - self.y);
+  const ux = (t.x - self.x) / Math.max(1, d);
+  const uy = (t.y - self.y) / Math.max(1, d);
+  let tx: number;
+  let ty: number;
+  if (w && w.mode !== 'melee' && w.effectiveRange < 160 && d > w.effectiveRange * B.rushAt && !hurt) {
+    // Обрез, револьвер — рывок вперёд наискось.
+    const step = Math.min(d - w.effectiveRange * 0.5, 90);
+    st.side = -st.side;
+    tx = self.x + ux * step - uy * st.side * 26;
+    ty = self.y + uy * step + ux * st.side * 26;
+  } else {
+    st.side = -st.side;
+    const side = ctx.rng.range(B.side[0], B.side[1]) * st.side;
+    tx = self.x - uy * side;
+    ty = self.y + ux * side;
+  }
+  const a = nav.nearestWalkable(tx, ty, 1);
+  if (a < 0 || ctx.map.levelAt(nav.worldX(a), nav.worldY(a)) !== ctx.map.levelAt(self.x, self.y)) return false;
+  st.to = { x: nav.worldX(a), y: nav.worldY(a) };
+  mover.speed = CHARACTER.runSpeed * B.speed;
+  mover.goTo(self, ctx, a);
+  return true;
+}
+
+/** Бандит в бою (RESPONSE.bandit): тактика укрытий (любой стороны), бой на ходу, место начала боя. */
+export interface BanditFight {
+  tactics: Tactician;
+  skirm: Skirmish;
+  home: Vec2 | null;
+}
+
+export function newBanditFight(): BanditFight {
+  const tactics = new Tactician();
+  tactics.anyFaction = true;
+  return { tactics, skirm: newSkirmish(), home: null };
+}
+
+/** Бандит в бою: из укрытия (не дальше RESPONSE.bandit.leash от места начала боя), укрытия нет — на ходу. true — движение задано. */
+export function banditFight(self: Character, ctx: AiContext, gunner: Gunner, mover: Mover, bf: BanditFight, dt: number): boolean {
+  if (!bf.home) bf.home = { x: self.x, y: self.y };
+  if (bf.tactics.fight(self, ctx, gunner, mover, dt, bf.home, RESPONSE.bandit.leash)) return true;
+  return skirmish(self, ctx, gunner, mover, bf.skirm, dt);
+}
+
+/** Бой кончился — сбросить. */
+export function endBanditFight(self: Character, bf: BanditFight): void {
+  bf.home = null;
+  bf.skirm.to = null;
+  bf.tactics.reset(self);
 }
 
 // ————— Колонна штурмовой группы —————
@@ -295,6 +380,8 @@ export function watchSector(self: Character, leader: Character, k: number, last:
  */
 export class Tactician {
   mode: 'none' | 'move' | 'hide' | 'peek' | 'hold' = 'none';
+  /** Тактика и не у ВС, Легиона, армии (бойцы банд — RESPONSE.bandit): углы и укрытия для любой стороны. */
+  anyFaction = false;
   private spot: CoverSpot | null = null;
   private timer = 0;
   private rethink = 0;
@@ -379,7 +466,7 @@ export class Tactician {
     leash: number = TACTICS.leash,
     zones: ReadonlySet<string> | null = null,
   ): boolean {
-    if (!TACTICS.factions.includes(self.faction)) return false;
+    if (!this.anyFaction && !TACTICS.factions.includes(self.faction)) return false;
     const combat = ctx.combat;
     const threat = this.threatOf(ctx, gunner);
     if (!threat) {

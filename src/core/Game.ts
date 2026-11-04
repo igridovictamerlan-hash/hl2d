@@ -67,6 +67,8 @@ import { ArsenalSystem } from '../systems/Arsenal';
 import { PrisonSystem } from '../systems/Prison';
 import { AcademySystem } from '../systems/Academy';
 import { HospitalSystem } from '../systems/Hospital';
+import { Response } from '../systems/Response';
+import { RESPONSE } from '../config/response';
 import { Staffing } from '../systems/Staffing';
 import { Access } from '../systems/Access';
 import { Radio, type Transmission } from '../systems/Radio';
@@ -552,6 +554,7 @@ export class Game {
     this.ai.staffing = new Staffing(this.ai);
     this.ai.academy = new AcademySystem(this.ai);
     this.ai.hospital = new HospitalSystem(this.ai);
+    this.ai.response = new Response(this.ai);
     this.ai.access = new Access(this.ai);
     this.ai.locks = new Locks(this.ai);
     this.doors.locks = this.ai.locks;
@@ -1315,6 +1318,7 @@ export class Game {
     if (this.ai.hoods) this.ai.hoods.enabled = false;
     if (this.ai.crowd) this.ai.crowd.enabled = false;
     if (this.ai.hospital) this.ai.hospital.enabled = false;
+    if (this.ai.response) this.ai.response.enabled = false;
     this.ui.roles.close();
     // Учения — все рядом: без упрощённой симуляции.
     this.ai.lod = null;
@@ -1421,6 +1425,7 @@ export class Game {
     this.ai.staffing.update();
     this.ai.academy.update(dt);
     this.ai.hospital?.update(dt);
+    this.ai.response?.update(dt);
     this.ai.radio.update(dt);
     this.ai.talk.update();
     this.ai.relations.update(dt);
@@ -1694,6 +1699,14 @@ export class Game {
     if (p.suppress > 0.02 && this.pressVignette) {
       ctx.globalAlpha = Math.min(1, p.suppress * SUPPRESS.vignette);
       ctx.fillStyle = this.pressVignette;
+      ctx.fillRect(0, 0, v.width, v.height);
+      ctx.globalAlpha = 1;
+    }
+    // Ослеплён светошумовой — белый экран, тает к концу слепоты.
+    const blind = p.flashUntil - this.combat.now;
+    if (blind > 0) {
+      ctx.globalAlpha = Math.min(1, blind / RESPONSE.flash.blind) * 0.92;
+      ctx.fillStyle = RENDER.flashScreen;
       ctx.fillRect(0, 0, v.width, v.height);
       ctx.globalAlpha = 1;
     }
