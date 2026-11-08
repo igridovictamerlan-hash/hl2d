@@ -171,6 +171,11 @@ export class Game {
   get fence(): Fence {
     return this.ai.fence;
   }
+
+  /** Операции ВС (для карты: оцепления, засевшие, группы реагирования — видят ВС). */
+  get response(): Response | null {
+    return this.ai?.response?.enabled ? this.ai.response : null;
+  }
   combat!: CombatSystem;
   war!: WarSystem;
   insurgency!: InsurgencySystem;

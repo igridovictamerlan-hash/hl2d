@@ -27,10 +27,13 @@ export interface MapViewHost {
   /** Тюрьма Протектората: маркер у ворот (мигает, пока армия идёт выручать своих). */
   readonly prison?: PrisonSystem | null;
   readonly law?: LawSystem;
+  /** Операции ВС: место, оцепление, засевший, группа реагирования (видят силовики). */
+  readonly response?: Response | null;
 }
 
 import type { PrisonSystem } from '../systems/Prison';
 import type { LawSystem } from '../systems/LawSystem';
+import type { Response } from '../systems/Response';
 const C = MINIMAP.colors;
 import { GANGS } from '../config/gangs';
 
@@ -103,6 +106,9 @@ export class MapView {
       [C.alarm, 'тревога'],
       [MINIMAP.waypoint.color, 'ваша метка'],
       [C.scene, 'место происшествия (оцепление)'],
+      [C.op, 'операция ВС: вооружённый (ВС)'],
+      [C.opPost, 'пост оцепления (ВС)'],
+      [C.swat, 'группа реагирования (ВС)'],
       [C.base, 'лагерь / схрон'],
       [C.dugout, 'блиндаж сопротивления (у КПП)'],
       [C.market, 'барыга (чёрный рынок)'],
@@ -529,6 +535,104 @@ export class MapView {
     ctx.fill();
   }
 
+  /**
+   * Операции ВС (силовикам): здание засевшего — красная рамка, место — мигающий красный ромб с подписью на большой
+   * карте; посты оцепления — синие квадраты (занят — залит); группа реагирования — зелёный щит у ведущего и пунктир к
+   * месту.
+   */
+  private drawOps(ctx: CanvasRenderingContext2D, R: Response, to: (x: number, y: number) => [number, number], size: number, pulse: number): void {
+    const M = MINIMAP.ops;
+    for (const op of R.ops) {
+      if (op.closed) continue;
+      if (op.building) {
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const r of op.building.rooms) {
+          x0 = Math.min(x0, r.cx); y0 = Math.min(y0, r.cy); x1 = Math.max(x1, r.cx); y1 = Math.max(y1, r.cy);
+        }
+        for (const e of op.building.exits) {
+          x0 = Math.min(x0, e.door.x); y0 = Math.min(y0, e.door.y); x1 = Math.max(x1, e.door.x); y1 = Math.max(y1, e.door.y);
+        }
+        const [ax, ay] = to(x0 - M.pad, y0 - M.pad);
+        const [bx, by] = to(x1 + M.pad, y1 + M.pad);
+        ctx.strokeStyle = C.op;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 2]);
+        ctx.strokeRect(ax, ay, Math.max(4, bx - ax), Math.max(4, by - ay));
+        ctx.setLineDash([]);
+      }
+      for (const p of op.posts) {
+        const [sx, sy] = to(p.spot.x, p.spot.y);
+        const r = M.post * size;
+        ctx.fillStyle = C.sceneEdge;
+        ctx.fillRect(sx - r - 1, sy - r - 1, r * 2 + 2, r * 2 + 2);
+        ctx.fillStyle = p.unit ? C.opPost : 'rgba(0,0,0,0.6)';
+        ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+      }
+      const [sx, sy] = to(op.x, op.y);
+      const d = (M.mark + pulse * M.pulse) * size;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - d);
+      ctx.lineTo(sx + d, sy);
+      ctx.lineTo(sx, sy + d);
+      ctx.lineTo(sx - d, sy);
+      ctx.closePath();
+      ctx.fillStyle = C.op;
+      ctx.fill();
+      ctx.strokeStyle = C.sceneEdge;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      if (size > 1) {
+        const what = op.team ? 'штурм' : op.building ? 'засел · оцепление' : 'вооружённый';
+        ctx.font = `bold ${Math.round(10 * Math.min(size, 1.6))}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        const text = `${what} · ${op.where}`;
+        ctx.strokeText(text, sx, sy - d - 4);
+        ctx.fillStyle = C.op;
+        ctx.fillText(text, sx, sy - d - 4);
+        ctx.textAlign = 'start';
+      }
+    }
+    for (const t of R.teams) {
+      if (t.phase === 'rest') continue;
+      const lead = t.members.find((c) => c.alive && !c.downed) ?? null;
+      if (!lead) continue;
+      const [lx, ly] = to(lead.x, lead.y);
+      if (t.op) {
+        const [ox, oy] = to(t.op.x, t.op.y);
+        ctx.strokeStyle = C.swat;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(ox, oy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // Щит: треугольник остриём вниз.
+      const r = M.team * size;
+      ctx.beginPath();
+      ctx.moveTo(lx - r, ly - r);
+      ctx.lineTo(lx + r, ly - r);
+      ctx.lineTo(lx, ly + r * 1.2);
+      ctx.closePath();
+      ctx.fillStyle = C.swat;
+      ctx.fill();
+      ctx.strokeStyle = C.sceneEdge;
+      ctx.stroke();
+      if (size > 1) {
+        ctx.font = `bold ${Math.round(10 * Math.min(size, 1.6))}px sans-serif`;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        const text = `группа ${t.id + 1}`;
+        ctx.strokeText(text, lx + r + 3, ly + 3);
+        ctx.fillStyle = C.swat;
+        ctx.fillText(text, lx + r + 3, ly + 3);
+      }
+    }
+  }
+
   private drawMarkers(
     ctx: CanvasRenderingContext2D,
     host: MapViewHost,
@@ -607,6 +711,7 @@ export class MapView {
     }
     // Свои: ВС видит сотрудников Протектората, повстанец — повстанцев (на своём уровне).
     const auth = FACTIONS[player.faction].authority;
+    if (auth && level === 'city' && host.response) this.drawOps(ctx, host.response, to, size, pulse);
     for (const c of host.entities.list) {
       if (c === player || !c.alive || map.levelAt(c.x, c.y) !== level) continue;
       if (auth && FACTIONS[c.faction].authority) dot(c.x, c.y, 1.6, C.ally);

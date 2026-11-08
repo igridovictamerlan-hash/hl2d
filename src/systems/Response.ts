@@ -146,18 +146,26 @@ export class Response {
   readonly teams: Team[] = [];
   readonly stats = { ops: 0, holdouts: 0, surrendered: 0, escaped: 0, assaults: 0, entries: 0, flashes: 0, roomsCleared: 0, arrested: 0, killed: 0, posts: 0, retreats: 0, closedQuiet: 0 };
   private readonly rng: Rng;
+  /** Своя случайность живого поста в Управе (CpBrain, служба swat): не сдвигает общую случайность мира. */
+  readonly dutyRng: Rng;
   private readonly buildings: Buildings;
   private readonly plans = new Map<number, BuildingPlan | null>();
   /** Кого ВС видел и где (для операций). */
   private readonly seen = new Map<Character, { x: number; y: number; t: number }>();
   /** Места дежурства групп в Управе: у входов (лицом наружу) и в казарме (сидя). */
   readonly doorSpots: { x: number; y: number; face: number }[] = [];
+  /** Строй у главного входа Управы (ближайшая к воротам дверь): по бокам проёма в два ряда, лицом наружу. */
+  readonly mainSpots: { x: number; y: number; face: number }[] = [];
+  /** Смена постов: сдвиг номеров мест в группе (раз в duty.rotate с — из казармы на вход, с входа — отдыхать). */
+  private shift = 0;
+  private shiftT = 0;
   readonly bunkSpots: Vec2[] = [];
   private nextId = 1;
   private scanT = 0;
 
   constructor(private readonly ctx: AiContext) {
     this.rng = ctx.rng.fork(0x5a7);
+    this.dutyRng = ctx.rng.fork(0x5a8);
     this.buildings = computeBuildings(ctx.map);
     for (let t = 0; t < RESPONSE.swat.teams; t++) {
       this.teams.push({ id: t, members: [], investigator: null, op: null, phase: 'rest', t: 0, stage: null, entry: null, order: [], idx: 0, sub: 'enter', quietSince: 0, cleared: new Set(), flashed: false, losses: 0, restUntil: 0, arresting: null, roster: [], plan: null, axis: 0, contactAt: -1e9 });
@@ -176,6 +184,10 @@ export class Response {
     const { map, nav, doors } = this.ctx;
     const ts = map.tileSize;
     const nexus = new Set(map.zones.filter((z) => z.kind === 'nexus').map((z) => z.id));
+    const gp = map.poisOf('nexus_gate')[0];
+    const gate = gp ? { x: (gp.x + 0.5) * ts, y: (gp.y + 0.5) * ts } : null;
+    let mainD = Infinity;
+    let main: { g: DoorGroup; nx: number; ny: number } | null = null;
     for (const g of doors.groups) {
       const t0 = g.tiles[0];
       if (!nexus.has(map.zoneGrid[t0])) continue;
@@ -194,13 +206,71 @@ export class Response {
       }
       const len = Math.hypot(ox, oy);
       if (len < 0.5) continue;
-      const nx = ox / len;
-      const ny = oy / len;
+      let nx = ox / len;
+      let ny = oy / len;
+      // У ворот Управы открыто с обеих сторон (внутри — двор): «наружу» — туда, где кончается зона Управы.
+      const zoneOut = (sx: number) => {
+        const z = map.zoneAtWorld(g.x + nx * sx * ts * 3, g.y + ny * sx * ts * 3);
+        return !z || !nexus.has(z.id);
+      };
+      if (!zoneOut(1) && zoneOut(-1)) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const dg = gate ? Math.hypot(g.x - gate.x, g.y - gate.y) : Infinity;
+      if (dg < mainD) {
+        mainD = dg;
+        main = { g, nx, ny };
+      }
       for (const side of [-1, 1]) {
         const px = g.x + nx * ts * 2.2 - ny * side * ts * 1.6;
         const py = g.y + ny * ts * 2.2 + nx * side * ts * 1.6;
         const a = nav.nearestWalkable(px, py, 2);
         if (a >= 0) this.doorSpots.push({ x: nav.worldX(a), y: nav.worldY(a), face: Math.atan2(ny, nx) });
+      }
+    }
+    // Строй у главного входа — у ворот Управы (nexus_gate; нет ворот — ближайшая к ним дверь): по бокам проёма — ряды
+    // вдоль фасада (ближе к проёму — первыми), через одного — шаг наружу. «Наружу» — где кончается зона Управы.
+    const entry = gate ?? (main ? { x: main.g.x, y: main.g.y } : null);
+    if (entry) {
+      const D = RESPONSE.duty.main;
+      let nx = main?.nx ?? 0;
+      let ny = main?.ny ?? 1;
+      if (gate) {
+        for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+          const z = map.zoneAtWorld(gate.x + dx * ts * 3, gate.y + dy * ts * 3);
+          if ((!z || !nexus.has(z.id)) && nav.nearestWalkable(gate.x + dx * ts * 3, gate.y + dy * ts * 3, 0) >= 0) {
+            nx = dx;
+            ny = dy;
+            break;
+          }
+        }
+      }
+      // Ширина проёма ворот: строй — по бокам, проход свободен.
+      let cx = entry.x;
+      let cy = entry.y;
+      let half = 0;
+      if (gp) {
+        const tx = -ny;
+        const ty = nx;
+        let lo = 0;
+        let hi = 0;
+        while (lo < 12 && map.tileAt(gp.x - tx * (lo + 1), gp.y - ty * (lo + 1)) === T.GATE) lo++;
+        while (hi < 12 && map.tileAt(gp.x + tx * (hi + 1), gp.y + ty * (hi + 1)) === T.GATE) hi++;
+        half = (lo + hi + 1) / 2;
+        cx += ((hi - lo) / 2) * tx * ts;
+        cy += ((hi - lo) / 2) * ty * ts;
+      }
+      const used = new Set<number>();
+      for (let j = 0; j < D.perSide; j++) {
+        for (const side of [-1, 1]) {
+          const along = side * (half + D.gap + j * D.step) * ts;
+          const out = (D.out + (j % 2) * D.row) * ts;
+          const a = nav.nearestWalkable(cx + nx * out - ny * along, cy + ny * out + nx * along, 1);
+          if (a < 0 || used.has(a)) continue;
+          used.add(a);
+          this.mainSpots.push({ x: nav.worldX(a), y: nav.worldY(a), face: Math.atan2(ny, nx) });
+        }
       }
     }
     for (const p of map.poisOf('bunk')) {
@@ -209,11 +279,19 @@ export class Response {
     }
   }
 
-  /** Место дежурства бойца группы team (номер k в группе): первые atDoors — у входов, остальные — в казарме. */
-  restSpot(team: number, k: number): { x: number; y: number; face: number; sit: boolean } | null {
+  /**
+   * Место дежурства бойца группы team (номер k в группе): первые atMain — в строю у главного входа, следующие atDoors
+   * — у других входов, остальные — в казарме. Номер сдвигается сменой постов (shift).
+   */
+  restSpot(team: number, k0: number): { x: number; y: number; face: number; sit: boolean } | null {
     const S = RESPONSE.swat;
-    if (k < S.atDoors && this.doorSpots.length) {
-      const p = this.doorSpots[(team * S.atDoors + k) % this.doorSpots.length];
+    const k = (k0 + this.shift) % S.size;
+    if (k < S.atMain && this.mainSpots.length) {
+      const p = this.mainSpots[(k * S.teams + team) % this.mainSpots.length];
+      return { x: p.x, y: p.y, face: p.face, sit: false };
+    }
+    if (k < S.atMain + S.atDoors && this.doorSpots.length) {
+      const p = this.doorSpots[(team * S.atDoors + k - S.atMain) % this.doorSpots.length];
       return { x: p.x, y: p.y, face: p.face, sit: false };
     }
     if (this.bunkSpots.length) {
@@ -441,6 +519,16 @@ export class Response {
       this.ops.length = 0;
     }
     this.updateTeams(dt);
+    // Смена постов в Управе: места сдвигаются — отдохнувший из казармы встаёт в строй, с поста — отдыхать.
+    this.shiftT += dt;
+    if (this.shiftT >= RESPONSE.duty.rotate) {
+      this.shiftT = 0;
+      this.shift = (this.shift + 1) % RESPONSE.swat.size;
+      for (const t of this.teams) {
+        if (t.phase !== 'rest') continue;
+        for (const c of t.members) if (c.brain instanceof CpBrain && c.brain.fsm.current === 'duty') c.brain.nextDuty();
+      }
+    }
     this.scanT -= dt;
     if (this.scanT > 0) return;
     this.scanT = RESPONSE.op.every;

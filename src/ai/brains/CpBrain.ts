@@ -6,6 +6,7 @@ import { BARKS } from '../../config/barks';
 import { streetBark } from '../streetBark';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
+import { isTalking } from '../../entities/poses';
 import type { Cell } from '../../systems/LawSystem';
 import { Mover } from '../Mover';
 import { StateMachine, type State } from '../StateMachine';
@@ -220,6 +221,13 @@ export class CpBrain implements Brain {
   opPost = -1;
   /** Штурм (состояние swat): сидит по приказу. */
   swatCrouch = false;
+  /** Дежурство группы в Управе (живой пост): когда следующее действие, шаг в сторону (куда, до какого времени). */
+  swatIdleAt = 0;
+  swatStep: Vec2 | null = null;
+  swatStepUntil = 0;
+  /** Ответ соседу по посту (через RESPONSE.duty.reply с). */
+  swatReply: string | null = null;
+  swatReplyAt = 0;
   /** Штурм на улице (приказ engage): ведёт бой из укрытий (Tactician) — сбросить, когда враг пропал или приказ другой. */
   swatFight = false;
   /** Бой без укрытия: отход за угол (куда, до какого времени), следующий — не раньше withdrawCool. */
@@ -2110,6 +2118,102 @@ const FOLLOW: State<CpBrain> = {
   },
 };
 
+/**
+ * Пост группы реагирования в Управе (RESPONSE.duty). true — ход сделан здесь. Дошёл до места — раз в idle с действие:
+ * оглядеться в пределах look° от «наружу» (у входа) или куда угодно (казарма); шаг в сторону и обратно; пройти вдоль
+ * строя; сказать соседу реплику — сосед отвечает; в казарме — встать размяться и сесть снова.
+ */
+function swatDuty(b: CpBrain, p: Vec2, dt: number): boolean {
+  const D = RESPONSE.duty;
+  const { self, ctx } = b;
+  const rng = ctx.response?.dutyRng ?? ctx.rng;
+  const now = ctx.law.now;
+  if (b.swatReply && now >= b.swatReplyAt) {
+    self.say(b.swatReply, now, 2);
+    b.swatReply = null;
+  }
+  const step = b.swatStep;
+  if (step) {
+    // Шаг в сторону (переминается, прошёлся): дойти, постоять до swatStepUntil, вернуться.
+    if (now >= b.swatStepUntil || b.mover.status === 'failed') {
+      b.swatStep = null;
+      b.repath = 0;
+      return false;
+    }
+    if (dist(self.x, self.y, step.x, step.y) > 6) {
+      if (self.seated) self.seated = '';
+      b.mover.speed = LAW.cpWalkSpeed * 0.7;
+      b.goToPoint(step, dt, 1);
+      faceMovement(self, ctx, dt);
+    } else {
+      b.mover.stop();
+      turnTowards(self, b.dutyFacing, dt, 2);
+    }
+    return true;
+  }
+  if (dist(self.x, self.y, p.x, p.y) >= 26) return false;
+  if (now < b.swatIdleAt) return false;
+  b.swatIdleAt = now + rng.range(D.idle[0], D.idle[1]);
+  const r = ctx.response?.restSpotOf(self) ?? null;
+  const base = r?.face ?? b.dutyFacing;
+  const atDoor = !b.dutySit;
+  const roll = rng.next();
+  if (atDoor) {
+    if (roll < 0.45) {
+      // Оглядеться: сектор у входа.
+      b.dutyFacing = base + rng.range(-D.look, D.look) * (Math.PI / 180);
+    } else if (roll < 0.7) {
+      // Переминается: шаг в сторону.
+      const a = rng.range(0, Math.PI * 2);
+      const d = rng.range(D.step[0], D.step[1]);
+      b.swatStep = { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d };
+      b.swatStepUntil = now + rng.range(D.stepFor[0], D.stepFor[1]) + 2;
+    } else if (roll < 0.82) {
+      // Прошёлся вдоль строя (поперёк «наружу») и обратно.
+      const side = rng.chance(0.5) ? 1 : -1;
+      b.swatStep = { x: p.x - Math.sin(base) * D.pace * side, y: p.y + Math.cos(base) * D.pace * side };
+      b.swatStepUntil = now + D.pace / (LAW.cpWalkSpeed * 0.7) + rng.range(D.stepFor[0], D.stepFor[1]);
+    } else swatChat(b);
+  } else {
+    if (roll < 0.5) b.dutyFacing = rng.range(0, Math.PI * 2);
+    else if (roll < 0.5 + D.stand) {
+      // Встал размяться — и снова сел.
+      const a = rng.range(0, Math.PI * 2);
+      b.swatStep = { x: p.x + Math.cos(a) * D.step[0], y: p.y + Math.sin(a) * D.step[0] };
+      b.swatStepUntil = now + rng.range(D.stepFor[0], D.stepFor[1]) + 2;
+    } else swatChat(b);
+  }
+  return false;
+}
+
+/** Реплика соседу по посту (ближайший из групп в пределах 90 px); он поворачивается и отвечает. */
+function swatChat(b: CpBrain): void {
+  const D = RESPONSE.duty;
+  const { self, ctx } = b;
+  const rng = ctx.response?.dutyRng ?? ctx.rng;
+  const now = ctx.law.now;
+  let mate: Character | null = null;
+  let best = 90;
+  for (const o of ctx.entities.near(self.x, self.y, 90, swatNear)) {
+    const ob = o.brain;
+    if (o === self || !(ob instanceof CpBrain) || ob.duty !== 'swat' || ob.fsm.current !== 'duty') continue;
+    const d = dist(self.x, self.y, o.x, o.y);
+    if (d < best) {
+      best = d;
+      mate = o;
+    }
+  }
+  if (!mate || isTalking(self, now) || isTalking(mate, now)) return;
+  self.say(rng.pick(D.lines), now, 2.6);
+  b.dutyFacing = Math.atan2(mate.y - self.y, mate.x - self.x);
+  const mb = mate.brain as CpBrain;
+  mb.dutyFacing = Math.atan2(self.y - mate.y, self.x - mate.x);
+  mb.swatReply = rng.pick(D.replies);
+  mb.swatReplyAt = now + D.reply;
+  mb.swatIdleAt = now + D.reply + 2;
+}
+const swatNear: Character[] = [];
+
 /** Служба: дойти до точки (обход инспектора, офицера; кабинет), постоять, сказать реплику, дальше. */
 const DUTY: State<CpBrain> = {
   name: 'duty',
@@ -2125,6 +2229,8 @@ const DUTY: State<CpBrain> = {
       b.nextDuty();
       return;
     }
+    // Группа реагирования на посту — живой пост: оглядывается, переминается, ходит вдоль строя, переговаривается.
+    if (b.duty === 'swat' && swatDuty(b, p, dt)) return;
     if (dist(b.self.x, b.self.y, p.x, p.y) < 26) {
       b.mover.stop();
       if (!b.dutyArrived) {
