@@ -144,7 +144,7 @@ export class Response {
   enabled = true;
   readonly ops: Operation[] = [];
   readonly teams: Team[] = [];
-  readonly stats = { ops: 0, holdouts: 0, surrendered: 0, escaped: 0, assaults: 0, entries: 0, flashes: 0, roomsCleared: 0, arrested: 0, killed: 0, posts: 0, retreats: 0, closedQuiet: 0 };
+  readonly stats = { ops: 0, holdouts: 0, surrendered: 0, escaped: 0, assaults: 0, entries: 0, flashes: 0, roomsCleared: 0, arrested: 0, killed: 0, posts: 0, retreats: 0, closedQuiet: 0, together: 0, rescues: 0, orphans: 0 };
   private readonly rng: Rng;
   /** Своя случайность живого поста в Управе (CpBrain, служба swat): не сдвигает общую случайность мира. */
   readonly dutyRng: Rng;
@@ -535,6 +535,14 @@ export class Response {
     const step = RESPONSE.op.every;
     this.lookout(now);
     for (const op of this.ops) if (!op.closed) this.tick(op, now, step);
+    // Засевший без операции (её закрыли, его в неё не взяли) — к прежней жизни.
+    for (const c of this.ctx.entities.list) {
+      const hb = c.brain;
+      if (hb instanceof HoldoutBrain && c.alive && !hb.surrendered && !this.opOf(c)) {
+        hb.finish(c);
+        this.stats.orphans++;
+      }
+    }
     for (let i = this.ops.length - 1; i >= 0; i--) if (this.ops[i].closed) this.ops.splice(i, 1);
   }
 
@@ -690,6 +698,7 @@ export class Response {
       const e = inPlan.exits.reduce((a, q) => (Math.hypot(q.inside.x - c.x, q.inside.y - c.y) < Math.hypot(a.inside.x - c.x, a.inside.y - c.y) ? q : a));
       c.brain = new HoldoutBrain(this, inPlan, e, c.brain, this.ctx.rng);
       this.stats.holdouts++;
+      this.gangHoldout(c, inPlan, e);
       return;
     }
     let cops = 0;
@@ -722,6 +731,35 @@ export class Response {
     if (!best) return;
     c.brain = new HoldoutBrain(this, best.plan, best.exit, c.brain, this.ctx.rng);
     this.stats.holdouts++;
+    this.gangHoldout(c, best.plan, best.exit);
+  }
+
+  /**
+   * Засел боец банды: свои со стволом рядом — в тот же дом, в другие комнаты (RESPONSE.gang.together); банда идёт
+   * выручать (Gangs.rescue) — Надзор предупреждает оцепление.
+   */
+  private gangHoldout(c: Character, plan: BuildingPlan, exit: Exit): void {
+    if (c.gang < 0) return;
+    const T = RESPONSE.gang.together;
+    const op0 = this.opOf(c);
+    let n = 0;
+    for (const o of this.ctx.entities.near(c.x, c.y, T.near, near)) {
+      if (n >= T.max) break;
+      if (o === c || o.gang !== c.gang || !o.alive || !o.fit || o.isPlayer || !o.hostile || o.law.phase !== 'none') continue;
+      if (o.brain instanceof HoldoutBrain || !this.canHold(o) || this.ctx.combat.maxRange(o) <= 0) continue;
+      o.brain = new HoldoutBrain(this, plan, exit, o.brain, this.ctx.rng, ++n);
+      this.stats.holdouts++;
+      this.stats.together++;
+      this.spotted(o);
+      // Сразу в ту же операцию (иначе мог остаться засевшим без операции — «сиротой»).
+      if (op0 && !op0.suspects.has(o)) op0.suspects.set(o, { c: o, x: o.x, y: o.y, seen: this.ctx.combat.now });
+    }
+    const team = this.ctx.gangs?.rescue(c, { x: c.x, y: c.y }) ?? [];
+    if (!team.length) return;
+    this.stats.rescues++;
+    const op = this.opOf(c);
+    const u = op?.posts.find((p) => p.unit)?.unit ?? null;
+    if (u && op) this.ctx.radio?.opNadzor(this.rng.pick(RESPONSE.gang.lines.radio).replace('{where}', op.where), [u], u);
   }
 
   /** Посты у выходов здания: угол снаружи, откуда дверь видна, а из проёма — нет. */
@@ -908,8 +946,9 @@ export class Response {
       let best: Post | null = null;
       for (const p of op.posts) if (p.unit && (!best || Math.hypot(p.unit.x - s.c.x, p.unit.y - s.c.y) < Math.hypot(best.unit!.x - s.c.x, best.unit!.y - s.c.y))) best = p;
       const u = best?.unit;
-      if (!u) continue;
-      const ub = u.brain as CpBrain;
+      // Пост мог выбыть: ранен — мозг больницы (PatientBrain, EvacBrain…), не CpBrain.
+      if (!u || !(u.brain instanceof CpBrain)) continue;
+      const ub = u.brain;
       if (Math.hypot(u.x - s.c.x, u.y - s.c.y) <= RESPONSE.talk.arrestReach + u.radius) {
         ub.releaseOpPost();
         best!.unit = null;

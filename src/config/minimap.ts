@@ -17,8 +17,8 @@ export const MINIMAP = {
    */
   big: { maxZoom: 8, step: 1.25, drag: 4, dragTouch: 10, unpin: 22 },
   waypoint: { reach: 40, color: '#4fd0ff', edge: 'rgba(0, 0, 0, 0.8)' },
-  /** Операции ВС на карте: ромб места (mark + pulse px), рамка здания (pad px мира), пост, щит группы. */
-  ops: { mark: 3.2, pulse: 1.6, pad: 24, post: 1.8, team: 3 },
+  /** Операции ВС на карте: ромб места (mark + pulse px), рамка здания (pad px мира), пост, щит группы, подпись (font px, большая карта). */
+  ops: { mark: 3.2, pulse: 1.6, pad: 24, post: 1.8, team: 3, font: 10 },
   /** Люк считается найденным, если игрок подходил ближе, px. */
   discoverHatch: 120,
   /** Цвета тайлов на схеме (r, g, b). */

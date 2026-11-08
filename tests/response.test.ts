@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { makeSim } from './simHarness';
-import { equipKit } from '../src/systems/Population';
+import { equipKit, spawnPopulation } from '../src/systems/Population';
+import { GangOpBrain } from '../src/ai/brains/GangOpBrain';
 import { spawnRole } from '../src/systems/Roster';
 import { CP_UNIT, cpUnit } from '../src/config/factions';
 import { RESPONSE } from '../src/config/response';
@@ -261,6 +262,59 @@ describe('операции ВС', () => {
     expect(r.phases).toContain('clear');
     expect(r.phases).not.toContain('withdraw');
     expect(r.standing).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('банда выручает своего', () => {
+  test('засел боец банды: свои со стволами рядом — в тот же дом, остальные идут на выручку и бьют по оцеплению', { timeout: 300_000 }, () => {
+    let rescued = 0;
+    let together = 0;
+    let attacked = 0;
+    for (const seed of [12345, 7919]) {
+      const sim = makeSim(seed);
+      sim.ctx.response!.enabled = true;
+      sim.war.reinforcements = false;
+      sim.insurgency.paused = true;
+      sim.war.command.paused = true;
+      spawnPopulation(sim.ctx, 40);
+      const R = sim.ctx.response!;
+      const G = sim.ctx.gangs;
+      const g = G.gangs.find((q) => G.members(q).filter((c) => c.profession === 'bandit').length >= 4)!;
+      expect(g).toBeTruthy();
+      const bandits = G.members(g).filter((c) => c.profession === 'bandit');
+      for (const b of bandits) {
+        b.inventory.add('rebel_smg', 1);
+        b.inventory.add('ammo_smg', 90);
+      }
+      // Засевший — у общаги банды (там и выручат): дом рядом.
+      const h = house(sim, g.hq);
+      const m = bandits[0];
+      m.x = m.prevX = h.exit.inside.x;
+      m.y = m.prevY = h.exit.inside.y;
+      sim.combat.equip(m, 'rebel_smg');
+      m.hostile = true;
+      m.brain = new HiredGunBrain(m, sim.ctx, m.brain);
+      // Напарник со стволом рядом — засядет вместе.
+      const mate = bandits[1];
+      mate.x = mate.prevX = h.exit.inside.x + 6;
+      mate.y = mate.prevY = h.exit.inside.y + 6;
+      sim.combat.equip(mate, 'rebel_smg');
+      mate.hostile = true;
+      mate.brain = new HiredGunBrain(mate, sim.ctx, mate.brain);
+      R.spotted(m);
+      R.spotted(mate);
+      cp(sim, 'pcu2', h.street, { lead: true });
+      cp(sim, 'pcu3', { x: h.street.x + 20, y: h.street.y });
+      cp(sim, 'pcu3', { x: h.street.x - 20, y: h.street.y });
+      run(sim, 90, () => R.stats.rescues > 0 && g.stats.rescues > 0 && G.members(g).some((c) => c.brain instanceof GangOpBrain && c.brain.op.kind === 'rescue' && c.hostile));
+      console.log(`банда, сид ${seed}: ${JSON.stringify({ holdouts: R.stats.holdouts, together: R.stats.together, rescues: R.stats.rescues })}, нападали: ${G.members(g).filter((c) => c.brain instanceof GangOpBrain && c.brain.op.kind === 'rescue' && c.hostile).length}`);
+      rescued += R.stats.rescues;
+      together += R.stats.together;
+      attacked += G.members(g).filter((c) => c.brain instanceof GangOpBrain && c.brain.op.kind === 'rescue' && c.hostile).length;
+    }
+    expect(together).toBeGreaterThanOrEqual(1);
+    expect(rescued).toBeGreaterThanOrEqual(1);
+    expect(attacked).toBeGreaterThanOrEqual(1);
   });
 });
 

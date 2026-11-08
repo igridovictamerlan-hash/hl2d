@@ -35,7 +35,7 @@ export class HoldoutBrain implements Brain {
   private exit: Exit | null = null;
   private repath = 0;
 
-  constructor(private readonly response: Response, readonly plan: BuildingPlan, readonly entry: Exit, readonly saved: Brain | null, rng: Rng) {
+  constructor(private readonly response: Response, readonly plan: BuildingPlan, readonly entry: Exit, readonly saved: Brain | null, rng: Rng, slot = 0) {
     this.gunner = new Gunner(rng);
     // Дальняя комната от входа: в ширину по дверям, последняя.
     const order = [entry.room];
@@ -47,7 +47,8 @@ export class HoldoutBrain implements Brain {
         order.push(r);
       }
     }
-    const far = plan.rooms[order[order.length - 1]] ?? plan.rooms[entry.room];
+    // Засели вместе (slot > 0) — в другие комнаты: от дальней к ближней.
+    const far = plan.rooms[order[Math.max(0, order.length - 1 - (slot % order.length))]] ?? plan.rooms[entry.room];
     // Место — дальше всего от входа здания; лицом — к центру комнаты (оттуда войдут).
     let best = far.spots[0] ?? { x: far.cx, y: far.cy };
     let bestD = -1;

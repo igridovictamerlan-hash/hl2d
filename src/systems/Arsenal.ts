@@ -939,7 +939,7 @@ export class ArsenalSystem {
     this.convoys.push(v);
     this.stats.convoys++;
     this.nextConvoy = this.time + C.every;
-    for (const c of v.crew) (c.brain as CpBrain).fsm.change('convoy');
+    for (const c of v.crew) if (c.brain instanceof CpBrain) c.brain.fsm.change('convoy');
     ctx.law.log(`Склад Протектората: конвой ВС — на пункт боепитания ${point.name}, ящиков: ${ammo + grenades}${guns ? `, стволов: ${guns}` : ''}.`, 'radio');
     v.lead.say(ctx.rng.pick(ARSENAL.lines.convoy), ctx.law.now, 2.5);
   }
@@ -1054,7 +1054,7 @@ export class ArsenalSystem {
     }
     const dest = { x: v.point.x, y: v.point.y };
     // Кто-то из экипажа в бою — колонна стоит (своих не бросают), остальные смотрят на стрельбу.
-    if (v.phase === 'march' && v.crew.some((o) => o !== c && o.fit && (o.brain as CpBrain | null)?.fsm.current === 'fight')) return { to: null, face: null };
+    if (v.phase === 'march' && v.crew.some((o) => o !== c && o.fit && o.brain instanceof CpBrain && o.brain.fsm.current === 'fight')) return { to: null, face: null };
     if (v.phase === 'march') {
       if (c === v.lead) {
         if (near(dest, reach * 1.5)) {

@@ -582,12 +582,13 @@ export class MapView {
       ctx.lineWidth = 1;
       ctx.stroke();
       if (size > 1) {
-        const what = op.team ? 'штурм' : op.building ? 'засел · оцепление' : 'вооружённый';
-        ctx.font = `bold ${Math.round(10 * Math.min(size, 1.6))}px sans-serif`;
+        // Коротко (место видно по подписям районов): одно слово мелким шрифтом.
+        const text = op.team ? 'штурм' : op.building ? 'засел' : 'стрелок';
+        ctx.font = `600 ${M.font}px sans-serif`;
         ctx.textAlign = 'center';
-        ctx.lineWidth = 3;
+        ctx.textBaseline = 'alphabetic';
+        ctx.lineWidth = 2.5;
         ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-        const text = `${what} · ${op.where}`;
         ctx.strokeText(text, sx, sy - d - 4);
         ctx.fillStyle = C.op;
         ctx.fillText(text, sx, sy - d - 4);
@@ -622,10 +623,11 @@ export class MapView {
       ctx.strokeStyle = C.sceneEdge;
       ctx.stroke();
       if (size > 1) {
-        ctx.font = `bold ${Math.round(10 * Math.min(size, 1.6))}px sans-serif`;
-        ctx.lineWidth = 3;
+        ctx.font = `600 ${M.font}px sans-serif`;
+        ctx.textBaseline = 'alphabetic';
+        ctx.lineWidth = 2.5;
         ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-        const text = `группа ${t.id + 1}`;
+        const text = `гр. ${t.id + 1}`;
         ctx.strokeText(text, lx + r + 3, ly + 3);
         ctx.fillStyle = C.swat;
         ctx.fillText(text, lx + r + 3, ly + 3);

@@ -220,6 +220,8 @@ export class UI {
     this.placeLog();
     this.contacts.update(dt);
     this.org.update(dt);
+    // Карта — каждый тик (дёшево, доли мс): раз в hudInterval стрелка игрока и вид прыгали рывками.
+    this.mapView.update(this.host, dt);
     this.acc += dt;
     if (this.acc < GAME.hudInterval) return;
     this.acc = 0;
@@ -271,7 +273,6 @@ export class UI {
       this.arenaBar.update(null);
       this.capture.update(this.host.war);
     }
-    this.mapView.update(this.host, GAME.hudInterval);
     this.shop.update(player, this.shop.kind === 'black' ? this.host.blackMarketCounter : this.shop.kind === 'street' ? this.shop.street?.front ?? null : economy.shopCounter);
     const arena = this.host.arena;
     this.death.update(player, combat.now, this.host.war.code === 'red', arena ? `Отряд на отряд: вернётесь в бой в следующем раунде (живы: ${arena.alive(arena.playerSide)} из вашего отряда)` : null);

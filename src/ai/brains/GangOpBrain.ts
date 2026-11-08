@@ -2,6 +2,7 @@ import type { Brain } from '../Brain';
 import type { AiContext } from '../AiContext';
 import type { Character } from '../../entities/Character';
 import type { GangOp } from '../../systems/Gangs';
+import { RESPONSE } from '../../config/response';
 import { Mover } from '../Mover';
 import { Gunner } from '../Gunner';
 import { faceMovement, faceTowards } from '../facing';
@@ -83,6 +84,22 @@ export class GangOpBrain implements Brain {
     return best;
   }
 
+  /** ВС у места выручки (оцепление): ближайший к бойцу на ногах ближе engage × 2 от места. */
+  private cordonPrey(self: Character, ctx: AiContext, at: { x: number; y: number }): Character | null {
+    let best: Character | null = null;
+    let bestD = Infinity;
+    const R = RESPONSE.gang.rescue.engage * 2;
+    for (const o of ctx.entities.list) {
+      if (!o.alive || !o.fit || o.faction !== 'cp' || Math.hypot(o.x - at.x, o.y - at.y) > R) continue;
+      const d = Math.hypot(o.x - self.x, o.y - self.y);
+      if (d < bestD) {
+        bestD = d;
+        best = o;
+      }
+    }
+    return best;
+  }
+
   /** Дело кончено для всей команды: GangSystem завершит его и уведёт всех на район вместе. */
   private over(): void {
     this.op.until = -Infinity;
@@ -101,8 +118,8 @@ export class GangOpBrain implements Brain {
    * никого (true — стоит). Ведущий один — дело брошено.
    */
   private together(self: Character, ctx: AiContext, dt: number): boolean {
-    // На подмогу у себя на районе бегут каждый сам (по одному на районе можно).
-    if (this.op.kind === 'defend') return false;
+    // На подмогу у себя на районе и на выручку бегут каждый сам.
+    if (this.op.kind === 'defend' || this.op.kind === 'rescue') return false;
     const crew = this.crew();
     const lead = crew[0];
     if (!lead) return false;
@@ -222,6 +239,25 @@ export class GangOpBrain implements Brain {
           }
           break;
         }
+        case 'rescue': {
+          // Выручить своего: бегом к месту; ВС у места ближе engage — стволы наружу, бьём по оцеплению.
+          const to = op.target;
+          const m = op.mate;
+          if (!to || !m || !m.alive || m.law.phase !== 'none' || !ctx.response?.opOf(m)) {
+            this.over();
+            return;
+          }
+          this.mover.speed = CHARACTER.runSpeed * 0.9;
+          if (!this.prey?.alive || !this.prey.fit || this.repath <= 0) this.prey = this.cordonPrey(self, ctx, to);
+          const p = this.prey ?? to;
+          const d = Math.hypot(p.x - self.x, p.y - self.y);
+          if (!self.hostile && this.prey && d < RESPONSE.gang.rescue.engage) this.attack(self, ctx, 'rescue');
+          if (this.repath <= 0 || this.mover.status === 'idle' || this.mover.status === 'failed') {
+            this.repath = 1.5;
+            this.goTo(self, ctx, p);
+          }
+          break;
+        }
         case 'defend': {
           const to = op.target;
           if (!to || !op.rival || !ctx.gangs.feuding(op.gang.id, op.rival.id)) {
@@ -323,11 +359,17 @@ export class GangOpBrain implements Brain {
   }
 
   /** Напасть на Протекторат: вся команда достаёт стволы — враги Протектората, в розыске. */
-  private attack(self: Character, ctx: AiContext, what: 'hit' | 'convoy' | 'storm'): void {
+  private attack(self: Character, ctx: AiContext, what: 'hit' | 'convoy' | 'storm' | 'rescue'): void {
     for (const c of this.op.team) {
       if (!c.alive || c.hostile) continue;
       c.hostile = true;
       ctx.law.declare(c, 'attackCp');
+    }
+    if (what === 'rescue') {
+      self.say(ctx.rng.pick(RESPONSE.gang.lines.attack), ctx.law.now, 2);
+      ctx.law.log(`${this.op.gang.def.name}: нападение на оцепление ВС!`, 'radio');
+      for (const c of this.op.team) if (c.alive && c.hostile) ctx.response?.spotted(c);
+      return;
     }
     self.say(ctx.rng.pick(GANGS.lines[what === 'storm' && this.op.group?.task === 'hunt' ? 'hit' : what]), ctx.law.now, 2);
     // Штурм тюрьмы: тревогу уже подняло подполье (InsurgencySystem.prisonAttack).
